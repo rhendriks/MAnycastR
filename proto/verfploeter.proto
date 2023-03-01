@@ -1,0 +1,137 @@
+// This file is used in combination with rust protobuf https://docs.rs/protobuf/latest/protobuf/
+// From this, code is generated which can be found in src/schema
+// It generated verfploeter.rs and verfploeter_grpc.rs
+
+// https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
+
+// This file details the protocol buffers, which contain the data exchanged between the server/clients.
+// I.e. this is the protocol buffer file
+
+// version of protocol buffer used
+syntax = "proto3";
+
+package verfploeter;
+
+// The CLI service, this can be called by the server to notify that a task is finished
+service CLI {
+  // Server lets the CLI know the task is finished TODO wrong interpretation?
+  rpc task_finished(TaskId) returns (Ack) {}
+}
+
+// The controller which controls and is responsible for most communication
+service Controller {
+  // Server lets the CLI know the task is finished
+  rpc task_finished(TaskId) returns (Ack) {}
+  // Client announces itself, and starts connection with the Server. The server sends a stream of Task
+  rpc client_connect(Metadata) returns (stream Task) {}
+  // CLI instructs Server to perform a task
+  rpc do_task(ScheduleTask) returns (Ack) {}
+  // CLI asks Server to list clients, Server returns ClientList
+  rpc list_clients(Empty) returns (ClientList) {}
+  // Client sends TaskResult to Server
+  rpc send_result(TaskResult) returns (Ack) {}
+  // CLI subscribes itself to the Server to obtain a stream of TaskResult
+  rpc subscribe_result(TaskId) returns (stream TaskResult) {}
+}
+
+
+
+// NOTE the integer values assigned to the fields inside the messages indicate the position of the data.
+
+// Empty message
+message Empty {}
+
+// Acknowledgement of a task, with a task ID, a boolean whether it was successful or not, and a possible error message.
+message Ack {
+  uint32 task_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// Send a task ID
+message TaskId { uint32 task_id = 1; }
+
+// Schedule a task, with a Client who has to execute it (defined below), and a Ping (defined below)
+message ScheduleTask {
+//  Client client = 1; // TODO all clients execute the task?
+  oneof data {
+    Ping ping = 2;
+    // TODO I can define different types of pings to distinguish between TCP/UDP/ICMP
+  }
+}
+
+// A list of Client (note the 'repeated' keyword)
+message ClientList {
+  repeated Client clients = 1;
+}
+
+// A client, which contains an index, and metadata (defined below)
+message Client {
+  uint32 index = 1;
+  Metadata metadata = 2;
+}
+
+// A task, with a task ID, can be either a Ping or Empty task
+message Task {
+  uint32 task_id = 1;
+  oneof data {
+    Ping ping = 2;
+    Empty empty = 3;
+  }
+}
+
+// Metadata (as used in Client), contains a hostname and a version.
+message Metadata {
+  string hostname = 1;
+  string version = 2;
+}
+
+// A Ping (used in Task), which has a single source address and a list of destination addresses.
+message Ping {
+  fixed32 source_address = 1;
+  repeated fixed32 destination_addresses = 2;
+}
+
+// An address, can be either an IPv4 or an IPv6 address.
+//message Address {
+//  oneof value {
+//    fixed32 v4 = 1;
+//    bytes v6 = 2;
+//  }
+//}
+
+// A TaskResult (i.e. the result of a Ping), contains the task ID, Client that executed the task,
+// a list of Result (one for each targeted dest. address), a boolean indicating whether it was finished.
+message TaskResult {
+  uint32 task_id = 1;
+  Client client = 2;
+  repeated VerfploeterResult result_list = 3;
+  bool is_finished = 4;
+}
+
+// A result, always contains a PingResult
+message VerfploeterResult {
+  oneof value {
+    PingResult ping = 1;
+    // TODO can extend this for the UDP/TCP/ICMP results to be distinguishable
+  }
+}
+
+// Result of Ping. It is the result of a single ping (i.e. a received ICMP response)
+// Contains the source and destination of the ping, the receive time, the payload, and the ttl.
+message PingResult {
+  fixed32 source_address = 1;
+  fixed32 destination_address = 2;
+  uint64 receive_time = 3;
+  PingPayload payload = 4;
+  uint32 ttl = 5; // TODO can be uint8
+}
+
+// TODO can use this for identifying origin
+// PingPayload. The payload of a ping, with task ID, transmission time, source/dest address.
+message PingPayload {
+  fixed32 task_id = 1;
+  fixed64 transmit_time = 2;
+  fixed32 source_address = 3;
+  fixed32 destination_address = 4;
+}

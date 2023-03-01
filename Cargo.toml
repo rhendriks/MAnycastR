@@ -1,0 +1,28 @@
+[package]
+name = "verfploeter_comms"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.3.4"
+byteorder = "1.4.3"
+clap = "~2" # TODO deprecated version
+env_logger = "0.10.0"
+futures = "~0.1" # TODO deprecated version
+futures-core = "0.3.26"
+futures-util = "0.3.26"
+log = "0.4.17"
+prost = "0.11.6"
+ratelimit_meter = "5.0.0"
+socket2 = "~0.3" # TODO deprecated
+#rand = "0.8.5" # TODO not used?
+#serde = { version = "1.0.152", features = ["derive"] } # TODO not used?
+#serde_json = "1.0.93" # TODO not used?
+tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-stream = "0.1.12"
+tonic = "0.8.3"
+
+[build-dependencies]
+tonic-build = "0.8.4"
