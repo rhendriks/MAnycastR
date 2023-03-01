@@ -1,0 +1,345 @@
+// Load in the generated code from verfploeter.proto using tonic
+pub mod verfploeter {
+    tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
+}
+
+// Load in the ControllerClient
+use verfploeter::controller_client::ControllerClient;
+// Load in struct definitions for the message types
+use verfploeter::{
+    Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
+    VerfploeterResult, PingResult, PingPayload
+};
+use crate::client::verfploeter::task::Data;
+
+
+// Ping dependencies
+use crate::net::{ICMP4Packet, IPv4Packet};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr};
+use socket2::{Domain, Protocol, Socket, Type};
+
+use tonic::Request;
+use tonic::transport::Channel;
+use std::error::Error;
+use std::sync::{Arc, Mutex};
+
+use std::thread;
+use std::time::Duration;
+use clap::ArgMatches;
+
+mod handlers;
+// use self::handlers::ping_inbound::PingInbound; TODO
+// use self::handlers::ping_outbound::PingOutbound;
+// use self::handlers::{ChannelType, TaskHandler};
+
+use futures::sync::mpsc::{channel, Receiver, Sender};
+use crate::client::handlers::inbound::listen_ping;
+use crate::client::handlers::outbound::{perform_ping};
+
+pub struct ClientConfig<'a> {
+    client_hostname: &'a str,
+}
+
+pub struct ClientClass {
+    grpc_client: ControllerClient<Channel>,
+    tx: Sender<Task>,
+    rx: Option<Receiver<Task>>,
+}
+
+impl ClientClass {
+    // Create a new client object
+    pub async fn new(args: &ArgMatches<'_>) -> Result<ClientClass, Box<dyn std::error::Error>> {
+        println!("creating new client");
+        let client_config = ClientConfig {
+            client_hostname: args.value_of("hostname").unwrap(),
+        };
+
+        // Create Sender and Receiver channel for sending tasks to inbound, and receiving TaskResults to and from the pinger in outbound
+        let (tx, rx): (Sender<Task>, Receiver<Task>) = channel(10);
+
+        // let mut client = ControllerClient::connect("http://[::1]:10001").await?;
+
+        let mut client_class = ClientClass {
+            grpc_client: Self::connect().await.unwrap(),
+            tx,
+            rx: Some(rx),
+        };
+
+        println!("sending list clients");
+        client_class.grpc_client.list_clients(Request::new(Empty::default())).await?;
+        println!("list clients sent");
+
+        let metadata = verfploeter::Metadata {
+            hostname: "temporary".to_string(),
+            version: "1.01".to_string(),
+        };
+        // let request = Request::new(metadata);
+
+        // println!("sending client connect");
+        // let response = client_class.grpc_client.client_connect(request).await?;
+        // println!("client connected");
+
+        // TODO has to be called here otherwise the message does not reach the server
+        // TODO when I need the client connection further it is best to pass it on as argument
+        client_class.connect_to_server(metadata).await?;
+
+        Ok(client_class)
+    }
+
+    pub fn start(&mut self) {
+        // TEMP START
+        let src: u32 = Ipv4Addr::new(130, 89, 85, 64).into();
+        let addr = Ipv4Addr::new(8, 8, 8, 8);
+        let addr_u32: u32 = addr.into();
+
+        let task = verfploeter::Task {
+            task_id: 0,
+            data:  Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                source_address: src,
+                destination_addresses: vec![addr_u32],
+            })),
+        };
+
+        let metadata = verfploeter::Metadata {
+            hostname: "temporary".to_string(),
+            version: "1.01".to_string(),
+        };
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        println!("creating client");
+        let res = rt.block_on(async { self.connect_to_server(metadata).await.unwrap() });
+        println!("DONE");
+        // let res = self.connect_to_server(metadata);
+
+        // println!("Starting temp measurement");
+        // self.start_measurement(task);
+        // TEMP END
+    }
+
+    // Create a connection to the gRPC Controller server
+    // #[tokio::main]
+    async fn connect() -> Result<ControllerClient<Channel>, Box<dyn std::error::Error>> {
+        // Create client connection with the Controller Server
+        let mut client = ControllerClient::connect("http://[::1]:10001").await?;
+
+        Ok(client)
+    }
+
+
+
+    // Start the appropiate measurement based on the received task
+    async fn start_measurement(&mut self, task: verfploeter::Task) {
+        println!("starting measurement");
+        let id = task.task_id;
+
+        // Find what kind of task was sent by the Controller
+        match task.data.unwrap() {
+            Data::Ping(ping) => { self.init_ping(ping).await }
+            Data::Empty(_) => { println!("EMPTY TASK")} //TODO error handling
+        }
+    }
+
+    // Prepare for performing a ping task
+    async fn init_ping(&mut self, ping: verfploeter::Ping) {
+        // Obtain values from the Ping message
+        let source_addr = ping.source_address;
+        let dest_addresses = ping.destination_addresses;
+
+        // Create the socket to send the ping messages from
+        let bind_address = format!(
+            "{}:0",
+            Ipv4Addr::from(source_addr).to_string()
+        );
+        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+        println!("socket bound");
+
+        let socket2 = socket.clone();
+
+        // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Channel for signalling when the outbound pinger is finished
+        let (mut tx_f, mut rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
+
+
+        // Start listening thread
+        let mut handles = listen_ping(socket, tx, tx_f);
+
+        // Start sending thread
+        perform_ping(dest_addresses, socket2, rx_f);
+
+        // let handles = handles;
+        // thread::spawn(move || {
+        //     // Wait for rx_f to be closed
+        //     // while !tx_f.is_closed() {
+        //     //     println!("Waiting for tx_f to be closed..");
+        //     //     thread::sleep(Duration::from_secs(5));
+        //     // }
+        //
+        //     debug!("sleeping for duration to wait for final packets");
+        //     thread::sleep(Duration::from_secs(10));
+        //     debug!("slept for duration to wait for final packets");
+        //     // rx.close();
+        //
+        //
+        //
+        //     println!("closing handles..");
+        //     for handle in handles.into_iter() {
+        //         handle.join().unwrap(); // TODO need to get the threads to finish for them to join
+        //     }
+        //     println!("Closed threads, ready for next task");
+        //
+        //     // TODO close the rx/tx and rx_f/tx_f channels?
+        //
+        //     // TODO send task_finished to server (needed?)
+        // });
+
+        // Obtain TaskResults from the unbounded channel and send them to the server
+        while let Some(packet) = rx.recv().await {
+            // A default TaskResult notifies this sender that there will be no more results
+            if packet == TaskResult::default() {
+                break;
+            }
+            self.send_result_to_server(packet).await.unwrap();
+        }
+        println!("closing rx");
+        rx.close();
+        //
+        // for handle in handles.into_iter() {
+        //     handle.join().unwrap();
+        // }
+    }
+
+    // rpc client_connect(Metadata) returns (stream Task) {}
+    async fn connect_to_server(&mut self, metadata: verfploeter::Metadata) -> Result<(), Box<dyn Error>> {
+        println!("connecting to the server");
+        let request = Request::new(metadata);
+
+        println!("sending client connect");
+        let response = self.grpc_client.client_connect(request).await?;
+        println!("client connected");
+
+        let mut stream = response.into_inner();
+
+        println!("Awaiting tasks...");
+        while let Some(task) = stream.message().await? {
+            println!("Received task! {:?}", task);
+            // Only one measurement at a time, therefore it is pointless to spawn threads here
+            self.start_measurement(task).await;
+        }
+        println!("Stopped awaiting tasks...");
+
+        // println!("RESPONSE = {:?}", response);
+
+        Ok(())
+    }
+
+    // rpc send_result(TaskResult) returns (Ack) {}
+    async fn send_result_to_server(&mut self, taskresult: verfploeter::TaskResult) -> Result<(), Box<dyn Error>> {
+        let request = Request::new(taskresult);
+        let response = self.grpc_client.send_result(request).await?;
+
+        println!("RESPONSE = {:?}", response);
+
+        Ok(())
+    }
+}
+
+// #[tokio::main]
+// pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     println!("Client");
+//
+//
+//     let src: u32 = Ipv4Addr::new(130, 89, 81, 25).into();
+//     let addr = Ipv4Addr::new(8, 8, 8, 8);
+//     let addr_u32: u32 = addr.into();
+//
+//     let task = verfploeter::Task {
+//         task_id: 0,
+//         data:  Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+//             source_address: src,
+//             destination_addresses: vec![addr_u32],
+//         })),
+//     };
+//     start_measurement(task);
+//
+//     // Create client connection with the Controller Server
+//     let mut client = ControllerClient::connect("http://[::1]:10000").await?;
+//
+//     Ok(())
+// }
+//
+// fn start_measurement(task: verfploeter::Task) {
+//     let id = task.task_id;
+//
+//     // Find what kind of task was sent by the Controller
+//     match task.data.unwrap() {
+//         Data::Ping(ping) => { init_ping(ping) }
+//         Data::Empty(_) => { println!("EMPTY TASK")} //TODO error handling
+//     }
+// }
+//
+// fn init_ping(ping: verfploeter::Ping) {
+//     // Obtain values from the task
+//     let source_addr = ping.source_address;
+//     let dest_addresses = ping.destination_addresses;
+//
+//     // Create the socket to send the ping messages from
+//     let bind_address = format!(
+//         "{}:0",
+//         Ipv4Addr::from(source_addr).to_string()
+//     );
+//
+//     let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+//     socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+//     println!("socket bound");
+//
+//     let socket2 = socket.clone();
+//     // Start listening thread
+//     listen_ping(socket);
+//
+//     // Start sending thread
+//     perform_ping(dest_addresses, socket2);
+// }
+
+// rpc client_connect(Metadata) returns (stream Task) {}
+// async fn connect_to_server(metadata: verfploeter::Metadata, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
+//     let request = Request::new(metadata);
+//
+//     let response = client.client_connect(request).await?;
+//
+//     let stream = response.into_inner();
+//
+//     // while let Some(task) = stream.next().await { TODO
+//     //     let task = task?;
+//     //     start_measurement(task);
+//     // }
+//
+//     // println!("RESPONSE = {:?}", response);
+//
+//     Ok(())
+// }
+
+// // rpc send_result(TaskResult) returns (Ack) {}
+// async fn send_result_to_server(taskresult: verfploeter::TaskResult, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
+//     let request = Request::new(taskresult);
+//     let response = client.send_result(request).await?;
+//
+//     println!("RESPONSE = {:?}", response);
+//
+//     Ok(())
+// }
+// rpc task_finished(TaskId) returns (Ack) {}
+async fn task_finished_to_server(task_id: verfploeter::TaskId, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
+    let request = Request::new(task_id);
+    let response = client.task_finished(request).await?;
+
+    println!("RESPONSE = {:?}", response);
+
+    Ok(())
+}
