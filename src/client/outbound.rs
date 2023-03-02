@@ -39,7 +39,7 @@ use crate::client::verfploeter::task::Data;
 
 // Perform a ping measurement/task
 pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>) {
-
+    println!("[Client outbound] Started pinging thread");
     let packet_sender_handle = thread::spawn({
         move || {
             // Rate limiter
@@ -87,9 +87,8 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
                         .into(),
                 ) {
                     error!("Failed to send packet to socket: {:?}", e);
-                    println!("Packet failed to send!")
                 } else {
-                    println!("Packet sent!");
+                    // println!("[Client outbound] Packet sent!");
                 }
             }
             debug!("finished ping");
@@ -98,8 +97,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
             thread::sleep(Duration::from_secs(10));
             // Now close down the listener
             rx_f.close();
-
         }
     });
-    println!("outbound thread finished");
+    println!("[Client outbound] Outbound thread finished");
 }

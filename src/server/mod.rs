@@ -44,13 +44,22 @@ pub struct ControllerService {
 #[tonic::async_trait]
 impl Controller for ControllerService {
 
-    async fn task_finished( // TODO unused
+    async fn task_finished(
         &self,
         request: Request<TaskId>,
     ) -> Result<Response<Ack>, Status> {
         println!("[Server] Received task finished");
 
-        unimplemented!()
+
+        let tx = {
+            let mut sender = self.cli_sender.lock().unwrap();
+            sender.clone().unwrap()
+        };
+
+        println!("[Server] Sending default value to CLI, notifying the task is finished");
+        tx.send(Ok(TaskResult::default())).await.unwrap();
+
+        Ok(Response::new(Ack::default()))
     }
 
     // Both streams are Server-sided
@@ -79,13 +88,13 @@ impl Controller for ControllerService {
     // type somethingStream = Pin<Box<dyn Stream<Item = Result<MESSAGE_TYPE, Status>> + Send  + 'static>>;
 
     type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
-    async fn do_task( // TODO
+    async fn do_task(
                       &self,
                       request: Request<ScheduleTask>,
     ) -> Result<Response<Self::do_taskStream>, Status> {
         println!("[Server] Received do_task");
 
-        // Get the list of Senders
+        // Get the list of Senders (that connect to the clients)
         let senders_list_clone = {
             let senders_list = self.senders.lock().unwrap();
             senders_list.clone()

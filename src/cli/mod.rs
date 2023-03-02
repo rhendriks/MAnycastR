@@ -102,7 +102,12 @@ impl CliClass {
 
         let mut stream = response.into_inner();
 
-        while let Some(task_result) = stream.message().await? {
+        while let Some(task_result) = stream.message().await? { // TODO freezes here since it never stops waiting for new tasks
+            // A default result notifies the CLI that it should not expect any more results
+            if task_result == TaskResult::default() {
+                break;
+            }
+
             println!("[CLI] Received task result! {:?}", task_result);
         }
 
