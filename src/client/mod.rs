@@ -27,11 +27,12 @@ use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
 
-mod handlers;
-
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use crate::client::handlers::inbound::listen_ping;
-use crate::client::handlers::outbound::{perform_ping};
+use crate::client::inbound::listen_ping;
+use crate::client::outbound::perform_ping;
+
+mod inbound;
+mod outbound;
 
 pub struct ClientConfig<'a> {
     client_hostname: &'a str,
@@ -98,7 +99,7 @@ impl ClientClass {
 
 
 
-    // Start the appropiate measurement based on the received task
+    // Start the appropriate measurement based on the received task
     async fn start_measurement(&mut self, task: verfploeter::Task) {
         let id = task.task_id;
 
