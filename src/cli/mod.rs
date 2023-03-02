@@ -25,12 +25,14 @@ use verfploeter::controller_client::ControllerClient;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::fs::File;
+use std::io;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
 use clap::ArgMatches;
+use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 
 pub struct CliClass {
     grpc_client: ControllerClient<Channel>,
@@ -100,8 +102,10 @@ impl CliClass {
         println!("[CLI] Sending schedule task to server {:?}", request);
         let response = self.grpc_client.do_task(request).await?;
 
-        let mut stream = response.into_inner();
+        let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
+        // Obtain the Stream from the server and read from it
+        let mut stream = response.into_inner();
         while let Some(task_result) = stream.message().await? { // TODO freezes here since it never stops waiting for new tasks
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
@@ -109,7 +113,48 @@ impl CliClass {
             }
 
             println!("[CLI] Received task result! {:?}", task_result);
+            results.push(task_result);
+
         }
+
+        // CSV writer to command-line interface
+        let mut wtr_cli = csv::Writer::from_writer(io::stdout());
+
+        // CSV writer to file
+        // TODO create a file for each client?
+        let mut wtr_file = csv::Writer::from_path("./data/output.csv")?; // TODO hardcoded path
+
+        wtr_cli.write_record(&["Source", "Destination", "Receive_time", "TTL"])?;
+        wtr_file.write_record(&["Source", "Destination", "Receive_time", "TTL"])?;
+
+        for result in results {
+            let task_id: u32 = result.task_id;
+            let client: verfploeter::Client = result.client.unwrap();
+            let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
+            let is_finished: bool = result.is_finished;
+
+            println!("{:?}", verfploeter_results);
+
+            for verfploeter_result in verfploeter_results {
+                // let Some(ping)
+                let value = verfploeter_result.value.unwrap();
+                println!("value: {:?}", value);
+                match value {
+                    ResultPing(ping) => {
+                        println!("PingResult {:?}", ping);
+                        let source_address = Ipv4Addr::from(ping.source_address).to_string();
+                        let destination_address = Ipv4Addr::from(ping.destination_address).to_string();
+                        let receive_time = ping.receive_time.to_string();
+                        // TODO payload
+                        let ttl = ping.ttl.to_string();
+                        wtr_cli.write_record(&[source_address.clone(), destination_address.clone(), receive_time.clone(), ttl.clone()])?;
+                        wtr_file.write_record(&[source_address, destination_address, receive_time, ttl])?;
+                    },
+                    _ => println!("UNRECOGNIZED"),
+                }
+            }
+        }
+        // TODO write to csv and cmd?
 
         Ok(())
     }

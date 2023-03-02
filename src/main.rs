@@ -17,11 +17,10 @@ use crate::client::ClientClass;
 mod cli;
 mod server;
 mod client;
-mod net;
+mod net; // TODO not used?
 
 
 /// VerfPloeter:: main() - Parse command line input and start VerfPloeter server/client or CLI
-// #[tokio::main]
 fn main() {
     // Setup logging with the default environment, with filter at 'info' level
     let env = env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info");
