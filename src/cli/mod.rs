@@ -7,15 +7,11 @@ use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
-
-
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
 }
 
-// Load in the CLI service and CLI Server generated code
-use verfploeter::cli_server::{Cli, CliServer};
 // Load in struct definitions for the message types
 use verfploeter::{
     Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
@@ -26,30 +22,18 @@ use verfploeter::{
 use verfploeter::controller_client::ControllerClient;
 // Load in struct definitions for the message types
 
-
 use tonic::transport::Channel;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::Ipv4Addr;
+use std::ops::Add;
 use std::str::FromStr;
 use clap::ArgMatches;
 
-
-// Struct for the CLI service
-#[derive(Debug)]
-pub struct CliService;
-
-// The CLI service implementation
-#[tonic::async_trait]
-impl Cli for CliService {
-    async fn task_finished(
-         &self,
-        request: Request<TaskId>,
-    ) -> Result<Response<Ack>, Status> {
-        unimplemented!()
-    }
+pub struct CliClass {
+    grpc_client: ControllerClient<Channel>,
 }
 
 // Execute the command as part of the argument
@@ -57,17 +41,17 @@ impl Cli for CliService {
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
     // Create client connection with the Controller Server
-    println!("Connecting to Controller Server from CLI...");
+    println!("[CLI] Connecting to Controller Server from CLI...");
     let mut client = ControllerClient::connect("http://[::1]:10001").await?;
-    println!("Connected to Controller Server:");
+    println!("[CLI] Connected to Controller Server");
 
-    // list_clients_to_server(verfploeter::Empty::default(), &mut client).await;
-
+    let mut cli_class = CliClass {
+        grpc_client: client,
+    };
 
     // If the client-list command was specified
     if args.subcommand_matches("client-list").is_some() {
-        println!("Sending 'list_clients' to Server..");
-        list_clients_to_server(verfploeter::Empty::default(), &mut client).await
+        cli_class.list_clients_to_server(verfploeter::Empty::default()).await
     // If the start command was specified
     } else if let Some(matches) = args.subcommand_matches("start") {
 
@@ -78,8 +62,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the specified IP file
         let ip_file = matches.value_of("IP_FILE").unwrap();
 
-        // Get the destination addresses TODO hardcoded hitlist
-        let file = File::open("./data/hitlist.txt").unwrap_or_else(|_| panic!("Unable to open file {}", ip_file));
+        // Get the destination addresses
+        let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
         let ips = buf_reader
             .lines()
@@ -89,11 +73,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             })
             .collect::<Vec<u32>>();
         debug!("Loaded [{}] IPAddresses on _ips vector",ips.len());
-        println!("{:?}", ips);
 
         let schedule_task = createScheduleTask(source_ip, ips);
 
-        do_task_to_server(schedule_task, &mut client).await
+        cli_class.do_task_to_server(schedule_task).await
 
     } else {
         unimplemented!();
@@ -102,72 +85,48 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
 // Create a verfploeter::ScheduleTask that can be sent to the server
 pub fn createScheduleTask(source_address: u32, destination_addresses: Vec<u32>) -> verfploeter::ScheduleTask {
-    println!("creating task");
-    let task = verfploeter::ScheduleTask {
-        // client: Some(verfploeter::Client {
-        //     index: 1,
-        //     metadata: Some(verfploeter::Metadata {
-        //         hostname: "client".to_string(),
-        //         version: "1".to_string(),
-        //     })
-        // }),
+    verfploeter::ScheduleTask {
         data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
             destination_addresses,
             source_address,
         }))
-    };
-    println!("task created");
-
-    task
+    }
 }
 
-// Start the CLI server
+impl CliClass {
+    // rpc do_task(ScheduleTask) returns (Ack) {}
+    async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask) -> Result<(), Box<dyn Error>> {
+        let request = Request::new(schedule_task);
+        println!("[CLI] Sending schedule task to server {:?}", request);
+        let response = self.grpc_client.do_task(request).await?;
 
-// let addr = "[::1]:10001".parse().unwrap();
-//
-// let cli = CliService;
-//
-// let svc = CliServer::new(cli);
-//
-// println!("CLI server listening on: {}", addr);
-//
-// Server::builder().add_service(svc).serve(addr).await?;
-// TODO if I want to have both a server and client for CLI, then I need to handle each in separate threads
-// TODO it's probably easier if I can alter the communication protocol such that there is no need for a CLI service
+        let mut stream = response.into_inner();
 
+        while let Some(task_result) = stream.message().await? {
+            println!("[CLI] Received task result! {:?}", task_result);
+        }
 
-fn perform_measurement(args: ArgMatches) {
+        Ok(())
+    }
 
-}
+    // rpc list_clients(Empty) returns (ClientList) {}
+    async fn list_clients_to_server(&mut self, empty: verfploeter::Empty) -> Result<(), Box<dyn Error>> {
+        println!("[CLI] Sending list clients to server");
+        let request = Request::new(empty);
+        let response = self.grpc_client.list_clients(request).await?;
 
-// rpc do_task(ScheduleTask) returns (Ack) {}
-async fn do_task_to_server(schedule_task: verfploeter::ScheduleTask, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
-    let request = Request::new(schedule_task);
-    println!("Sending schedule task to server {:?}", request);
-    let response = client.do_task(request).await?;
+        println!("[CLI] Clients list response: {:?}", response);
 
-    println!("RESPONSE = {:?}", response);
+        Ok(())
+    }
 
-    Ok(())
-}
-
-// rpc list_clients(Empty) returns (ClientList) {}
-async fn list_clients_to_server(empty: verfploeter::Empty, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
-    println!("Sending list clients to server");
-    let request = Request::new(empty);
-    let response = client.list_clients(request).await?;
-
-    println!("RESPONSE = {:?}", response);
-
-    Ok(())
-}
-
-// rpc subscribe_result(TaskId) returns (stream TaskResult) {}
-async fn subscribe_result_to_server(task_id: verfploeter::TaskId, client: &mut ControllerClient<Channel>) -> Result<(), Box<dyn Error>> {
-    let request = Request::new(task_id);
-    let response = client.subscribe_result(request).await?;
-
-    println!("RESPONSE = {:?}", response);
-
-    Ok(())
+    // // rpc subscribe_result(TaskId) returns (stream TaskResult) {}
+    // async fn subscribe_result_to_server(&mut self, task_id: verfploeter::TaskId) -> Result<(), Box<dyn Error>> { // TODO not used (unnecessary?)
+    //     let request = Request::new(task_id);
+    //     let response = self.grpc_client.subscribe_result(request).await?;
+    //
+    //     println!("[CLI] RESPONSE = {:?}", response);
+    //
+    //     Ok(())
+    // }
 }

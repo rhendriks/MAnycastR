@@ -34,6 +34,9 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
         move || {
            let mut buffer: Vec<u8> = vec![0; 1500];
 
+            // Possible solutions for breaking recv
+            // https://users.rust-lang.org/t/how-to-get-out-of-receiver-loop-in-channel/47314
+            // https://tokio.rs/tokio/topics/shutdown
             while let Ok(result) = socket.recv(&mut buffer) { // TODO socket.recv gets stuck and never ends
                 println!("received result {:?}", result);
                if result == 0 {
