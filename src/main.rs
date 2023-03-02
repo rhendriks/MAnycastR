@@ -33,9 +33,8 @@ fn main() {
     // Parse the command line arguments
     let matches = parse_cmd();
 
-    println!("Hello, world!");
     if let Some(cli_matches) = matches.subcommand_matches("client") {
-        println!("Received client command from args");
+        println!("[Main] Executing client");
 
         // let mut client = client::ClientClass::new(cli_matches).await.unwrap();
         // client.start();
@@ -45,60 +44,22 @@ fn main() {
             .build()
             .unwrap();
 
-        println!("creating client");
         let mut client = rt.block_on(async { client::ClientClass::new(cli_matches).await.unwrap() });
-        println!("starting client");
         // client.start();
 
-        // client::main();
-        // cli::execute(cli_matches);
         return;
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     if let Some(cli_matches) = matches.subcommand_matches("cli") {
+        println!("[Main] Executing CLI");
         cli::execute(cli_matches);
-        // cli::execute(cli_matches);
         return;
     }
 
     if let Some(server_matches) = matches.subcommand_matches("server") {
+        println!("[Main] Executing server");
         debug!("Selected SERVER_MODE!");
-        // Read certificate and private key from filesystem
-        // let mut certificate = None;
-        // let mut private_key = None;
-        // if let (Some(certificate_path), Some(private_key_path)) = (
-        //     server_matches.value_of("certificate"),
-        //     server_matches.value_of("private-key"),
-        // ) {
-        //     certificate = read_file_content(certificate_path);
-        //     private_key = read_file_content(private_key_path);
-        // }
-
-        // Create the config struct
-        // let config = ServerConfig {
-        //     // certificate,
-        //     // private_key,
-        //     port: server_matches
-        //         .value_of("port")
-        //         .unwrap_or("10000") // TODO change back to 5001
-        //         .parse::<u16>()
-        //         .expect("Port should be a 16-bits integer"),
-        // };
-
-        // Start the server
-        // let mut s = server::Server;//::new(&config); // TODO
-        // s.start();
         server::main();
-
-        // TODO: come up with a smarter way to keep the program alive
-        // MAYBE SOMETHING LIKE THIS: icmp listener
-        //     for stream in listener.incoming() {
-        //         let stream = stream.unwrap();
-        //     }
-        loop {
-            debug!("Going into my eternal loop - until implement a better option");
-            thread::sleep(Duration::from_secs(1));
-        }
     }
 }
 

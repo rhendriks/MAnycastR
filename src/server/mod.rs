@@ -10,12 +10,6 @@ use tonic::transport::Server;
 use tonic::transport::Channel;
 use std::error::Error;
 
-// use crate::server::verfploeter::task::Data as TaskData;
-//
-// use crate::server::verfploeter::schedule_task::Data as ScheduleData;
-
-
-
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
 
@@ -33,16 +27,16 @@ use verfploeter::{
 };
 
 // Load in CliClient
-use verfploeter::cli_client::CliClient;
+// use verfploeter::cli_client::CliClient;
 use crate::server::verfploeter::schedule_task::Data;
 use crate::server;
 
 // Struct for the Server service
 #[derive(Debug)]
 pub struct ControllerService {
-    // clients: Arc<Vec<Client>>, // Keep a list of clients //TODO make mutable
     clients: ClientList,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
+    cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
 }
 
 // Realized largely with this tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
@@ -50,11 +44,11 @@ pub struct ControllerService {
 #[tonic::async_trait]
 impl Controller for ControllerService {
 
-    async fn task_finished(
+    async fn task_finished( // TODO unused
         &self,
         request: Request<TaskId>,
     ) -> Result<Response<Ack>, Status> {
-        println!("Received task finished");
+        println!("[Server] Received task finished");
 
         unimplemented!()
     }
@@ -65,19 +59,17 @@ impl Controller for ControllerService {
         &self,
         request: Request<verfploeter::Metadata>,
     ) -> Result<Response<Self::client_connectStream>, Status> {
-        println!("Received client_connect");
+        println!("[Server] Received client_connect");
 
-        let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(4);
-        // TODO can be replaced with a tokio::sync::broadcast::channel possible, which is single-writer, multiple reader
+        let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
+        // TODO can possibly be replaced with a tokio::sync::broadcast::channel possible, which is single-writer, multiple reader
         // TODO this can then be a single channel that is re-used between clients
 
         // Store the stream sender to send tasks through later
-        let mut senders = self.senders.lock().unwrap();
-        senders.push(tx);
-
-        // tokio::spawn(async move {
-        //     // tx.send(Ok(Task.default())).await.unwrap(); // TODO
-        // });
+        {
+            let mut senders = self.senders.lock().unwrap();
+            senders.push(tx);
+        }
 
         // Send the stream receiver to the client
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -86,16 +78,16 @@ impl Controller for ControllerService {
     // If the Server were to receive a stream use this:
     // type somethingStream = Pin<Box<dyn Stream<Item = Result<MESSAGE_TYPE, Status>> + Send  + 'static>>;
 
+    type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
     async fn do_task( // TODO
-        &self,
-        request: Request<ScheduleTask>,
-    ) -> Result<Response<Ack>, Status> {
-        println!("Received do task");
+                      &self,
+                      request: Request<ScheduleTask>,
+    ) -> Result<Response<Self::do_taskStream>, Status> {
+        println!("[Server] Received do_task");
 
         // Get the list of Senders
         let senders_list_clone = {
             let senders_list = self.senders.lock().unwrap();
-            println!("{:?}", senders_list);
             senders_list.clone()
         };
 
@@ -112,18 +104,25 @@ impl Controller for ControllerService {
 
         // Send the task to every client
         for sender in senders_list_clone.iter() {
-            println!("sending task to client");
-            sender.send(Ok(task.clone())).await.unwrap(); // TODO if a client crashes it will still try to send to the client here, which will crash the program
+            println!("[Server] Sending task to client");
+            sender.send(Ok(task.clone())).await.unwrap(); // TODO if a client crashes (or disconnects) it will still try to send to the client here, which will crash the program
         }
 
-        Ok(Response::new(Ack::default()))
+        // Establish a stream with the CLI to return the TaskResults through
+        let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+        {
+            let mut sender = self.cli_sender.lock().unwrap();
+            let _ = sender.insert(tx);
+        }
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     async fn list_clients( // TODO
         &self,
         _request: Request<verfploeter::Empty>,
     ) -> Result<Response<ClientList>, Status> {
-        println!("Received list clients");
+        println!("[Server] Received list_clients");
 
         // for client in &self.clients[..] {
         //
@@ -131,23 +130,32 @@ impl Controller for ControllerService {
         Ok(Response::new(ClientList::default()))
     }
 
-    async fn send_result( // TODO
+    // Receive a TaskResult from the client and put it in the stream towards the CLI
+    async fn send_result(
         &self,
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
-        println!("Received task result {:?}", request);
+        println!("[Server] Received send_result");
+
+        // Send the result to the CLI through the established stream
+        let tx = {
+            let mut sender = self.cli_sender.lock().unwrap();
+            sender.clone().unwrap()
+        };
+
+        println!("[Server] Forwarding result to CLI");
+        tx.send(Ok(request.into_inner())).await.unwrap();
 
         Ok(Response::new(Ack::default()))
     }
 
-    type subscribe_resultStream = ReceiverStream<Result<TaskResult, Status>>;
-
+    type subscribe_resultStream = ReceiverStream<Result<TaskResult, Status>>; // TODO unused
     // The server sends a Stream
-    async fn subscribe_result( // TODO
+    async fn subscribe_result( // TODO unused
         &self,
         request: Request<TaskId>,
     ) -> Result<tonic::Response<Self::subscribe_resultStream>, Status> {
-        println!("Received subscribe result");
+        println!("[Server] Received subscribe_result");
 
         let (mut tx, rx) = tokio::sync::mpsc::channel(4);
 
@@ -166,33 +174,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the Controller server
     let addr = "[::1]:10001".parse().unwrap();
 
-    println!("Controller server listening on: {}", addr);
+    println!("[Server] Controller server listening on: {}", addr);
 
     let controller = ControllerService {
         clients: ClientList::default(),
         senders: Arc::new(Mutex::new(Vec::new())),
+        cli_sender: Arc::new(Mutex::new(None)),
     };
 
     let svc = ControllerServer::new(controller);
 
-    // Main function keeps looping here
     Server::builder().add_service(svc).serve(addr).await?;
-
-    // Start the Cli client
-    // println!("awaiting connections");
-    // let mut client = CliClient::connect("http://[::1]:10001").await?;
-    // println!("received connection!");
-
-    Ok(())
-}
-
-// rpc task_finished(TaskId) returns (Ack) {}
-async fn task_finished_to_cli(task_id: verfploeter::TaskId, client: &mut CliClient<Channel>) -> Result<(), Box<dyn Error>> {
-    println!("Sending task finished");
-    let request = Request::new(task_id);
-    let response = client.task_finished(request).await?;
-
-    println!("RESPONSE = {:?}", response);
 
     Ok(())
 }
