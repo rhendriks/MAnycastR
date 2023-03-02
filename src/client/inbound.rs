@@ -23,7 +23,7 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
     // Handles that are used to close the spawned threads
     let mut handles = Vec::new();
 
-    println!("Listening..");
+    println!("[Client inbound] Started ping listener");
 
     // Handle for receiving the incoming pings on the socket
     let packet_receiver_handle = thread::spawn({
@@ -37,14 +37,11 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
             // https://users.rust-lang.org/t/how-to-get-out-of-receiver-loop-in-channel/47314
             // https://tokio.rs/tokio/topics/shutdown
             while let Ok(result) = socket.recv(&mut buffer) { // TODO socket.recv gets stuck and never ends
-                println!("received result {:?}", result);
                if result == 0 {
-                   println!("breaking");
                    break;
                }
 
                let packet = IPv4Packet::from(&buffer[..result]);
-                println!("Received ping {:?}", packet);
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
@@ -87,7 +84,7 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
                     }
                 }
            }
-            println!("Exited first inbound thread"); // TODO these threads aren't stopped properly and remain active till forced shutdown
+            println!("[Client inbound] Exited socket listening thread"); // TODO these threads aren't stopped properly and remain active till forced shutdown
        }
     });
 
@@ -138,7 +135,7 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
              }
              // Send default value to let the rx know this is finished
              tx.send(TaskResult::default()).unwrap();
-             println!("Exited second inbound thread");
+             println!("[Client inbound] Exited result handler thread");
              socket.shutdown(Shutdown::Both).unwrap();
          }
     });
