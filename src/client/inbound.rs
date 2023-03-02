@@ -8,7 +8,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
 use crate::client::verfploeter::verfploeter_result::Value;
-use crate::client::handlers::inbound::Value::Ping;
 
 
 // TODO lock thread such that only one task is active at a time
