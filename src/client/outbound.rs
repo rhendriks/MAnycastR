@@ -1,15 +1,3 @@
-// Load in the generated code from verfploeter.proto using tonic
-// pub mod verfploeter {
-//     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
-// }
-//
-// // Load in the CLI service and CLI Server generated code
-// use verfploeter::cli_server::{Cli, CliServer};
-// // Load in struct definitions for the message types
-// use verfploeter::{
-//     Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
-//     VerfploeterResult, PingResult, PingPayload
-// };
 use super::Task;
 
 // TODO socket2 can be converted into socket/stream for UDP/TCP
@@ -20,7 +8,6 @@ use super::Task;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use std::num::NonZeroU32;
 use std::thread;
-use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // Ping dependencies
@@ -35,12 +22,13 @@ use crate::client;
 use crate::client::verfploeter::PingPayload;
 use crate::client::verfploeter::task::Data;
 
+// TODO info_url
 // TODO lock thread such that only one task is active at a time
 
 // Perform a ping measurement/task
 pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>) {
     println!("[Client outbound] Started pinging thread");
-    let packet_sender_handle = thread::spawn({
+    thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());

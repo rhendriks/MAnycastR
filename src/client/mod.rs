@@ -30,6 +30,8 @@ use clap::ArgMatches;
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use crate::client::inbound::listen_ping;
 use crate::client::outbound::perform_ping;
+use tokio::task::JoinHandle;
+
 
 mod inbound;
 mod outbound;
@@ -135,7 +137,7 @@ impl ClientClass {
         let (mut tx_f, mut rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread
-        let mut handles = listen_ping(socket, tx, tx_f);
+        listen_ping(socket, tx, tx_f);
 
         // Start sending thread
         perform_ping(dest_addresses, socket2, rx_f);
@@ -153,7 +155,7 @@ impl ClientClass {
         rx.close();
         //
         // for handle in handles.into_iter() {
-        //     handle.join().unwrap(); // TODO join threads?
+        //     handle.abort(); // TODO join threads?
         // }
     }
 
