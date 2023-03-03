@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // gRPC/tonic dependencies
 use futures_core::Stream;
 use std::pin::Pin;
@@ -9,6 +10,7 @@ use tonic::transport::Server;
 
 use tonic::transport::Channel;
 use std::error::Error;
+use std::ops::AddAssign;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -37,6 +39,8 @@ pub struct ControllerService {
     clients: ClientList,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
+    open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
+    current_task_id: Arc<Mutex<u32>>,
 }
 
 // Realized largely with this tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
@@ -50,14 +54,40 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         println!("[Server] Received task finished");
 
+        let task_id: u32 = request.into_inner().task_id;
 
         let tx = {
             let mut sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()
         };
 
-        println!("[Server] Sending default value to CLI, notifying the task is finished");
-        tx.send(Ok(TaskResult::default())).await.unwrap(); // TODO when there are multiple clients this will break since for each client this message is sent, but only the first arrives.
+        // Wait till we have received 'task_finished' from all clients that executed this task
+        let finished: bool;
+        {
+            let mut open_tasks = self.open_tasks.lock().unwrap();
+
+            let remaining: &u32 = open_tasks.get(&task_id).unwrap();
+            // If this is the last client we are finished
+            if remaining == &(1 as u32) {
+                open_tasks.remove(&task_id);
+                finished = true;
+            // If this is not the last client, decrement the amount of remaining clients
+            } else {
+                *open_tasks.get_mut(&task_id).unwrap() -= 1;
+                finished = false;
+                // open_tasks.insert(task_id, remaining.add_subtract(1));
+            }
+        }
+        if finished {
+            println!("[Server] Sending default value to CLI, notifying the task is finished");
+            tx.send(Ok(TaskResult::default())).await.unwrap();
+        }
+
+        // if !tx.is_closed() {
+        //     // Let the server know that the task is finished.
+        //     println!("[Server] Sending default value to CLI, notifying the task is finished");
+        //     tx.send(Ok(TaskResult::default())).await.unwrap();
+        // }
 
         Ok(Response::new(Ack::default()))
     }
@@ -89,16 +119,32 @@ impl Controller for ControllerService {
 
     type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
     async fn do_task(
-                      &self,
-                      request: Request<ScheduleTask>,
+        &self,
+        request: Request<ScheduleTask>,
     ) -> Result<Response<Self::do_taskStream>, Status> {
         println!("[Server] Received do_task");
+
+        // TODO if there are no clients connected, return an error, or let the CLI know the task is finished immediately?
 
         // Get the list of Senders (that connect to the clients)
         let senders_list_clone = {
             let senders_list = self.senders.lock().unwrap();
             senders_list.clone()
         };
+
+        // obtain task id
+        let task_id: u32;
+        {
+            let mut current_task_id = self.current_task_id.lock().unwrap();
+            task_id = *current_task_id;
+            current_task_id.add_assign(1);
+        }
+
+        // Store the number of clients that will perform this task
+        {
+            let mut open_tasks = self.open_tasks.lock().unwrap();
+            open_tasks.insert(task_id, senders_list_clone.len() as u32);
+        }
 
         // Create a Task from the ScheduleTask
         // Get the data from the ScheduleTask
@@ -108,7 +154,7 @@ impl Controller for ControllerService {
         // Create a Task with this data
         let task = verfploeter::Task {
             data: Some(server::verfploeter::task::Data::Ping(task_data)),
-            task_id: 1, //TODO task_id
+            task_id,
         };
 
         // Send the task to every client
@@ -148,7 +194,7 @@ impl Controller for ControllerService {
 
         // Send the result to the CLI through the established stream
         let tx = {
-            let mut sender = self.cli_sender.lock().unwrap();
+            let sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()
         };
 
@@ -189,6 +235,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         clients: ClientList::default(),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
+        open_tasks: Arc::new(Mutex::new(HashMap::new())),
+
+        current_task_id: Arc::new(Mutex::new(0)),
     };
 
     let svc = ControllerServer::new(controller);

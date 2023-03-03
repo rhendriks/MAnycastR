@@ -76,7 +76,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .collect::<Vec<u32>>();
         debug!("Loaded [{}] IPAddresses on _ips vector",ips.len());
 
-        let schedule_task = createScheduleTask(source_ip, ips);
+        let schedule_task = create_schedule_task(source_ip, ips);
 
         cli_class.do_task_to_server(schedule_task).await
 
@@ -86,7 +86,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 // Create a verfploeter::ScheduleTask that can be sent to the server
-pub fn createScheduleTask(source_address: u32, destination_addresses: Vec<u32>) -> verfploeter::ScheduleTask {
+pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>) -> verfploeter::ScheduleTask {
     verfploeter::ScheduleTask {
         data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
             destination_addresses,
@@ -112,7 +112,8 @@ impl CliClass {
                 break;
             }
 
-            println!("[CLI] Received task result! {:?}", task_result);
+            // println!("[CLI] Received task result! {:?}", task_result);
+            println!("[CLI] Received task result");
             results.push(task_result);
 
         }

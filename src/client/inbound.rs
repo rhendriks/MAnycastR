@@ -21,7 +21,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
     // Handles that are used to close the spawned threads
-    let mut handles = Arc::new(Mutex::new(Vec::new()));
+    let handles = Arc::new(Mutex::new(Vec::new()));
 
     println!("[Client inbound] Started");
 
@@ -113,7 +113,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 }
 
                 // Get the current result queue, and replace it with an empty one
-                let mut rq;
+                let rq;
                 {
                     let mut result_queue_sender_mutex = result_queue_sender.lock().unwrap();
                     rq = result_queue_sender_mutex.replace(Vec::new()).unwrap();
@@ -143,7 +143,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // println!("[Client inbound] Exited result handler thread");
             socket.shutdown(Shutdown::Both).unwrap();
             {
-                let mut handles = handles.lock().unwrap();
+                let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
                     handle.abort();
                 }
