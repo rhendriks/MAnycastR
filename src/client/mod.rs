@@ -150,7 +150,6 @@ impl ClientClass {
             }
             self.send_result_to_server(packet).await.unwrap();
         }
-        println!("closing rx");
         rx.close();
     }
 

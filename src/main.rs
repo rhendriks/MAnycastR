@@ -35,15 +35,12 @@ fn main() {
     if let Some(cli_matches) = matches.subcommand_matches("client") {
         println!("[Main] Executing client");
 
-        // let mut client = client::ClientClass::new(cli_matches).await.unwrap();
-        // client.start();
-
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let mut client = rt.block_on(async { client::ClientClass::new(cli_matches).await.unwrap() });
+        let client = rt.block_on(async { client::ClientClass::new(cli_matches).await.unwrap() });
         // client.start();
 
         return;

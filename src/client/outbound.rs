@@ -43,7 +43,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
                     .as_nanos() as u64;
 
                 // Create ping payload
-                let mut payload = PingPayload {
+                let payload = PingPayload {
                     task_id: 1111,
                     transmit_time,
                     source_address: 3333,
