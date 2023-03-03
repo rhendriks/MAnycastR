@@ -16,7 +16,7 @@ use crate::client::verfploeter::verfploeter_result::Value;
 // This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
 
 // Listen for incoming ping packets
-pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -127,10 +127,7 @@ pub fn listen_ping(socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: t
                     task_id: 0, // TODO task_id
                     client: Some(Client {
                         index: 0, // TODO index
-                        metadata: Some(Metadata {
-                            hostname: "temp_hostname".to_string(),
-                            version: "1.011".to_string(),
-                        }),
+                        metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
                     is_finished: false, // TODO
