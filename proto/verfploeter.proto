@@ -61,7 +61,7 @@ message ClientList {
 
 // A client, which contains an index, and metadata (defined below)
 message Client {
-  uint32 index = 1;
+  uint32 index = 1; // TODO unused?
   Metadata metadata = 2;
 }
 
@@ -100,7 +100,7 @@ message TaskResult {
   uint32 task_id = 1;
   Client client = 2;
   repeated VerfploeterResult result_list = 3;
-  bool is_finished = 4;
+  bool is_finished = 4; // TODO unused?
 }
 
 // A result, always contains a PingResult
@@ -118,10 +118,9 @@ message PingResult {
   fixed32 destination_address = 2;
   uint64 receive_time = 3;
   PingPayload payload = 4;
-  uint32 ttl = 5; // TODO can be uint8
+  uint32 ttl = 5;
 }
 
-// TODO can use this for identifying origin
 // PingPayload. The payload of a ping, with task ID, transmission time, source/dest address.
 message PingPayload {
   fixed32 task_id = 1;

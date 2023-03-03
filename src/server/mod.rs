@@ -11,6 +11,7 @@ use tonic::transport::Server;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::AddAssign;
+use futures::Sink;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -36,7 +37,7 @@ use crate::server;
 // Struct for the Server service
 #[derive(Debug)]
 pub struct ControllerService {
-    clients: ClientList,
+    clients: Arc<Mutex<ClientList>>,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -83,12 +84,6 @@ impl Controller for ControllerService {
             tx.send(Ok(TaskResult::default())).await.unwrap();
         }
 
-        // if !tx.is_closed() {
-        //     // Let the server know that the task is finished.
-        //     println!("[Server] Sending default value to CLI, notifying the task is finished");
-        //     tx.send(Ok(TaskResult::default())).await.unwrap();
-        // }
-
         Ok(Response::new(Ack::default()))
     }
 
@@ -100,9 +95,15 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::client_connectStream>, Status> {
         println!("[Server] Received client_connect");
 
+        {
+            let mut clients_list = self.clients.lock().unwrap();
+            clients_list.clients.push(verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
+                index: 0, // TODO index ?
+                metadata: Some(request.into_inner()),
+            });
+        }
+
         let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
-        // TODO can possibly be replaced with a tokio::sync::broadcast::channel possible, which is single-writer, multiple reader
-        // TODO this can then be a single channel that is re-used between clients
 
         // Store the stream sender to send tasks through later
         {
@@ -113,9 +114,6 @@ impl Controller for ControllerService {
         // Send the stream receiver to the client
         Ok(Response::new(ReceiverStream::new(rx)))
     }
-
-    // If the Server were to receive a stream use this:
-    // type somethingStream = Pin<Box<dyn Stream<Item = Result<MESSAGE_TYPE, Status>> + Send  + 'static>>;
 
     type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
     async fn do_task(
@@ -132,57 +130,59 @@ impl Controller for ControllerService {
             senders_list.clone()
         };
 
-        // obtain task id
-        let task_id: u32;
-        {
-            let mut current_task_id = self.current_task_id.lock().unwrap();
-            task_id = *current_task_id;
-            current_task_id.add_assign(1);
+        // If there are connected clients that will perform this task
+        if senders_list_clone.len() > 0 {
+            // obtain task id
+            let task_id: u32;
+            {
+                let mut current_task_id = self.current_task_id.lock().unwrap();
+                task_id = *current_task_id;
+                current_task_id.add_assign(1);
+            }
+
+            // Store the number of clients that will perform this task
+            {
+                let mut open_tasks = self.open_tasks.lock().unwrap();
+                open_tasks.insert(task_id, senders_list_clone.len() as u32);
+            }
+
+            // Create a Task from the ScheduleTask
+            // Get the data from the ScheduleTask
+            let task_data = match request.into_inner().data.unwrap() {
+                Data::Ping(ping) => { ping }
+            };
+            // Create a Task with this data
+            let task = verfploeter::Task {
+                data: Some(server::verfploeter::task::Data::Ping(task_data)),
+                task_id,
+            };
+
+            // Send the task to every client
+            for sender in senders_list_clone.iter() {
+                println!("[Server] Sending task to client");
+                sender.send(Ok(task.clone())).await.unwrap(); // TODO if a client crashes (or disconnects) it will still try to send to the client here, which will crash the program
+            }
+
+            // Establish a stream with the CLI to return the TaskResults through
+            let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+            {
+                let mut sender = self.cli_sender.lock().unwrap();
+                let _ = sender.insert(tx);
+            }
+
+            Ok(Response::new(ReceiverStream::new(rx)))
+        // If there are no connected clients
+        } else {
+            Err(Status::new(tonic::Code::Cancelled, "No connected clients"))
         }
-
-        // Store the number of clients that will perform this task
-        {
-            let mut open_tasks = self.open_tasks.lock().unwrap();
-            open_tasks.insert(task_id, senders_list_clone.len() as u32);
-        }
-
-        // Create a Task from the ScheduleTask
-        // Get the data from the ScheduleTask
-        let task_data = match request.into_inner().data.unwrap() {
-            Data::Ping(ping) => { ping }
-        };
-        // Create a Task with this data
-        let task = verfploeter::Task {
-            data: Some(server::verfploeter::task::Data::Ping(task_data)),
-            task_id,
-        };
-
-        // Send the task to every client
-        for sender in senders_list_clone.iter() {
-            println!("[Server] Sending task to client");
-            sender.send(Ok(task.clone())).await.unwrap(); // TODO if a client crashes (or disconnects) it will still try to send to the client here, which will crash the program
-        }
-
-        // Establish a stream with the CLI to return the TaskResults through
-        let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
-        {
-            let mut sender = self.cli_sender.lock().unwrap();
-            let _ = sender.insert(tx);
-        }
-
-        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    async fn list_clients( // TODO
+    async fn list_clients(
         &self,
         _request: Request<verfploeter::Empty>,
     ) -> Result<Response<ClientList>, Status> {
         println!("[Server] Received list_clients");
-
-        // for client in &self.clients[..] {
-        //
-        // }
-        Ok(Response::new(ClientList::default()))
+        Ok(Response::new(self.clients.lock().unwrap().clone()))
     }
 
     // Receive a TaskResult from the client and put it in the stream towards the CLI
@@ -232,7 +232,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Server] Controller server listening on: {}", addr);
 
     let controller = ControllerService {
-        clients: ClientList::default(),
+        clients: Arc::new(Mutex::new(ClientList::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
