@@ -7,6 +7,9 @@ use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
+use prettytable::{color, format, Attr, Cell, Row, Table};
+
+
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
@@ -38,7 +41,7 @@ pub struct CliClass {
     grpc_client: ControllerClient<Channel>,
 }
 
-// Execute the command as part of the argument
+// Execute the command that is passed in the command-line
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
@@ -99,14 +102,14 @@ impl CliClass {
     // rpc do_task(ScheduleTask) returns (Ack) {}
     async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask) -> Result<(), Box<dyn Error>> {
         let request = Request::new(schedule_task);
-        println!("[CLI] Sending schedule task to server {:?}", request);
+        println!("[CLI] Sending do_task to server {:?}", request);
         let response = self.grpc_client.do_task(request).await?;
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
         // Obtain the Stream from the server and read from it
         let mut stream = response.into_inner();
-        while let Some(task_result) = stream.message().await? { // TODO freezes here since it never stops waiting for new tasks
+        while let Some(task_result) = stream.message().await? {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
                 break;
@@ -167,7 +170,23 @@ impl CliClass {
         let request = Request::new(empty);
         let response = self.grpc_client.list_clients(request).await?;
 
-        println!("[CLI] Clients list response: {:?}", response);
+        let mut table = Table::new();
+        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+        table.add_row(Row::new(vec![
+            Cell::new("Hostname")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Version")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+        ]));
+        for client in response.into_inner().clients {
+            table.add_row(prettytable::row!(
+                    client.metadata.clone().unwrap().hostname,
+                    client.metadata.clone().unwrap().version,
+                ));
+        }
+        table.printstd();
 
         Ok(())
     }

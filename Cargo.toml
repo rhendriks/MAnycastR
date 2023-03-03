@@ -16,6 +16,7 @@ futures = "~0.1" # TODO deprecated version
 futures-core = "0.3.26"
 futures-util = "0.3.26"
 log = "0.4.17"
+prettytable-rs = "0.10.0"
 prost = "0.11.6"
 ratelimit_meter = "5.0.0"
 socket2 = "~0.3" # TODO deprecated
