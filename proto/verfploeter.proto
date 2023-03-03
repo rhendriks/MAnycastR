@@ -77,7 +77,7 @@ message Task {
 // Metadata (as used in Client), contains a hostname and a version.
 message Metadata {
   string hostname = 1;
-  string version = 2;
+  string version = 2; // TODO unused?
 }
 
 // A Ping (used in Task), which has a single source address and a list of destination addresses.

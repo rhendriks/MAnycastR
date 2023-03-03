@@ -57,7 +57,7 @@ impl Controller for ControllerService {
         };
 
         println!("[Server] Sending default value to CLI, notifying the task is finished");
-        tx.send(Ok(TaskResult::default())).await.unwrap();
+        tx.send(Ok(TaskResult::default())).await.unwrap(); // TODO when there are multiple clients this will break since for each client this message is sent, but only the first arrives.
 
         Ok(Response::new(Ack::default()))
     }

@@ -124,12 +124,14 @@ impl CliClass {
         // TODO create a file for each client?
         let mut wtr_file = csv::Writer::from_path("./data/output.csv")?; // TODO hardcoded path
 
-        wtr_cli.write_record(&["Source", "Destination", "Receive_time", "TTL"])?;
-        wtr_file.write_record(&["Source", "Destination", "Receive_time", "TTL"])?;
+        wtr_cli.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "TTL"])?;
+        wtr_file.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "TTL"])?;
 
+        // Loop over the results and write them to CLI/file
         for result in results {
             let task_id: u32 = result.task_id;
             let client: verfploeter::Client = result.client.unwrap();
+            let hostname: String = client.metadata.unwrap().hostname;
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
             let is_finished: bool = result.is_finished;
 
@@ -147,14 +149,13 @@ impl CliClass {
                         let receive_time = ping.receive_time.to_string();
                         // TODO payload
                         let ttl = ping.ttl.to_string();
-                        wtr_cli.write_record(&[source_address.clone(), destination_address.clone(), receive_time.clone(), ttl.clone()])?;
-                        wtr_file.write_record(&[source_address, destination_address, receive_time, ttl])?;
+                        wtr_cli.write_record(&[hostname.clone(), source_address.clone(), destination_address.clone(), receive_time.clone(), ttl.clone()])?;
+                        wtr_file.write_record(&[hostname.clone(), source_address, destination_address, receive_time, ttl])?;
                     },
                     _ => println!("UNRECOGNIZED"),
                 }
             }
         }
-        // TODO write to csv and cmd?
 
         Ok(())
     }

@@ -36,44 +36,43 @@ use tokio::task::JoinHandle;
 mod inbound;
 mod outbound;
 
-pub struct ClientConfig<'a> {
-    client_hostname: &'a str,
-}
+// pub struct ClientConfig<'a> {
+//     client_hostname: &'a str,
+// }
 
 pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
     tx: Sender<Task>,
     rx: Option<Receiver<Task>>,
+    metadata: verfploeter::Metadata,
 }
 
 impl ClientClass {
     // Create a new client object
     pub async fn new(args: &ArgMatches<'_>) -> Result<ClientClass, Box<dyn std::error::Error>> {
         println!("[Client] Creating new client");
-        // let client_config = ClientConfig { // TODO not used
-        //     client_hostname: args.value_of("hostname").unwrap(),
-        // };
 
         let hostname = args.value_of("hostname").unwrap();
 
         // Create Sender and Receiver channel for sending tasks to inbound, and receiving TaskResults to and from the pinger outbound
         let (tx, rx): (Sender<Task>, Receiver<Task>) = channel(100);
 
-        // Initialize a client class
-        let mut client_class = ClientClass {
-            grpc_client: Self::connect().await.unwrap(),
-            tx,
-            rx: Some(rx),
-        };
-
         let metadata = verfploeter::Metadata {
             hostname: hostname.parse().unwrap(), // TODO hostname and version
             version: "1".to_string(),
         };
 
+        // Initialize a client class
+        let mut client_class = ClientClass {
+            grpc_client: Self::connect().await.unwrap(),
+            tx,
+            rx: Some(rx),
+            metadata,
+        };
+
         // TODO has to be called here otherwise the message does not reach the server
         // TODO when I need the client connection further it is best to pass it on as argument
-        client_class.connect_to_server(metadata).await?;
+        client_class.connect_to_server().await?;
 
         Ok(client_class)
     }
@@ -137,7 +136,7 @@ impl ClientClass {
         let (mut tx_f, mut rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread
-        listen_ping(socket, tx, tx_f);
+        listen_ping(self.metadata.clone(), socket, tx, tx_f);
 
         // Start sending thread
         perform_ping(dest_addresses, socket2, rx_f);
@@ -153,15 +152,11 @@ impl ClientClass {
         }
         println!("closing rx");
         rx.close();
-        //
-        // for handle in handles.into_iter() {
-        //     handle.abort(); // TODO join threads?
-        // }
     }
 
     // rpc client_connect(Metadata) returns (stream Task) {}
-    async fn connect_to_server(&mut self, metadata: verfploeter::Metadata) -> Result<(), Box<dyn Error>> {
-        let request = Request::new(metadata);
+    async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
+        let request = Request::new(self.metadata.clone());
 
         println!("[Client] sending client connect");
         let response = self.grpc_client.client_connect(request).await?;
