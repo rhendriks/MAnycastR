@@ -14,36 +14,25 @@ use crate::client::verfploeter::task::Data;
 
 
 // Ping dependencies
-use crate::net::{ICMP4Packet, IPv4Packet};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use std::thread;
-use std::time::Duration;
 use clap::ArgMatches;
 
-use futures::sync::mpsc::{channel, Receiver, Sender};
 use crate::client::inbound::listen_ping;
 use crate::client::outbound::perform_ping;
-use tokio::task::JoinHandle;
 
 
 mod inbound;
 mod outbound;
 
-// pub struct ClientConfig<'a> {
-//     client_hostname: &'a str,
-// }
-
 pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
-    tx: Sender<Task>,
-    rx: Option<Receiver<Task>>,
     metadata: verfploeter::Metadata,
 }
 
@@ -54,19 +43,14 @@ impl ClientClass {
 
         let hostname = args.value_of("hostname").unwrap();
 
-        // Create Sender and Receiver channel for sending tasks to inbound, and receiving TaskResults to and from the pinger outbound
-        let (tx, rx): (Sender<Task>, Receiver<Task>) = channel(100);
-
         let metadata = verfploeter::Metadata {
-            hostname: hostname.parse().unwrap(), // TODO hostname and version
+            hostname: hostname.parse().unwrap(),
             version: "1".to_string(),
         };
 
         // Initialize a client class
         let mut client_class = ClientClass {
             grpc_client: Self::connect().await.unwrap(),
-            tx,
-            rx: Some(rx),
             metadata,
         };
 
@@ -95,7 +79,7 @@ impl ClientClass {
     // Create a connection to the gRPC Controller server
     async fn connect() -> Result<ControllerClient<Channel>, Box<dyn std::error::Error>> {
         // Create client connection with the Controller Server
-        let mut client = ControllerClient::connect("http://[::1]:10001").await?;
+        let client = ControllerClient::connect("http://[::1]:10001").await?;
 
         Ok(client)
     }
@@ -104,17 +88,16 @@ impl ClientClass {
 
     // Start the appropriate measurement based on the received task
     async fn start_measurement(&mut self, task: verfploeter::Task) {
-        let id = task.task_id;
-
+        let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
         match task.data.unwrap() {
-            Data::Ping(ping) => { self.init_ping(ping).await }
+            Data::Ping(ping) => { self.init_ping(ping, task_id).await }
             Data::Empty(_) => { println!("EMPTY TASK")} //TODO error handling
         }
     }
 
     // Prepare for performing a ping task
-    async fn init_ping(&mut self, ping: verfploeter::Ping) {
+    async fn init_ping(&mut self, ping: verfploeter::Ping, task_id: u32) {
         // Obtain values from the Ping message
         let source_addr = ping.source_address;
         let dest_addresses = ping.destination_addresses;
@@ -124,16 +107,17 @@ impl ClientClass {
             "{}:0",
             Ipv4Addr::from(source_addr).to_string()
         );
-        let mut socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         let socket2 = socket.clone();
 
         // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
+        // Channel for receiving and sending to the ping inbound listening thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when the outbound pinger is finished
-        let (mut tx_f, mut rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
+        let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread
         listen_ping(self.metadata.clone(), socket, tx, tx_f);
@@ -145,7 +129,9 @@ impl ClientClass {
         while let Some(packet) = rx.recv().await {
             // A default TaskResult notifies this sender that there will be no more results
             if packet == TaskResult::default() {
-                self.task_finished_to_server(TaskId::default()).await.unwrap(); // TODO task id
+                self.task_finished_to_server(TaskId {
+                    task_id
+                }).await.unwrap();
                 break;
             }
             self.send_result_to_server(packet).await.unwrap();
@@ -176,7 +162,7 @@ impl ClientClass {
     async fn send_result_to_server(&mut self, taskresult: verfploeter::TaskResult) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending TaskResult to server");
         let request = Request::new(taskresult);
-        let response = self.grpc_client.send_result(request).await?;
+        let _ = self.grpc_client.send_result(request).await?; // TODO check ack
 
         Ok(())
     }
@@ -185,7 +171,7 @@ impl ClientClass {
     async fn task_finished_to_server(&mut self, task_id: verfploeter::TaskId) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         let request = Request::new(task_id);
-        let response = self.grpc_client.task_finished(request).await?;
+        let _ = self.grpc_client.task_finished(request).await?; // TODO check acknowledgement
 
         Ok(())
     }

@@ -1,11 +1,4 @@
-// gRPC/tonic dependencies
-use futures_core::Stream;
-use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use tonic::{Request, Response, Status};
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::Server;
+use tonic::Request;
 
 use prettytable::{color, format, Attr, Cell, Row, Table};
 
@@ -47,7 +40,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server from CLI...");
-    let mut client = ControllerClient::connect("http://[::1]:10001").await?;
+    let client = ControllerClient::connect("http://[::1]:10001").await?;
     println!("[CLI] Connected to Controller Server");
 
     let mut cli_class = CliClass {
@@ -73,7 +66,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ips = buf_reader
             .lines()
             .map(|l| {
-                let mut address = u32::from(Ipv4Addr::from_str(&l.unwrap()).unwrap());
+                let address = u32::from(Ipv4Addr::from_str(&l.unwrap()).unwrap());
                 address
             })
             .collect::<Vec<u32>>();
@@ -133,21 +126,16 @@ impl CliClass {
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let task_id: u32 = result.task_id;
+            let _: u32 = result.task_id; // TODO make sure all results belong to the requested task_id
             let client: verfploeter::Client = result.client.unwrap();
             let hostname: String = client.metadata.unwrap().hostname;
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
-            let is_finished: bool = result.is_finished;
-
-            println!("{:?}", verfploeter_results);
 
             for verfploeter_result in verfploeter_results {
                 // let Some(ping)
                 let value = verfploeter_result.value.unwrap();
-                println!("value: {:?}", value);
                 match value {
                     ResultPing(ping) => {
-                        println!("PingResult {:?}", ping);
                         let source_address = Ipv4Addr::from(ping.source_address).to_string();
                         let destination_address = Ipv4Addr::from(ping.destination_address).to_string();
                         let receive_time = ping.receive_time.to_string();
@@ -155,8 +143,8 @@ impl CliClass {
                         let ttl = ping.ttl.to_string();
                         wtr_cli.write_record(&[hostname.clone(), source_address.clone(), destination_address.clone(), receive_time.clone(), ttl.clone()])?;
                         wtr_file.write_record(&[hostname.clone(), source_address, destination_address, receive_time, ttl])?;
-                    },
-                    _ => println!("UNRECOGNIZED"),
+                    }
+                    // _ => println!("UNRECOGNIZED"),
                 }
             }
         }

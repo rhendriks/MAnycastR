@@ -1,8 +1,5 @@
-use super::Task;
-
 // TODO socket2 can be converted into socket/stream for UDP/TCP
 // This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
-
 
 // Ratelimiter dependencies
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
@@ -11,16 +8,13 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // Ping dependencies
-use crate::net::{ICMP4Packet, IPv4Packet};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr};
+use crate::net::ICMP4Packet;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::oneshot::Receiver;
-use socket2::{Domain, Protocol, Socket, Type};
-use tokio::sync::oneshot::Sender;
+use socket2::Socket;
 
-use crate::client;
 use crate::client::verfploeter::PingPayload;
-use crate::client::verfploeter::task::Data;
 
 // TODO info_url
 // TODO lock thread such that only one task is active at a time

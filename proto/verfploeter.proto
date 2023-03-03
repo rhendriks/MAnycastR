@@ -25,7 +25,7 @@ service Controller {
   // Client sends TaskResult to Server
   rpc send_result(TaskResult) returns (Ack) {}
   // CLI subscribes itself to the Server to obtain a stream of TaskResult
-  rpc subscribe_result(TaskId) returns (stream TaskResult) {}  // TODO not used (unnecessary?)
+//  rpc subscribe_result(TaskId) returns (stream TaskResult) {}  // TODO not used (unnecessary?)
 }
 
 
@@ -100,7 +100,7 @@ message TaskResult {
   uint32 task_id = 1;
   Client client = 2;
   repeated VerfploeterResult result_list = 3;
-  bool is_finished = 4; // TODO unused?
+//  bool is_finished = 4; // TODO unused?
 }
 
 // A result, always contains a PingResult

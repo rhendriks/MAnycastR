@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::Socket;
 use crate::net::{IPv4Packet, PacketPayload};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr};
-use std::thread::JoinHandle;
+use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
 use crate::client::verfploeter::verfploeter_result::Value;
 
@@ -46,6 +45,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     }
 
                     let packet = IPv4Packet::from(&buffer[..result]);
+                    println!("Received packet! {:?}", packet);
 
                     // Obtain the payload
                     if let PacketPayload::ICMPv4 { value } = packet.payload {
@@ -130,7 +130,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
-                    is_finished: false, // TODO
                 };
 
                 // Send the result to the client handler
