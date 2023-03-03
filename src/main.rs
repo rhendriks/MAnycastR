@@ -10,14 +10,11 @@ extern crate log;
 
 // Command line argument parser (clap) for Rust
 use clap::{App, Arg, ArgMatches, SubCommand};
-use std::thread;
-use std::time::Duration;
-use crate::client::ClientClass;
 
 mod cli;
 mod server;
 mod client;
-mod net; // TODO not used?
+mod net;
 
 
 /// VerfPloeter:: main() - Parse command line input and start VerfPloeter server/client or CLI
@@ -26,21 +23,21 @@ fn main() {
     let env = env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info");
     env_logger::Builder::from_env(env).init();
 
-    // Log a message indicating that the main function has started
-    debug!("comecou a bagaca!");
-
     // Parse the command line arguments
     let matches = parse_cmd();
 
-    if let Some(cli_matches) = matches.subcommand_matches("client") {
+    if let Some(client_matches) = matches.subcommand_matches("client") {
         println!("[Main] Executing client");
+
+        // TODO handle remaining client_matches arguments
+
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let client = rt.block_on(async { client::ClientClass::new(cli_matches).await.unwrap() });
+        let _ = rt.block_on(async { client::ClientClass::new(client_matches).await.unwrap() }); // TODO use variable / error handling
         // client.start();
 
         return;
@@ -48,14 +45,20 @@ fn main() {
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI");
-        cli::execute(cli_matches);
+
+        // TODO handle remaining cli_matches arguments
+
+        let _ = cli::execute(cli_matches); // TODO use result/error handling
         return;
     }
 
     if let Some(server_matches) = matches.subcommand_matches("server") {
         println!("[Main] Executing server");
         debug!("Selected SERVER_MODE!");
-        server::main();
+
+        // TODO handle address:port in server_matches
+
+        let _ = server::main(); // TODO use result/error handling
     }
 }
 

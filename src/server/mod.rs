@@ -1,17 +1,12 @@
 use std::collections::HashMap;
 // gRPC/tonic dependencies
-use futures_core::Stream;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
-use tonic::transport::Channel;
-use std::error::Error;
 use std::ops::AddAssign;
-use futures::Sink;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -58,7 +53,7 @@ impl Controller for ControllerService {
         let task_id: u32 = request.into_inner().task_id;
 
         let tx = {
-            let mut sender = self.cli_sender.lock().unwrap();
+            let sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()
         };
 
@@ -103,7 +98,7 @@ impl Controller for ControllerService {
             });
         }
 
-        let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
         {
@@ -164,10 +159,10 @@ impl Controller for ControllerService {
             }
 
             // Establish a stream with the CLI to return the TaskResults through
-            let (mut tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+            let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
             {
                 let mut sender = self.cli_sender.lock().unwrap();
-                let _ = sender.insert(tx);
+                let _ = sender.insert(tx); // TODO will cause issues when two CLIs send tasks at once
             }
 
             Ok(Response::new(ReceiverStream::new(rx)))
@@ -204,24 +199,24 @@ impl Controller for ControllerService {
         Ok(Response::new(Ack::default()))
     }
 
-    type subscribe_resultStream = ReceiverStream<Result<TaskResult, Status>>; // TODO unused
-    // The server sends a Stream
-    async fn subscribe_result( // TODO unused
-        &self,
-        request: Request<TaskId>,
-    ) -> Result<tonic::Response<Self::subscribe_resultStream>, Status> {
-        println!("[Server] Received subscribe_result");
-
-        let (mut tx, rx) = tokio::sync::mpsc::channel(4);
-
-        tokio::spawn(async move {
-            // for client in &self.clients[..] {
-            //     tx.send(Ok(client.clone())).await.unwrap(); //TODO
-            // }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
-    }
+    // type subscribe_resultStream = ReceiverStream<Result<TaskResult, Status>>;
+    // // The server sends a Stream
+    // async fn subscribe_result(
+    //     &self,
+    //     request: Request<TaskId>,
+    // ) -> Result<tonic::Response<Self::subscribe_resultStream>, Status> {
+    //     println!("[Server] Received subscribe_result");
+    //
+    //     let (mut tx, rx) = tokio::sync::mpsc::channel(4);
+    //
+    //     tokio::spawn(async move {
+    //         // for client in &self.clients[..] {
+    //         //     tx.send(Ok(client.clone())).await.unwrap();
+    //         // }
+    //     });
+    //
+    //     Ok(Response::new(ReceiverStream::new(rx)))
+    // }
 }
 
 #[tokio::main]
