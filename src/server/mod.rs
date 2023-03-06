@@ -36,6 +36,7 @@ pub struct ControllerService {
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     current_task_id: Arc<Mutex<u32>>,
+    current_client_id: Arc<Mutex<u32>>,
 }
 
 // gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
@@ -47,8 +48,17 @@ impl Controller for ControllerService {
         &self,
         request: Request<verfploeter::Empty>
     ) -> Result<Response<ClientId>, Status> {
+
+        // Obtain client id
+        let client_id: u32;
+        {
+            let mut current_client_id = self.current_client_id.lock().unwrap();
+            client_id = *current_client_id;
+            current_client_id.add_assign(1);
+        }
+
         Ok(Response::new(ClientId{
-            client_id: 23241, // TODO assign unique client_id
+            client_id,
         }))
     }
 
@@ -262,6 +272,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
 
         current_task_id: Arc::new(Mutex::new(156434)), // TODO create random value as initial task id?
+        current_client_id: Arc::new(Mutex::new(0)),
     };
 
     let svc = ControllerServer::new(controller);
