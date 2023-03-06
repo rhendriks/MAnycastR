@@ -20,12 +20,14 @@ use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use clap::ArgMatches;
 
 use crate::client::inbound::listen_ping;
 use crate::client::outbound::perform_ping;
+use crate::client::verfploeter::ClientId;
 
 
 mod inbound;
@@ -34,6 +36,7 @@ mod outbound;
 pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
     metadata: verfploeter::Metadata,
+    source_address: u32,
 }
 
 impl ClientClass {
@@ -42,6 +45,12 @@ impl ClientClass {
         println!("[Client] Creating new client");
 
         let hostname = args.value_of("hostname").unwrap();
+
+        let mut source = 0;
+        // Get the source address if it's present
+        if args.is_present("source") {
+            source = u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap());
+        }
 
         let metadata = verfploeter::Metadata {
             hostname: hostname.parse().unwrap(),
@@ -52,6 +61,7 @@ impl ClientClass {
         let mut client_class = ClientClass {
             grpc_client: Self::connect().await.unwrap(),
             metadata,
+            source_address: source,
         };
 
         // TODO has to be called here otherwise the message does not reach the server
@@ -87,19 +97,26 @@ impl ClientClass {
 
 
     // Start the appropriate measurement based on the received task
-    async fn start_measurement(&mut self, task: verfploeter::Task) {
+    async fn start_measurement(&mut self, task: verfploeter::Task, client_id: u32) {
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
         match task.data.unwrap() {
-            Data::Ping(ping) => { self.init_ping(ping, task_id).await }
+            Data::Ping(ping) => { self.init_ping(ping, task_id, client_id).await }
             Data::Empty(_) => { println!("EMPTY TASK")} //TODO error handling
         }
     }
 
     // Prepare for performing a ping task
-    async fn init_ping(&mut self, ping: verfploeter::Ping, task_id: u32) {
+    async fn init_ping(&mut self, ping: verfploeter::Ping, task_id: u32, client_id: u32) {
         // Obtain values from the Ping message
-        let source_addr = ping.source_address;
+
+        // If there's a source address specified use it, otherwise use the one in the task.
+        let mut source_addr;
+        if self.source_address == 0 {
+            source_addr = ping.source_address;
+        } else {
+            source_addr = self.source_address;
+        }
         let dest_addresses = ping.destination_addresses;
 
         // Create the socket to send the ping messages from
@@ -120,10 +137,10 @@ impl ClientClass {
         let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread
-        listen_ping(self.metadata.clone(), socket, tx, tx_f);
+        listen_ping(self.metadata.clone(), socket, tx, tx_f, task_id);
 
         // Start sending thread
-        perform_ping(dest_addresses, socket2, rx_f);
+        perform_ping(dest_addresses, socket2, rx_f, client_id);
 
         // Obtain TaskResults from the unbounded channel and send them to the server
         while let Some(packet) = rx.recv().await {
@@ -143,6 +160,8 @@ impl ClientClass {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         let request = Request::new(self.metadata.clone());
 
+        let client_id: u32 = self.get_client_id_to_server().await.unwrap().client_id;
+
         println!("[Client] sending client connect");
         let response = self.grpc_client.client_connect(request).await?;
 
@@ -151,11 +170,17 @@ impl ClientClass {
         while let Some(task) = stream.message().await? {
             println!("[Client] Received task! {:?}", task);
             // Only one measurement at a time, therefore it is pointless to spawn threads here
-            self.start_measurement(task).await;
+            self.start_measurement(task, client_id).await;
         }
         println!("[Client] Stopped awaiting tasks...");
 
         Ok(())
+    }
+
+    async fn get_client_id_to_server(&mut self) -> Result<(ClientId), Box<dyn Error>> {
+        let client_id = self.grpc_client.get_client_id(Request::new(verfploeter::Empty::default())).await?.into_inner();
+
+        Ok(client_id)
     }
 
     // rpc send_result(TaskResult) returns (Ack) {}
