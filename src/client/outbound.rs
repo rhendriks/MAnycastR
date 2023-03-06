@@ -20,7 +20,7 @@ use crate::client::verfploeter::PingPayload;
 // TODO lock thread such that only one task is active at a time
 
 // Perform a ping measurement/task
-pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>) {
+pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u32) {
     println!("[Client outbound] Started pinging thread");
     thread::spawn({
         move || {
@@ -38,10 +38,11 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
 
                 // Create ping payload
                 let payload = PingPayload {
-                    task_id: 1111,
+                    task_id: 1111, // TODO
                     transmit_time,
-                    source_address: 3333,
-                    destination_address: 4444,
+                    source_address: 3333, // TODO
+                    destination_address: 4444, // TODO
+                    sender_client_id: client_id,
                 };
 
                 let mut bytes: Vec<u8> = Vec::new();
@@ -49,6 +50,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
                 bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
                 bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15
                 bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19
+                bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 

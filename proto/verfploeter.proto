@@ -25,6 +25,7 @@ service Controller {
   // Client sends TaskResult to Server
   rpc send_result(TaskResult) returns (Ack) {}
   // CLI subscribes itself to the Server to obtain a stream of TaskResult
+  rpc get_client_id(Empty) returns (ClientId) {}
 //  rpc subscribe_result(TaskId) returns (stream TaskResult) {}  // TODO not used (unnecessary?)
 }
 
@@ -45,6 +46,8 @@ message Ack {
 // Send a task ID
 message TaskId { uint32 task_id = 1; }
 
+message ClientId {uint32 client_id = 1;}
+
 // Schedule a task, with a Client who has to execute it (defined below), and a Ping (defined below)
 message ScheduleTask {
 //  Client client = 1; // TODO all clients execute the task?
@@ -61,7 +64,7 @@ message ClientList {
 
 // A client, which contains an index, and metadata (defined below)
 message Client {
-  uint32 index = 1; // TODO unused?
+//  uint32 index = 1;
   Metadata metadata = 2;
 }
 
@@ -118,7 +121,8 @@ message PingResult {
   fixed32 destination_address = 2;
   uint64 receive_time = 3;
   PingPayload payload = 4;
-  uint32 ttl = 5;
+  fixed32 ttl = 5;
+  fixed32 receiver_client_id = 6;
 }
 
 // PingPayload. The payload of a ping, with task ID, transmission time, source/dest address.
@@ -127,4 +131,5 @@ message PingPayload {
   fixed64 transmit_time = 2;
   fixed32 source_address = 3;
   fixed32 destination_address = 4;
+  fixed32 sender_client_id = 5;
 }

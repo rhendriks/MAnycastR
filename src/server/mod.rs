@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-// gRPC/tonic dependencies
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
@@ -21,7 +20,7 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 // Load in struct definitions for the message types
 use verfploeter::{
     Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
-    VerfploeterResult, PingResult, PingPayload,
+    VerfploeterResult, PingResult, PingPayload, ClientId
 };
 
 // Load in CliClient
@@ -39,10 +38,19 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
 }
 
-// Realized largely with this tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
+// gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
 // The Controller service implementation
 #[tonic::async_trait]
 impl Controller for ControllerService {
+
+    async fn get_client_id(
+        &self,
+        request: Request<verfploeter::Empty>
+    ) -> Result<Response<ClientId>, Status> {
+        Ok(Response::new(ClientId{
+            client_id: 23241, // TODO assign unique client_id
+        }))
+    }
 
     async fn task_finished(
         &self,
@@ -58,7 +66,7 @@ impl Controller for ControllerService {
         };
 
         // Wait till we have received 'task_finished' from all clients that executed this task
-        let finished: bool;
+        let finished: bool; // TODO if a client disconnects/crashes during his task, the finish signal will never be sent to the CLI
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
@@ -89,11 +97,11 @@ impl Controller for ControllerService {
         request: Request<verfploeter::Metadata>,
     ) -> Result<Response<Self::client_connectStream>, Status> {
         println!("[Server] Received client_connect");
-
+        // Add the client to the client list
         {
             let mut clients_list = self.clients.lock().unwrap();
             clients_list.clients.push(verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
-                index: 0, // TODO index ?
+                // index: 0,
                 metadata: Some(request.into_inner()),
             });
         }
@@ -117,13 +125,29 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::do_taskStream>, Status> {
         println!("[Server] Received do_task");
 
-        // TODO if there are no clients connected, return an error, or let the CLI know the task is finished immediately?
-
         // Get the list of Senders (that connect to the clients)
         let senders_list_clone = {
-            let senders_list = self.senders.lock().unwrap();
-            senders_list.clone()
+            // Make sure all clients still have an open connection
+            let mut i = 0;
+            let mut senders = self.senders.lock().unwrap();
+            // Temporary clone to loop over (as we will be changing the senders during this loop)
+            let senders_temp =senders.clone();
+
+            for sender in senders_temp {
+                println!("next");
+                // If the sender is closed
+                if sender.is_closed() {
+                    println!("[Server] Client unavailable, connection closed. Client removed.");
+                    // Remove this sender
+                    senders.remove(i);
+                    println!("removed");
+                } else {
+                    i += 1
+                }
+            }
+            senders
         };
+        println!("done removing");
 
         // If there are connected clients that will perform this task
         if senders_list_clone.len() > 0 {
@@ -138,6 +162,7 @@ impl Controller for ControllerService {
             // Store the number of clients that will perform this task
             {
                 let mut open_tasks = self.open_tasks.lock().unwrap();
+                println!("LEN {:?}", senders_list_clone);
                 open_tasks.insert(task_id, senders_list_clone.len() as u32);
             }
 
@@ -154,8 +179,12 @@ impl Controller for ControllerService {
 
             // Send the task to every client
             for sender in senders_list_clone.iter() {
-                println!("[Server] Sending task to client");
-                sender.send(Ok(task.clone())).await.unwrap(); // TODO if a client crashes (or disconnects) it will still try to send to the client here, which will crash the program
+                // Send packet to client
+                if let Ok(_) = sender.try_send(Ok(task.clone())) {
+                    println!("[Server] Sent task to client");
+                } else {
+                    println!("[Server] ERROR - Failed to send task to client"); // TODO error handling
+                }
             }
 
             // Establish a stream with the CLI to return the TaskResults through

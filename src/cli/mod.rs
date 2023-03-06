@@ -121,8 +121,8 @@ impl CliClass {
         // TODO create a file for each client?
         let mut wtr_file = csv::Writer::from_path("./data/output.csv")?; // TODO hardcoded path
 
-        wtr_cli.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "TTL"])?;
-        wtr_file.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "TTL"])?;
+        wtr_cli.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "Transmit_time", "TTL", "receiver_client_id", "sender_client_id"])?;
+        wtr_file.write_record(&["Client_hostname", "Source", "Destination", "Receive_time", "Transmit_time", "TTL", "receiver_client_id", "sender_client_id"])?;
 
         // Loop over the results and write them to CLI/file
         for result in results {
@@ -139,10 +139,15 @@ impl CliClass {
                         let source_address = Ipv4Addr::from(ping.source_address).to_string();
                         let destination_address = Ipv4Addr::from(ping.destination_address).to_string();
                         let receive_time = ping.receive_time.to_string();
-                        // TODO payload
+                        let receiver_client_id = ping.receiver_client_id.to_string();
+
+                        let payload = ping.payload.unwrap();
+                        let transmit_time = payload.transmit_time.to_string();
+                        let sender_client_id = payload.sender_client_id.to_string();
+
                         let ttl = ping.ttl.to_string();
-                        wtr_cli.write_record(&[hostname.clone(), source_address.clone(), destination_address.clone(), receive_time.clone(), ttl.clone()])?;
-                        wtr_file.write_record(&[hostname.clone(), source_address, destination_address, receive_time, ttl])?;
+                        wtr_cli.write_record(&[hostname.clone(), destination_address.clone(), source_address.clone(), receive_time.clone(), transmit_time.clone(), ttl.clone(), receiver_client_id.clone(), sender_client_id.clone()])?;
+                        wtr_file.write_record(&[hostname.clone(), destination_address, source_address, receive_time, transmit_time, ttl, receiver_client_id, sender_client_id])?;
                     }
                     // _ => println!("UNRECOGNIZED"),
                 }

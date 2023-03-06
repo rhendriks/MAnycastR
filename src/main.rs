@@ -91,6 +91,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO requires deprecated version of cl
                         .help("hostname/ip address:port of the server")
                         .default_value("127.0.0.1:50001")
                 )
+                .arg(
+                    Arg::with_name("source")
+                        .short("a")
+                        .takes_value(true)
+                        .help("Source address of this client")
+                        .required(false)
+                )
             // .arg(Arg::with_name("certificate").short("c").takes_value(true).help("Certificate to use for SSL connection to server (PEM-encoded file)").required(false))
         )
         .subcommand(
