@@ -1,3 +1,3 @@
-Client_hostname,Source,Destination,Receive_time,Transmit_time,TTL,receiver_client_id,sender_client_id
-client1.nl,192.168.178.83,8.8.8.8,1678042878555096500,1678042878549460100,60,0,23241
-client1.nl,192.168.178.83,1.1.1.1,1678042878555341200,1678042878549762200,59,0,23241
+recv_hostname,reply_src,reply_dest,request_src,request_dest,recv_time,send_time,TTL,recv_client_id,sender_client_id
+client1.nl,8.8.8.8,192.168.178.82,0.0.0.0,8.8.8.8,1678109778527277900,1678109778520101700,60,23241,23241
+client1.nl,1.1.1.1,192.168.178.82,0.0.0.0,1.1.1.1,1678109778527295200,1678109778520382800,59,23241,23241

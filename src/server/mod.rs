@@ -261,7 +261,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
 
-        current_task_id: Arc::new(Mutex::new(0)),
+        current_task_id: Arc::new(Mutex::new(156434)), // TODO create random value as initial task id?
     };
 
     let svc = ControllerServer::new(controller);

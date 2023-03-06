@@ -15,7 +15,7 @@ use crate::client::verfploeter::verfploeter_result::Value;
 // This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
 
 // Listen for incoming ping packets
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -38,21 +38,23 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             // Tokio thread
             let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for packets");
+                println!("[Client inbound] Listening for packets for task - {}", task_id);
                 while let Ok(result) = socket.recv(&mut buffer) {
-                    if result == 0 {
-                        break;
-                    }
-
                     let packet = IPv4Packet::from(&buffer[..result]);
-                    println!("Received packet! {:?}", packet);
 
                     // Obtain the payload
                     if let PacketPayload::ICMPv4 { value } = packet.payload {
 
                         // TODO make sure the received ping is part of this measurement
 
-                        let task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+                        let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+
+                        // Make sure that this packet belongs to this task
+                        if pkt_task_id != task_id {
+                            // If not, we discard it and await the next packet
+                            continue
+                        }
+
                         // println!("task_id: {}", task_id);
                         let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
                         // println!("transmit_time: {}", transmit_time);
@@ -60,7 +62,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         // println!("source_address: {}", source_address);
                         let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
                         // println!("destination_address: {}", destination_address);
-                        let client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+                        let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
 
                         let receive_time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
@@ -78,10 +80,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                                     transmit_time,
                                     source_address,
                                     destination_address,
-                                    sender_client_id: client_id,
+                                    sender_client_id,
                                 }),
                                 ttl: packet.ttl as u32,
-                                receiver_client_id: 0, // TODO
+                                receiver_client_id: client_id,
                             })),
                         };
 
