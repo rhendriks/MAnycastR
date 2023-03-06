@@ -113,8 +113,10 @@ impl ClientClass {
         // If there's a source address specified use it, otherwise use the one in the task.
         let mut source_addr;
         if self.source_address == 0 {
+            // Use the one specified by the CLI in the task
             source_addr = ping.source_address;
         } else {
+            // Use this client's address that was specified in the command-line arguments
             source_addr = self.source_address;
         }
         let dest_addresses = ping.destination_addresses;
@@ -137,10 +139,10 @@ impl ClientClass {
         let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread
-        listen_ping(self.metadata.clone(), socket, tx, tx_f, task_id);
+        listen_ping(self.metadata.clone(), socket, tx, tx_f, task_id, client_id);
 
         // Start sending thread
-        perform_ping(dest_addresses, socket2, rx_f, client_id);
+        perform_ping(dest_addresses, socket2, rx_f, task_id, client_id, source_addr);
 
         // Obtain TaskResults from the unbounded channel and send them to the server
         while let Some(packet) = rx.recv().await {

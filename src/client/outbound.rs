@@ -20,7 +20,7 @@ use crate::client::verfploeter::PingPayload;
 // TODO lock thread such that only one task is active at a time
 
 // Perform a ping measurement/task
-pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u32) {
+pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u32, source_addr: u32) {
     println!("[Client outbound] Started pinging thread");
     thread::spawn({
         move || {
@@ -38,10 +38,10 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
 
                 // Create ping payload
                 let payload = PingPayload {
-                    task_id: 1111, // TODO
+                    task_id,
                     transmit_time,
-                    source_address: 3333, // TODO
-                    destination_address: 4444, // TODO
+                    source_address: source_addr,
+                    destination_address: dest_addr,
                     sender_client_id: client_id,
                 };
 
