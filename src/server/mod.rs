@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
@@ -8,7 +8,10 @@ use tonic::transport::Server;
 use std::ops::AddAssign;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::thread;
+use std::time::Duration;
 use futures_core::Stream;
+use tokio::sync::mpsc::error::TryRecvError;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -54,8 +57,9 @@ pub struct MyStream(tokio::sync::mpsc::Receiver<Result<Task, Status>>);
 // Special Receiver struct that notices when the receiver drops
 // This allows us to detect when a client has disconnected and handle it
 pub struct DropReceiver<T> {
-    // chan: oneshot::Sender<usize>,
     inner: mpsc::Receiver<T>,
+    open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
+    cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
 }
 
 impl<T> Stream for DropReceiver<T> {
@@ -68,9 +72,14 @@ impl<T> Stream for DropReceiver<T> {
 
 impl<T> Drop for DropReceiver<T> {
     fn drop(&mut self) {
-        println!("Receiver has been dropped");
-        // TODO
-        // self.chan.send(1).await;
+        println!("[Server] Receiver has been dropped");
+
+        // A client disconnecting during an open task, will result in it being terminated
+        // TODO would it be better to let the other clients finish
+        if self.open_tasks.lock().unwrap().len() > 0 {
+            println!("Sending end task to CLI");
+            self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
+        }
     }
 }
 
@@ -142,14 +151,18 @@ impl Controller for ControllerService {
         request: Request<verfploeter::Metadata>,
     ) -> Result<Response<Self::client_connectStream>, Status> {
         println!("[Server] Received client_connect");
+
         // Add the client to the client list
         {
             let mut clients_list = self.clients.lock().unwrap();
-            clients_list.clients.push(verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
+
+            let new_client = verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
                 // index: 0,
                 metadata: Some(request.into_inner()),
-            });
-        }
+            };
+
+            clients_list.clients.push(new_client);
+        };
 
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
@@ -160,10 +173,10 @@ impl Controller for ControllerService {
         }
 
         let rx = DropReceiver {
-            // chan: oneshot_tx;
             inner: rx,
+            open_tasks: self.open_tasks.clone(),
+            cli_sender: self.cli_sender.clone(),
         };
-
         // Send the stream receiver to the client
         Ok(Response::new(rx))
     }
@@ -181,7 +194,7 @@ impl Controller for ControllerService {
             let mut i = 0;
             let mut senders = self.senders.lock().unwrap();
             // Temporary clone to loop over (as we will be changing the senders during this loop)
-            let senders_temp =senders.clone();
+            let senders_temp = senders.clone();
 
             for sender in senders_temp {
                 println!("next");
@@ -241,7 +254,7 @@ impl Controller for ControllerService {
             let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
             {
                 let mut sender = self.cli_sender.lock().unwrap();
-                let _ = sender.insert(tx); // TODO will cause issues when two CLIs send tasks at once
+                let _ = sender.insert(tx);
             }
 
             // TODO spawn thread that periodically checks if all clients are connected and will handle it when they are not
