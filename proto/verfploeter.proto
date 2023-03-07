@@ -15,7 +15,7 @@ package verfploeter;
 // The controller which controls and is responsible for most communication
 service Controller {
   // Client lets the server know the task is finished
-  rpc TaskFinished(TaskId) returns (Ack) {} // TODO can use this to close the rx from client -> server, and send default value to Cli to close the rx there for cli -> server
+  rpc TaskFinished(TaskId) returns (Ack) {}
   // Client announces itself, and starts connection with the Server. The server sends a stream of Task
   rpc ClientConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a task
@@ -26,12 +26,7 @@ service Controller {
   rpc SendResult(TaskResult) returns (Ack) {}
   // CLI subscribes itself to the Server to obtain a stream of TaskResult
   rpc GetClientId(Empty) returns (ClientId) {}
-//  rpc subscribe_result(TaskId) returns (stream TaskResult) {}  // TODO not used (unnecessary?)
 }
-
-
-
-// NOTE the integer values assigned to the fields inside the messages indicate the position of the data.
 
 // Empty message
 message Empty {}
@@ -50,7 +45,6 @@ message ClientId {uint32 client_id = 1;}
 
 // Schedule a task, with a Client who has to execute it (defined below), and a Ping (defined below)
 message ScheduleTask {
-//  Client client = 1; // TODO all clients execute the task?
   oneof data {
     Ping ping = 2;
     // TODO I can define different types of pings to distinguish between TCP/UDP/ICMP
@@ -64,7 +58,6 @@ message ClientList {
 
 // A client, which contains an index, and metadata (defined below)
 message Client {
-//  uint32 index = 1;
   Metadata metadata = 2;
 }
 
@@ -89,21 +82,12 @@ message Ping {
   repeated fixed32 destination_addresses = 2;
 }
 
-// An address, can be either an IPv4 or an IPv6 address.
-//message Address {
-//  oneof value {
-//    fixed32 v4 = 1;
-//    bytes v6 = 2;
-//  }
-//}
-
 // A TaskResult (i.e. the result of a Ping), contains the task ID, Client that executed the task,
 // a list of Result (one for each targeted dest. address), a boolean indicating whether it was finished.
 message TaskResult {
   uint32 task_id = 1;
   Client client = 2;
   repeated VerfploeterResult result_list = 3;
-//  bool is_finished = 4; // TODO unused?
 }
 
 // A result, always contains a PingResult

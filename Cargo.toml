@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 async-stream = "0.3.4"
 byteorder = "1.4.3"
+chrono = "0.4.23"
 clap = "~2" # TODO deprecated version
 # Used for writing to .csv file and CLI
 csv = "1.2.0"

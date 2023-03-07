@@ -29,19 +29,18 @@ fn main() {
             .unwrap();
 
         let _ = rt.block_on(async { client::ClientClass::new(client_matches).await.unwrap() });
-        // client.start();
 
         return;
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
-    if let Some(cli_matches) = matches.subcommand_matches("cli") {
+    else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI");
 
         let _ = cli::execute(cli_matches);
         return;
     }
 
-    if let Some(server_matches) = matches.subcommand_matches("server") {
+    else if let Some(server_matches) = matches.subcommand_matches("server") {
         println!("[Main] Executing server");
         debug!("Selected SERVER_MODE!");
 
