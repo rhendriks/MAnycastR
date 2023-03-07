@@ -38,9 +38,10 @@ pub struct CliClass {
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
+    let addr = "https://".to_string().add(args.value_of("server").unwrap());
     // Create client connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server from CLI...");
-    let client = ControllerClient::connect("http://[::1]:10001").await?;
+    println!("[CLI] Connecting to Controller Server at address {}", addr);
+    let client = ControllerClient::connect(addr).await?;
     println!("[CLI] Connected to Controller Server");
 
     let mut cli_class = CliClass {
@@ -118,15 +119,15 @@ impl CliClass {
         let mut wtr_cli = csv::Writer::from_writer(io::stdout());
 
         // CSV writer to file
-        // TODO create a file for each client?
         let mut wtr_file = csv::Writer::from_path("./data/output.csv")?; // TODO hardcoded path
+        // TODO add date/time to file_name
 
         wtr_cli.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
         wtr_file.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let _: u32 = result.task_id; // TODO make sure all results belong to the requested task_id
+            let _: u32 = result.task_id;
             let client: verfploeter::Client = result.client.unwrap();
             let hostname: String = client.metadata.unwrap().hostname;
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
@@ -152,7 +153,6 @@ impl CliClass {
                         wtr_cli.write_record(&[hostname.clone(), reply_src.clone(), reply_dest.clone(), request_src.clone(), request_dest.clone(), recv_time.clone(), transmit_time.clone(), ttl.clone(), recv_client_id.clone(), sender_client_id.clone()])?;
                         wtr_file.write_record(&[hostname.clone(), reply_src, reply_dest, request_src, request_dest, recv_time, transmit_time, ttl, recv_client_id, sender_client_id])?;
                     }
-                    // _ => println!("UNRECOGNIZED"),
                 }
             }
         }
@@ -186,14 +186,4 @@ impl CliClass {
 
         Ok(())
     }
-
-    // // rpc subscribe_result(TaskId) returns (stream TaskResult) {}
-    // async fn subscribe_result_to_server(&mut self, task_id: verfploeter::TaskId) -> Result<(), Box<dyn Error>> { // TODO not used (unnecessary?)
-    //     let request = Request::new(task_id);
-    //     let response = self.grpc_client.subscribe_result(request).await?;
-    //
-    //     println!("[CLI] RESPONSE = {:?}", response);
-    //
-    //     Ok(())
-    // }
 }

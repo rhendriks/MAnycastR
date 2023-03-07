@@ -5,11 +5,12 @@ use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
+use clap::ArgMatches;
 use futures_core::Stream;
 use tokio::sync::mpsc::error::TryRecvError;
 
@@ -45,10 +46,10 @@ pub struct ControllerService {
     current_client_id: Arc<Mutex<u32>>,
 }
 
-pub struct MyStream(tokio::sync::mpsc::Receiver<Result<Task, Status>>);
+pub struct MyStream(mpsc::Receiver<Result<Task, Status>>);
 
 // In here you just need to forward the `poll_accept` call
-// to the inner `Reciever`.
+// to the inner `Receiver`.
 
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
 
@@ -67,7 +68,7 @@ pub struct DropReceiver<T> {
 impl<T> Stream for DropReceiver<T> {
     type Item = T;
 
-    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
         self.inner.poll_recv(cx)
     }
 }
@@ -185,7 +186,7 @@ impl Controller for ControllerService {
         {
             let mut clients_list = self.clients.lock().unwrap();
 
-            let new_client = verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
+            let new_client = verfploeter::Client {
                 // index: 0,
                 metadata: Some(verfploeter::Metadata {
                     version,
@@ -196,7 +197,7 @@ impl Controller for ControllerService {
             clients_list.clients.push(new_client);
         };
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
         {
@@ -278,19 +279,16 @@ impl Controller for ControllerService {
                 if let Ok(_) = sender.try_send(Ok(task.clone())) {
                     println!("[Server] Sent task to client");
                 } else {
-                    println!("[Server] ERROR - Failed to send task to client"); // TODO error handling
+                    println!("[Server] ERROR - Failed to send task to client");
                 }
             }
 
             // Establish a stream with the CLI to return the TaskResults through
-            let (tx, rx) = tokio::sync::mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+            let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
             {
                 let mut sender = self.cli_sender.lock().unwrap();
                 let _ = sender.insert(tx);
             }
-
-            // TODO spawn thread that periodically checks if all clients are connected and will handle it when they are not
-
 
             Ok(Response::new(ReceiverStream::new(rx)))
         // If there are no connected clients
@@ -327,10 +325,13 @@ impl Controller for ControllerService {
     }
 }
 
-#[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+// Start the server
+// #[tokio::main]
+pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
     // Start the Controller server
-    let addr = "[::1]:10001".parse().unwrap();
+
+    let port = args.value_of("port").unwrap();
+    let addr = "[::1]:".to_string().add(port).parse().unwrap();
 
     println!("[Server] Controller server listening on: {}", addr);
 
@@ -340,7 +341,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
 
-        current_task_id: Arc::new(Mutex::new(156434)), // TODO create random value as initial task id?
+        current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(0)),
     };
 
