@@ -15,17 +15,17 @@ package verfploeter;
 // The controller which controls and is responsible for most communication
 service Controller {
   // Client lets the server know the task is finished
-  rpc task_finished(TaskId) returns (Ack) {} // TODO can use this to close the rx from client -> server, and send default value to Cli to close the rx there for cli -> server
+  rpc TaskFinished(TaskId) returns (Ack) {} // TODO can use this to close the rx from client -> server, and send default value to Cli to close the rx there for cli -> server
   // Client announces itself, and starts connection with the Server. The server sends a stream of Task
-  rpc client_connect(Metadata) returns (stream Task) {}
+  rpc ClientConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a task
-  rpc do_task(ScheduleTask) returns (stream TaskResult) {}
+  rpc DoTask(ScheduleTask) returns (stream TaskResult) {}
   // CLI asks Server to list clients, Server returns ClientList
-  rpc list_clients(Empty) returns (ClientList) {}
+  rpc ListClients(Empty) returns (ClientList) {}
   // Client sends TaskResult to Server
-  rpc send_result(TaskResult) returns (Ack) {}
+  rpc SendResult(TaskResult) returns (Ack) {}
   // CLI subscribes itself to the Server to obtain a stream of TaskResult
-  rpc get_client_id(Empty) returns (ClientId) {}
+  rpc GetClientId(Empty) returns (ClientId) {}
 //  rpc subscribe_result(TaskId) returns (stream TaskResult) {}  // TODO not used (unnecessary?)
 }
 
