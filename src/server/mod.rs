@@ -74,11 +74,26 @@ impl<T> Drop for DropReceiver<T> {
     fn drop(&mut self) {
         println!("[Server] Receiver has been dropped");
 
-        // A client disconnecting during an open task, will result in it being terminated
-        // TODO would it be better to let the other clients finish
-        if self.open_tasks.lock().unwrap().len() > 0 {
-            println!("Sending end task to CLI");
-            self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
+
+        let mut open_tasks = self.open_tasks.lock().unwrap();
+
+        if open_tasks.len() > 0 {
+            for (task_id, remaining) in open_tasks.clone().iter( ){
+                // If this task is already finished
+                if remaining == &0 {
+                    continue
+                }
+                // If this is the last client for this open task
+                if remaining == &1 {
+                    println!("[Server] Sending task finished to CLI !!");
+                    self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
+                    // TODO doesn't get sent to CLI
+                // If there are more clients still performing this task
+                } else {
+                    // The server no longer has to wait for this client
+                    *open_tasks.get_mut(&task_id).unwrap() -= 1;
+                }
+            }
         }
     }
 }
@@ -120,7 +135,7 @@ impl Controller for ControllerService {
         };
 
         // Wait till we have received 'task_finished' from all clients that executed this task
-        let finished: bool; // TODO if a client disconnects/crashes during his task, the finish signal will never be sent to the CLI
+        let finished: bool;
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
@@ -197,7 +212,6 @@ impl Controller for ControllerService {
             let senders_temp = senders.clone();
 
             for sender in senders_temp {
-                println!("next");
                 // If the sender is closed
                 if sender.is_closed() {
                     println!("[Server] Client unavailable, connection closed. Client removed.");
@@ -210,7 +224,6 @@ impl Controller for ControllerService {
             }
             senders
         };
-        println!("done removing");
 
         // If there are connected clients that will perform this task
         if senders_list_clone.len() > 0 {
