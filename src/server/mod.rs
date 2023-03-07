@@ -60,6 +60,8 @@ pub struct DropReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
+    hostname: String,
+    clients: Arc<Mutex<ClientList>>,
 }
 
 impl<T> Stream for DropReceiver<T> {
@@ -74,9 +76,19 @@ impl<T> Drop for DropReceiver<T> {
     fn drop(&mut self) {
         println!("[Server] Receiver has been dropped");
 
+        // Remove this client from the clients list
+        let mut clientslist = self.clients.lock().unwrap();
+        let mut i = 0;
+        for client in clientslist.clients.clone() {
+            if client.metadata.unwrap().hostname == self.hostname {
+                clientslist.clients.remove(i);
+                break;
+            }
+            i += 1;
+        }
 
+        // Handle the open tasks that involve this client
         let mut open_tasks = self.open_tasks.lock().unwrap();
-
         if open_tasks.len() > 0 {
             for (task_id, remaining) in open_tasks.clone().iter( ){
                 // If this task is already finished
@@ -87,7 +99,6 @@ impl<T> Drop for DropReceiver<T> {
                 if remaining == &1 {
                     println!("[Server] Sending task finished to CLI !!");
                     self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
-                    // TODO doesn't get sent to CLI
                 // If there are more clients still performing this task
                 } else {
                     // The server no longer has to wait for this client
@@ -127,7 +138,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         println!("[Server] Received task finished");
 
-        let task_id: u32 = request.into_inner().task_id;
+        let task_id: u32 = request.into_inner().clone().task_id;
 
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -167,13 +178,19 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::client_connectStream>, Status> {
         println!("[Server] Received client_connect");
 
+        let metadata = request.into_inner();
+        let version = metadata.version;
+        let hostname = metadata.hostname;
         // Add the client to the client list
         {
             let mut clients_list = self.clients.lock().unwrap();
 
             let new_client = verfploeter::Client { // TODO remove this client when he disconnects/loses connection/crashes
                 // index: 0,
-                metadata: Some(request.into_inner()),
+                metadata: Some(verfploeter::Metadata {
+                    version,
+                    hostname: hostname.clone(),
+                }),
             };
 
             clients_list.clients.push(new_client);
@@ -187,10 +204,13 @@ impl Controller for ControllerService {
             senders.push(tx);
         }
 
+        // let hostname = request.into_inner().hostname;
         let rx = DropReceiver {
             inner: rx,
             open_tasks: self.open_tasks.clone(),
             cli_sender: self.cli_sender.clone(),
+            hostname: hostname.clone(),
+            clients: self.clients.clone(),
         };
         // Send the stream receiver to the client
         Ok(Response::new(rx))
@@ -217,7 +237,6 @@ impl Controller for ControllerService {
                     println!("[Server] Client unavailable, connection closed. Client removed.");
                     // Remove this sender
                     senders.remove(i);
-                    println!("removed");
                 } else {
                     i += 1
                 }
