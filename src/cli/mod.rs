@@ -1,22 +1,5 @@
 use tonic::Request;
-
 use prettytable::{color, format, Attr, Cell, Row, Table};
-
-
-// Load in the generated code from verfploeter.proto using tonic
-pub mod verfploeter {
-    tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
-}
-
-// Load in struct definitions for the message types
-use verfploeter::{
-    TaskResult, controller_client::ControllerClient,
-};
-
-// Load in the ControllerClient
-// use verfploeter::controller_client::ControllerClient;
-// Load in struct definitions for the message types
-
 use tonic::transport::Channel;
 use std::error::Error;
 use std::fs::File;
@@ -26,8 +9,19 @@ use std::io::BufReader;
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
+use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
+
+// Load in the generated code from verfploeter.proto using tonic
+pub mod verfploeter {
+    tonic::include_proto!("verfploeter");
+}
+
+// Load in struct definitions for the message types
+use verfploeter::{
+    TaskResult, controller_client::ControllerClient,
+};
 
 pub struct CliClass {
     grpc_client: ControllerClient<Channel>,
@@ -92,10 +86,11 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
 }
 
 impl CliClass {
+
     // rpc do_task(ScheduleTask) returns (Ack) {}
     async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask) -> Result<(), Box<dyn Error>> {
         let request = Request::new(schedule_task);
-        println!("[CLI] Sending do_task to server {:?}", request);
+        println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
@@ -117,9 +112,18 @@ impl CliClass {
         // CSV writer to command-line interface
         let mut wtr_cli = csv::Writer::from_writer(io::stdout());
 
+        // Get current timestamp
+        let timestamp = chrono::offset::Local::now();
+
+        let timestamp_str = timestamp.year().to_string()
+            .add("-").add(&*timestamp.month().to_string())
+            .add("-").add(&*timestamp.day().to_string())
+            .add("T").add(&*timestamp.hour().to_string())
+            .add(",").add(&*timestamp.minute().to_string())
+            .add(",").add(&*timestamp.second().to_string());
+
         // CSV writer to file
-        let mut wtr_file = csv::Writer::from_path("./data/output.csv")?; // TODO hardcoded path
-        // TODO add date/time to file_name
+        let mut wtr_file = csv::Writer::from_path("./out/output".to_string().add(&*timestamp_str).add(".csv"))?;
 
         wtr_cli.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
         wtr_file.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
