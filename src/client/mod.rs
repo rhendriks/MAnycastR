@@ -1,17 +1,14 @@
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
-    tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
+    tonic::include_proto!("verfploeter");
 }
 
 // Load in the ControllerClient
 use verfploeter::controller_client::ControllerClient;
 // Load in struct definitions for the message types
 use verfploeter::{
-    Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
-    VerfploeterResult, PingResult, PingPayload
+    Empty, TaskId, Task, Metadata, Ping, TaskResult, task::Data
 };
-use crate::client::verfploeter::task::Data;
-
 
 // Ping dependencies
 use std::net::{Ipv4Addr, SocketAddr};
@@ -100,7 +97,7 @@ impl ClientClass {
         // Obtain values from the Ping message
 
         // If there's a source address specified use it, otherwise use the one in the task.
-        let mut source_addr;
+        let source_addr;
         if self.source_address == 0 {
             // Use the one specified by the CLI in the task
             source_addr = ping.source_address;
@@ -168,7 +165,8 @@ impl ClientClass {
         Ok(())
     }
 
-    async fn get_client_id_to_server(&mut self) -> Result<(ClientId), Box<dyn Error>> {
+    // Obtain a unique client_id at the server
+    async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         let client_id = self.grpc_client.get_client_id(Request::new(Empty::default())).await?.into_inner();
 
         Ok(client_id)

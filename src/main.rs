@@ -1,16 +1,8 @@
-// Provides a macro for initializing a logger from environment variables.
 extern crate env_logger;
-
-// A crate for creating bytes used in packets
 extern crate byteorder;
-
-// A crate for logging with various levels of verbosity (debug, info, warning, etc.)
 #[macro_use]
 extern crate log;
 
-use std::thread;
-use std::time::Duration;
-// Command line argument parser (clap) for Rust
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 mod cli;

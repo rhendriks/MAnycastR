@@ -10,12 +10,11 @@ pub mod verfploeter {
 
 // Load in struct definitions for the message types
 use verfploeter::{
-    Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
-    VerfploeterResult, PingResult, PingPayload,
+    TaskResult, controller_client::ControllerClient,
 };
 
 // Load in the ControllerClient
-use verfploeter::controller_client::ControllerClient;
+// use verfploeter::controller_client::ControllerClient;
 // Load in struct definitions for the message types
 
 use tonic::transport::Channel;

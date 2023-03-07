@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
@@ -8,11 +8,8 @@ use tonic::transport::Server;
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::thread;
-use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
-use tokio::sync::mpsc::error::TryRecvError;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -26,14 +23,8 @@ pub mod verfploeter {
 use verfploeter::controller_server::{Controller, ControllerServer};
 // Load in struct definitions for the message types
 use verfploeter::{
-    Empty, Ack, TaskId, ScheduleTask, ClientList, Client, Task, Metadata, Ping, TaskResult,
-    VerfploeterResult, PingResult, PingPayload, ClientId
+    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, task
 };
-
-// Load in CliClient
-// use verfploeter::cli_client::CliClient;
-use crate::server::verfploeter::schedule_task::Data;
-use crate::server;
 
 // Struct for the Server service
 #[derive(Debug)]
@@ -46,14 +37,7 @@ pub struct ControllerService {
     current_client_id: Arc<Mutex<u32>>,
 }
 
-pub struct MyStream(mpsc::Receiver<Result<Task, Status>>);
-
-// In here you just need to forward the `poll_accept` call
-// to the inner `Receiver`.
-
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
-
-//https://github.com/hyperium/tonic/issues/377
 
 // Special Receiver struct that notices when the receiver drops
 // This allows us to detect when a client has disconnected and handle it
@@ -117,7 +101,7 @@ impl Controller for ControllerService {
 
     async fn get_client_id(
         &self,
-        request: Request<verfploeter::Empty>
+        _request: Request<verfploeter::Empty>
     ) -> Result<Response<ClientId>, Status> {
 
         // Obtain client id
@@ -172,11 +156,11 @@ impl Controller for ControllerService {
     }
 
     // Both streams are Server-sided
-    type client_connectStream = DropReceiver<Result<Task, Status>>;
+    type ClientConnectStream = DropReceiver<Result<Task, Status>>;
     async fn client_connect(
         &self,
         request: Request<verfploeter::Metadata>,
-    ) -> Result<Response<Self::client_connectStream>, Status> {
+    ) -> Result<Response<Self::ClientConnectStream>, Status> {
         println!("[Server] Received client_connect");
 
         let metadata = request.into_inner();
@@ -217,11 +201,11 @@ impl Controller for ControllerService {
         Ok(Response::new(rx))
     }
 
-    type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
+    type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
     async fn do_task(
         &self,
         request: Request<ScheduleTask>,
-    ) -> Result<Response<Self::do_taskStream>, Status> {
+    ) -> Result<Response<Self::DoTaskStream>, Status> {
         println!("[Server] Received do_task");
 
         // Get the list of Senders (that connect to the clients)
@@ -269,7 +253,7 @@ impl Controller for ControllerService {
             };
             // Create a Task with this data
             let task = verfploeter::Task {
-                data: Some(server::verfploeter::task::Data::Ping(task_data)),
+                data: Some(task::Data::Ping(task_data)),
                 task_id,
             };
 
@@ -326,7 +310,6 @@ impl Controller for ControllerService {
 }
 
 // Start the server
-// #[tokio::main]
 pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
     // Start the Controller server
 
