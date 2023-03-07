@@ -6,6 +6,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
 use std::ops::AddAssign;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use futures_core::Stream;
 
 // Used for sending messages to the clients
 use crate::server::mpsc::Sender;
@@ -37,6 +40,38 @@ pub struct ControllerService {
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
+}
+
+pub struct MyStream(tokio::sync::mpsc::Receiver<Result<Task, Status>>);
+
+// In here you just need to forward the `poll_accept` call
+// to the inner `Reciever`.
+
+//https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
+
+//https://github.com/hyperium/tonic/issues/377
+
+// Special Receiver struct that notices when the receiver drops
+// This allows us to detect when a client has disconnected and handle it
+pub struct DropReceiver<T> {
+    // chan: oneshot::Sender<usize>,
+    inner: mpsc::Receiver<T>,
+}
+
+impl<T> Stream for DropReceiver<T> {
+    type Item = T;
+
+    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        self.inner.poll_recv(cx)
+    }
+}
+
+impl<T> Drop for DropReceiver<T> {
+    fn drop(&mut self) {
+        println!("Receiver has been dropped");
+        // TODO
+        // self.chan.send(1).await;
+    }
 }
 
 // gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
@@ -101,7 +136,7 @@ impl Controller for ControllerService {
     }
 
     // Both streams are Server-sided
-    type client_connectStream = ReceiverStream<Result<Task, Status>>;
+    type client_connectStream = DropReceiver<Result<Task, Status>>;
     async fn client_connect(
         &self,
         request: Request<verfploeter::Metadata>,
@@ -124,8 +159,13 @@ impl Controller for ControllerService {
             senders.push(tx);
         }
 
+        let rx = DropReceiver {
+            // chan: oneshot_tx;
+            inner: rx,
+        };
+
         // Send the stream receiver to the client
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(rx))
     }
 
     type do_taskStream = ReceiverStream<Result<TaskResult, Status>>;
@@ -204,6 +244,9 @@ impl Controller for ControllerService {
                 let _ = sender.insert(tx); // TODO will cause issues when two CLIs send tasks at once
             }
 
+            // TODO spawn thread that periodically checks if all clients are connected and will handle it when they are not
+
+
             Ok(Response::new(ReceiverStream::new(rx)))
         // If there are no connected clients
         } else {
@@ -237,25 +280,6 @@ impl Controller for ControllerService {
 
         Ok(Response::new(Ack::default()))
     }
-
-    // type subscribe_resultStream = ReceiverStream<Result<TaskResult, Status>>;
-    // // The server sends a Stream
-    // async fn subscribe_result(
-    //     &self,
-    //     request: Request<TaskId>,
-    // ) -> Result<tonic::Response<Self::subscribe_resultStream>, Status> {
-    //     println!("[Server] Received subscribe_result");
-    //
-    //     let (mut tx, rx) = tokio::sync::mpsc::channel(4);
-    //
-    //     tokio::spawn(async move {
-    //         // for client in &self.clients[..] {
-    //         //     tx.send(Ok(client.clone())).await.unwrap();
-    //         // }
-    //     });
-    //
-    //     Ok(Response::new(ReceiverStream::new(rx)))
-    // }
 }
 
 #[tokio::main]
