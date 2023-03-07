@@ -16,7 +16,6 @@ use socket2::Socket;
 
 use crate::client::verfploeter::PingPayload;
 
-// TODO info_url
 // TODO lock thread such that only one task is active at a time
 
 // Perform a ping measurement/task
@@ -57,7 +56,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
                 let icmp = ICMP4Packet::echo_request(1, 2, bytes);
 
                 // Rate limiting
-                while let Err(_) = lb.check() { // TODO needed?
+                while let Err(_) = lb.check() {
                     thread::sleep(Duration::from_millis(1));
                 }
 
