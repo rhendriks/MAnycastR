@@ -20,6 +20,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
+use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -35,16 +36,18 @@ mod outbound;
 
 pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
-    metadata: verfploeter::Metadata,
+    metadata: Metadata,
     source_address: u32,
 }
 
 impl ClientClass {
     // Create a new client object
-    pub async fn new(args: &ArgMatches<'_>) -> Result<ClientClass, Box<dyn std::error::Error>> {
+    pub async fn new(args: &ArgMatches<'_>) -> Result<ClientClass, Box<dyn Error>> {
         println!("[Client] Creating new client");
 
         let hostname = args.value_of("hostname").unwrap();
+
+        let server_addr = args.value_of("server").unwrap();
 
         let mut source = 0;
         // Get the source address if it's present
@@ -52,62 +55,48 @@ impl ClientClass {
             source = u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap());
         }
 
-        let metadata = verfploeter::Metadata {
+        let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
             version: "1".to_string(),
         };
 
         // Initialize a client class
         let mut client_class = ClientClass {
-            grpc_client: Self::connect().await.unwrap(),
+            grpc_client: Self::connect(server_addr.clone()).await?,
             metadata,
             source_address: source,
         };
 
-        // TODO has to be called here otherwise the message does not reach the server
-        // TODO when I need the client connection further it is best to pass it on as argument
         client_class.connect_to_server().await?;
 
         Ok(client_class)
     }
 
-    // pub fn start(&mut self) { // TODO never used
-    //     let metadata = verfploeter::Metadata {
-    //         hostname: "temporary".to_string(),
-    //         version: "1.01".to_string(),
-    //     };
-    //
-    //     let rt = tokio::runtime::Builder::new_current_thread()
-    //         .enable_all()
-    //         .build()
-    //         .unwrap();
-    //
-    //     // Connect to the server
-    //     rt.block_on(async { self.connect_to_server(metadata).await.unwrap() });
-    // }
-
     // Create a connection to the gRPC Controller server
-    async fn connect() -> Result<ControllerClient<Channel>, Box<dyn std::error::Error>> {
+    async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         // Create client connection with the Controller Server
-        let client = ControllerClient::connect("http://[::1]:10001").await?;
+        // let client = ControllerClient::connect("http://[::1]:10001").await?;
+
+        let addr = "https://".to_string().add(address);
+        println!("[Client] Connecting to server at address: {}", addr);
+        let client = ControllerClient::connect(addr).await?;
+        println!("[Client] Connected to the");
 
         Ok(client)
     }
 
-
-
     // Start the appropriate measurement based on the received task
-    async fn start_measurement(&mut self, task: verfploeter::Task, client_id: u32) {
+    async fn start_measurement(&mut self, task: Task, client_id: u32) {
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
         match task.data.unwrap() {
             Data::Ping(ping) => { self.init_ping(ping, task_id, client_id).await }
-            Data::Empty(_) => { println!("EMPTY TASK")} //TODO error handling
+            Data::Empty(_) => { println!("[Client] Received an empty task")}
         }
     }
 
     // Prepare for performing a ping task
-    async fn init_ping(&mut self, ping: verfploeter::Ping, task_id: u32, client_id: u32) {
+    async fn init_ping(&mut self, ping: Ping, task_id: u32, client_id: u32) {
         // Obtain values from the Ping message
 
         // If there's a source address specified use it, otherwise use the one in the task.
@@ -180,25 +169,25 @@ impl ClientClass {
     }
 
     async fn get_client_id_to_server(&mut self) -> Result<(ClientId), Box<dyn Error>> {
-        let client_id = self.grpc_client.get_client_id(Request::new(verfploeter::Empty::default())).await?.into_inner();
+        let client_id = self.grpc_client.get_client_id(Request::new(Empty::default())).await?.into_inner();
 
         Ok(client_id)
     }
 
     // rpc send_result(TaskResult) returns (Ack) {}
-    async fn send_result_to_server(&mut self, taskresult: verfploeter::TaskResult) -> Result<(), Box<dyn Error>> {
+    async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending TaskResult to server");
-        let request = Request::new(taskresult);
-        let _ = self.grpc_client.send_result(request).await?; // TODO check ack
+        let request = Request::new(task_result);
+        let _ = self.grpc_client.send_result(request).await?;
 
         Ok(())
     }
 
     // rpc task_finished(TaskId) returns (Ack) {}
-    async fn task_finished_to_server(&mut self, task_id: verfploeter::TaskId) -> Result<(), Box<dyn Error>> {
+    async fn task_finished_to_server(&mut self, task_id: TaskId) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         let request = Request::new(task_id);
-        let _ = self.grpc_client.task_finished(request).await?; // TODO check acknowledgement
+        let _ = self.grpc_client.task_finished(request).await?;
 
         Ok(())
     }

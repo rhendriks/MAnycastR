@@ -8,6 +8,8 @@ extern crate byteorder;
 #[macro_use]
 extern crate log;
 
+use std::thread;
+use std::time::Duration;
 // Command line argument parser (clap) for Rust
 use clap::{App, Arg, ArgMatches, SubCommand};
 
@@ -29,15 +31,12 @@ fn main() {
     if let Some(client_matches) = matches.subcommand_matches("client") {
         println!("[Main] Executing client");
 
-        // TODO handle remaining client_matches arguments
-
-
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { client::ClientClass::new(client_matches).await.unwrap() }); // TODO use variable / error handling
+        let _ = rt.block_on(async { client::ClientClass::new(client_matches).await.unwrap() });
         // client.start();
 
         return;
@@ -46,9 +45,7 @@ fn main() {
     if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI");
 
-        // TODO handle remaining cli_matches arguments
-
-        let _ = cli::execute(cli_matches); // TODO use result/error handling
+        let _ = cli::execute(cli_matches);
         return;
     }
 
@@ -56,23 +53,23 @@ fn main() {
         println!("[Main] Executing server");
         debug!("Selected SERVER_MODE!");
 
-        // TODO handle address:port in server_matches
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
 
-        let _ = server::main(); // TODO use result/error handling
+        let _ = rt.block_on(async { server::start(server_matches).await.unwrap() });
     }
 }
 
 /// Parse $ verfploeter [OPTIONS][SUBCOMANDS]  to start server, client, CLI or help (--help)
-fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO requires deprecated version of clap
+fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("Verfploeter")
         .version(env!("CARGO_PKG_VERSION"))
         //.author(" Wouter B. de Vries <w.b.devries@utwente.nl> and Leandro Bertholdo <l.m.bertholdo@utwente.nl>")
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Performs measurements")
-        // .arg(Arg::with_name("prometheus").short("p").long("prometheus").takes_value(true).required(false).help("Enables prometheus metrics"))
         .subcommand(SubCommand::with_name("server").about("Launches the verfploeter server")
-            // .arg(Arg::with_name("certificate").short("c").takes_value(true).help("Certificate to use for SSL connection from clients (PEM-encoded file)").required(false))
-            // .arg(Arg::with_name("private-key").short("P").takes_value(true).help("Private key to use for SSL connection from clients (PEM-encoded file)").required(false))
             .arg(Arg::with_name("port").short("p").takes_value(true).help("Port to listen on").required(false))
         )
         .subcommand(
@@ -89,7 +86,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO requires deprecated version of cl
                         .short("s")
                         .takes_value(true)
                         .help("hostname/ip address:port of the server")
-                        .default_value("127.0.0.1:50001")
+                        .default_value("[::1]:50001")
                 )
                 .arg(
                     Arg::with_name("source")
@@ -107,7 +104,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO requires deprecated version of cl
                         .short("s")
                         .takes_value(true)
                         .help("hostname/ip address:port of the server")
-                        .default_value("127.0.0.1:50001")
+                        .default_value("[::1]:50001")
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
@@ -124,18 +121,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO requires deprecated version of cl
                                     .short("s")
                                     .multiple(false)
                                     .help("Stream results to stdout"))
-                            // .arg(Arg::with_name("json")
-                            //     .short("j")
-                            //     .multiple(false)
-                            //     .help("Output results in JSON format"))
-                            // .arg(Arg::with_name("ip2country")
-                            //     .short("c")
-                            //     .takes_value(true)
-                            //     .help("Adds a column with IP2Country information. Needs a path to a IP2Country database (MaxMind binary format)"))
-                            // .arg(Arg::with_name("ip2asn")
-                            //     .short("a")
-                            //     .takes_value(true)
-                            //     .help("Adds a column with IP2ASN information. Needs a path to a IP2ASN database (MaxMind binary format)"))
                 )
         )
         .get_matches()

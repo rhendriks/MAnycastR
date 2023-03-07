@@ -45,8 +45,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     // Obtain the payload
                     if let PacketPayload::ICMPv4 { value } = packet.payload {
 
-                        // TODO make sure the received ping is part of this measurement
-
                         let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
 
                         // Make sure that this packet belongs to this task
