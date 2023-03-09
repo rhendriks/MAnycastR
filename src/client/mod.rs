@@ -75,9 +75,9 @@ impl ClientClass {
         // let client = ControllerClient::connect("http://[::1]:10001").await?;
 
         let addr = "https://".to_string().add(address);
-        println!("[Client] Connecting to server at address: {}", addr);
+        println!("[Client] Connecting to Controller Server at address: {}", addr);
         let client = ControllerClient::connect(addr).await?;
-        println!("[Client] Connected to the server");
+        println!("[Client] Connected to the Controller Server");
 
         Ok(client)
     }
@@ -150,13 +150,13 @@ impl ClientClass {
 
         let client_id: u32 = self.get_client_id_to_server().await.unwrap().client_id;
 
-        println!("[Client] sending client connect");
+        println!("[Client] Sending client connect");
         let response = self.grpc_client.client_connect(request).await?;
 
         let mut stream = response.into_inner();
 
         while let Some(task) = stream.message().await? {
-            println!("[Client] Received task! {:?}", task);
+            println!("[Client] Received task");
             // Only one measurement at a time, therefore it is pointless to spawn threads here
             self.start_measurement(task, client_id).await;
         }
@@ -167,6 +167,7 @@ impl ClientClass {
 
     // Obtain a unique client_id at the server
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
+        println!("[Client] Requesting client_id");
         let client_id = self.grpc_client.get_client_id(Request::new(Empty::default())).await?.into_inner();
 
         Ok(client_id)

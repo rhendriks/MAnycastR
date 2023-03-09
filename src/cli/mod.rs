@@ -1,6 +1,3 @@
-use tonic::Request;
-use prettytable::{color, format, Attr, Cell, Row, Table};
-use tonic::transport::Channel;
 use std::error::Error;
 use std::fs::File;
 use std::io;
@@ -9,19 +6,24 @@ use std::io::BufReader;
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
+
 use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
+use prettytable::{Attr, Cell, color, format, Row, Table};
+use tonic::Request;
+use tonic::transport::Channel;
+
+// Load in struct definitions for the message types
+use verfploeter::{
+    controller_client::ControllerClient, TaskResult,
+};
+
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
     tonic::include_proto!("verfploeter");
 }
-
-// Load in struct definitions for the message types
-use verfploeter::{
-    TaskResult, controller_client::ControllerClient,
-};
 
 pub struct CliClass {
     grpc_client: ControllerClient<Channel>,
@@ -30,7 +32,6 @@ pub struct CliClass {
 // Execute the command that is passed in the command-line
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-
     let addr = "https://".to_string().add(args.value_of("server").unwrap());
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", addr);
@@ -44,7 +45,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // If the client-list command was specified
     if args.subcommand_matches("client-list").is_some() {
         cli_class.list_clients_to_server(verfploeter::Empty::default()).await
-    // If the start command was specified
+        // If the start command was specified
     } else if let Some(matches) = args.subcommand_matches("start") {
 
         // Source IP for the measurement
@@ -69,7 +70,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let schedule_task = create_schedule_task(source_ip, ips);
 
         cli_class.do_task_to_server(schedule_task).await
-
     } else {
         unimplemented!();
     }
@@ -86,7 +86,6 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
 }
 
 impl CliClass {
-
     // rpc do_task(ScheduleTask) returns (Ack) {}
     async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask) -> Result<(), Box<dyn Error>> {
         let request = Request::new(schedule_task);
@@ -106,7 +105,6 @@ impl CliClass {
             // println!("[CLI] Received task result! {:?}", task_result);
             println!("[CLI] Received task result");
             results.push(task_result);
-
         }
 
         // CSV writer to command-line interface
