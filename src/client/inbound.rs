@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use socket2::Socket;
 use crate::net::{IPv4Packet, PacketPayload};
-use std::net::Shutdown;
+// use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
 use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
@@ -146,7 +146,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
             // println!("[Client inbound] Exited result handler thread");
-            socket.shutdown(Shutdown::Both).unwrap();
+            // socket.shutdown(Shutdown::Both).unwrap();
             {
                 let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
