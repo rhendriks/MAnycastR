@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
@@ -82,7 +83,7 @@ impl<T> Drop for DropReceiver<T> {
                 }
                 // If this is the last client for this open task
                 if remaining == &1 {
-                    println!("[Server] Sending task finished to CLI !!");
+                    println!("[Server] The last client for a task dropped, sending task finished to CLI");
                     self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
                 // If there are more clients still performing this task
                 } else {
@@ -103,6 +104,7 @@ impl Controller for ControllerService {
         &self,
         _request: Request<verfploeter::Empty>
     ) -> Result<Response<ClientId>, Status> {
+        println!("[Server] Received get_client_id");
 
         // Obtain client id
         let client_id: u32;
@@ -121,7 +123,7 @@ impl Controller for ControllerService {
         &self,
         request: Request<TaskId>,
     ) -> Result<Response<Ack>, Status> {
-        println!("[Server] Received task finished");
+        println!("[Server] Received task_finished");
 
         let task_id: u32 = request.into_inner().clone().task_id;
 
@@ -242,7 +244,6 @@ impl Controller for ControllerService {
             // Store the number of clients that will perform this task
             {
                 let mut open_tasks = self.open_tasks.lock().unwrap();
-                println!("LEN {:?}", senders_list_clone);
                 open_tasks.insert(task_id, senders_list_clone.len() as u32);
             }
 
@@ -314,7 +315,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     // Start the Controller server
 
     let port = args.value_of("port").unwrap();
-    let addr = "0.0.0.0:".to_string().add(port).parse().unwrap();
+    let addr: SocketAddr = "0.0.0.0:".to_string().add(port).parse().unwrap();
 
     println!("[Server] Controller server listening on: {}", addr);
 
