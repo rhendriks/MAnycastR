@@ -314,7 +314,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     // Start the Controller server
 
     let port = args.value_of("port").unwrap();
-    let addr = "[::1]:".to_string().add(port).parse().unwrap();
+    let addr = "0.0.0.0:".to_string().add(port).parse().unwrap();
 
     println!("[Server] Controller server listening on: {}", addr);
 

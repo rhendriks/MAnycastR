@@ -77,7 +77,7 @@ impl ClientClass {
         let addr = "https://".to_string().add(address);
         println!("[Client] Connecting to server at address: {}", addr);
         let client = ControllerClient::connect(addr).await?;
-        println!("[Client] Connected to the");
+        println!("[Client] Connected to the server");
 
         Ok(client)
     }
