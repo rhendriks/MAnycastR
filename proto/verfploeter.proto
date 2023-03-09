@@ -47,6 +47,7 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   oneof data {
     Ping ping = 2;
+    UDP udp = 3;
     // TODO I can define different types of pings to distinguish between TCP/UDP/ICMP
   }
 }
@@ -66,7 +67,8 @@ message Task {
   uint32 task_id = 1;
   oneof data {
     Ping ping = 2;
-    Empty empty = 3;
+    UDP udp = 3;
+    Empty empty = 4;
   }
 }
 
@@ -78,6 +80,11 @@ message Metadata {
 
 // A Ping (used in Task), which has a single source address and a list of destination addresses.
 message Ping {
+  fixed32 source_address = 1;
+  repeated fixed32 destination_addresses = 2;
+}
+
+message UDP {
   fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
@@ -94,6 +101,7 @@ message TaskResult {
 message VerfploeterResult {
   oneof value {
     PingResult ping = 1;
+    UDPResult udp = 2;
     // TODO can extend this for the UDP/TCP/ICMP results to be distinguishable
   }
 }
@@ -109,6 +117,16 @@ message PingResult {
   fixed32 receiver_client_id = 6;
 }
 
+message UDPResult {
+  fixed32 source_address = 1;
+  fixed32 destination_address = 2;
+  fixed32 source_port = 3;
+  fixed32 destination_port = 4;
+  uint64 receive_time = 5;
+  fixed32 ttl = 6;
+  fixed32 receiver_client_id = 7;
+}
+
 // PingPayload. The payload of a ping, with task ID, transmission time, source/dest address.
 message PingPayload {
   fixed32 task_id = 1;
@@ -117,3 +135,5 @@ message PingPayload {
   fixed32 destination_address = 4;
   fixed32 sender_client_id = 5;
 }
+
+// TODO UDPPayload is not echoed

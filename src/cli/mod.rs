@@ -15,10 +15,11 @@ use tonic::transport::Channel;
 
 // Load in struct definitions for the message types
 use verfploeter::{
-    controller_client::ControllerClient, TaskResult,
+    controller_client::ControllerClient, TaskResult, ScheduleTask
 };
 
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
+use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
@@ -67,7 +68,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .collect::<Vec<u32>>();
         debug!("Loaded [{}] IPAddresses on _ips vector",ips.len());
 
-        let schedule_task = create_schedule_task(source_ip, ips);
+        // Get the type of task
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type} else { todo!() };
+
+        let schedule_task = create_schedule_task(source_ip, ips, task_type);
 
         cli_class.do_task_to_server(schedule_task).await
     } else {
@@ -76,7 +80,32 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 // Create a verfploeter::ScheduleTask that can be sent to the server
-pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>) -> verfploeter::ScheduleTask {
+pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32) -> verfploeter::ScheduleTask {
+    match task_type {
+        1 => { // ICMP
+            return verfploeter::ScheduleTask {
+                data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
+                    destination_addresses,
+                    source_address,
+                }))
+            }
+        }
+        2 => { // UDP
+            return verfploeter::ScheduleTask {
+                data: Some(verfploeter::schedule_task::Data::Udp(verfploeter::Udp {
+                    destination_addresses,
+                    source_address,
+                }))
+            }
+        }
+
+        3 => { // TCP
+            return ScheduleTask::default() // TODO
+        }
+        _ => (println!("Undefined type!")) // TODO handle this properly
+    }
+
+
     verfploeter::ScheduleTask {
         data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
             destination_addresses,
@@ -154,6 +183,7 @@ impl CliClass {
                         wtr_cli.write_record(&[hostname.clone(), reply_src.clone(), reply_dest.clone(), request_src.clone(), request_dest.clone(), recv_time.clone(), transmit_time.clone(), ttl.clone(), recv_client_id.clone(), sender_client_id.clone()])?;
                         wtr_file.write_record(&[hostname.clone(), reply_src, reply_dest, request_src, request_dest, recv_time, transmit_time, ttl, recv_client_id, sender_client_id])?;
                     }
+                    ResultUdp(udp) => (), // TODO
                 }
             }
         }

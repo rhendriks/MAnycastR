@@ -19,6 +19,7 @@ pub struct IPv4Packet {
 #[derive(Debug)]
 pub enum PacketPayload {
     ICMPv4 { value: ICMP4Packet },
+    UDP {value: UDPPacket },
     Unimplemented, //TODO
 }
 
@@ -68,7 +69,17 @@ pub struct ICMP4Packet {
     pub body: Vec<u8>,
 }
 
-// Parsing into ICMP4packet
+// An UDPPacket (UDP packet)
+#[derive(Debug)]
+pub struct UDPPacket {
+    pub source_port: u16,
+    pub destination_port: u16,
+    pub length: u16,
+    pub checksum: u16,
+    pub body: Vec<u8>,
+}
+
+// Parsing from bytes to ICMP4Packet
 impl From<&[u8]> for ICMP4Packet {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -78,6 +89,20 @@ impl From<&[u8]> for ICMP4Packet {
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
             identifier: data.read_u16::<NetworkEndian>().unwrap(),
             sequence_number: data.read_u16::<NetworkEndian>().unwrap(),
+            body: data.into_inner()[8..].to_vec(),
+        }
+    }
+}
+
+// Parsing from bytes into UDPPacket
+impl From<&[u8]> for UDPPacket {
+    fn from(data: &[u8]) -> Self {
+        let mut data = Cursor::new(data);
+        UDPPacket {
+            source_port: data.read_u16::<NetworkEndian>().unwrap(),
+            destination_port: data.read_u16::<NetworkEndian>().unwrap(),
+            length: data.read_u16::<NetworkEndian>().unwrap(),
+            checksum: data.read_u16::<NetworkEndian>().unwrap(),
             body: data.into_inner()[8..].to_vec(),
         }
     }
@@ -96,6 +121,24 @@ impl Into<Vec<u8>> for &ICMP4Packet {
         wtr.write_u16::<NetworkEndian>(self.identifier)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_u16::<NetworkEndian>(self.sequence_number)
+            .expect("Unable to write to byte buffer for ICMP packet");
+        wtr.write_all(&self.body)
+            .expect("Unable to write to byte buffer for ICMP packet");
+        wtr
+    }
+}
+
+// Convert UDPPacket into a vector of u8
+impl Into<Vec<u8>> for &UDPPacket {
+    fn into(self) -> Vec<u8> {
+        let mut wtr = vec![];
+        wtr.write_u16::<NetworkEndian>(self.source_port)
+            .expect("Unable to write to byte buffer for ICMP packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_port)
+            .expect("Unable to write to byte buffer for ICMP packet");
+        wtr.write_u16::<NetworkEndian>(self.length)
+            .expect("Unable to write to byte buffer for ICMP packet");
+        wtr.write_u16::<NetworkEndian>(self.checksum)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_all(&self.body)
             .expect("Unable to write to byte buffer for ICMP packet");
@@ -148,4 +191,50 @@ impl ICMP4Packet {
         }
         !sum as u16
     }
+}
+
+// Implementations for the UDPPacket type
+impl UDPPacket {
+    /// Create a basic UDP packet with checksum
+    /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
+    pub fn udp_request(source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
+        let mut packet = UDPPacket {
+            source_port,
+            destination_port,
+            length: 0,
+            checksum: 0,
+            body,
+        };
+
+        // Turn everything into a vec of bytes and calculate checksum
+        let mut bytes: Vec<u8> = (&packet).into();
+        bytes.extend(INFO_URL.bytes());
+        packet.checksum = ICMP4Packet::calc_checksum(&bytes);
+
+        // Put the checksum at the right position in the packet (calling into() again is also
+        // possible but is likely slower).
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
+        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+
+    // Calc UDP Checksum covers the entire UDP message (16-bit one's complement)
+    // TODO verify checksum works for UDP
+    // fn calc_checksum(buffer: &[u8]) -> u16 {
+    //     let mut cursor = Cursor::new(buffer);
+    //     let mut sum: u32 = 0;
+    //     while let Ok(word) = cursor.read_u16::<LittleEndian>() {
+    //         sum += u32::from(word);
+    //     }
+    //     if let Ok(byte) = cursor.read_u8() {
+    //         sum += u32::from(byte);
+    //     }
+    //     while sum >> 16 > 0 {
+    //         sum = (sum & 0xffff) + (sum >> 16);
+    //     }
+    //     !sum as u16
+    // }
 }
