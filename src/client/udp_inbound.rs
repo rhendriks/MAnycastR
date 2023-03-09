@@ -1,3 +1,4 @@
+use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use socket2::Socket;
@@ -5,24 +6,21 @@ use crate::net::{IPv4Packet, PacketPayload};
 // use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
-use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
+use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, UdpResult, VerfploeterResult};
 use crate::client::verfploeter::verfploeter_result::Value;
-
-
-// TODO lock thread such that only one task is active at a time
 
 // TODO socket2 can be converted into socket/stream for UDP/TCP
 // This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
 
-// Listen for incoming ping packets
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
-    // Queue to store incoming pings, and take them out when sending the TaskResults to the server
+// Listen for incoming UDP packets
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
+    // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
     // Handles that are used to close the spawned threads
     let handles = Arc::new(Mutex::new(Vec::new()));
 
-    println!("[Client inbound] Started ICMP listener");
+    println!("[Client inbound] Started UDP prober");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
@@ -38,7 +36,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             // Tokio thread
             let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+                println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
                 while let Ok(result) = socket.recv(&mut buffer) {
 
                     // Received when the socket closes on some OS
@@ -50,42 +48,41 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     let packet = IPv4Packet::from(&buffer[..result]);
 
                     // Obtain the payload
-                    if let PacketPayload::ICMPv4 { value } = packet.payload {
-                        let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+                    if let PacketPayload::UDP { value } = packet.payload {
+                        // let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
 
+
+                        // TODO make sure this UDP packet is a reply for one of our probes
                         // Make sure that this packet belongs to this task
-                        if pkt_task_id != task_id {
-                            // If not, we discard it and await the next packet
-                            continue
-                        }
+                        // if pkt_task_id != task_id {
+                        //     // If not, we discard it and await the next packet
+                        //     continue
+                        // }
 
-                        // println!("task_id: {}", task_id);
-                        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                        // println!("transmit_time: {}", transmit_time);
-                        let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                        // println!("source_address: {}", source_address);
-                        let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                        // println!("destination_address: {}", destination_address);
-                        let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+
+                        // A UDP packet response will have a different body
+                        // // println!("task_id: {}", task_id);
+                        // let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
+                        // // println!("transmit_time: {}", transmit_time);
+                        // let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+                        // // println!("source_address: {}", source_address);
+                        // let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
+                        // // println!("destination_address: {}", destination_address);
+                        // let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
 
                         let receive_time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_nanos() as u64;
 
-                        // Create a VerfploeterResult for the received ping reply
+                        // Create a VerfploeterResult for the received UDP reply
                         let result = VerfploeterResult {
-                            value: Some(Value::Ping(PingResult {
+                            value: Some(Value::Udp(UdpResult {
                                 source_address: u32::from(packet.source_address),
                                 destination_address: u32::from(packet.destination_address),
+                                source_port: u32::from(value.source_port),
+                                destination_port: value.destination_port as u32,
                                 receive_time,
-                                payload: Some(PingPayload {
-                                    task_id,
-                                    transmit_time,
-                                    source_address,
-                                    destination_address,
-                                    sender_client_id,
-                                }),
                                 ttl: packet.ttl as u32,
                                 receiver_client_id: client_id,
                             })),
@@ -158,7 +155,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 for handle in handles.iter() {
                     handle.abort();
                 }
-                println!("[Client inbound] Stopped listening for ICMP packets");
+                println!("[Client inbound] Stopped listening for UDP packets");
 
             }
         }

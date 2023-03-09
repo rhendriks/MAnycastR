@@ -250,11 +250,12 @@ impl Controller for ControllerService {
             // Create a Task from the ScheduleTask
             // Get the data from the ScheduleTask
             let task_data = match request.into_inner().data.unwrap() {
-                Data::Ping(ping) => { ping }
+                Data::Ping(ping) => { task::Data::Ping(ping) }
+                Data::Udp(udp) => { task::Data::Udp(udp) }
             };
             // Create a Task with this data
             let task = verfploeter::Task {
-                data: Some(task::Data::Ping(task_data)),
+                data: Some(task_data),
                 task_id,
             };
 
