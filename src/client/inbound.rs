@@ -40,11 +40,17 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             let tokio_handle = rt.spawn(async move {
                 println!("[Client inbound] Listening for packets for task - {}", task_id);
                 while let Ok(result) = socket.recv(&mut buffer) {
+
+                    // Received when the socket closes on some OS
+                    if result == 0 {
+                        break;
+                    }
+
+                    // Create IPv4Packet from the bytes in the buffer
                     let packet = IPv4Packet::from(&buffer[..result]);
 
                     // Obtain the payload
                     if let PacketPayload::ICMPv4 { value } = packet.payload {
-
                         let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
 
                         // Make sure that this packet belongs to this task
@@ -150,6 +156,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             {
                 let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
+                    println!("Aborting handle");
                     handle.abort();
                 }
                 println!("[Client inbound] Stopped listening for packets");
