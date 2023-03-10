@@ -20,6 +20,7 @@ use verfploeter::{
 
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
+use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
 
 // Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
@@ -101,7 +102,7 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
 
         3 => { // TCP
             return verfploeter::ScheduleTask {
-                data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Udp {
+                data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Tcp {
                     destination_addresses,
                     source_address
                 }))

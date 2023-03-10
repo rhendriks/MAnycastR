@@ -68,7 +68,8 @@ message Task {
   oneof data {
     Ping ping = 2;
     UDP udp = 3;
-    Empty empty = 4;
+    TCP tcp = 4;
+    Empty empty = 5;
   }
 }
 
