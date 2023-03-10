@@ -146,7 +146,6 @@ impl Controller for ControllerService {
             } else {
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 finished = false;
-                // open_tasks.insert(task_id, remaining.add_subtract(1));
             }
         }
         if finished {
@@ -204,7 +203,7 @@ impl Controller for ControllerService {
     }
 
     type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
-    async fn do_task(
+    async fn do_task( // TODO what if the CLI crashes/disconnects during the measurement
         &self,
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {

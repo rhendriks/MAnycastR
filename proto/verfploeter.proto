@@ -48,7 +48,7 @@ message ScheduleTask {
   oneof data {
     Ping ping = 2;
     UDP udp = 3;
-    // TODO I can define different types of pings to distinguish between TCP/UDP/ICMP
+    TCP tcp = 4;
   }
 }
 
@@ -89,6 +89,11 @@ message UDP {
   repeated fixed32 destination_addresses = 2;
 }
 
+message TCP {
+  fixed32 source_address = 1;
+  repeated fixed32 destination_addresses = 2;
+}
+
 // A TaskResult (i.e. the result of a Ping), contains the task ID, Client that executed the task,
 // a list of Result (one for each targeted dest. address), a boolean indicating whether it was finished.
 message TaskResult {
@@ -102,7 +107,7 @@ message VerfploeterResult {
   oneof value {
     PingResult ping = 1;
     UDPResult udp = 2;
-    // TODO can extend this for the UDP/TCP/ICMP results to be distinguishable
+    TCPResult tcp = 3;
   }
 }
 
@@ -117,7 +122,17 @@ message PingResult {
   fixed32 receiver_client_id = 6;
 }
 
-message UDPResult {
+message UDPResult { // TODO what information can be extracted from UDP results
+  fixed32 source_address = 1;
+  fixed32 destination_address = 2;
+  fixed32 source_port = 3;
+  fixed32 destination_port = 4;
+  uint64 receive_time = 5;
+  fixed32 ttl = 6;
+  fixed32 receiver_client_id = 7;
+}
+
+message TCPResult { // TODO what information can be extracted from TCP results
   fixed32 source_address = 1;
   fixed32 destination_address = 2;
   fixed32 source_port = 3;
@@ -136,4 +151,4 @@ message PingPayload {
   fixed32 sender_client_id = 5;
 }
 
-// TODO UDPPayload is not echoed
+// TODO TCP/UDP payloads?

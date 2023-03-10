@@ -100,7 +100,12 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
         }
 
         3 => { // TCP
-            return ScheduleTask::default() // TODO
+            return verfploeter::ScheduleTask {
+                data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Udp {
+                    destination_addresses,
+                    source_address
+                }))
+            }
         }
         _ => (println!("Undefined type!")) // TODO handle this properly
     }
@@ -183,7 +188,8 @@ impl CliClass {
                         wtr_cli.write_record(&[hostname.clone(), reply_src.clone(), reply_dest.clone(), request_src.clone(), request_dest.clone(), recv_time.clone(), transmit_time.clone(), ttl.clone(), recv_client_id.clone(), sender_client_id.clone()])?;
                         wtr_file.write_record(&[hostname.clone(), reply_src, reply_dest, request_src, request_dest, recv_time, transmit_time, ttl, recv_client_id, sender_client_id])?;
                     }
-                    ResultUdp(udp) => (), // TODO
+                    ResultUdp(udp) => println!("{:?}", udp), // TODO
+                    ResultTcp(tcp) => println!("{:?}", tcp), // TODO
                 }
             }
         }
