@@ -211,18 +211,20 @@ impl UDPPacket {
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
 
-        // TODO is the ICMP checksum valid for UDP? It says the checksum can be ignored and set to 0 for UDP
-        // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
-        packet.checksum = ICMP4Packet::calc_checksum(&bytes);
+        // // TODO is the ICMP checksum valid for UDP? It says the checksum can be ignored and set to 0 for UDP
+        // // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
+        // packet.checksum = ICMP4Packet::calc_checksum(&bytes);
+        //
+        // let mut cursor = Cursor::new(bytes);
+        //
+        // // Put the checksum at the right position in the packet (calling into() again is also
+        // // possible but is likely slower).
+        // cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
+        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        //
+        // // Return the vec
+        // cursor.into_inner()
 
-        let mut cursor = Cursor::new(bytes);
-
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
+        bytes
     }
 }
