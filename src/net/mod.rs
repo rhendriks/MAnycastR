@@ -201,35 +201,21 @@ impl UDPPacket {
         let mut packet = UDPPacket {
             source_port,
             destination_port,
-            length: (8 + body.len()) as u16,
+            // The UDP length field is the length of the UDP header (8) and the data (body + URL)
+            length: (8 + body.len() + INFO_URL.bytes().len()) as u16,
             checksum: 0,
             body,
         };
-
-        println!("Length {:?}", packet.length);
-
-        // TODO length 'The UDP length field is the length of the UDP header and data'
-        // UDP header length is 8
-        // let length = 8 + body_length + INFO_URL.bytes().len();
-        // println!("{:?}", length);
-        // let length = 0;
 
         // Turn everything into a vec of bytes and calculate checksum
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
 
-        // let length = bytes.clone().len();
-        // println!("{:?}", length);
-
+        // TODO is the ICMP checksum valid for UDP? It says the checksum can be ignored and set to 0 for UDP
         // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
         packet.checksum = ICMP4Packet::calc_checksum(&bytes);
 
-
         let mut cursor = Cursor::new(bytes);
-
-        // Change the length
-        // cursor.set_position(4); // Skip source port (2 bytes), destination port (2 bytes)
-        // cursor.write_u16::<LittleEndian>(length as u16).unwrap();
 
         // Put the checksum at the right position in the packet (calling into() again is also
         // possible but is likely slower).
@@ -239,21 +225,4 @@ impl UDPPacket {
         // Return the vec
         cursor.into_inner()
     }
-
-    // Calc UDP Checksum covers the entire UDP message (16-bit one's complement)
-    // TODO verify checksum works for UDP
-    // fn calc_checksum(buffer: &[u8]) -> u16 {
-    //     let mut cursor = Cursor::new(buffer);
-    //     let mut sum: u32 = 0;
-    //     while let Ok(word) = cursor.read_u16::<LittleEndian>() {
-    //         sum += u32::from(word);
-    //     }
-    //     if let Ok(byte) = cursor.read_u8() {
-    //         sum += u32::from(byte);
-    //     }
-    //     while sum >> 16 > 0 {
-    //         sum = (sum & 0xffff) + (sum >> 16);
-    //     }
-    //     !sum as u16
-    // }
 }
