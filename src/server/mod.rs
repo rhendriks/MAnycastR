@@ -251,6 +251,7 @@ impl Controller for ControllerService {
             let task_data = match request.into_inner().data.unwrap() {
                 Data::Ping(ping) => { task::Data::Ping(ping) }
                 Data::Udp(udp) => { task::Data::Udp(udp) }
+                Data::Tcp(tcp) => { task::Data::Tcp(tcp) }
             };
             // Create a Task with this data
             let task = verfploeter::Task {

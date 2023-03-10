@@ -93,6 +93,7 @@ impl ClientClass {
         match task.data.unwrap() {
             Data::Ping(ping) => { self.init_ping(ping, task_id, client_id).await }
             Data::Udp(udp) => { self.init_udp(udp, task_id, client_id).await }
+            Data::Tcp(tcp) => { todo!() } // TODO
             Data::Empty(_) => { println!("[Client] Received an empty task")}
         }
     }
