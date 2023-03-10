@@ -201,19 +201,38 @@ impl UDPPacket {
         let mut packet = UDPPacket {
             source_port,
             destination_port,
-            length: 0,
+            length: (8 + body.len()) as u16,
             checksum: 0,
             body,
         };
 
+        println!("Length {:?}", packet.length);
+
+        // TODO length 'The UDP length field is the length of the UDP header and data'
+        // UDP header length is 8
+        // let length = 8 + body_length + INFO_URL.bytes().len();
+        // println!("{:?}", length);
+        // let length = 0;
+
         // Turn everything into a vec of bytes and calculate checksum
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
+
+        // let length = bytes.clone().len();
+        // println!("{:?}", length);
+
+        // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
         packet.checksum = ICMP4Packet::calc_checksum(&bytes);
+
+
+        let mut cursor = Cursor::new(bytes);
+
+        // Change the length
+        // cursor.set_position(4); // Skip source port (2 bytes), destination port (2 bytes)
+        // cursor.write_u16::<LittleEndian>(length as u16).unwrap();
 
         // Put the checksum at the right position in the packet (calling into() again is also
         // possible but is likely slower).
-        let mut cursor = Cursor::new(bytes);
         cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
         cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
 
