@@ -185,7 +185,7 @@ impl ClientClass {
         // Start listening thread
         listen_udp(self.metadata.clone(), socket, tx, tx_f, task_id, client_id);
 
-        let dest_port= 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
+        let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
         let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
         // Start sending thread
