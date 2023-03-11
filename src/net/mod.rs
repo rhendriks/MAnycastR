@@ -212,19 +212,44 @@ impl UDPPacket {
         bytes.extend(INFO_URL.bytes());
 
         // // TODO is the ICMP checksum valid for UDP? It says the checksum can be ignored and set to 0 for UDP
-        // // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
-        // packet.checksum = ICMP4Packet::calc_checksum(&bytes);
-        //
-        // let mut cursor = Cursor::new(bytes);
-        //
-        // // Put the checksum at the right position in the packet (calling into() again is also
-        // // possible but is likely slower).
-        // cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
-        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-        //
-        // // Return the vec
-        // cursor.into_inner()
+        // 'UDP checksum computation is optional for IPv4. If a checksum is not used it should be set to the value zero.'
+        packet.checksum = UDPPacket::calc_checksum(&bytes);
 
-        bytes
+        let mut cursor = Cursor::new(bytes);
+
+        // Put the checksum at the right position in the packet (calling into() again is also
+        // possible but is likely slower).
+        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), length (2 bytes)
+        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+
+        // bytes
     }
+
+    // TODO verify this works
+    fn calc_checksum(buffer: &[u8]) -> u16 {
+        let mut sum: u32 = 0;
+        let length = buffer.len();
+
+        // Sum up all 16-bit words in the packet
+        for i in (0..length).step_by(2) {
+            let word = u16::from_be_bytes([buffer[i], buffer[i + 1]]);
+            sum = sum.wrapping_add(u32::from(word));
+        }
+
+        // If there is an odd number of bytes, add the last byte as a padding byte
+        if length % 2 == 1 {
+            sum = sum.wrapping_add(u32::from(buffer[length - 1]));
+        }
+
+        // Fold the 32-bit sum to a 16-bit checksum
+        while sum >> 16 != 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+
+        !sum as u16
+    }
+
 }
