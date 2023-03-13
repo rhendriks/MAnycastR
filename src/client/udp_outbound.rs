@@ -54,7 +54,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
-                let udp = UDPPacket::udp_request(source_port as u16, destination_port as u16, Vec::new()); // TODO what needs to be in the UDP body?
+                let udp = UDPPacket::udp_request(source_addr, dest_addr,source_port as u16, destination_port as u16, Vec::new()); // TODO what needs to be in the UDP body?
 
                 // Rate limiting
                 while let Err(_) = lb.check() {
