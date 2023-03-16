@@ -212,7 +212,7 @@ impl CliClass {
                     ResultPing(ping) => {
                         let recv_time = ping.receive_time.to_string();
 
-                        let ipv4result = if let Some(ipv4result) = ping.ipv4_result { ipv4result } else { todo!() };
+                        let ipv4result = ping.ipv4_result.unwrap();
                         let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
                         let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
                         let ttl = ipv4result.ttl.to_string();
@@ -238,7 +238,7 @@ impl CliClass {
                         let reply_source_port = udp.source_port.to_string();
                         let reply_destination_port = udp.destination_port.to_string();
 
-                        let ipv4result = if let Some(ipv4result) = udp.ipv4_result { ipv4result } else { todo!() };
+                        let ipv4result = udp.ipv4_result.unwrap();
                         let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
                         let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
                         let ttl = ipv4result.ttl.to_string();
@@ -263,7 +263,7 @@ impl CliClass {
                     ResultTcp(tcp) => {
                         let recv_time = tcp.receive_time.to_string();
 
-                        let ipv4result = if let Some(ipv4result) = tcp.ipv4_result { ipv4result } else { todo!() };
+                        let ipv4result = tcp.ipv4_result.unwrap();
                         let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
                         let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
                         let ttl = ipv4result.ttl.to_string();
