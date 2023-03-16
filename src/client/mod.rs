@@ -23,8 +23,8 @@ use std::sync::Arc;
 
 use clap::ArgMatches;
 
-use crate::client::inbound::listen_ping;
-use crate::client::outbound::perform_ping;
+use crate::client::inbound::{listen_ping, listen_tcp};
+use crate::client::outbound::{perform_ping, perform_tcp};
 use crate::client::inbound::listen_udp;
 use crate::client::outbound::perform_udp;
 use crate::client::verfploeter::{ClientId, Udp};
@@ -162,13 +162,13 @@ impl ClientClass {
             }
             Data::Tcp(_) => {
                 // Start listening thread
-                // listen_tcp(self.metadata.clone(), socket, tx, tx_f, task_id, client_id); TODO
+                listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
                 let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
                 // Start sending thread
-                // perform_tcp(dest_addresses, socket.clone(), rx_f, task_id, client_id, source_addr, dest_port, src_port); TODO
+                perform_tcp(dest_addresses, socket, rx_f, task_id, client_id, source_addr, dest_port, src_port);
             }
             Data::Empty(_) => { println!("[Client] Received an empty task")} // TODO handle this
         };
