@@ -6,7 +6,7 @@ use crate::net::{IPv4Packet, PacketPayload};
 // use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
-use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, UdpResult, VerfploeterResult};
+use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, UdpResult, VerfploeterResult};
 use crate::client::verfploeter::verfploeter_result::Value;
 
 // TODO socket2 can be converted into socket/stream for UDP/TCP
@@ -78,13 +78,15 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         // Create a VerfploeterResult for the received UDP reply
                         let result = VerfploeterResult {
                             value: Some(Value::Udp(UdpResult {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
                                 source_port: u32::from(value.source_port),
                                 destination_port: value.destination_port as u32,
+                                ipv4_result: Some(IPv4Result {
+                                    source_address: u32::from(packet.source_address),
+                                    destination_address: u32::from(packet.destination_address),
+                                    ttl: packet.ttl as u32,
+                                }),
                                 receive_time,
-                                ttl: packet.ttl as u32,
-                                receiver_client_id: client_id,
+                                payload: None,
                             })),
                         };
 
@@ -136,6 +138,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     task_id,
                     client: Some(Client {
                         // index: 0,
+                        client_id,
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,

@@ -74,7 +74,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let schedule_task = create_schedule_task(source_ip, ips, task_type);
 
-        cli_class.do_task_to_server(schedule_task).await
+        cli_class.do_task_to_server(schedule_task, task_type).await
     } else {
         unimplemented!();
     }
@@ -122,7 +122,7 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
 
 impl CliClass {
     // rpc do_task(ScheduleTask) returns (Ack) {}
-    async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask, task_type: u32) -> Result<(), Box<dyn Error>> {
         let request = Request::new(schedule_task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
@@ -139,6 +139,7 @@ impl CliClass {
 
             // println!("[CLI] Received task result! {:?}", task_result);
             println!("[CLI] Received task result");
+            println!("Result: {:?}", task_result);
             results.push(task_result);
         }
 
@@ -158,39 +159,129 @@ impl CliClass {
         // CSV writer to file
         let mut wtr_file = csv::Writer::from_path("./out/output".to_string().add(&*timestamp_str).add(".csv"))?;
 
-        wtr_cli.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
-        wtr_file.write_record(&["recv_hostname", "reply_src", "reply_dest", "request_src", "request_dest", "recv_time", "send_time", "TTL", "recv_client_id", "sender_client_id"])?;
+        let rows = ["task_id", "recv_client_id", "hostname"];
+        let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
+        // TODO based on task type this will be different
+        if task_type == 1 { // ICMP
+            let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
+
+            let mut all_rows = [""; 12];
+            all_rows[..3].copy_from_slice(&rows);
+            all_rows[3..6].copy_from_slice(&ipv4_rows);
+            all_rows[6..].copy_from_slice(&icmp_rows);
+
+            wtr_cli.write_record(all_rows)?;
+            wtr_file.write_record(all_rows)?;
+        } else if task_type == 2 { // UDP
+            let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port",
+            "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
+
+            let mut all_rows = [""; 15];
+            all_rows[..3].copy_from_slice(&rows);
+            all_rows[3..6].copy_from_slice(&ipv4_rows);
+            all_rows[6..].copy_from_slice(&udp_rows);
+
+            wtr_cli.write_record(all_rows)?;
+            wtr_file.write_record(all_rows)?;
+        } else if task_type == 3 { // TCP
+            let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
+
+            let mut all_rows = [""; 10];
+            all_rows[..3].copy_from_slice(&rows);
+            all_rows[3..6].copy_from_slice(&ipv4_rows);
+            all_rows[6..].copy_from_slice(&tcp_rows);
+
+            wtr_cli.write_record(all_rows)?;
+            wtr_file.write_record(all_rows)?;
+        }
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let _: u32 = result.task_id;
+            let task_id = result.task_id.to_string();
             let client: verfploeter::Client = result.client.unwrap();
+            let client_id = client.client_id.to_string();
             let hostname: String = client.metadata.unwrap().hostname;
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
+
+            let record: [&str; 3] = [&task_id, &client_id, &hostname];
 
             for verfploeter_result in verfploeter_results {
                 // let Some(ping)
                 let value = verfploeter_result.value.unwrap();
                 match value {
                     ResultPing(ping) => {
-                        let reply_src = Ipv4Addr::from(ping.source_address).to_string();
-                        let reply_dest = Ipv4Addr::from(ping.destination_address).to_string();
                         let recv_time = ping.receive_time.to_string();
-                        let recv_client_id = ping.receiver_client_id.to_string();
 
+                        let ipv4result = if let Some(ipv4result) = ping.ipv4_result { ipv4result } else { todo!() };
+                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
+                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
+                        let ttl = ipv4result.ttl.to_string();
+
+                        // Ping payload
                         let payload = ping.payload.unwrap();
                         let transmit_time = payload.transmit_time.to_string();
-                        let sender_client_id = payload.sender_client_id.to_string();
                         let request_src = Ipv4Addr::from(payload.source_address).to_string();
                         let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
+                        let sender_client_id = payload.sender_client_id.to_string();
+
+                        let record_ping: [&str; 8] = [&recv_time, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id];
+                        let mut all_records = [""; 11];
+                        all_records[..3].copy_from_slice(&record);
+                        all_records[3..11].copy_from_slice(&record_ping);
 
 
-                        let ttl = ping.ttl.to_string();
-                        wtr_cli.write_record(&[hostname.clone(), reply_src.clone(), reply_dest.clone(), request_src.clone(), request_dest.clone(), recv_time.clone(), transmit_time.clone(), ttl.clone(), recv_client_id.clone(), sender_client_id.clone()])?;
-                        wtr_file.write_record(&[hostname.clone(), reply_src, reply_dest, request_src, request_dest, recv_time, transmit_time, ttl, recv_client_id, sender_client_id])?;
+                        wtr_cli.write_record(all_records)?;
+                        wtr_file.write_record(all_records)?;
                     }
-                    ResultUdp(udp) => println!("{:?}", udp), // TODO
-                    ResultTcp(tcp) => println!("{:?}", tcp), // TODO
+                    ResultUdp(udp) => {
+                        let recv_time = udp.receive_time.to_string();
+                        let reply_source_port = udp.source_port.to_string();
+                        let reply_destination_port = udp.destination_port.to_string();
+
+                        let ipv4result = if let Some(ipv4result) = udp.ipv4_result { ipv4result } else { todo!() };
+                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
+                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
+                        let ttl = ipv4result.ttl.to_string();
+
+
+                        let payload = udp.payload.unwrap();
+                        let transmit_time = payload.transmit_time.to_string();
+                        let request_src = Ipv4Addr::from(payload.source_address).to_string();
+                        let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
+                        let sender_client_id = payload.sender_client_id.to_string();
+                        let request_src_port = payload.source_port.to_string();
+                        let request_dest_port = payload.destination_port.to_string();
+
+                        let record_udp: [&str; 12] = [&recv_time, &reply_source_port, &reply_destination_port, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
+                        let mut all_records = [""; 15];
+                        all_records[..3].copy_from_slice(&record);
+                        all_records[3..14].copy_from_slice(&record_udp);
+
+                        wtr_cli.write_record(&all_records)?;
+                        wtr_file.write_record(&all_records)?;
+                    },
+                    ResultTcp(tcp) => {
+                        let recv_time = tcp.receive_time.to_string();
+
+                        let ipv4result = if let Some(ipv4result) = tcp.ipv4_result { ipv4result } else { todo!() };
+                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
+                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
+                        let ttl = ipv4result.ttl.to_string();
+
+                        let reply_source_port = tcp.source_port.to_string();
+                        let reply_destination_port = tcp.destination_port.to_string();
+
+                        let seq = tcp.seq.to_string();
+                        let ack = tcp.ack.to_string();
+
+                        let record_tcp: [&str; 8] = [&recv_time, &reply_src, &reply_dest, &ttl, &reply_source_port, &reply_destination_port, &seq, &ack];
+                        let mut all_records = [""; 11];
+                        all_records[..3].copy_from_slice(&record);
+                        all_records[3..12].copy_from_slice(&record_tcp);
+
+                        wtr_cli.write_record(all_records)?;
+                        wtr_file.write_record(all_records)?;
+                    }
                 }
             }
         }
@@ -217,7 +308,7 @@ impl CliClass {
         for client in response.into_inner().clients {
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
-                    client.metadata.clone().unwrap().version,
+                    // client.metadata.clone().unwrap().version,
                 ));
         }
         table.printstd();

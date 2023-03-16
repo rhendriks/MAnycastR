@@ -165,16 +165,15 @@ impl Controller for ControllerService {
         println!("[Server] Received client_connect");
 
         let metadata = request.into_inner();
-        let version = metadata.version;
-        let hostname = metadata.hostname;
+        // let version = metadata.version;
+        let hostname = metadata.hostname; // TODO enforce unique hostname
         // Add the client to the client list
         {
             let mut clients_list = self.clients.lock().unwrap();
 
             let new_client = verfploeter::Client {
-                // index: 0,
+                client_id: 0, // TODO set client_id here
                 metadata: Some(verfploeter::Metadata {
-                    version,
                     hostname: hostname.clone(),
                 }),
             };
@@ -203,6 +202,8 @@ impl Controller for ControllerService {
     }
 
     type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
+    // TODO what if another CLI sends a task during the current one (only one should be allowed to be active at a time
+    // TODO perform round robin to send part of the tasks to each clients
     async fn do_task( // TODO what if the CLI crashes/disconnects during the measurement
         &self,
         request: Request<ScheduleTask>,

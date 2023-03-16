@@ -58,7 +58,7 @@ impl ClientClass {
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            version: "1".to_string(),
+            // version: "1".to_string(),
         };
 
         // Initialize a client class

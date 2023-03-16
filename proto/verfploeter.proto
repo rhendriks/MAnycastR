@@ -59,6 +59,7 @@ message ClientList {
 
 // A client, which contains an index, and metadata (defined below)
 message Client {
+  fixed32 client_id = 1;
   Metadata metadata = 2;
 }
 
@@ -76,7 +77,6 @@ message Task {
 // Metadata (as used in Client), contains a hostname and a version.
 message Metadata {
   string hostname = 1;
-  string version = 2; // TODO unused?
 }
 
 // A Ping (used in Task), which has a single source address and a list of destination addresses.
@@ -112,44 +112,51 @@ message VerfploeterResult {
   }
 }
 
+message IPv4Result {
+  fixed32 source_address = 1;
+  fixed32 destination_address = 2;
+  fixed32 ttl = 3;
+}
+
 // Result of Ping. It is the result of a single ping (i.e. a received ICMP response)
 // Contains the source and destination of the ping, the receive time, the payload, and the ttl.
 message PingResult {
-  fixed32 source_address = 1;
-  fixed32 destination_address = 2;
-  uint64 receive_time = 3;
-  PingPayload payload = 4;
-  fixed32 ttl = 5;
-  fixed32 receiver_client_id = 6;
-}
-
-message UDPResult { // TODO what information can be extracted from UDP results
-  fixed32 source_address = 1;
-  fixed32 destination_address = 2;
-  fixed32 source_port = 3;
-  fixed32 destination_port = 4;
-  uint64 receive_time = 5;
-  fixed32 ttl = 6;
-  fixed32 receiver_client_id = 7;
-}
-
-message TCPResult { // TODO what information can be extracted from TCP results
-  fixed32 source_address = 1;
-  fixed32 destination_address = 2;
-  fixed32 source_port = 3;
-  fixed32 destination_port = 4;
-  uint64 receive_time = 5;
-  fixed32 ttl = 6;
-  fixed32 receiver_client_id = 7;
+  uint64 receive_time = 1;
+  IPv4Result ipv4_result = 2;
+  PingPayload payload = 3;
 }
 
 // PingPayload. The payload of a ping, with task ID, transmission time, source/dest address.
 message PingPayload {
-  fixed32 task_id = 1;
-  fixed64 transmit_time = 2;
-  fixed32 source_address = 3;
-  fixed32 destination_address = 4;
-  fixed32 sender_client_id = 5;
+  uint64 transmit_time = 1;
+  fixed32 source_address = 2;
+  fixed32 destination_address = 3;
+  fixed32 sender_client_id = 4;
 }
 
-// TODO TCP/UDP payloads?
+message UDPResult {
+  uint64 receive_time = 1;
+  fixed32 source_port = 2;
+  fixed32 destination_port = 3;
+  IPv4Result ipv4_result = 4;
+  UDPPayload payload = 5;
+}
+
+message UDPPayload {
+  uint64 transmit_time = 1;
+  fixed32 source_address = 2;
+  fixed32 destination_address = 3;
+  fixed32 sender_client_id = 4;
+  fixed32 source_port = 5;
+  fixed32 destination_port = 6;
+  // TODO append with resolver used and other DNS information that's interesting
+}
+
+message TCPResult {
+  uint64 receive_time = 1;
+  IPv4Result ipv4_result = 2;
+  fixed32 source_port = 3;
+  fixed32 destination_port = 4;
+  fixed32 seq = 5;
+  fixed32 ack = 6;
+}
