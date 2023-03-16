@@ -25,13 +25,11 @@ use clap::ArgMatches;
 
 use crate::client::inbound::listen_ping;
 use crate::client::outbound::perform_ping;
-use crate::client::udp_inbound::listen_udp;
-use crate::client::udp_outbound::perform_udp;
+use crate::client::inbound::listen_udp;
+use crate::client::outbound::perform_udp;
 use crate::client::verfploeter::{ClientId, Udp};
 
 
-mod udp_inbound;
-mod udp_outbound;
 mod inbound;
 mod outbound;
 
@@ -88,108 +86,92 @@ impl ClientClass {
 
     // Start the appropriate measurement based on the received task
     async fn start_measurement(&mut self, task: Task, client_id: u32) {
+
+        // TODO make sure only one measurement can be active at a time
+
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
-        match task.data.unwrap() {
-            Data::Ping(ping) => { self.init_ping(ping, task_id, client_id).await }
-            Data::Udp(udp) => { self.init_udp(udp, task_id, client_id).await }
-            Data::Tcp(tcp) => { todo!() } // TODO
-            Data::Empty(_) => { println!("[Client] Received an empty task")}
-        }
+        self.init(task, task_id, client_id).await;
     }
 
-    // Prepare for performing a ping task
-    async fn init_ping(&mut self, ping: Ping, task_id: u32, client_id: u32) {
+    async fn init(&mut self, task: Task, task_id: u32, client_id: u32) {
         // Obtain values from the Ping message
 
         // If there's a source address specified use it, otherwise use the one in the task.
         let source_addr;
         if self.source_address == 0 {
             // Use the one specified by the CLI in the task
-            source_addr = ping.source_address;
+
+            source_addr = match task.data.clone().unwrap() {
+                Data::Ping(ping) => { ping.source_address }
+                Data::Udp(udp) => { udp.source_address }
+                Data::Tcp(tcp) => { tcp.source_address }
+                Data::Empty(_) => { 0} // TODO handle this
+            };
         } else {
             // Use this client's address that was specified in the command-line arguments
             source_addr = self.source_address;
         }
-        let dest_addresses = ping.destination_addresses;
+
+        let dest_addresses = match task.data.clone().unwrap() {
+            Data::Ping(ping) => { ping.destination_addresses }
+            Data::Udp(udp) => { udp.destination_addresses }
+            Data::Tcp(tcp) => { tcp.destination_addresses }
+            Data::Empty(_) => { vec![]}
+        };
 
         // Create the socket to send the ping messages from
         let bind_address = format!(
-            "{}:0",
+            "{}:0", // TODO port of bind address
             Ipv4Addr::from(source_addr).to_string()
         );
-        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+
+        let protocol = match task.data.clone().unwrap() {
+            Data::Ping(_) => { Protocol::icmpv4() }
+            Data::Udp(_) => { Protocol::udp() }
+            Data::Tcp(_) => { Protocol::tcp() }
+            Data::Empty(_) => { Protocol::icmpv4() } // TODO handle this
+        };
+
+        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-        let socket2 = socket.clone();
 
         // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
-        // Channel for receiving and sending to the ping inbound listening thread
+        // Channel for receiving and sending to the inbound listening thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // Channel for signalling when the outbound pinger is finished
+        // Channel for signalling when outbound is finished
         let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
-        // Start listening thread
-        listen_ping(self.metadata.clone(), socket, tx, tx_f, task_id, client_id);
-
-        // Start sending thread
-        perform_ping(dest_addresses, socket2, rx_f, task_id, client_id, source_addr);
-
-        // Obtain TaskResults from the unbounded channel and send them to the server
-        while let Some(packet) = rx.recv().await {
-            // A default TaskResult notifies this sender that there will be no more results
-            if packet == TaskResult::default() {
-                self.task_finished_to_server(TaskId {
-                    task_id
-                }).await.unwrap();
-                break;
+        // Start listening thread and sending thread
+        match task.data.clone().unwrap() {
+            Data::Ping(_) => {
+                listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
+                perform_ping(dest_addresses, socket, rx_f, task_id, client_id, source_addr);
             }
-            self.send_result_to_server(packet).await.unwrap();
-        }
-        rx.close();
-    }
+            Data::Udp(_) => {
+                // Start listening thread
+                listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
-    // Prepare for performing a ping task
-    async fn init_udp(&mut self, udp: Udp, task_id: u32, client_id: u32) {
-        // Obtain values from the Ping message
+                let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
-        // If there's a source address specified use it, otherwise use the one in the task.
-        let source_addr;
-        if self.source_address == 0 {
-            // Use the one specified by the CLI in the task
-            source_addr = udp.source_address;
-        } else {
-            // Use this client's address that was specified in the command-line arguments
-            source_addr = self.source_address;
-        }
-        let dest_addresses = udp.destination_addresses;
+                // Start sending thread
+                perform_udp(dest_addresses, socket, rx_f, task_id, client_id, source_addr, dest_port, src_port);
+            }
+            Data::Tcp(_) => {
+                // Start listening thread
+                // listen_tcp(self.metadata.clone(), socket, tx, tx_f, task_id, client_id); TODO
 
-        // Create the socket to send the ping messages from
-        let bind_address = format!(
-            "{}:0",
-            Ipv4Addr::from(source_addr).to_string()
-        );
-        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::udp())).unwrap());
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+                let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
-        let socket2 = socket.clone();
-
-        // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
-        // Channel for receiving and sending to the ping inbound listening thread
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // Channel for signalling when the outbound prober is finished
-        let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
-
-        // Start listening thread
-        listen_udp(self.metadata.clone(), socket, tx, tx_f, task_id, client_id);
-
-        let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
-        let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
-
-        // Start sending thread
-        perform_udp(dest_addresses, socket2, rx_f, task_id, client_id, source_addr, dest_port, src_port);
+                // Start sending thread
+                // perform_tcp(dest_addresses, socket.clone(), rx_f, task_id, client_id, source_addr, dest_port, src_port); TODO
+            }
+            Data::Empty(_) => { println!("[Client] Received an empty task")} // TODO handle this
+        };
 
         // Obtain TaskResults from the unbounded channel and send them to the server
         while let Some(packet) = rx.recv().await {
