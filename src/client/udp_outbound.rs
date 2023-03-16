@@ -16,8 +16,6 @@ use socket2::Socket;
 
 use crate::client::verfploeter::PingPayload;
 
-// TODO lock thread such that only one task is active at a time
-
 // Perform a ping measurement/task
 pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u32, source_addr: u32, destination_port: u32, source_port: u32) {
     println!("[Client outbound] Started UDP probing thread");

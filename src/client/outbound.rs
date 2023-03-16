@@ -16,8 +16,6 @@ use socket2::Socket;
 
 use crate::client::verfploeter::PingPayload;
 
-// TODO lock thread such that only one task is active at a time
-
 // Perform a ping measurement/task
 pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u32, source_addr: u32) {
     println!("[Client outbound] Started pinging thread");
@@ -37,7 +35,6 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
 
                 // Create ping payload
                 let payload = PingPayload {
-                    task_id,
                     transmit_time,
                     source_address: source_addr,
                     destination_address: dest_addr,
@@ -45,7 +42,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
                 };
 
                 let mut bytes: Vec<u8> = Vec::new();
-                bytes.extend_from_slice(&payload.task_id.to_be_bytes()); // Bytes 0 - 3
+                bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
                 bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
                 bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15
                 bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19

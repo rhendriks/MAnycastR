@@ -5,7 +5,7 @@ use crate::net::{IPv4Packet, PacketPayload};
 // use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
-use crate::client::verfploeter::{Client, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
+use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult};
 use crate::client::verfploeter::verfploeter_result::Value;
 
 
@@ -76,18 +76,18 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         // Create a VerfploeterResult for the received ping reply
                         let result = VerfploeterResult {
                             value: Some(Value::Ping(PingResult {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
                                 receive_time,
+                                ipv4_result: Some(IPv4Result {
+                                    source_address: u32::from(packet.source_address),
+                                    destination_address: u32::from(packet.destination_address),
+                                    ttl: packet.ttl as u32,
+                                }),
                                 payload: Some(PingPayload {
-                                    task_id,
                                     transmit_time,
                                     source_address,
                                     destination_address,
                                     sender_client_id,
                                 }),
-                                ttl: packet.ttl as u32,
-                                receiver_client_id: client_id,
                             })),
                         };
 
@@ -139,6 +139,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     task_id,
                     client: Some(Client {
                         // index: 0,
+                        client_id,
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
