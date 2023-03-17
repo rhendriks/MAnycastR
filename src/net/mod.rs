@@ -342,7 +342,7 @@ impl UDPPacket {
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes()); // Add INFO_URL
 
-        let mut pseudo_header = PseudoHeader {
+        let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
             zeroes: 0,
@@ -428,10 +428,10 @@ impl UDPPacket {
             body,
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
+        let bytes: Vec<u8> = (&packet).into();
         // TODO extend bytes with DNS request as payload/body
 
-        let mut pseudo_header = PseudoHeader {
+        let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
             zeroes: 0,
@@ -557,7 +557,7 @@ impl Into<Vec<u8>> for &TCPPacket {
             .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_u32::<NetworkEndian>(self.ack)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u8((self.offset))
+        wtr.write_u8(self.offset)
             .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_u8(self.flags)
             .expect("Unable to write to byte buffer for TCP packet");
@@ -597,7 +597,7 @@ impl TCPPacket {
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes()); // Add INFO_URL
 
-        let mut pseudo_header = PseudoHeader {
+        let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
             zeroes: 0,
