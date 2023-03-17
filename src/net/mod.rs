@@ -2,6 +2,7 @@ use super::byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt}
 use std::io::{Cursor, Read};
 use std::io::Write;
 use std::net::Ipv4Addr;
+use byteorder::BigEndian;
 use internet_checksum::checksum;
 use crate::net::PacketPayload::TCP;
 
@@ -146,7 +147,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
 
-    // Sum the pseudoheader
+    // Sum the pseudo header
     sum += pseudoheader.source_address >> 16;
     sum += pseudoheader.source_address & 0xffff;
     sum += pseudoheader.destination_address >> 16;
@@ -324,7 +325,6 @@ impl Into<Vec<u8>> for &UDPPacket {
 impl UDPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
-    /// TODO udp also uses a psuedo header for calculating the checksum
     pub fn udp_request(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
@@ -611,7 +611,7 @@ impl TCPPacket {
         println!("Calculated checksum: 0x{:04X}", packet.checksum);
 
         let mut wtr2 = Vec::new();
-        wtr2.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        wtr2.write_u16::<BigEndian>(packet.checksum).unwrap();
         println!("wtr checksum {:?}", wtr2);
 
         // Put the checksum at the right position in the packet
