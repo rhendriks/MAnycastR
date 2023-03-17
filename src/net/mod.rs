@@ -580,12 +580,12 @@ impl TCPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
     pub fn tcp_syn_ack(source_address: u32, destination_address: u32, // TODO
-                       source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
+                       source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
         let mut packet = TCPPacket {
             source_port,
             destination_port,
-            seq: 0,
-            ack: 0,
+            seq,
+            ack,
             offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved // TODO verify 0101 is 5 considering byte format used
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,

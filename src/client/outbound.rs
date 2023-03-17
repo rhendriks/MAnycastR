@@ -150,7 +150,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
 // Perform a TCP measurement/task
 pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u32, source_addr: u32, destination_port: u32, source_port: u32) {
-    println!("[Client outbound] Started TCP probing thread");
+    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
     thread::spawn({
         move || {
             // Rate limiter
@@ -175,7 +175,11 @@ pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string()); // TODO port
 
-                let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, Vec::new()); // TODO what needs to be in the TCP body?
+                // TODO randomize port/seq/ack to avoid being blocked by firewalls
+                let seq = task_id;
+                let ack = client_id + 300;
+
+                let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new()); // TODO what needs to be in the TCP body?
 
                 // Rate limiting
                 while let Err(_) = lb.check() {
