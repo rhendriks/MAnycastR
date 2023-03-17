@@ -608,7 +608,11 @@ impl TCPPacket {
         println!("bytes: {:?}", bytes);
         println!("pseudo_header: {:?}", pseudo_header);
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
-        println!("Calculated checksum: {:?}", packet.checksum);
+        println!("Calculated checksum: 0x{:04X}", packet.checksum);
+
+        let mut wtr2 = Vec::new();
+        wtr2.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        println!("wtr checksum {:?}", wtr2);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
