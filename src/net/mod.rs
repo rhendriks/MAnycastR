@@ -610,14 +610,14 @@ impl TCPPacket {
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
         println!("Calculated checksum: 0x{:04X}", packet.checksum);
 
-        let mut wtr2 = Vec::new();
-        wtr2.write_u16::<BigEndian>(packet.checksum).unwrap();
-        println!("wtr checksum {:?}", wtr2);
+        //let mut wtr2 = Vec::new();
+        //wtr2.write_u16::<BigEndian>(packet.checksum).unwrap();
+       // println!("wtr checksum {:?}", wtr2);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
         cursor.set_position(16); // Skip source port (2 bytes), destination port (2 bytes), seq (4 bytes), ack (4 bytes), offset/reserved (1 byte), flags (1 bytes), window (2 bytes)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
 
         // Return the vec
         cursor.into_inner()
