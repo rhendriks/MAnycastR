@@ -157,7 +157,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     // Sum the packet
     let mut i = 0;
     while i < packet_len - 1 {
-        let mut rdr = Cursor::new(&buffer[i..]); // TODO .as_ref() needed?
+        let mut rdr = Cursor::new(&buffer[i..]);
         sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
         i += 2;
     }
@@ -605,6 +605,8 @@ impl TCPPacket {
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
         };
 
+        println!("bytes: {:?}", bytes);
+        println!("pseudo_header: {:?}", pseudo_header);
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
 
         // Put the checksum at the right position in the packet
