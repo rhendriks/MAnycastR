@@ -165,7 +165,7 @@ impl CliClass {
         if task_type == 1 { // ICMP
             let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
 
-            let mut all_rows = [""; 12];
+            let mut all_rows = [""; 11];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&icmp_rows);
@@ -186,7 +186,7 @@ impl CliClass {
         } else if task_type == 3 { // TCP
             let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
 
-            let mut all_rows = [""; 10];
+            let mut all_rows = [""; 11];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&tcp_rows);
@@ -227,7 +227,7 @@ impl CliClass {
                         let record_ping: [&str; 8] = [&recv_time, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id];
                         let mut all_records = [""; 11];
                         all_records[..3].copy_from_slice(&record);
-                        all_records[3..11].copy_from_slice(&record_ping);
+                        all_records[3..].copy_from_slice(&record_ping);
 
 
                         wtr_cli.write_record(all_records)?;
@@ -255,7 +255,7 @@ impl CliClass {
                         let record_udp: [&str; 12] = [&recv_time, &reply_source_port, &reply_destination_port, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
                         let mut all_records = [""; 15];
                         all_records[..3].copy_from_slice(&record);
-                        all_records[3..14].copy_from_slice(&record_udp);
+                        all_records[3..].copy_from_slice(&record_udp);
 
                         wtr_cli.write_record(&all_records)?;
                         wtr_file.write_record(&all_records)?;
@@ -277,7 +277,7 @@ impl CliClass {
                         let record_tcp: [&str; 8] = [&recv_time, &reply_src, &reply_dest, &ttl, &reply_source_port, &reply_destination_port, &seq, &ack];
                         let mut all_records = [""; 11];
                         all_records[..3].copy_from_slice(&record);
-                        all_records[3..12].copy_from_slice(&record_tcp);
+                        all_records[3..].copy_from_slice(&record_tcp);
 
                         wtr_cli.write_record(all_records)?;
                         wtr_file.write_record(all_records)?;

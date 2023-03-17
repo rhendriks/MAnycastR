@@ -117,8 +117,17 @@ impl ClientClass {
             Data::Ping(ping) => { ping.destination_addresses }
             Data::Udp(udp) => { udp.destination_addresses }
             Data::Tcp(tcp) => { tcp.destination_addresses }
-            Data::Empty(_) => { vec![]}
+            Data::Empty(_) => { vec![] } // TODO
         };
+
+        // Get port to open socket on TODO it should listen on all ports i.e. 0 since we will be sending from different ports on different clients
+        // TODO and we want to receive the responses to those clients as well
+        // let port = match task.data.clone().unwrap() {
+        //     Data::Ping(ping) => { 0 }
+        //     Data::Udp(udp) => { udp.destination_addresses }
+        //     Data::Tcp(tcp) => { tcp.destination_addresses }
+        //     Data::Empty(_) => { 0 }
+        // };
 
         // Create the socket to send the ping messages from
         let bind_address = format!(
@@ -126,6 +135,7 @@ impl ClientClass {
             Ipv4Addr::from(source_addr).to_string()
         );
 
+        // Get protocol
         let protocol = match task.data.clone().unwrap() {
             Data::Ping(_) => { Protocol::icmpv4() }
             Data::Udp(_) => { Protocol::udp() }
@@ -164,7 +174,8 @@ impl ClientClass {
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
-                let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                // Destination port is a high number to prevent causing open states on the target
+                let dest_port= 5892; // TODO what port number to use (ports not used by windows/linux/whatever?)
                 let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
                 // Start sending thread
