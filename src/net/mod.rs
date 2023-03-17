@@ -608,6 +608,7 @@ impl TCPPacket {
         println!("bytes: {:?}", bytes);
         println!("pseudo_header: {:?}", pseudo_header);
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
+        println!("Calculated checksum: {:?}", packet.checksum);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
