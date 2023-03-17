@@ -1,10 +1,7 @@
 use super::byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::io::Write;
 use std::net::Ipv4Addr;
-use byteorder::BigEndian;
-use internet_checksum::checksum;
-use crate::net::PacketPayload::TCP;
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
@@ -86,7 +83,7 @@ pub struct PseudoHeader {
 }
 
 // Converting PsuedoHeader to bytes
-impl Into<Vec<u8>> for PseudoHeader { // TODO not used?
+impl Into<Vec<u8>> for PseudoHeader {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
         wtr.write_u32::<NetworkEndian>(self.source_address)
@@ -102,47 +99,8 @@ impl Into<Vec<u8>> for PseudoHeader { // TODO not used?
         wtr
     }
 }
-// buffer: &[u8]
-// Calculate the TCP/UDP checksum given the packet and pseudoheader
-// pub fn calculate_checksum<T: AsRef<[u8]>>(packet: T, pseudoheader: &PseudoHeader) -> u16 {
-//     let packet_len = packet.as_ref().len();
-//     let mut sum = 0u32;
-//
-//     // Sum the pseudoheader
-//     sum += pseudoheader.source_address >> 16;
-//     sum += pseudoheader.source_address & 0xffff;
-//     sum += pseudoheader.destination_address >> 16;
-//     sum += pseudoheader.destination_address & 0xffff;
-//     sum += u32::from(pseudoheader.protocol);
-//     sum += u32::from(pseudoheader.length);
-//
-//     // Sum the packet
-//     let mut i = 0;
-//     while i < packet_len - 1 {
-//         let mut rdr = Cursor::new(&packet.as_ref()[i..]);
-//         sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
-//         // checksum: data.read_u16::<NetworkEndian>().unwrap(),
-//
-//         // sum += u32::from(NetworkEndian::read_u16(&packet.as_ref()[i..].to_be()));
-//         // sum += u32::from(&packet.as_ref()[i..].read_u16::<NetworkEndian>());
-//         // sum += u32::from(NetworkEndian::read_u16(&packet.as_ref()[i..]));
-//         // sum += u32::from(&packet.as_ref()[i..].read_u16::<NetworkEndian>());
-//         i += 2;
-//     }
-//
-//     // If the packet length is odd, add the last byte as a half-word
-//     if packet_len % 2 != 0 {
-//         sum += u32::from(packet.as_ref()[packet_len - 1]) << 8;
-//     }
-//
-//     // Fold the sum to 16 bits by adding the carry
-//     while sum >> 16 != 0 {
-//         sum = (sum & 0xffff) + (sum >> 16);
-//     }
-//
-//     !(sum as u16)
-// }
 
+// Calculate the checksum for UDP/TCP given the UDP/TCP header and payload in buffer, and a constructed pseudo header
 pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
@@ -256,7 +214,6 @@ impl ICMP4Packet {
     }
 
     /// Calc ICMP Checksum covers the entire ICMPv4 message (16-bit one's complement)
-    /// TODO L-> ICMPv6 it also covers a pseudo-header derived from portions of the IPv6 header.
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
@@ -285,8 +242,6 @@ pub struct UDPPacket {
     pub length: u16,
     pub checksum: u16,
     pub body: Vec<u8>,
-
-    // pub pseudo_header: PseudoHeader,
 }
 
 // Parsing from bytes into UDPPacket
@@ -330,7 +285,6 @@ impl UDPPacket {
 
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
 
-
         let mut packet = UDPPacket {
             source_port,
             destination_port,
@@ -360,57 +314,6 @@ impl UDPPacket {
 
         // Return the vec
         cursor.into_inner()
-
-        // let mut packet = ICMP4Packet {
-        //     icmp_type: 8,
-        //     code: 0,
-        //     checksum: 0,
-        //     identifier,
-        //     sequence_number,
-        //     body,
-        // };
-        //
-        // // Turn everything into a vec of bytes and calculate checksum
-        // let mut bytes: Vec<u8> = (&packet).into();
-        // bytes.extend(INFO_URL.bytes());
-        // packet.checksum = ICMP4Packet::calc_checksum(&bytes);
-        //
-        // // Put the checksum at the right position in the packet (calling into() again is also
-        // // possible but is likely slower).
-        // let mut cursor = Cursor::new(bytes);
-        // cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-        //
-        // // Return the vec
-        // cursor.into_inner()
-
-
-        // let mut payload = INFO_URL.as_bytes().to_vec();
-        // payload.extend_from_slice(&body);
-        //
-        // let udp_length = 8 + body.len() + INFO_URL.bytes().len();
-        //
-        // let mut pseudo_header = [0u8; 12];
-        // pseudo_header[..4].copy_from_slice(&Ipv4Addr::from(source_addr).octets().as_slice());
-        // pseudo_header[4..8].copy_from_slice(&&Ipv4Addr::from(dest_addr).octets().as_slice());
-        // pseudo_header[8] = 0; // Protocol field (set to 0 for testing purposes)
-        // pseudo_header[9] = 17; // Protocol field (set to 17 for UDP)
-        // pseudo_header[10..12].copy_from_slice(&(udp_length as u16).to_be().to_be_bytes()); // TODO to_be might not be the right endian form
-        // // TODO can possible just remove .to_be() all together
-        //
-        // let mut packet = Vec::new();
-        // packet.extend_from_slice(&pseudo_header);
-        // packet.extend_from_slice(&(source_port as u16).to_be().to_be_bytes());
-        // packet.extend_from_slice(&(destination_port as u16).to_be().to_be_bytes());
-        // packet.extend_from_slice(&(udp_length as u16).to_be().to_be_bytes());
-        // packet.extend_from_slice(&[0u8, 0u8]); // Placeholder for checksum
-        // packet.extend_from_slice(&*payload);
-        //
-        // let checksum = Self::calc_checksum(&packet);
-        //
-        // packet[6..8].copy_from_slice(&(checksum as u16).to_be().to_be_bytes());
-        //
-        // packet
     }
 
     pub fn dns_request(source_address: u32, destination_address: u32, // TODO
@@ -449,52 +352,6 @@ impl UDPPacket {
         // Return the vec
         cursor.into_inner()
     }
-
-    // fn calc_checksum(packet: &[u8]) -> u16 {
-    //     let mut sum = 0u32;
-    //     let mut i = 0;
-    //
-    //     while i < packet.len() - 1 {
-    //         let word = u16::from_be_bytes([packet[i], packet[i + 1]]);
-    //         sum += u32::from(word);
-    //         i += 2;
-    //     }
-    //
-    //     if packet.len() % 2 == 1 {
-    //         sum += u32::from(packet[packet.len() - 1]) << 8;
-    //     }
-    //
-    //     while (sum >> 16) != 0 {
-    //         sum = (sum & 0xFFFF) + (sum >> 16);
-    //     }
-    //
-    //     !(sum as u16)
-    // }
-
-    // // TODO verify this works
-    // fn calc_checksum(buffer: &[u8]) -> u16 {
-    //     let mut sum: u32 = 0;
-    //     let length = buffer.len();
-    //
-    //     // Sum up all 16-bit words in the packet
-    //     for i in (0..length).step_by(2) {
-    //         let word = u16::from_be_bytes([buffer[i], buffer[i + 1]]);
-    //         sum = sum.wrapping_add(u32::from(word));
-    //     }
-    //
-    //     // If there is an odd number of bytes, add the last byte as a padding byte
-    //     if length % 2 == 1 {
-    //         sum = sum.wrapping_add(u32::from(buffer[length - 1]));
-    //     }
-    //
-    //     // Fold the 32-bit sum to a 16-bit checksum
-    //     while sum >> 16 != 0 {
-    //         sum = (sum & 0xffff) + (sum >> 16);
-    //     }
-    //
-    //     !sum as u16
-    // }
-
 }
 
 /// *****
@@ -509,18 +366,12 @@ pub struct TCPPacket {
     pub seq: u32,
     pub ack: u32,
     // offset and reserved are combined into a single u8 (reserved is all 0's)
-    pub offset: u8, // u4 specifies the size of the TCP header in 32-bit words (minimum 5, maximum 15 words) -> (minimum 20, maximum 60 bytes) allowing for 40 bytes of options
-    // pub reserved: u8, // u4 always set to 0, reserved for future use
+    pub offset: u8,
     pub flags: u8,
     pub window_size: u16,
     pub checksum: u16,
     pub pointer: u16,
-
-    // pub options: Vec<u8>, // TODO
-
     pub body: Vec<u8>,
-
-    // pub pseudo_header: PseudoHeader,
 }
 
 // Parsing from bytes to TCPPacket
@@ -537,9 +388,6 @@ impl From<&[u8]> for TCPPacket {
             window_size: data.read_u16::<NetworkEndian>().unwrap(),
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
             pointer: data.read_u16::<NetworkEndian>().unwrap(),
-
-            // options: data.read_ //TODO
-
             body: data.into_inner()[8..].to_vec(),
         }
     }
@@ -567,8 +415,6 @@ impl Into<Vec<u8>> for &TCPPacket {
             .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_u16::<NetworkEndian>(self.pointer)
             .expect("Unable to write to byte buffer for TCP packet");
-        // wtr.write_all(&self.options) // TODO
-        //     .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_all(&self.body)
             .expect("Unable to write to byte buffer for TCP packet");
         wtr
@@ -579,19 +425,19 @@ impl Into<Vec<u8>> for &TCPPacket {
 impl TCPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
-    pub fn tcp_syn_ack(source_address: u32, destination_address: u32, // TODO
+    pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
         let mut packet = TCPPacket {
             source_port,
             destination_port,
             seq,
             ack,
-            offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved // TODO verify 0101 is 5 considering byte format used
+            offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
             body,
-            window_size: 0 // TODO
+            window_size: 0
         };
 
         let mut bytes: Vec<u8> = (&packet).into();
@@ -605,14 +451,7 @@ impl TCPPacket {
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
         };
 
-        println!("bytes: {:?}", bytes);
-        println!("pseudo_header: {:?}", pseudo_header);
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
-        println!("Calculated checksum: 0x{:04X}", packet.checksum);
-
-        //let mut wtr2 = Vec::new();
-        //wtr2.write_u16::<BigEndian>(packet.checksum).unwrap();
-       // println!("wtr checksum {:?}", wtr2);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
@@ -622,61 +461,4 @@ impl TCPPacket {
         // Return the vec
         cursor.into_inner()
     }
-}
-
-// Implementations for the TCPPacket type
-impl TCPPacket {
-    // /// Create a TCP SYN/ACK packet with checksum
-    // pub fn tcp_request(source_addr: u32, dest_addr: u32,
-    //                    source_port: u16, destination_port: u16, seq_num: u32, ack_num: u32) -> Vec<u8> {
-    //     let data_offset = 5; // Data offset in 32-bit words, which is 20 bytes
-    //     let window_size: i32 = 4096; // Window size in bytes
-    //     let mut tcp_header = [0u8; 20];
-    //     let mut packet = Vec::new();
-    //
-    //     // Set the source and destination port numbers
-    //     tcp_header[0..2].copy_from_slice(&source_port.to_be_bytes());
-    //     tcp_header[2..4].copy_from_slice(&destination_port.to_be_bytes());
-    //
-    //     // Set the sequence and acknowledgement numbers
-    //     tcp_header[4..8].copy_from_slice(&seq_num.to_be_bytes());
-    //     tcp_header[8..12].copy_from_slice(&ack_num.to_be_bytes());
-    //
-    //     // Set the data offset and reserved bits
-    //     tcp_header[12] = (data_offset << 4) as u8;
-    //
-    //     // Set the flags (SYN/ACK)
-    //     tcp_header[13] = 0b00010010;
-    //
-    //     // Set the window size
-    //     tcp_header[14..16].copy_from_slice(&window_size.to_be_bytes());
-    //
-    //     // Calculate the TCP checksum
-    //     let pseudo_header = [
-    //         (source_addr >> 24) as u8,
-    //         (source_addr >> 16) as u8,
-    //         (source_addr >> 8) as u8,
-    //         (source_addr >> 0) as u8,
-    //         (dest_addr >> 24) as u8,
-    //         (dest_addr >> 16) as u8,
-    //         (dest_addr >> 8) as u8,
-    //         (dest_addr >> 0) as u8,
-    //         0,
-    //         6,
-    //         0,
-    //         (tcp_header.len() as u16).to_be_bytes()[0],
-    //         (tcp_header.len() as u16).to_be_bytes()[1],
-    //     ];
-    //     let checksum_data = [pseudo_header, tcp_header].concat();
-    //     let checksum = !checksum(&checksum_data);
-    //
-    //     // Set the TCP checksum
-    //     tcp_header[16..18].copy_from_slice(&checksum.to_be_bytes());
-    //
-    //     // Add the TCP header to the packet
-    //     packet.extend_from_slice(&tcp_header);
-    //
-    //     packet
-    //
-    // }
 }
