@@ -15,7 +15,7 @@ use tonic::transport::Channel;
 
 // Load in struct definitions for the message types
 use verfploeter::{
-    controller_client::ControllerClient, TaskResult, ScheduleTask
+    controller_client::ControllerClient, TaskResult
 };
 
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
@@ -108,7 +108,7 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
                 }))
             }
         }
-        _ => (println!("Undefined type!")) // TODO handle this properly
+        _ => println!("Undefined type!") // TODO handle this properly
     }
 
 
@@ -137,9 +137,7 @@ impl CliClass {
                 break;
             }
 
-            // println!("[CLI] Received task result! {:?}", task_result);
             println!("[CLI] Received task result");
-            println!("Result: {:?}", task_result);
             results.push(task_result);
         }
 

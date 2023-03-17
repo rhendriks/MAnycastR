@@ -7,7 +7,7 @@ pub mod verfploeter {
 use verfploeter::controller_client::ControllerClient;
 // Load in struct definitions for the message types
 use verfploeter::{
-    Empty, TaskId, Task, Metadata, Ping, TaskResult, task::Data
+    Empty, TaskId, Task, Metadata, TaskResult, task::Data, ClientId
 };
 
 // Ping dependencies
@@ -27,7 +27,6 @@ use crate::client::inbound::{listen_ping, listen_tcp};
 use crate::client::outbound::{perform_ping, perform_tcp};
 use crate::client::inbound::listen_udp;
 use crate::client::outbound::perform_udp;
-use crate::client::verfploeter::{ClientId, Udp};
 
 
 mod inbound;
