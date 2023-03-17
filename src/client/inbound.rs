@@ -56,13 +56,9 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                             continue
                         }
 
-                        // println!("task_id: {}", task_id);
                         let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                        // println!("transmit_time: {}", transmit_time);
                         let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                        // println!("source_address: {}", source_address);
                         let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                        // println!("destination_address: {}", destination_address);
                         let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
 
                         let receive_time = SystemTime::now()
@@ -200,27 +196,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::UDP { value } = packet.payload {
-                        // let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
-
-
-                        // TODO make sure this UDP packet is a reply for one of our probes
-                        // Make sure that this packet belongs to this task
-                        // if pkt_task_id != task_id {
-                        //     // If not, we discard it and await the next packet
-                        //     continue
-                        // }
-
-
-                        // A UDP packet response will have a different body
-                        // // println!("task_id: {}", task_id);
-                        // let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                        // // println!("transmit_time: {}", transmit_time);
-                        // let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                        // // println!("source_address: {}", source_address);
-                        // let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                        // // println!("destination_address: {}", destination_address);
-                        // let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
-
+                        // The UDP responses will be from DNS services, with port 53
+                        if value.source_port != 53 { // TODO check for DNS body to be of our measurement
+                            continue
+                        }
+                        
                         let receive_time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
@@ -363,23 +343,11 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         // let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
 
 
-                        // TODO make sure this TCP packet is a reply for one of our probes
-                        // Make sure that this packet belongs to this task
-                        // if pkt_task_id != task_id {
-                        //     // If not, we discard it and await the next packet
-                        //     continue
-                        // }
-
-
-                        // A UDP packet response will have a different body
-                        // // println!("task_id: {}", task_id);
-                        // let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                        // // println!("transmit_time: {}", transmit_time);
-                        // let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                        // // println!("source_address: {}", source_address);
-                        // let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                        // // println!("destination_address: {}", destination_address);
-                        // let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+                        // Responses to our probes have destination port > 4000 (as we use these as source)
+                        // Use the RST flag, and have ACK 0
+                        if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+                            continue
+                        }
 
                         let receive_time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
