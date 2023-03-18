@@ -92,11 +92,10 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
             for dest_addr in dest_addresses {
 
 
-                // TODO can I still store the transmit time information somehow?
-                // let transmit_time = SystemTime::now()
-                //     .duration_since(UNIX_EPOCH)
-                //     .unwrap()
-                //     .as_nanos() as u64;
+                let transmit_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64;
 
                 // // Create udp payload // TODO encode payload into the DNS request fields that will be returned
                 // let payload = PingPayload {
@@ -116,7 +115,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string()); // TODO port
 
-                let udp = UDPPacket::udp_request(source_addr, dest_addr,source_port as u16, destination_port as u16, Vec::new()); // TODO what needs to be in the UDP body?
+                let udp = UDPPacket::dns_request(source_addr, dest_addr,source_port as u16, Vec::new(), "google.com", transmit_time, client_id); // TODO what needs to be in the UDP body?
 
                 // Rate limiting
                 while let Err(_) = lb.check() {
