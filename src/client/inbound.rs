@@ -145,8 +145,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            // println!("[Client inbound] Exited result handler thread");
-            // socket.shutdown(Shutdown::Both).unwrap();
             {
                 let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
@@ -200,7 +198,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         if value.source_port != 53 { // TODO check for DNS body to be of our measurement
                             continue
                         }
-                        
+
                         let receive_time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
@@ -289,8 +287,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            // println!("[Client inbound] Exited result handler thread");
-            // socket.shutdown(Shutdown::Both).unwrap();
             {
                 let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
@@ -340,9 +336,6 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::TCP { value } = packet.payload {
-                        // let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
-
-
                         // Responses to our probes have destination port > 4000 (as we use these as source)
                         // Use the RST flag, and have ACK 0
                         if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
@@ -431,14 +424,12 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            // println!("[Client inbound] Exited result handler thread");
-            // socket.shutdown(Shutdown::Both).unwrap();
             {
                 let handles = handles.lock().unwrap();
                 for handle in handles.iter() {
                     handle.abort();
                 }
-                println!("[Client inbound] Stopped listening for UDP packets");
+                println!("[Client inbound] Stopped listening for TCP packets");
 
             }
         }
