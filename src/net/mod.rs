@@ -320,7 +320,9 @@ impl UDPPacket {
                        body: Vec<u8>, domain_name: &str, transmit_time: u64, client_id: u32,) -> Vec<u8> {
         let destination_port = 53 as u16;
 
-        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
+        let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time, client_id);
+
+        let udp_length = (8 + body.len() + dns_body.len()) as u16;
 
         let mut packet = UDPPacket {
             source_port,
@@ -332,7 +334,7 @@ impl UDPPacket {
 
         let mut bytes: Vec<u8> = (&packet).into();
 
-        bytes.extend(Self::create_dns_a_record_request(domain_name, transmit_time, client_id));
+        bytes.extend(dns_body);
 
         let pseudo_header = PseudoHeader {
             source_address,
@@ -370,7 +372,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question
+        // DNS Question // TODO not working?
         for label in subdomain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
