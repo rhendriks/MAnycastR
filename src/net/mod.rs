@@ -317,7 +317,7 @@ impl UDPPacket {
     }
 
     pub fn dns_request(source_address: u32, destination_address: u32, source_port: u16,
-                       body: Vec<u8>, domain_name: &str, transmit_time: u32, client_id: u32,) -> Vec<u8> {
+                       body: Vec<u8>, domain_name: &str, transmit_time: u64, client_id: u32,) -> Vec<u8> {
         let destination_port = 53 as u16;
 
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
@@ -353,11 +353,10 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-
     // http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
     fn create_dns_a_record_request(
         domain_name: &str,
-        transmit_time: u32,
+        transmit_time: u64,
         client_id: u32,
     ) -> Vec<u8> {
         let subdomain = format!("{}-{}.{}", transmit_time, client_id, domain_name);
