@@ -9,6 +9,8 @@ use tonic::transport::Server;
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::thread;
+use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
 
@@ -248,12 +250,55 @@ impl Controller for ControllerService {
             }
 
             // Create a Task from the ScheduleTask
+
+            // let addresses;
+            // let source;
+            // let task_type = match request.into_inner().data.unwrap() {
+            //     Data::Ping(ping) => {
+            //         addresses = ping.destination_addresses;
+            //         source = ping.source_address;
+            //         1
+            //     }
+            //     Data::Udp(udp) => {
+            //         addresses = udp.destination_addresses;
+            //         source = udp.source_address;
+            //         2
+            //     }
+            //     Data::Tcp(tcp) => {
+            //         addresses = tcp.destination_addresses;
+            //         source = tcp.source_address;
+            //         3
+            //     }
+            // };
+            //
+            // // let mut sub_addresses = vec![];
+            //
+            // for chunk in addresses.chunks(100) {
+            //     // Create a Task with this data
+            //
+            //
+            //
+            //     let task = verfploeter::Task {
+            //         data: Some(task::Data::Ping {
+            //
+            //         }),
+            //         task_id,
+            //     };
+            //     // sub_addresses.push(chunk.to_vec());
+            // }
+            // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
+            // TODO will drastically increase the probing time
+
+            // TODO split task data into smaller tasks such that they are performed at around the same time
+            // TODO thereby they will be performed in sequence
+
             // Get the data from the ScheduleTask
             let task_data = match request.into_inner().data.unwrap() {
                 Data::Ping(ping) => { task::Data::Ping(ping) }
                 Data::Udp(udp) => { task::Data::Udp(udp) }
                 Data::Tcp(tcp) => { task::Data::Tcp(tcp) }
             };
+
             // Create a Task with this data
             let task = verfploeter::Task {
                 data: Some(task_data),
@@ -262,6 +307,9 @@ impl Controller for ControllerService {
 
             // Send the task to every client
             for sender in senders_list_clone.iter() {
+                // Sleep one second such that time between probes is ~1 second
+                thread::sleep(Duration::from_secs(1));
+                // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
                 // Send packet to client
                 if let Ok(_) = sender.try_send(Ok(task.clone())) {
                     println!("[Server] Sent task to client");

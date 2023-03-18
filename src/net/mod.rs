@@ -310,18 +310,17 @@ impl UDPPacket {
         // possible but is likely slower).
         let mut cursor = Cursor::new(bytes);
         cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
 
         // Return the vec
         cursor.into_inner()
     }
 
-    pub fn dns_request(source_address: u32, destination_address: u32, // TODO
-                       source_port: u16, body: Vec<u8>) -> Vec<u8> {
+    pub fn dns_request(source_address: u32, destination_address: u32, source_port: u16,
+                       body: Vec<u8>, domain_name: &str, transmit_time: u32, client_id: u32,) -> Vec<u8> {
         let destination_port = 53 as u16;
 
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
-
 
         let mut packet = UDPPacket {
             source_port,
@@ -331,8 +330,9 @@ impl UDPPacket {
             body,
         };
 
-        let bytes: Vec<u8> = (&packet).into();
-        // TODO extend bytes with DNS request as payload/body
+        let mut bytes: Vec<u8> = (&packet).into();
+
+        bytes.extend(Self::create_dns_a_record_request(domain_name, transmit_time, client_id));
 
         let pseudo_header = PseudoHeader {
             source_address,
@@ -347,10 +347,40 @@ impl UDPPacket {
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
         cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
 
         // Return the vec
         cursor.into_inner()
+    }
+
+
+    // http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
+    fn create_dns_a_record_request(
+        domain_name: &str,
+        transmit_time: u32,
+        client_id: u32,
+    ) -> Vec<u8> {
+        let subdomain = format!("{}-{}.{}", transmit_time, client_id, domain_name);
+        let mut dns_body: Vec<u8> = Vec::new();
+
+        // DNS Header
+        dns_body.write_u16::<byteorder::BigEndian>(0x1234).unwrap(); // Transaction ID
+        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
+
+        // DNS Question
+        for label in subdomain.split('.') {
+            dns_body.push(label.len() as u8);
+            dns_body.write_all(label.as_bytes()).unwrap();
+        }
+        dns_body.push(0); // Terminate the QNAME
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QTYPE (A record)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QCLASS (IN)
+
+        dns_body
     }
 }
 
