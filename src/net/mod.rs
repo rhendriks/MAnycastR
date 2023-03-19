@@ -344,7 +344,12 @@ impl UDPPacket {
             length: udp_length,
         };
 
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
+        println!("pseudo_header: {:?}", pseudo_header);
+
+        println!("bytes: {:?}", bytes);
+
+        packet.checksum = calculate_checksum(&bytes, &pseudo_header); // TODO checksum wrong
+        println!("calculated checksum 0x{:04x}", packet.checksum);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
