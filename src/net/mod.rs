@@ -343,25 +343,6 @@ impl From<&[u8]> for DNSARecord {
     }
 }
 
-// // Convert DNSARecord into a vector of u8
-// impl Into<Vec<u8>> for &DNSARecord {
-//     fn into(self) -> Vec<u8> {
-//         let mut wtr = vec![];
-//         wtr.write_u16::<NetworkEndian>(self.source_port)
-//             .expect("Unable to write to byte buffer for UDP packet");
-//         wtr.write_u16::<NetworkEndian>(self.destination_port)
-//             .expect("Unable to write to byte buffer for UDP packet");
-//         wtr.write_u16::<NetworkEndian>(self.length)
-//             .expect("Unable to write to byte buffer for UDP packet");
-//         wtr.write_u16::<NetworkEndian>(self.checksum)
-//             .expect("Unable to write to byte buffer for UDP packet");
-//         wtr.write_all(&self.body)
-//             .expect("Unable to write to byte buffer for UDP packet");
-//         wtr
-//     }
-// }
-
-
 // Implementations for the UDPPacket type
 impl UDPPacket {
     /// Create a basic UDP packet with checksum
@@ -461,7 +442,9 @@ impl UDPPacket {
         source_port: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
+
         // Each label has a max length of 63 characters
+        // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
                                 destination_address, client_id, source_port, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
