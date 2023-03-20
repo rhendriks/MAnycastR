@@ -91,19 +91,10 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
             // Loop over the destination addresses
             for dest_addr in dest_addresses {
 
-
                 let transmit_time = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_nanos() as u64;
-
-                let payload = UdpPayload {
-                    transmit_time,
-                    source_address,
-                    destination_address: dest_addr,
-                    sender_client_id: client_id as u32,
-                    source_port: source_port as u32,
-                };
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string()); // TODO port
 
