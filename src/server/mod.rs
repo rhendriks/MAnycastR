@@ -190,13 +190,12 @@ impl Controller for ControllerService {
 
             for client in clients_list.clone().clients.into_iter() {
                 if hostname == client.metadata.unwrap().hostname {
+                    println!("[Server] Refusing client as the hostname already exists: {}", hostname);
                     return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
                 }
             }
 
-            // let hostname = metadata.hostname; // TODO enforce unique hostname
             // Add the client to the client list
-
             let new_client = verfploeter::Client {
                 client_id: 0, // TODO set client_id here
                 metadata: Some(verfploeter::Metadata {

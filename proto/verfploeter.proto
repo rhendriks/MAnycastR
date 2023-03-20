@@ -24,7 +24,7 @@ service Controller {
   rpc ListClients(Empty) returns (ClientList) {}
   // Client sends TaskResult to Server
   rpc SendResult(TaskResult) returns (Ack) {}
-  // CLI subscribes itself to the Server to obtain a stream of TaskResult
+  // Client obtains a unique client ID from the server
   rpc GetClientId(Empty) returns (ClientId) {}
 }
 

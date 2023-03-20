@@ -96,7 +96,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
                     .unwrap()
                     .as_nanos() as u64;
 
-                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string()); // TODO port
+                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
                 let udp = UDPPacket::dns_request(source_address, dest_addr, source_port as u16, Vec::new(), "google.com", transmit_time, client_id);
 
@@ -131,7 +131,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 }
 
 // Perform a TCP measurement/task
-pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, source_addr: u32, destination_port: u16, source_port: u16) {
+pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, source_addr: u32, destination_port: u16, source_port: u16) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
     thread::spawn({
         move || {
@@ -142,24 +142,15 @@ pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
             for dest_addr in dest_addresses {
 
 
-                // TODO can I still store the transmit time information somehow?
-                // let transmit_time = SystemTime::now()
-                //     .duration_since(UNIX_EPOCH)
-                //     .unwrap()
-                //     .as_nanos() as u64;
+                let transmit_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u32; // TODO does this take the least-significant/most right bits?
 
-                // let mut bytes: Vec<u8> = Vec::new();
-                // bytes.extend_from_slice(&payload.task_id.to_be_bytes()); // Bytes 0 - 3
-                // bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
-                // bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15
-                // bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19
-                // bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
+                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
-                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string()); // TODO port
-
-                // TODO randomize port/seq/ack to avoid being blocked by firewalls
                 let seq = task_id; // information in seq gets lost
-                let ack = client_id as u32 + 300; // ack information gets returned as seq
+                let ack = transmit_time; // ack information gets returned as seq
 
                 let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new()); // TODO what needs to be in the TCP body?
 
