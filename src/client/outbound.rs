@@ -140,12 +140,11 @@ pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
             // Loop over the destination addresses
             for dest_addr in dest_addresses {
-
-
+                
                 let transmit_time = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos() as u32; // TODO does this take the least-significant/most right bits?
+                    .as_millis() as u32; // The least significant bits are kept
 
                 let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
