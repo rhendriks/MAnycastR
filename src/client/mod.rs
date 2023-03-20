@@ -161,7 +161,7 @@ impl ClientClass {
             }
             Data::Udp(_) => {
                 // TODO do ports need to be randomized to prevent firewall issues?
-                let src_port: u16 = 62321; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let src_port: u16 = 62321;
 
                 // Start listening thread
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
@@ -172,8 +172,8 @@ impl ClientClass {
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
                 // TODO do ports need to be randomized to prevent firewall issues?
-                let dest_port= 63853; // TODO what port number to use (ports not used by windows/linux/whatever?)
-                let src_port = 62321 + client_id as u16; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let dest_port= 63853;
+                let src_port = 62321 + client_id as u16;
 
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);

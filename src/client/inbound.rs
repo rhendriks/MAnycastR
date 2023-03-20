@@ -183,6 +183,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             let tokio_handle = rt.spawn(async move {
                 println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
                 while let Ok(result) = socket.recv(&mut buffer) { // TODO does not get closed
+                    println!("result: {:?}", result);
 
                     // Received when the socket closes on some OS
                     if result == 0 {
@@ -194,8 +195,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::UDP { value } = packet.payload {
-                        // The UDP responses will be from DNS services, with port 53 and our src port 4000 as dest port
-                        if (value.source_port != 53) & (value.destination_port != sender_src_port) { // TODO check for DNS body to be of our measurement
+                        // The UDP responses will be from DNS services, with port 53 and our src port as dest port
+                        if (value.source_port != 53) | (value.destination_port != sender_src_port) {
                             continue
                         }
 
@@ -204,21 +205,33 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             .unwrap()
                             .as_nanos() as u64;
 
-                        // TODO add error handling for when it is not part of our measurement and not a DNS A record
+                        // TODO what if the response does not have a body that can be transformed into a DNSARecord
                         let record = DNSARecord::from(value.body.as_slice());
-                        println!("record: {:?}", record);
 
                         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-                        println!("domain {:?}", domain);
 
-                        // Get the information from the domain
-                        // TODO add error handling for when the string does not follow this format
+                        // Get the information from the domain, continue to the next packet if it does not follow the format
                         let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-                        let transmit_time = parts[0].parse::<u64>().unwrap();
-                        let sender_src = parts[1].parse::<u32>().unwrap();
-                        let sender_dest = parts[2].parse::<u32>().unwrap();
-                        let sender_client_id = parts[3].parse::<u8>().unwrap();
-                        let sender_src_port = parts[4].parse::<u16>().unwrap();
+                        let transmit_time = match parts[0].parse::<u64>() {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+                        let sender_src = match parts[1].parse::<u32>() {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        let sender_dest = match parts[2].parse::<u32>() {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        let sender_client_id = match parts[3].parse::<u8>() {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        let sender_src_port = match parts[4].parse::<u16>() {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
                         // let domain = domain.split('.').skip(1).next().unwrap();
 
                         // Create a VerfploeterResult for the received UDP reply
