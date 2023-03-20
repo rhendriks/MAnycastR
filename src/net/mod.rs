@@ -316,11 +316,21 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    pub fn dns_request(source_address: u32, destination_address: u32, source_port: u16,
-                       body: Vec<u8>, domain_name: &str, transmit_time: u64, client_id: u32,) -> Vec<u8> {
+    /// Create a DNS A record request. In the domain of the A record, we encode: transmit_time,
+    /// source_address, destination_address, client_id, source_port, destination_port
+    pub fn dns_request(source_address: u32, destination_address: u32, source_port: u16, body: Vec<u8>,
+                       domain_name: &str, transmit_time: u64, client_id: u8) -> Vec<u8> {
+        // Max length of DNS request is 253 characters
+        // transmit_time: 0,
+        // source_address: 0,
+        // destination_address: 0,
+        // sender_client_id: 0,
+        // source_port: 0,
+
         let destination_port = 53 as u16;
 
-        let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time, client_id);
+        let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time,
+                     source_address, destination_address, client_id, source_port);
 
         let udp_length = (8 + body.len() + dns_body.len()) as u16;
 
@@ -344,12 +354,7 @@ impl UDPPacket {
             length: udp_length,
         };
 
-        println!("pseudo_header: {:?}", pseudo_header);
-
-        println!("bytes: {:?}", bytes);
-
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header); // TODO checksum wrong
-        println!("calculated checksum 0x{:04x}", packet.checksum);
+        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
@@ -360,13 +365,20 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
+    // domain_name, transmit_time,
+    //                      source_address, destination_address, client_id, source_port
+
     // http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
     fn create_dns_a_record_request(
         domain_name: &str,
         transmit_time: u64,
-        client_id: u32,
+        source_address: u32,
+        destination_address: u32,
+        client_id: u8,
+        source_port: u16,
     ) -> Vec<u8> {
-        let subdomain = format!("{}-{}.{}", transmit_time, client_id, domain_name);
+        let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
+                                destination_address, client_id, source_port, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
@@ -377,7 +389,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question // TODO not working?
+        // DNS Question
         for label in subdomain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();

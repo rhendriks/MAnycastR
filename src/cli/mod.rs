@@ -250,9 +250,8 @@ impl CliClass {
                         let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
                         let sender_client_id = payload.sender_client_id.to_string();
                         let request_src_port = payload.source_port.to_string();
-                        let request_dest_port = payload.destination_port.to_string();
 
-                        let record_udp: [&str; 12] = [&recv_time, &reply_source_port, &reply_destination_port, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
+                        let record_udp: [&str; 12] = [&recv_time, &reply_source_port, &reply_destination_port, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
                         let mut all_records = [""; 15];
                         all_records[..3].copy_from_slice(&record);
                         all_records[3..].copy_from_slice(&record_udp);

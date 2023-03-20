@@ -84,7 +84,7 @@ impl ClientClass {
     }
 
     // Start the appropriate measurement based on the received task
-    async fn start_measurement(&mut self, task: Task, client_id: u32) {
+    async fn start_measurement(&mut self, task: Task, client_id: u8) {
 
         // TODO make sure only one measurement can be active at a time
 
@@ -93,7 +93,7 @@ impl ClientClass {
         self.init(task, task_id, client_id).await;
     }
 
-    async fn init(&mut self, task: Task, task_id: u32, client_id: u32) {
+    async fn init(&mut self, task: Task, task_id: u32, client_id: u8) {
         // Obtain values from the Ping message
 
         // If there's a source address specified use it, otherwise use the one in the task.
@@ -164,17 +164,16 @@ impl ClientClass {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // TODO do ports need to be randomized to prevent firewall issues?
-                let dest_port= 53; // TODO what port number to use (ports not used by windows/linux/whatever?)
-                let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let src_port: u16 = 4000 + client_id as u16; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
                 // Start sending thread
-                perform_udp(dest_addresses, socket, rx_f, task_id, client_id, source_addr, dest_port, src_port);
+                perform_udp(dest_addresses, socket, rx_f, task_id, client_id, source_addr,src_port);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
                 // TODO do ports need to be randomized to prevent firewall issues?
                 let dest_port= 5892; // TODO what port number to use (ports not used by windows/linux/whatever?)
-                let src_port = 4000 + client_id; // TODO what port number to use (ports not used by windows/linux/whatever?)
+                let src_port = 4000 + client_id as u16; // TODO what port number to use (ports not used by windows/linux/whatever?)
 
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
@@ -203,7 +202,7 @@ impl ClientClass {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         let request = Request::new(self.metadata.clone());
 
-        let client_id: u32 = self.get_client_id_to_server().await.unwrap().client_id;
+        let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
 
         println!("[Client] Sending client connect");
         let response = self.grpc_client.client_connect(request).await?;

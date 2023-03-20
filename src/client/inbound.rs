@@ -12,7 +12,7 @@ use crate::client::verfploeter::verfploeter_result::Value;
 // This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
 
 // Listen for incoming ping packets
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -132,7 +132,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     task_id,
                     client: Some(Client {
                         // index: 0,
-                        client_id,
+                        client_id: client_id as u32,
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
@@ -158,7 +158,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 }
 
 // Listen for incoming UDP packets
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -194,6 +194,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::UDP { value } = packet.payload {
+                        println!("Received UDP packet {:?}", value);
                         // The UDP responses will be from DNS services, with port 53
                         if value.source_port != 53 { // TODO check for DNS body to be of our measurement
                             continue
@@ -221,7 +222,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                                     destination_address: 0,
                                     sender_client_id: 0,
                                     source_port: 0,
-                                    destination_port: 0,
                                 }),
                             })),
                         };
@@ -274,7 +274,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     task_id,
                     client: Some(Client {
                         // index: 0,
-                        client_id,
+                        client_id: client_id as u32,
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
@@ -300,7 +300,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 }
 
 // Listen for incoming TCP packets
-pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u32) {
+pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -411,7 +411,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     task_id,
                     client: Some(Client {
                         // index: 0,
-                        client_id,
+                        client_id: client_id as u32,
                         metadata: Some(metadata.clone()),
                     }),
                     result_list: rq,
