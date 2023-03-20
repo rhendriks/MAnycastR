@@ -182,11 +182,20 @@ impl Controller for ControllerService {
         println!("[Server] Received client_connect");
 
         let metadata = request.into_inner();
-        // let version = metadata.version;
-        let hostname = metadata.hostname; // TODO enforce unique hostname
-        // Add the client to the client list
+        let hostname = metadata.hostname;
+
         {
+            // let metadata = request.into_inner();
             let mut clients_list = self.clients.lock().unwrap();
+
+            for client in clients_list.clone().clients.into_iter() {
+                if hostname == client.metadata.unwrap().hostname {
+                    return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
+                }
+            }
+
+            // let hostname = metadata.hostname; // TODO enforce unique hostname
+            // Add the client to the client list
 
             let new_client = verfploeter::Client {
                 client_id: 0, // TODO set client_id here
@@ -220,7 +229,7 @@ impl Controller for ControllerService {
 
     type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
     // TODO perform round robin to send part of the tasks to each clients
-    async fn do_task( // TODO what if the CLI crashes/disconnects during the measurement
+    async fn do_task(
         &self,
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {
@@ -389,15 +398,11 @@ impl Controller for ControllerService {
                 error_message: "CLI disconnected".to_string(),
             })),
         }
-
-        // Ok(Response::new(Ack::default()))
     }
 }
 
 // Start the server
 pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    // Start the Controller server
-
     let port = args.value_of("port").unwrap();
     let addr: SocketAddr = "0.0.0.0:".to_string().add(port).parse().unwrap();
 
