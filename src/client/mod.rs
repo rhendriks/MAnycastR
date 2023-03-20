@@ -166,7 +166,7 @@ impl ClientClass {
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // Start sending thread
-                perform_tcp(dest_addresses, socket, rx_f, task_id, client_id, source_addr, dest_port, src_port);
+                perform_tcp(dest_addresses, socket, rx_f, task_id, source_addr, dest_port, src_port);
             }
             Data::Empty(_) => { () }
         };
