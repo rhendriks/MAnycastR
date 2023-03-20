@@ -153,11 +153,24 @@ impl Controller for ControllerService {
         }
         if finished {
             println!("[Server] Sending default value to CLI, notifying the task is finished");
-            tx.send(Ok(TaskResult::default())).await.unwrap();
+            // There is no longer an active measurement
+            *self.active.lock().unwrap() = false;
+
+            return match tx.send(Ok(TaskResult::default())).await {
+                Ok(_) => Ok(Response::new(Ack {
+                    success: true,
+                    error_message: "".to_string(),
+                })),
+                Err(_) => Ok(Response::new(Ack {
+                    success: false,
+                    error_message: "CLI disconnected".to_string(),
+                })),
+            }
         }
-        // There is no longer an active measurement
-        *self.active.lock().unwrap() = false;
-        Ok(Response::new(Ack::default()))
+        Ok(Response::new(Ack {
+            success: true,
+            error_message: "".to_string(),
+        }))
     }
 
     // Both streams are Server-sided
@@ -206,7 +219,6 @@ impl Controller for ControllerService {
     }
 
     type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
-    // TODO what if another CLI sends a task during the current one (only one should be allowed to be active at a time
     // TODO perform round robin to send part of the tasks to each clients
     async fn do_task( // TODO what if the CLI crashes/disconnects during the measurement
         &self,
@@ -367,9 +379,18 @@ impl Controller for ControllerService {
         };
 
         println!("[Server] Forwarding result to CLI");
-        tx.send(Ok(request.into_inner())).await.unwrap();
+        match tx.send(Ok(request.into_inner())).await {
+            Ok(_) => Ok(Response::new(Ack {
+                success: true,
+                error_message: "".to_string(),
+            })),
+            Err(_) => Ok(Response::new(Ack {
+                success: false,
+                error_message: "CLI disconnected".to_string(),
+            })),
+        }
 
-        Ok(Response::new(Ack::default()))
+        // Ok(Response::new(Ack::default()))
     }
 }
 

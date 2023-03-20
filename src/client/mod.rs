@@ -149,7 +149,6 @@ impl ClientClass {
                 perform_ping(dest_addresses, socket, rx_f, task_id, client_id, source_addr);
             }
             Data::Udp(_) => {
-                // TODO do ports need to be randomized to prevent firewall issues?
                 let src_port: u16 = 62321;
 
                 // Start listening thread
@@ -160,7 +159,6 @@ impl ClientClass {
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
-                // TODO do ports need to be randomized to prevent firewall issues?
                 let dest_port= 63853;
                 let src_port = 62321 + client_id as u16;
 
