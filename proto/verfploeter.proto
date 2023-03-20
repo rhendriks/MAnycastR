@@ -148,7 +148,6 @@ message UDPPayload {
   fixed32 destination_address = 3;
   fixed32 sender_client_id = 4;
   fixed32 source_port = 5;
-  fixed32 destination_port = 6;
   // TODO append with resolver used and other DNS information that's interesting
 }
 
