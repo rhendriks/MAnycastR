@@ -217,8 +217,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         let transmit_time = parts[0].parse::<u64>().unwrap();
                         let sender_src = parts[1].parse::<u32>().unwrap();
                         let sender_dest = parts[2].parse::<u32>().unwrap();
-                        let sender_client_id = parts[4].parse::<u8>().unwrap();
-                        let sender_src_port = parts[5].parse::<u16>().unwrap();
+                        let sender_client_id = parts[3].parse::<u8>().unwrap();
+                        let sender_src_port = parts[4].parse::<u16>().unwrap();
                         // let domain = domain.split('.').skip(1).next().unwrap();
 
                         // Create a VerfploeterResult for the received UDP reply
