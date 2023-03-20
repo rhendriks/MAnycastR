@@ -23,10 +23,8 @@ use std::sync::Arc;
 
 use clap::ArgMatches;
 
-use crate::client::inbound::{listen_ping, listen_tcp};
-use crate::client::outbound::{perform_ping, perform_tcp};
-use crate::client::inbound::listen_udp;
-use crate::client::outbound::perform_udp;
+use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
+use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 
 
 mod inbound;
@@ -55,7 +53,6 @@ impl ClientClass {
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            // version: "1".to_string(),
         };
 
         // Initialize a client class
@@ -73,8 +70,6 @@ impl ClientClass {
     // Create a connection to the gRPC Controller server
     async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         // Create client connection with the Controller Server
-        // let client = ControllerClient::connect("http://[::1]:10001").await?;
-
         let addr = "https://".to_string().add(address);
         println!("[Client] Connecting to Controller Server at address: {}", addr);
         let client = ControllerClient::connect(addr).await?;
@@ -85,8 +80,11 @@ impl ClientClass {
 
     // Start the appropriate measurement based on the received task
     async fn start_measurement(&mut self, task: Task, client_id: u8) {
-
-        // TODO make sure only one measurement can be active at a time
+        // If the task is empty, we don't do a measurement
+        if let Data::Empty(_) = task.data.clone().unwrap() {
+            println!("Received an empty task, skipping measurement");
+            return
+        }
 
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
@@ -105,7 +103,7 @@ impl ClientClass {
                 Data::Ping(ping) => { ping.source_address }
                 Data::Udp(udp) => { udp.source_address }
                 Data::Tcp(tcp) => { tcp.source_address }
-                Data::Empty(_) => { 0} // TODO handle this
+                Data::Empty(_) => { 0 }
             };
         } else {
             // Use this client's address that was specified in the command-line arguments
@@ -116,21 +114,12 @@ impl ClientClass {
             Data::Ping(ping) => { ping.destination_addresses }
             Data::Udp(udp) => { udp.destination_addresses }
             Data::Tcp(tcp) => { tcp.destination_addresses }
-            Data::Empty(_) => { vec![] } // TODO
+            Data::Empty(_) => { vec![] }
         };
-
-        // Get port to open socket on TODO it should listen on all ports i.e. 0 since we will be sending from different ports on different clients
-        // TODO and we want to receive the responses to those clients as well
-        // let port = match task.data.clone().unwrap() {
-        //     Data::Ping(ping) => { 0 }
-        //     Data::Udp(udp) => { udp.destination_addresses }
-        //     Data::Tcp(tcp) => { tcp.destination_addresses }
-        //     Data::Empty(_) => { 0 }
-        // };
 
         // Create the socket to send the ping messages from
         let bind_address = format!(
-            "{}:0", // TODO port of bind address
+            "{}:0",
             Ipv4Addr::from(source_addr).to_string()
         );
 
@@ -139,7 +128,7 @@ impl ClientClass {
             Data::Ping(_) => { Protocol::icmpv4() }
             Data::Udp(_) => { Protocol::udp() }
             Data::Tcp(_) => { Protocol::tcp() }
-            Data::Empty(_) => { Protocol::icmpv4() } // TODO handle this
+            Data::Empty(_) => { Protocol::icmpv4() }
         };
 
         let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
@@ -167,7 +156,7 @@ impl ClientClass {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
 
                 // Start sending thread
-                perform_udp(dest_addresses, socket, rx_f, task_id, client_id, source_addr,src_port);
+                perform_udp(dest_addresses, socket, rx_f, client_id, source_addr,src_port);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
@@ -181,7 +170,7 @@ impl ClientClass {
                 // Start sending thread
                 perform_tcp(dest_addresses, socket, rx_f, task_id, client_id, source_addr, dest_port, src_port);
             }
-            Data::Empty(_) => { println!("[Client] Received an empty task")} // TODO handle this
+            Data::Empty(_) => { () }
         };
 
         // Obtain TaskResults from the unbounded channel and send them to the server

@@ -38,6 +38,7 @@ pub struct ControllerService {
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
+    active: Arc<Mutex<bool>>,
 }
 
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
@@ -154,7 +155,8 @@ impl Controller for ControllerService {
             println!("[Server] Sending default value to CLI, notifying the task is finished");
             tx.send(Ok(TaskResult::default())).await.unwrap();
         }
-
+        // There is no longer an active measurement
+        *self.active.lock().unwrap() = false;
         Ok(Response::new(Ack::default()))
     }
 
@@ -211,6 +213,16 @@ impl Controller for ControllerService {
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {
         println!("[Server] Received do_task");
+        
+        // If there already is an active measurement, we skip
+        {
+            let mut active = self.active.lock().unwrap();
+            if *active == true {
+                return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
+            } else {
+                *active = false;
+            }
+        }
 
         // Get the list of Senders (that connect to the clients)
         let senders_list_clone = {
@@ -377,6 +389,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
         current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(0)),
+        active: Arc::new(Mutex::new(false)),
     };
 
     let svc = ControllerServer::new(controller);
