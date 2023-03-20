@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use socket2::Socket;
-use crate::net::{IPv4Packet, PacketPayload};
+use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 // use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
@@ -165,7 +165,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     // Handles that are used to close the spawned threads
     let handles = Arc::new(Mutex::new(Vec::new()));
 
-    println!("[Client inbound] Started UDP prober");
+    println!("[Client inbound] Started UDP listener");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
@@ -182,7 +182,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             // Tokio thread
             let tokio_handle = rt.spawn(async move {
                 println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
-                while let Ok(result) = socket.recv(&mut buffer) {
+                while let Ok(result) = socket.recv(&mut buffer) { // TODO does not get closed
 
                     // Received when the socket closes on some OS
                     if result == 0 {
@@ -194,7 +194,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::UDP { value } = packet.payload {
-                        println!("Received UDP packet {:?}", value);
                         // The UDP responses will be from DNS services, with port 53
                         if value.source_port != 53 { // TODO check for DNS body to be of our measurement
                             continue
@@ -204,6 +203,21 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_nanos() as u64;
+
+                        // TODO add error handling for when it is not part of our measurement and not a DNS A record
+                        let record = DNSARecord::from(value.body.as_slice());
+
+                        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+
+                        // Get the information from the domain
+                        // TODO add error handling for when the string does not follow this format
+                        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                        let transmit_time = parts[0].parse::<u64>().unwrap();
+                        let sender_src = parts[1].parse::<u32>().unwrap();
+                        let sender_dest = parts[2].parse::<u32>().unwrap();
+                        let sender_client_id = parts[4].parse::<u8>().unwrap();
+                        let sender_src_port = parts[5].parse::<u16>().unwrap();
+                        // let domain = domain.split('.').skip(1).next().unwrap();
 
                         // Create a VerfploeterResult for the received UDP reply
                         let result = VerfploeterResult {
@@ -216,12 +230,12 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                                     ttl: packet.ttl as u32,
                                 }),
                                 receive_time,
-                                payload: Some(UdpPayload { // TODO
-                                    transmit_time: 0,
-                                    source_address: 0,
-                                    destination_address: 0,
-                                    sender_client_id: 0,
-                                    source_port: 0,
+                                payload: Some(UdpPayload {
+                                    transmit_time,
+                                    source_address: sender_src,
+                                    destination_address: sender_dest,
+                                    sender_client_id: sender_client_id as u32,
+                                    source_port: sender_src_port as u32,
                                 }),
                             })),
                         };
