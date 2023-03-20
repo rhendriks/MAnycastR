@@ -206,8 +206,10 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                         // TODO add error handling for when it is not part of our measurement and not a DNS A record
                         let record = DNSARecord::from(value.body.as_slice());
+                        println!("record: {:?}", record);
 
                         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+                        println!("domain {:?}", domain);
 
                         // Get the information from the domain
                         // TODO add error handling for when the string does not follow this format

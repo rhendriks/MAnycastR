@@ -276,6 +276,8 @@ impl Into<Vec<u8>> for &UDPPacket {
     }
 }
 
+// A DNS A record
+#[derive(Debug)]
 pub struct DNSARecord {
     pub transaction_id: u16,
     pub flags: u16,
