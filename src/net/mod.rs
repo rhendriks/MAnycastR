@@ -1,5 +1,5 @@
 use super::byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::io::Write;
 use std::net::Ipv4Addr;
 
@@ -276,6 +276,87 @@ impl Into<Vec<u8>> for &UDPPacket {
     }
 }
 
+pub struct DNSARecord {
+    pub transaction_id: u16,
+    pub flags: u16,
+    pub questions: u16,
+    pub answer: u16,
+    pub authority: u16,
+    pub additional: u16,
+    pub domain: String,
+    pub record_type: u16,
+    pub class: u16,
+}
+
+// Read a DNS name that is contained in a DNS response
+fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
+    let mut result = String::new();
+    loop {
+        let label_len = data.read_u8().unwrap();
+        // If label length is 0, it is the end of the string
+        if label_len == 0 {
+            break;
+        }
+        // If the first two bytes of the label length is set to 11, it points to a different position
+        if label_len & 0xC0 == 0xC0 {
+            // The offset is the pointer to the previous domain name
+            let offset = ((label_len as u16 & 0x3F) << 8) | data.read_u8().unwrap() as u16;
+            let mut copy = data.clone();
+            copy.set_position(offset as u64);
+            result.push_str(&read_dns_name(&mut copy));
+            break;
+        }
+        // Read the label
+        let mut label_bytes = vec![0; label_len as usize];
+        data.read_exact(&mut label_bytes).unwrap();
+        let label = String::from_utf8_lossy(&label_bytes).to_string();
+        result.push_str(&label);
+        result.push('.');
+    }
+    // Remove the trailing '.' if there is one
+    if result.ends_with('.') {
+        result.pop();
+    }
+    result
+}
+
+// Parsing from bytes into a DNS A record
+impl From<&[u8]> for DNSARecord {
+    fn from(data: &[u8]) -> Self {
+        let mut data = Cursor::new(data);
+        DNSARecord {
+            transaction_id: data.read_u16::<NetworkEndian>().unwrap(),
+            flags: data.read_u16::<NetworkEndian>().unwrap(),
+            questions: data.read_u16::<NetworkEndian>().unwrap(),
+            answer: data.read_u16::<NetworkEndian>().unwrap(),
+            authority: data.read_u16::<NetworkEndian>().unwrap(),
+            additional: data.read_u16::<NetworkEndian>().unwrap(),
+            domain: read_dns_name(&mut data),
+            record_type: data.read_u16::<NetworkEndian>().unwrap(),
+            class: data.read_u16::<NetworkEndian>().unwrap(),
+        }
+    }
+}
+
+// // Convert DNSARecord into a vector of u8
+// impl Into<Vec<u8>> for &DNSARecord {
+//     fn into(self) -> Vec<u8> {
+//         let mut wtr = vec![];
+//         wtr.write_u16::<NetworkEndian>(self.source_port)
+//             .expect("Unable to write to byte buffer for UDP packet");
+//         wtr.write_u16::<NetworkEndian>(self.destination_port)
+//             .expect("Unable to write to byte buffer for UDP packet");
+//         wtr.write_u16::<NetworkEndian>(self.length)
+//             .expect("Unable to write to byte buffer for UDP packet");
+//         wtr.write_u16::<NetworkEndian>(self.checksum)
+//             .expect("Unable to write to byte buffer for UDP packet");
+//         wtr.write_all(&self.body)
+//             .expect("Unable to write to byte buffer for UDP packet");
+//         wtr
+//     }
+// }
+
+
 // Implementations for the UDPPacket type
 impl UDPPacket {
     /// Create a basic UDP packet with checksum
@@ -318,15 +399,15 @@ impl UDPPacket {
 
     /// Create a DNS A record request. In the domain of the A record, we encode: transmit_time,
     /// source_address, destination_address, client_id, source_port, destination_port
-    pub fn dns_request(source_address: u32, destination_address: u32, source_port: u16, body: Vec<u8>,
-                       domain_name: &str, transmit_time: u64, client_id: u8) -> Vec<u8> {
-        // Max length of DNS request is 253 characters
-        // transmit_time: 0,
-        // source_address: 0,
-        // destination_address: 0,
-        // sender_client_id: 0,
-        // source_port: 0,
-
+    pub fn dns_request(
+        source_address: u32,
+        destination_address: u32,
+        source_port: u16,
+        body: Vec<u8>,
+        domain_name: &str,
+        transmit_time: u64,
+        client_id: u8
+    ) -> Vec<u8> {
         let destination_port = 53 as u16;
 
         let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time,
@@ -365,9 +446,6 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    // domain_name, transmit_time,
-    //                      source_address, destination_address, client_id, source_port
-
     // http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
     fn create_dns_a_record_request(
         domain_name: &str,
@@ -377,6 +455,8 @@ impl UDPPacket {
         client_id: u8,
         source_port: u16,
     ) -> Vec<u8> {
+        // Max length of DNS domain name is 253 character
+        // Each label has a max length of 63 characters
         let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
                                 destination_address, client_id, source_port, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
