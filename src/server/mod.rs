@@ -218,9 +218,10 @@ impl Controller for ControllerService {
         {
             let mut active = self.active.lock().unwrap();
             if *active == true {
+                println!("[Server] There is already an active task, returning");
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
             } else {
-                *active = false;
+                *active = true;
             }
         }
 
