@@ -158,7 +158,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 }
 
 // Listen for incoming UDP packets
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -194,8 +194,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Obtain the payload
                     if let PacketPayload::UDP { value } = packet.payload {
-                        // The UDP responses will be from DNS services, with port 53
-                        if value.source_port != 53 { // TODO check for DNS body to be of our measurement
+                        // The UDP responses will be from DNS services, with port 53 and our src port 4000 as dest port
+                        if (value.source_port != 53) & (value.destination_port != sender_src_port) { // TODO check for DNS body to be of our measurement
                             continue
                         }
 
