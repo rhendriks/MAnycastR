@@ -182,9 +182,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             // Tokio thread
             let tokio_handle = rt.spawn(async move {
                 println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
-                while let Ok(result) = socket.recv(&mut buffer) { // TODO does not get closed
-                    println!("result: {:?}", result);
-
+                while let Ok(result) = socket.recv(&mut buffer) {
                     // Received when the socket closes on some OS
                     if result == 0 {
                         break;
