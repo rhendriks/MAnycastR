@@ -300,13 +300,14 @@ impl CliClass {
             Cell::new("Hostname")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Version")
+            Cell::new("Client ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
         for client in response.into_inner().clients {
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
+                    client.client_id,
                     // client.metadata.clone().unwrap().version,
                 ));
         }

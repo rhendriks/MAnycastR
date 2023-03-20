@@ -25,7 +25,7 @@ service Controller {
   // Client sends TaskResult to Server
   rpc SendResult(TaskResult) returns (Ack) {}
   // Client obtains a unique client ID from the server
-  rpc GetClientId(Empty) returns (ClientId) {}
+  rpc GetClientId(Metadata) returns (ClientId) {}
 }
 
 // Empty message
