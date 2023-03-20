@@ -105,7 +105,7 @@ impl Controller for ControllerService {
 
     async fn get_client_id(
         &self,
-        _request: Request<verfploeter::Empty>
+        request: Request<verfploeter::Metadata>
     ) -> Result<Response<ClientId>, Status> {
         println!("[Server] Received get_client_id");
 
@@ -116,6 +116,30 @@ impl Controller for ControllerService {
             client_id = *current_client_id;
             current_client_id.add_assign(1);
         }
+
+        let metadata = request.into_inner();
+        let hostname = metadata.hostname;
+
+        {
+            let mut clients_list = self.clients.lock().unwrap();
+
+            for client in clients_list.clone().clients.into_iter() {
+                if hostname == client.metadata.unwrap().hostname {
+                    println!("[Server] Refusing client as the hostname already exists: {}", hostname);
+                    return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
+                }
+            }
+
+            // Add the client to the client list
+            let new_client = verfploeter::Client {
+                client_id,
+                metadata: Some(verfploeter::Metadata {
+                    hostname: hostname.clone(),
+                }),
+            };
+
+            clients_list.clients.push(new_client);
+        };
 
         Ok(Response::new(ClientId{
             client_id,
@@ -181,30 +205,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
         println!("[Server] Received client_connect");
 
-        let metadata = request.into_inner();
-        let hostname = metadata.hostname;
-
-        {
-            // let metadata = request.into_inner();
-            let mut clients_list = self.clients.lock().unwrap();
-
-            for client in clients_list.clone().clients.into_iter() {
-                if hostname == client.metadata.unwrap().hostname {
-                    println!("[Server] Refusing client as the hostname already exists: {}", hostname);
-                    return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
-                }
-            }
-
-            // Add the client to the client list
-            let new_client = verfploeter::Client {
-                client_id: 0, // TODO set client_id here
-                metadata: Some(verfploeter::Metadata {
-                    hostname: hostname.clone(),
-                }),
-            };
-
-            clients_list.clients.push(new_client);
-        };
+        let hostname = request.into_inner().hostname;
 
         let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
@@ -214,7 +215,6 @@ impl Controller for ControllerService {
             senders.push(tx);
         }
 
-        // let hostname = request.into_inner().hostname;
         let rx = DropReceiver {
             inner: rx,
             open_tasks: self.open_tasks.clone(),

@@ -1,6 +1,3 @@
-// TODO socket2 can be converted into socket/stream for UDP/TCP
-// This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
-
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use std::num::NonZeroU32;
 use std::thread;
@@ -140,7 +137,7 @@ pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 
             // Loop over the destination addresses
             for dest_addr in dest_addresses {
-                
+
                 let transmit_time = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
@@ -151,7 +148,7 @@ pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
                 let seq = task_id; // information in seq gets lost
                 let ack = transmit_time; // ack information gets returned as seq
 
-                let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new()); // TODO what needs to be in the TCP body?
+                let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new());
 
                 // Rate limiting
                 while let Err(_) = lb.check() {

@@ -7,7 +7,7 @@ pub mod verfploeter {
 use verfploeter::controller_client::ControllerClient;
 // Load in struct definitions for the message types
 use verfploeter::{
-    Empty, TaskId, Task, Metadata, TaskResult, task::Data, ClientId
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId
 };
 
 // Ping dependencies
@@ -209,7 +209,7 @@ impl ClientClass {
     // Obtain a unique client_id at the server
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         println!("[Client] Requesting client_id");
-        let client_id = self.grpc_client.get_client_id(Request::new(Empty::default())).await?.into_inner();
+        let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();
 
         Ok(client_id)
     }
