@@ -288,6 +288,9 @@ pub struct DNSARecord {
     pub domain: String,
     pub record_type: u16,
     pub class: u16,
+
+    // TODO DNS A Record reply has more fields after this
+
 }
 
 // Read a DNS name that is contained in a DNS response
