@@ -1,15 +1,11 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use socket2::Socket;
-use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
-// use std::net::Shutdown;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
-use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult, UdpPayload, UdpResult, TcpResult};
-use crate::client::verfploeter::verfploeter_result::Value;
 
-// TODO socket2 can be converted into socket/stream for UDP/TCP
-// This type can be freely converted into the network primitives provided by the standard library, such as TcpStream or UdpSocket, using the From trait, see the example below.
+use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
+use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult, UdpPayload, UdpResult, TcpResult, verfploeter_result::Value};
 
 // Listen for incoming ping packets
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {

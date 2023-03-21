@@ -26,7 +26,6 @@ use clap::ArgMatches;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 
-
 mod inbound;
 mod outbound;
 
@@ -198,8 +197,13 @@ impl ClientClass {
 
         while let Some(task) = stream.message().await? {
             println!("[Client] Received task");
-            // Only one measurement at a time, therefore it is pointless to spawn threads here
-            self.start_measurement(task, client_id).await;
+
+            // A None task data is sent when the CLI has disconnected during an active task
+            if task.data == None {
+                println!("[Client] Aborting current measurement")
+            } else {
+                self.start_measurement(task, client_id).await;
+            }
         }
         println!("[Client] Stopped awaiting tasks...");
 

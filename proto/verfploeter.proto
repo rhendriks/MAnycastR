@@ -1,6 +1,4 @@
 // This file is used in combination with rust protobuf https://docs.rs/protobuf/latest/protobuf/
-// From this, code is generated which can be found in src/schema
-// It generated verfploeter.rs and verfploeter_grpc.rs
 
 // https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
 
@@ -147,7 +145,6 @@ message UDPPayload {
   fixed32 destination_address = 3;
   fixed32 sender_client_id = 4;
   fixed32 source_port = 5;
-  // TODO append with resolver used and other DNS information that's interesting
 }
 
 message TCPResult {
