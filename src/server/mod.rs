@@ -45,7 +45,7 @@ pub struct ControllerService {
 
 // Special Receiver struct that notices when the receiver drops
 // This allows us to detect when a client has disconnected and handle it
-pub struct DropReceiver<T> {
+pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
@@ -53,7 +53,7 @@ pub struct DropReceiver<T> {
     clients: Arc<Mutex<ClientList>>,
 }
 
-impl<T> Stream for DropReceiver<T> {
+impl<T> Stream for ClientReceiver<T> {
     type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
@@ -61,9 +61,9 @@ impl<T> Stream for DropReceiver<T> {
     }
 }
 
-impl<T> Drop for DropReceiver<T> {
+impl<T> Drop for ClientReceiver<T> {
     fn drop(&mut self) {
-        println!("[Server] Receiver has been dropped");
+        println!("[Server] Client receiver has been dropped");
 
         // Remove this client from the clients list
         let mut clientslist = self.clients.lock().unwrap();
@@ -97,6 +97,61 @@ impl<T> Drop for DropReceiver<T> {
         }
     }
 }
+
+// Special Receiver struct that notices when the receiver drops
+// This allows us to detect when a CLI has disconnected and handle it
+pub struct CLIReceiver<T> {
+    inner: mpsc::Receiver<T>,
+    open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
+    task_id: u32,
+    active: Arc<Mutex<bool>>,
+    senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
+    // Client senders
+}
+
+impl<T> Stream for CLIReceiver<T> {
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        self.inner.poll_recv(cx)
+    }
+}
+
+impl<T> Drop for CLIReceiver<T> {
+    fn drop(&mut self) {
+        println!("[Server] CLI receiver has been dropped");
+
+        let mut active = self.active.lock().unwrap();
+
+        // If there is an active task we need to cancel it and notify the clients
+        if *active == true {
+
+            // Create termination 'task'
+            let task = verfploeter::Task {
+                data: None,
+                task_id: self.task_id,
+            };
+
+            // Tell each client to terminate the task
+            for client in self.senders.lock().unwrap().iter() {
+                if let Ok(_) = client.try_send(Ok(task.clone())) {
+                    println!("[Server] Terminated task at client");
+                } else {
+                    println!("[Server] ERROR - Failed to terminate task");
+                }
+            }
+
+            // Handle the open task that this CLI created
+            let mut open_tasks = self.open_tasks.lock().unwrap();
+            open_tasks.remove(&self.task_id);
+
+            // Set task_active to false
+            *active = false;
+        }
+    }
+}
+
+
 
 // gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
 // The Controller service implementation
@@ -164,7 +219,16 @@ impl Controller for ControllerService {
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
-            let remaining: &u32 = open_tasks.get(&task_id).unwrap();
+            let remaining: &u32;
+            if let Some(value) = open_tasks.get(&task_id) {
+                remaining = value;
+            } else {
+                println!("[Server] Received task_finished for non-existent task {}", &task_id);
+                return Ok(Response::new(Ack {
+                    success: false,
+                    error_message: "Task unknown".to_string(),
+                }))
+            }
             // If this is the last client we are finished
             if remaining == &(1 as u32) {
                 open_tasks.remove(&task_id);
@@ -198,7 +262,7 @@ impl Controller for ControllerService {
     }
 
     // Both streams are Server-sided
-    type ClientConnectStream = DropReceiver<Result<Task, Status>>;
+    type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
     async fn client_connect(
         &self,
         request: Request<verfploeter::Metadata>,
@@ -215,7 +279,7 @@ impl Controller for ControllerService {
             senders.push(tx);
         }
 
-        let rx = DropReceiver {
+        let rx = ClientReceiver {
             inner: rx,
             open_tasks: self.open_tasks.clone(),
             cli_sender: self.cli_sender.clone(),
@@ -339,7 +403,7 @@ impl Controller for ControllerService {
             };
 
             // Send the task to every client
-            for sender in senders_list_clone.iter() {
+            for sender in senders_list_clone.iter() { // TODO if the CLI disconnects whilst sending out tasks, make sure this stops
                 // Sleep one second such that time between probes is ~1 second
                 thread::sleep(Duration::from_secs(1));
                 // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
@@ -352,7 +416,7 @@ impl Controller for ControllerService {
             }
 
             // Establish a stream with the CLI to return the TaskResults through
-            let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+            let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
             {
                 let mut sender = self.cli_sender.lock().unwrap();
                 let _ = sender.insert(tx);
