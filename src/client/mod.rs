@@ -200,8 +200,10 @@ impl ClientClass {
 
             // A None task data is sent when the CLI has disconnected during an active task
             if task.data == None {
+                // TODO make it such that tasks/measurements can be aborted
                 println!("[Client] Aborting current measurement")
             } else {
+                // TODO change it such that this works when the server splits up the main task into many small tasks
                 self.start_measurement(task, client_id).await;
             }
         }
