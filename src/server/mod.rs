@@ -290,7 +290,7 @@ impl Controller for ControllerService {
         Ok(Response::new(rx))
     }
 
-    type DoTaskStream = ReceiverStream<Result<TaskResult, Status>>;
+    type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
     // TODO perform round robin to send part of the tasks to each clients
     async fn do_task(
         &self,
@@ -422,7 +422,15 @@ impl Controller for ControllerService {
                 let _ = sender.insert(tx);
             }
 
-            Ok(Response::new(ReceiverStream::new(rx)))
+            let rx = CLIReceiver {
+                inner: rx,
+                open_tasks: self.open_tasks.clone(),
+                task_id,
+                active: self.active.clone(),
+                senders: self.senders.clone(),
+            };
+
+            Ok(Response::new(rx))
         // If there are no connected clients
         } else {
             Err(Status::new(tonic::Code::Cancelled, "No connected clients"))
