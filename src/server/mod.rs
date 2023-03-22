@@ -348,73 +348,115 @@ impl Controller for ControllerService {
 
             // Create a Task from the ScheduleTask
 
-            // let addresses;
-            // let source;
-            // let task_type = match request.into_inner().data.unwrap() {
-            //     Data::Ping(ping) => {
-            //         addresses = ping.destination_addresses;
-            //         source = ping.source_address;
-            //         1
-            //     }
-            //     Data::Udp(udp) => {
-            //         addresses = udp.destination_addresses;
-            //         source = udp.source_address;
-            //         2
-            //     }
-            //     Data::Tcp(tcp) => {
-            //         addresses = tcp.destination_addresses;
-            //         source = tcp.source_address;
-            //         3
-            //     }
-            // };
-            //
-            // // let mut sub_addresses = vec![];
-            //
-            // for chunk in addresses.chunks(100) {
-            //     // Create a Task with this data
-            //
-            //
-            //
-            //     let task = verfploeter::Task {
-            //         data: Some(task::Data::Ping {
-            //
-            //         }),
-            //         task_id,
-            //     };
-            //     // sub_addresses.push(chunk.to_vec());
-            // }
+            // Get the destination addresses, the source address and the task type from the CLI task
+            let addresses;
+            let source;
+            let task_type = match request.into_inner().data.unwrap() {
+                Data::Ping(ping) => {
+                    addresses = ping.destination_addresses;
+                    source = ping.source_address;
+                    1
+                }
+                Data::Udp(udp) => {
+                    addresses = udp.destination_addresses;
+                    source = udp.source_address;
+                    2
+                }
+                Data::Tcp(tcp) => {
+                    addresses = tcp.destination_addresses;
+                    source = tcp.source_address;
+                    3
+                }
+            };
+
+            // Split the destination addresses into chunks and create a task for each chunk
+            for chunk in addresses.chunks(100) { // TODO chunk size 100 probably too small
+                // Create a Task with this data
+                let task = match task_type {
+                    1 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                            source_address: source,
+                            destination_addresses: chunk.to_vec(),
+                        })),
+                        task_id,
+                    },
+                    2 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                            source_address: source,
+                            destination_addresses: chunk.to_vec(),
+                        })),
+                        task_id,
+                    },
+                    3 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                            source_address: source,
+                            destination_addresses: chunk.to_vec(),
+                        })),
+                        task_id,
+                    },
+                    _ => verfploeter::Task::default(),
+                };
+
+                // Send task to each client, and wait 1 second in between
+                for sender in senders_list_clone.iter() {
+
+                    // If the CLI disconnects during task distribution, abort
+                    if *self.active.lock().unwrap() == false {
+                        break
+                    }
+                    // Sleep one second such that time between probes is ~1 second
+                    thread::sleep(Duration::from_secs(1));
+                    // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
+                    // Send packet to client
+                    if let Ok(_) = sender.try_send(Ok(task.clone())) {
+                        println!("[Server] Sent task to client");
+                    } else {
+                        println!("[Server] ERROR - Failed to send task to client");
+                    }
+                }
+
+                // sub_addresses.push(chunk.to_vec());
+            }
             // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
             // TODO will drastically increase the probing time
 
             // TODO split task data into smaller tasks such that they are performed at around the same time
             // TODO thereby they will be performed in sequence
 
-            // Get the data from the ScheduleTask
-            let task_data = match request.into_inner().data.unwrap() {
-                Data::Ping(ping) => { task::Data::Ping(ping) }
-                Data::Udp(udp) => { task::Data::Udp(udp) }
-                Data::Tcp(tcp) => { task::Data::Tcp(tcp) }
-            };
+            /// Single task
 
-            // Create a Task with this data
-            let task = verfploeter::Task {
-                data: Some(task_data),
-                task_id,
-            };
+            // // Get the data from the ScheduleTask
+            // let task_data = match request.into_inner().data.unwrap() {
+            //     Data::Ping(ping) => { task::Data::Ping(ping) }
+            //     Data::Udp(udp) => { task::Data::Udp(udp) }
+            //     Data::Tcp(tcp) => { task::Data::Tcp(tcp) }
+            // };
+            //
+            // // Create a Task with this data
+            // let task = verfploeter::Task {
+            //     data: Some(task_data),
+            //     task_id,
+            // };
+            //
+            // // Send the task to every client
+            // for sender in senders_list_clone.iter() {
+            //
+            //     // If the CLI disconnects during task distribution, abort
+            //     if *self.active.lock().unwrap() == false {
+            //         break
+            //     }
+            //     // Sleep one second such that time between probes is ~1 second
+            //     thread::sleep(Duration::from_secs(1));
+            //     // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
+            //     // Send packet to client
+            //     if let Ok(_) = sender.try_send(Ok(task.clone())) {
+            //         println!("[Server] Sent task to client");
+            //     } else {
+            //         println!("[Server] ERROR - Failed to send task to client");
+            //     }
+            // }
 
-            // Send the task to every client
-            for sender in senders_list_clone.iter() { // TODO if the CLI disconnects whilst sending out tasks, make sure this stops
-                // Sleep one second such that time between probes is ~1 second
-                thread::sleep(Duration::from_secs(1));
-                // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
-                // Send packet to client
-                if let Ok(_) = sender.try_send(Ok(task.clone())) {
-                    println!("[Server] Sent task to client");
-                } else {
-                    println!("[Server] ERROR - Failed to send task to client");
-                }
-            }
-
+            // TODO the client will send back results before this code is executed when the task is very long
             // Establish a stream with the CLI to return the TaskResults through
             let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
             {
