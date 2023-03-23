@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
 use std::ops::{Add, AddAssign};
@@ -26,7 +25,7 @@ pub mod verfploeter {
 use verfploeter::controller_server::{Controller, ControllerServer};
 // Load in struct definitions for the message types
 use verfploeter::{
-    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, task
+    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
 };
 
 // Struct for the Server service
