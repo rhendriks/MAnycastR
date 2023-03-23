@@ -20,8 +20,11 @@ use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use clap::ArgMatches;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
@@ -29,6 +32,7 @@ use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 mod inbound;
 mod outbound;
 
+#[derive(Clone)]
 pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
@@ -82,7 +86,8 @@ impl ClientClass {
     }
 
     // Start the appropriate measurement based on the received task
-    async fn start_measurement(&mut self, task: Task, client_id: u8) {
+    fn start_measurement(&mut self, task: Task, client_id: u8) {
+        println!("Started measurement");
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("Received an empty task, skipping measurement");
@@ -91,10 +96,10 @@ impl ClientClass {
 
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
-        self.init(task, task_id, client_id).await;
+        self.init(task, task_id, client_id);
     }
 
-    async fn init(&mut self, task: Task, task_id: u32, client_id: u8) {
+    fn init(&mut self, task: Task, task_id: u32, client_id: u8) {
         // If there's a source address specified use it, otherwise use the one in the task.
         let source_addr;
         if self.source_address == 0 {
@@ -172,18 +177,33 @@ impl ClientClass {
             Data::Empty(_) => { () }
         };
 
-        // Obtain TaskResults from the unbounded channel and send them to the server
-        while let Some(packet) = rx.recv().await {
-            // A default TaskResult notifies this sender that there will be no more results
-            if packet == TaskResult::default() {
-                self.task_finished_to_server(TaskId {
-                    task_id
-                }).await.unwrap();
-                break;
+        thread::spawn({
+            let mut self_clone = self.clone();
+            move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let _enter = rt.enter();
+
+
+                rt.block_on(async {
+                    // Obtain TaskResults from the unbounded channel and send them to the server
+                    println!("Awaiting results... ");
+                    while let Some(packet) = rx.recv().await {
+                        // A default TaskResult notifies this sender that there will be no more results
+                        if packet == TaskResult::default() {
+                            self_clone.task_finished_to_server(TaskId {
+                                task_id
+                            }).await.unwrap();
+
+                            break;
+                        }
+
+                        self_clone.send_result_to_server(packet).await.unwrap();
+                    };
+                    println!("Stopped awaiting results..");
+                    rx.close();
+                });
             }
-            self.send_result_to_server(packet).await.unwrap();
-        }
-        rx.close();
+        });
     }
 
     // rpc client_connect(Metadata) returns (stream Task) {}
@@ -210,8 +230,9 @@ impl ClientClass {
                 if *self.active.lock().unwrap() == true {
                     // If the received task is part of the active task
                     if *self.current_task.lock().unwrap() == task_id {
-                        // TODO put in sender to ping outbound
+                        // TODO put in sender to outbound
                     } else {
+                        println!("[Client] Received new measurement during an active measurement")
                         // If we received a new task during a measurement
                         // TODO
                     }
@@ -221,10 +242,10 @@ impl ClientClass {
                     *self.active.lock().unwrap() = true;
                     *self.current_task.lock().unwrap() = task_id;
 
-                    // TODO change it such that this works when the server splits up the main task into many small tasks
-                    self.start_measurement(task, client_id).await;
+                    self.start_measurement(task, client_id);
                 }
             }
+            println!("Awaiting next task");
         }
         println!("[Client] Stopped awaiting tasks...");
 

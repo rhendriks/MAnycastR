@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::Sender;
 use std::thread;
 use socket2::Socket;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -31,7 +32,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             // Tokio thread
             let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+                println!("[Client inbound] Listening for ICMP packets for task - {}", task_id); // TODO in rare occasions this does not get executed
                 while let Ok(result) = socket.recv(&mut buffer) {
 
                     // Received when the socket closes on some OS
@@ -102,7 +103,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     thread::spawn({
         let result_queue_sender = result_queue.clone();
         let handles = handles.clone();
-
         move || {
             loop {
                 // Every 5 seconds, forward the ping results to the server
@@ -127,7 +127,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 let tr = TaskResult {
                     task_id,
                     client: Some(Client {
-                        // index: 0,
                         client_id: client_id as u32,
                         metadata: Some(metadata.clone()),
                     }),
@@ -135,9 +134,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 };
 
                 // Send the result to the client handler
+                println!("Sending result to client");
                 tx.send(tr).unwrap();
-
-
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
