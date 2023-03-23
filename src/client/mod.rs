@@ -14,12 +14,12 @@ use verfploeter::{
 use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 
-use tonic::Request;
+use tonic::{Request, Status};
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use clap::ArgMatches;
 
@@ -33,6 +33,8 @@ pub struct ClientClass {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     source_address: u32,
+    active: Arc<Mutex<bool>>,
+    current_task: Arc<Mutex<u32>>,
 }
 
 impl ClientClass {
@@ -59,6 +61,8 @@ impl ClientClass {
             grpc_client: Self::connect(server_addr.clone()).await?,
             metadata,
             source_address: source,
+            active: Arc::new(Mutex::new(false)),
+            current_task: Arc::new(Mutex::new(0)),
         };
 
         client_class.connect_to_server().await?;
@@ -91,8 +95,6 @@ impl ClientClass {
     }
 
     async fn init(&mut self, task: Task, task_id: u32, client_id: u8) {
-        // Obtain values from the Ping message
-
         // If there's a source address specified use it, otherwise use the one in the task.
         let source_addr;
         if self.source_address == 0 {
@@ -203,8 +205,25 @@ impl ClientClass {
                 // TODO make it such that tasks/measurements can be aborted
                 println!("[Client] Aborting current measurement")
             } else {
-                // TODO change it such that this works when the server splits up the main task into many small tasks
-                self.start_measurement(task, client_id).await;
+                let task_id = task.task_id;
+                // If we already have an active task
+                if *self.active.lock().unwrap() == true {
+                    // If the received task is part of the active task
+                    if *self.current_task.lock().unwrap() == task_id {
+                        // TODO put in sender to ping outbound
+                    } else {
+                        // If we received a new task during a measurement
+                        // TODO
+                    }
+
+                // If we don't have an active task
+                } else {
+                    *self.active.lock().unwrap() = true;
+                    *self.current_task.lock().unwrap() = task_id;
+
+                    // TODO change it such that this works when the server splits up the main task into many small tasks
+                    self.start_measurement(task, client_id).await;
+                }
             }
         }
         println!("[Client] Stopped awaiting tasks...");
@@ -232,6 +251,7 @@ impl ClientClass {
     // rpc task_finished(TaskId) returns (Ack) {}
     async fn task_finished_to_server(&mut self, task_id: TaskId) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
+        *self.active.lock().unwrap() = false;
         let request = Request::new(task_id);
         let _ = self.grpc_client.task_finished(request).await?;
 

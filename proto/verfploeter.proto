@@ -40,7 +40,7 @@ message TaskId { uint32 task_id = 1; }
 
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task, with a Client who has to execute it (defined below), and a Ping (defined below)
+// Schedule a task with the Server
 message ScheduleTask {
   oneof data {
     Ping ping = 2;
@@ -60,7 +60,7 @@ message Client {
   Metadata metadata = 2;
 }
 
-// A task, with a task ID, can be either a Ping or Empty task
+// A task for a Client, with a task ID, can be either a Ping or Empty task
 message Task {
   uint32 task_id = 1;
   oneof data {

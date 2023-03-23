@@ -423,7 +423,7 @@ impl Controller for ControllerService {
             // TODO split task data into smaller tasks such that they are performed at around the same time
             // TODO thereby they will be performed in sequence
 
-            /// Single task
+            // Single task
 
             // // Get the data from the ScheduleTask
             // let task_data = match request.into_inner().data.unwrap() {
