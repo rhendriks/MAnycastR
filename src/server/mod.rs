@@ -475,6 +475,8 @@ impl Controller for ControllerService {
             Ok(Response::new(rx))
         // If there are no connected clients
         } else {
+            println!("[Server] No connected clients, termination task.");
+            *self.active.lock().unwrap() = false;
             Err(Status::new(tonic::Code::Cancelled, "No connected clients"))
         }
     }
