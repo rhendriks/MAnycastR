@@ -6,13 +6,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 use tokio::sync::oneshot::Receiver;
 use socket2::Socket;
 
-use crate::client::verfploeter::PingPayload;
+use crate::client::verfploeter::{PingPayload, Task};
 
 // Perform a ping measurement/task
-pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, source_addr: u32) {
+pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started pinging thread");
     thread::spawn({
         move || {
@@ -78,7 +79,7 @@ pub fn perform_ping(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rec
 }
 
 // Perform a UDP measurement/task
-pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16) {
+pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started UDP probing thread");
     thread::spawn({
         move || {
@@ -128,7 +129,7 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 }
 
 // Perform a TCP measurement/task
-pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, source_addr: u32, destination_port: u16, source_port: u16) {
+pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
     thread::spawn({
         move || {

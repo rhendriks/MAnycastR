@@ -14,17 +14,16 @@ use verfploeter::{
 use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 
-use tonic::{Request, Status};
+use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Receiver;
 use std::thread;
 
 use clap::ArgMatches;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
@@ -39,6 +38,7 @@ pub struct ClientClass {
     source_address: u32,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
+    outbound_channel_tx: Option<std::sync::mpsc::Sender<Task>>,
 }
 
 impl ClientClass {
@@ -67,6 +67,7 @@ impl ClientClass {
             source_address: source,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
+            outbound_channel_tx: None,
         };
 
         client_class.connect_to_server().await?;
@@ -86,20 +87,19 @@ impl ClientClass {
     }
 
     // Start the appropriate measurement based on the received task
-    fn start_measurement(&mut self, task: Task, client_id: u8) {
-        println!("Started measurement");
+    fn start_measurement(&mut self, task: Task, client_id: u8, rx: Receiver<Task>) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
-            println!("Received an empty task, skipping measurement");
+            println!("[Client] Received an empty task, skipping measurement");
             return
         }
 
         let task_id = task.task_id;
         // Find what kind of task was sent by the Controller
-        self.init(task, task_id, client_id);
+        self.init(task, task_id, client_id, rx);
     }
 
-    fn init(&mut self, task: Task, task_id: u32, client_id: u8) {
+    fn init(&mut self, task: Task, task_id: u32, client_id: u8, outbound_rx: Receiver<Task>) {
         // If there's a source address specified use it, otherwise use the one in the task.
         let source_addr;
         if self.source_address == 0 {
@@ -140,7 +140,6 @@ impl ClientClass {
         let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-
         // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
         // Channel for receiving and sending to the inbound listening thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -152,7 +151,7 @@ impl ClientClass {
         match task.data.clone().unwrap() {
             Data::Ping(_) => {
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
-                perform_ping(dest_addresses, socket, rx_f, task_id, client_id, source_addr);
+                perform_ping(dest_addresses, socket, rx_f, task_id, client_id, source_addr, outbound_rx);
             }
             Data::Udp(_) => {
                 let src_port: u16 = 62321;
@@ -161,7 +160,7 @@ impl ClientClass {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
 
                 // Start sending thread
-                perform_udp(dest_addresses, socket, rx_f, client_id, source_addr,src_port);
+                perform_udp(dest_addresses, socket, rx_f, client_id, source_addr,src_port, outbound_rx);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
@@ -172,7 +171,7 @@ impl ClientClass {
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // Start sending thread
-                perform_tcp(dest_addresses, socket, rx_f, task_id, source_addr, dest_port, src_port);
+                perform_tcp(dest_addresses, socket, rx_f, task_id, source_addr, dest_port, src_port, outbound_rx);
             }
             Data::Empty(_) => { () }
         };
@@ -223,6 +222,9 @@ impl ClientClass {
             // A None task data is sent when the CLI has disconnected during an active task
             if task.data == None {
                 // TODO make it such that tasks/measurements can be aborted
+                // TODO set active to false
+                // TODO close outbound_channel_tx
+                // TODO set outbound_channel_tx to none
                 println!("[Client] Aborting current measurement")
             } else {
                 let task_id = task.task_id;
@@ -230,6 +232,7 @@ impl ClientClass {
                 if *self.active.lock().unwrap() == true {
                     // If the received task is part of the active task
                     if *self.current_task.lock().unwrap() == task_id {
+                        self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
                         // TODO put in sender to outbound
                     } else {
                         println!("[Client] Received new measurement during an active measurement")
@@ -242,7 +245,10 @@ impl ClientClass {
                     *self.active.lock().unwrap() = true;
                     *self.current_task.lock().unwrap() = task_id;
 
-                    self.start_measurement(task, client_id);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    self.outbound_channel_tx = Some(tx);
+
+                    self.start_measurement(task, client_id, rx);
                 }
             }
             println!("Awaiting next task");
