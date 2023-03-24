@@ -83,7 +83,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                     Arg::with_name("source")
                         .short("a")
                         .takes_value(true)
-                        .help("Source address of this client")
+                        .help("Source address for this client's probes")
                         .required(false)
                 )
             // .arg(Arg::with_name("certificate").short("c").takes_value(true).help("Certificate to use for SSL connection to server (PEM-encoded file)").required(false))
@@ -105,7 +105,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                 .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
                                     .required(true)
                                     .index(1))
-                                .arg(Arg::with_name("IP_FILE").help("A file that contains IP address to ping")
+                                .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                                     .required(true)
                                     .index(2))
                                 // .arg(Arg::with_name("stream") // TODO unused?
