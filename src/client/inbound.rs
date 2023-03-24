@@ -33,7 +33,9 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
-                    let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+                    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue };
+
+                    let pkt_task_id = u32::from_be_bytes(s);
 
                     // Make sure that this packet belongs to this task
                     if pkt_task_id != task_id {
@@ -99,12 +101,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // If we have an empty result queue
                 if rq.len() == 0 {
-
                     // Exit the thread if client sends us the signal it's finished
                     if tx_f.is_closed() {
                         break;
                     }
-
                     continue;
                 }
 
@@ -161,13 +161,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_nanos() as u64;
-
-                    println!("DNS body length {}", value.body.len());
-
-                    if value.body.len() < 100 {
-
-                    }
-
                     let record = DNSARecord::from(value.body.as_slice());
 
                     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
