@@ -12,100 +12,79 @@ use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, Ping
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
-
-    // Handles that are used to close the spawned threads
-    // let handles = Arc::new(Mutex::new(Vec::new()));
-
     println!("[Client inbound] Started ICMP listener");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-        // let handles = handles.clone();
 
         let socket = socket.clone();
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
+            println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+            while let Ok(result) = socket.recv(&mut buffer) {
 
-            // Tokio runtime
-            // let rt = tokio::runtime::Runtime::new().unwrap();
-            // let _enter = rt.enter();
+                // Received when the socket closes on some OS
+                if result == 0 {
+                    break;
+                }
 
-            // Tokio thread
-            // let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for ICMP packets for task - {}", task_id); // TODO in rare occasions this does not get executed
-                // TODO perhaps above issue is due to the .clone() lines in thread::spawn
-                // TODO maybe I can solve this by avoiding a tokio runtime, since I don't have any await lines here
-                while let Ok(result) = socket.recv(&mut buffer) {
+                // Create IPv4Packet from the bytes in the buffer
+                let packet = IPv4Packet::from(&buffer[..result]);
 
-                    // Received when the socket closes on some OS
-                    if result == 0 {
-                        break;
+                // Obtain the payload
+                if let PacketPayload::ICMPv4 { value } = packet.payload {
+                    let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+
+                    // Make sure that this packet belongs to this task
+                    if pkt_task_id != task_id {
+                        // If not, we discard it and await the next packet
+                        continue
                     }
 
-                    // Create IPv4Packet from the bytes in the buffer
-                    let packet = IPv4Packet::from(&buffer[..result]);
+                    let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
+                    let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+                    let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
+                    let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
 
-                    // Obtain the payload
-                    if let PacketPayload::ICMPv4 { value } = packet.payload {
-                        let pkt_task_id = u32::from_be_bytes(*&value.body[0..4].try_into().unwrap());
+                    let receive_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
 
-                        // Make sure that this packet belongs to this task
-                        if pkt_task_id != task_id {
-                            // If not, we discard it and await the next packet
-                            continue
-                        }
+                    // Create a VerfploeterResult for the received ping reply
+                    let result = VerfploeterResult {
+                        value: Some(Value::Ping(PingResult {
+                            receive_time,
+                            ipv4_result: Some(IPv4Result {
+                                source_address: u32::from(packet.source_address),
+                                destination_address: u32::from(packet.destination_address),
+                                ttl: packet.ttl as u32,
+                            }),
+                            payload: Some(PingPayload {
+                                transmit_time,
+                                source_address,
+                                destination_address,
+                                sender_client_id,
+                            }),
+                        })),
+                    };
 
-                        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                        let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                        let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                        let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
-
-                        let receive_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
-
-                        // Create a VerfploeterResult for the received ping reply
-                        let result = VerfploeterResult {
-                            value: Some(Value::Ping(PingResult {
-                                receive_time,
-                                ipv4_result: Some(IPv4Result {
-                                    source_address: u32::from(packet.source_address),
-                                    destination_address: u32::from(packet.destination_address),
-                                    ttl: packet.ttl as u32,
-                                }),
-                                payload: Some(PingPayload {
-                                    transmit_time,
-                                    source_address,
-                                    destination_address,
-                                    sender_client_id,
-                                }),
-                            })),
-                        };
-
-                        // Put result in transmission queue
-                        {
-                            let mut rq_opt = result_queue_receiver.lock().unwrap();
-                            if let Some(ref mut x) = *rq_opt {
-                                x.push(result);
-                            }
+                    // Put result in transmission queue
+                    {
+                        let mut rq_opt = result_queue_receiver.lock().unwrap();
+                        if let Some(ref mut x) = *rq_opt {
+                            x.push(result);
                         }
                     }
                 }
+            }
             println!("[Client inbound] Stopped listening on socket");
-            // });
-            // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
-            // {
-            //     let mut handles = handles.lock().unwrap();
-            //     handles.push(tokio_handle);
-            // }
         }
     });
 
     // Thread for sending the received pings to the server as TaskResult
     thread::spawn({
         let result_queue_sender = result_queue.clone();
-        // let handles = handles.clone();
         move || {
             loop {
                 // Every 5 seconds, forward the ping results to the server
@@ -143,15 +122,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            {
-                // let handles = handles.lock().unwrap();
-                // for handle in handles.iter() {
-                //     handle.abort();
-                // }
-                println!("[Client inbound] Stopped listening for ICMP packets");
-                socket.shutdown(Shutdown::Read).unwrap_err();
-                println!("Socket shut down");
-            }
+            socket.shutdown(Shutdown::Read).unwrap_err();
+            println!("[Client inbound] Stopped listening for ICMP packets");
         }
     });
 }
@@ -160,121 +132,103 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
-
-    // Handles that are used to close the spawned threads
-    let handles = Arc::new(Mutex::new(Vec::new()));
-
     println!("[Client inbound] Started UDP listener");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-        let handles = handles.clone();
 
         let socket = socket.clone();
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
+            println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
+            while let Ok(result) = socket.recv(&mut buffer) {
+                // Received when the socket closes on some OS
+                if result == 0 {
+                    break;
+                }
 
-            // Tokio runtime
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let _enter = rt.enter();
+                // Create IPv4Packet from the bytes in the buffer
+                let packet = IPv4Packet::from(&buffer[..result]);
 
-            // Tokio thread
-            let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
-                while let Ok(result) = socket.recv(&mut buffer) {
-                    // Received when the socket closes on some OS
-                    if result == 0 {
-                        break;
+                // Obtain the payload
+                if let PacketPayload::UDP { value } = packet.payload {
+                    // The UDP responses will be from DNS services, with port 53 and our src port as dest port
+                    if (value.source_port != 53) | (value.destination_port != sender_src_port) {
+                        continue
                     }
 
-                    // Create IPv4Packet from the bytes in the buffer
-                    let packet = IPv4Packet::from(&buffer[..result]);
+                    let receive_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
 
-                    // Obtain the payload
-                    if let PacketPayload::UDP { value } = packet.payload {
-                        // The UDP responses will be from DNS services, with port 53 and our src port as dest port
-                        if (value.source_port != 53) | (value.destination_port != sender_src_port) {
-                            continue
-                        }
+                    // TODO what if the response does not have a body that can be transformed into a DNSARecord
+                    // TODO check that the body length is large enough for a DNSARecord
+                    let record = DNSARecord::from(value.body.as_slice());
 
-                        let receive_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
+                    let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
-                        // TODO what if the response does not have a body that can be transformed into a DNSARecord
-                        // TODO check that the body length is large enough for a DNSARecord
-                        let record = DNSARecord::from(value.body.as_slice());
+                    // Get the information from the domain, continue to the next packet if it does not follow the format
+                    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                    let transmit_time = match parts[0].parse::<u64>() {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+                    let sender_src = match parts[1].parse::<u32>() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let sender_dest = match parts[2].parse::<u32>() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let sender_client_id = match parts[3].parse::<u8>() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let sender_src_port = match parts[4].parse::<u16>() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    // let domain = domain.split('.').skip(1).next().unwrap();
 
-                        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+                    // Create a VerfploeterResult for the received UDP reply
+                    let result = VerfploeterResult {
+                        value: Some(Value::Udp(UdpResult {
+                            source_port: u32::from(value.source_port),
+                            destination_port: value.destination_port as u32,
+                            ipv4_result: Some(IPv4Result {
+                                source_address: u32::from(packet.source_address),
+                                destination_address: u32::from(packet.destination_address),
+                                ttl: packet.ttl as u32,
+                            }),
+                            receive_time,
+                            payload: Some(UdpPayload {
+                                transmit_time,
+                                source_address: sender_src,
+                                destination_address: sender_dest,
+                                sender_client_id: sender_client_id as u32,
+                                source_port: sender_src_port as u32,
+                            }),
+                        })),
+                    };
 
-                        // Get the information from the domain, continue to the next packet if it does not follow the format
-                        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-                        let transmit_time = match parts[0].parse::<u64>() {
-                            Ok(t) => t,
-                            Err(_) => continue,
-                        };
-                        let sender_src = match parts[1].parse::<u32>() {
-                            Ok(s) => s,
-                            Err(_) => continue,
-                        };
-                        let sender_dest = match parts[2].parse::<u32>() {
-                            Ok(s) => s,
-                            Err(_) => continue,
-                        };
-                        let sender_client_id = match parts[3].parse::<u8>() {
-                            Ok(s) => s,
-                            Err(_) => continue,
-                        };
-                        let sender_src_port = match parts[4].parse::<u16>() {
-                            Ok(s) => s,
-                            Err(_) => continue,
-                        };
-                        // let domain = domain.split('.').skip(1).next().unwrap();
-
-                        // Create a VerfploeterResult for the received UDP reply
-                        let result = VerfploeterResult {
-                            value: Some(Value::Udp(UdpResult {
-                                source_port: u32::from(value.source_port),
-                                destination_port: value.destination_port as u32,
-                                ipv4_result: Some(IPv4Result {
-                                    source_address: u32::from(packet.source_address),
-                                    destination_address: u32::from(packet.destination_address),
-                                    ttl: packet.ttl as u32,
-                                }),
-                                receive_time,
-                                payload: Some(UdpPayload {
-                                    transmit_time,
-                                    source_address: sender_src,
-                                    destination_address: sender_dest,
-                                    sender_client_id: sender_client_id as u32,
-                                    source_port: sender_src_port as u32,
-                                }),
-                            })),
-                        };
-
-                        // Put result in transmission queue
-                        {
-                            let mut rq_opt = result_queue_receiver.lock().unwrap();
-                            if let Some(ref mut x) = *rq_opt {
-                                x.push(result);
-                            }
+                    // Put result in transmission queue
+                    {
+                        let mut rq_opt = result_queue_receiver.lock().unwrap();
+                        if let Some(ref mut x) = *rq_opt {
+                            x.push(result);
                         }
                     }
                 }
-            });
-            // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
-            {
-                let mut handles = handles.lock().unwrap();
-                handles.push(tokio_handle);
             }
+            println!("[Client inbound] Stopped listening on socket");
         }
     });
 
     // Thread for sending the received pings to the server as TaskResult
     thread::spawn({
         let result_queue_sender = result_queue.clone();
-        let handles = handles.clone();
 
         move || {
             loop {
@@ -314,14 +268,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            {
-                let handles = handles.lock().unwrap();
-                for handle in handles.iter() {
-                    handle.abort();
-                }
-                println!("[Client inbound] Stopped listening for UDP packets");
-
-            }
+            socket.shutdown(Shutdown::Read).unwrap_err();
+            println!("[Client inbound] Stopped listening for UDP packets");
         }
     });
 }
@@ -331,14 +279,10 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
-    // Handles that are used to close the spawned threads
-    let handles = Arc::new(Mutex::new(Vec::new()));
-
     println!("[Client inbound] Started TCP prober");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-        let handles = handles.clone();
 
         let socket = socket.clone();
         move || {
@@ -348,70 +292,62 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _enter = rt.enter();
 
-            // Tokio thread
-            let tokio_handle = rt.spawn(async move {
-                println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
-                while let Ok(result) = socket.recv(&mut buffer) {
+            println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
+            while let Ok(result) = socket.recv(&mut buffer) {
 
-                    // Received when the socket closes on some OS
-                    if result == 0 {
-                        break;
+                // Received when the socket closes on some OS
+                if result == 0 {
+                    break;
+                }
+
+                // Create IPv4Packet from the bytes in the buffer
+                let packet = IPv4Packet::from(&buffer[..result]);
+
+                // Obtain the payload
+                if let PacketPayload::TCP { value } = packet.payload {
+                    // Responses to our probes have destination port > 4000 (as we use these as source)
+                    // Use the RST flag, and have ACK 0
+                    if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+                        continue
                     }
 
-                    // Create IPv4Packet from the bytes in the buffer
-                    let packet = IPv4Packet::from(&buffer[..result]);
+                    let receive_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
 
-                    // Obtain the payload
-                    if let PacketPayload::TCP { value } = packet.payload {
-                        // Responses to our probes have destination port > 4000 (as we use these as source)
-                        // Use the RST flag, and have ACK 0
-                        if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
-                            continue
-                        }
+                    // Create a VerfploeterResult for the received UDP reply
+                    let result = VerfploeterResult {
+                        value: Some(Value::Tcp(TcpResult {
+                            source_port: u32::from(value.source_port),
+                            destination_port: value.destination_port as u32,
+                            seq: value.seq,
+                            ipv4_result: Some(IPv4Result {
+                                source_address: u32::from(packet.source_address),
+                                destination_address: u32::from(packet.destination_address),
+                                ttl: packet.ttl as u32,
+                            }),
+                            receive_time,
+                            ack: value.ack,
+                        })),
+                    };
 
-                        let receive_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
-
-                        // Create a VerfploeterResult for the received UDP reply
-                        let result = VerfploeterResult {
-                            value: Some(Value::Tcp(TcpResult {
-                                source_port: u32::from(value.source_port),
-                                destination_port: value.destination_port as u32,
-                                seq: value.seq,
-                                ipv4_result: Some(IPv4Result {
-                                    source_address: u32::from(packet.source_address),
-                                    destination_address: u32::from(packet.destination_address),
-                                    ttl: packet.ttl as u32,
-                                }),
-                                receive_time,
-                                ack: value.ack,
-                            })),
-                        };
-
-                        // Put result in transmission queue
-                        {
-                            let mut rq_opt = result_queue_receiver.lock().unwrap();
-                            if let Some(ref mut x) = *rq_opt {
-                                x.push(result);
-                            }
+                    // Put result in transmission queue
+                    {
+                        let mut rq_opt = result_queue_receiver.lock().unwrap();
+                        if let Some(ref mut x) = *rq_opt {
+                            x.push(result);
                         }
                     }
                 }
-            });
-            // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
-            {
-                let mut handles = handles.lock().unwrap();
-                handles.push(tokio_handle);
             }
+            println!("[Client inbound] Stopped listening on socket");
         }
     });
 
     // Thread for sending the received pings to the server as TaskResult
     thread::spawn({
         let result_queue_sender = result_queue.clone();
-        let handles = handles.clone();
 
         move || {
             loop {
@@ -451,14 +387,8 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            {
-                let handles = handles.lock().unwrap();
-                for handle in handles.iter() {
-                    handle.abort();
-                }
-                println!("[Client inbound] Stopped listening for TCP packets");
-
-            }
+            socket.shutdown(Shutdown::Read).unwrap_err();
+            println!("[Client inbound] Stopped listening for TCP packets");
         }
     });
 }
