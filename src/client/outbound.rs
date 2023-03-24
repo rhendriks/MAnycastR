@@ -6,12 +6,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
 use tokio::sync::oneshot::Receiver;
 use socket2::Socket;
 
 use crate::client::verfploeter::{PingPayload, Task};
-use crate::client::verfploeter::task::Data::Ping;
+use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 
 // Perform a ping measurement/task
 pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
@@ -21,8 +20,8 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
-            loop { // TODO never ending loop
-                let task = outbound_channel_rx.recv().unwrap(); //TODO
+            loop {
+                let task = outbound_channel_rx.recv().unwrap();
 
                 let task_data = match task.data {
                     None => break, // A None task data means the measurement has finished
@@ -90,42 +89,54 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 }
 
 // Perform a UDP measurement/task
-pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
+pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started UDP probing thread");
+    // TODO task_id never used here?
     thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
-            // Loop over the destination addresses
-            for dest_addr in dest_addresses {
+            loop {
+                let task = outbound_channel_rx.recv().unwrap();
 
-                let transmit_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos() as u64;
+                let task_data = match task.data {
+                    None => break, // A None task data means the measurement has finished
+                    Some(t) => t,
+                };
 
-                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                let udp = if let Udp(udp) = task_data { udp } else { todo!() };
+                let dest_addresses = udp.destination_addresses;
 
-                let udp = UDPPacket::dns_request(source_address, dest_addr, source_port as u16, Vec::new(), "google.com", transmit_time, client_id);
-
-                // Rate limiting
-                while let Err(_) = lb.check() {
-                    thread::sleep(Duration::from_millis(1));
-                }
-
-                // Send out packet
-                if let Err(e) = socket.send_to(
-                    &udp,
-                    &bind_addr_dest
-                        .to_string()
-                        .parse::<SocketAddr>()
+                // Loop over the destination addresses
+                for dest_addr in dest_addresses {
+                    let transmit_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
                         .unwrap()
-                        .into(),
-                ) {
-                    error!("Failed to send UDP packet to socket: {:?}", e);
-                } else {
-                    // println!("[Client outbound] Packet sent!");
+                        .as_nanos() as u64;
+
+                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+
+                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port as u16, Vec::new(), "google.com", transmit_time, client_id);
+
+                    // Rate limiting
+                    while let Err(_) = lb.check() {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+
+                    // Send out packet
+                    if let Err(e) = socket.send_to(
+                        &udp,
+                        &bind_addr_dest
+                            .to_string()
+                            .parse::<SocketAddr>()
+                            .unwrap()
+                            .into(),
+                    ) {
+                        error!("Failed to send UDP packet to socket: {:?}", e);
+                    } else {
+                        // println!("[Client outbound] Packet sent!");
+                    }
                 }
             }
             debug!("finished udp probing");
@@ -140,45 +151,56 @@ pub fn perform_udp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Rece
 }
 
 // Perform a TCP measurement/task
-pub fn perform_tcp(dest_addresses: Vec<u32>, socket: Arc<Socket>, mut rx_f: Receiver<()>, task_id: u32, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
+pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
     thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
-            // Loop over the destination addresses
-            for dest_addr in dest_addresses {
+            loop {
+                let task = outbound_channel_rx.recv().unwrap();
 
-                let transmit_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u32; // The least significant bits are kept
+                let task_data = match task.data {
+                    None => break, // A None task data means the measurement has finished
+                    Some(t) => t,
+                };
 
-                let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                let tcp = if let Tcp(tcp) = task_data { tcp } else { todo!() };
+                let dest_addresses = tcp.destination_addresses;
 
-                let seq = task_id; // information in seq gets lost
-                let ack = transmit_time; // ack information gets returned as seq
-
-                let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new());
-
-                // Rate limiting
-                while let Err(_) = lb.check() {
-                    thread::sleep(Duration::from_millis(1));
-                }
-
-                // Send out packet
-                if let Err(e) = socket.send_to(
-                    &tcp,
-                    &bind_addr_dest
-                        .to_string()
-                        .parse::<SocketAddr>()
+                // Loop over the destination addresses
+                for dest_addr in dest_addresses {
+                    let transmit_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
                         .unwrap()
-                        .into(),
-                ) {
-                    error!("Failed to send TCP packet to socket: {:?}", e);
-                } else {
-                    // println!("[Client outbound] Packet sent!");
+                        .as_millis() as u32; // The least significant bits are kept
+
+                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+
+                    let seq = task.task_id; // information in seq gets lost
+                    let ack = transmit_time; // ack information gets returned as seq
+
+                    let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new());
+
+                    // Rate limiting
+                    while let Err(_) = lb.check() {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+
+                    // Send out packet
+                    if let Err(e) = socket.send_to(
+                        &tcp,
+                        &bind_addr_dest
+                            .to_string()
+                            .parse::<SocketAddr>()
+                            .unwrap()
+                            .into(),
+                    ) {
+                        error!("Failed to send TCP packet to socket: {:?}", e);
+                    } else {
+                        // println!("[Client outbound] Packet sent!");
+                    }
                 }
             }
             debug!("finished TCP probing");
