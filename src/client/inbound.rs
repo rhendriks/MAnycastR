@@ -152,8 +152,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Obtain the payload
                 if let PacketPayload::UDP { value } = packet.payload {
-                    // The UDP responses will be from DNS services, with port 53 and our src port as dest port
-                    if (value.source_port != 53) | (value.destination_port != sender_src_port) {
+                    // The UDP responses will be from DNS services, with port 53 and our src port as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+                    if (value.source_port != 53) | (value.destination_port != sender_src_port) | (value.body.len() < 80) { // TODO any chance the DNS A record reply length is less than 80?
                         continue
                     }
 
@@ -162,9 +162,12 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         .unwrap()
                         .as_nanos() as u64;
 
-                    // TODO what if the response does not have a body that can be transformed into a DNSARecord
-                    // TODO check that the body length is large enough for a DNSARecord
                     println!("DNS body length {}", value.body.len());
+
+                    if value.body.len() < 100 {
+
+                    }
+
                     let record = DNSARecord::from(value.body.as_slice());
 
                     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
