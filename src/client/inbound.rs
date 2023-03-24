@@ -38,7 +38,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     let pkt_task_id = u32::from_be_bytes(s);
 
                     // Make sure that this packet belongs to this task
-                    if pkt_task_id != task_id {
+                    if (pkt_task_id != task_id) | (value.body.len() < 24) {
                         // If not, we discard it and await the next packet
                         continue
                     }
@@ -95,8 +95,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 // Get the current result queue, and replace it with an empty one
                 let rq;
                 {
-                    let mut result_queue_sender_mutex = result_queue_sender.lock().unwrap();
-                    rq = result_queue_sender_mutex.replace(Vec::new()).unwrap();
+                    let mut rq_mutex = result_queue_sender.lock().unwrap();
+                    rq = rq_mutex.replace(Vec::new()).unwrap();
                 }
 
                 // If we have an empty result queue
@@ -284,10 +284,6 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
 
-            // Tokio runtime
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let _enter = rt.enter();
-
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
             while let Ok(result) = socket.recv(&mut buffer) {
 
@@ -358,8 +354,8 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 // Get the current result queue, and replace it with an empty one
                 let rq;
                 {
-                    let mut result_queue_sender_mutex = result_queue_sender.lock().unwrap();
-                    rq = result_queue_sender_mutex.replace(Vec::new()).unwrap();
+                    let mut rq_mutex = result_queue_sender.lock().unwrap();
+                    rq = rq_mutex.replace(Vec::new()).unwrap();
                 }
 
                 if rq.len() == 0 {
