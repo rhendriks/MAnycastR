@@ -107,11 +107,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 // Every 5 seconds, forward the ping results to the server
                 thread::sleep(Duration::from_secs(5));
 
-                // Exit the thread if client sends us the signal it's finished
-                if tx_f.is_closed() {
-                    break;
-                }
-
                 // Get the current result queue, and replace it with an empty one
                 let rq;
                 {
@@ -119,7 +114,14 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     rq = result_queue_sender_mutex.replace(Vec::new()).unwrap();
                 }
 
+                // If we have an empty result queue
                 if rq.len() == 0 {
+
+                    // Exit the thread if client sends us the signal it's finished
+                    if tx_f.is_closed() {
+                        break;
+                    }
+
                     continue;
                 }
 
@@ -133,7 +135,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 };
 
                 // Send the result to the client handler
-                println!("Sending result to client");
                 tx.send(tr).unwrap();
             }
             // Send default value to let the rx know this is finished

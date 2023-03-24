@@ -151,7 +151,7 @@ impl ClientClass {
         match task.data.clone().unwrap() {
             Data::Ping(_) => {
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
-                perform_ping(dest_addresses, socket, rx_f, task_id, client_id, source_addr, outbound_rx);
+                perform_ping(socket, rx_f, client_id, source_addr, outbound_rx);
             }
             Data::Udp(_) => {
                 let src_port: u16 = 62321;
@@ -185,7 +185,6 @@ impl ClientClass {
 
                 rt.block_on(async {
                     // Obtain TaskResults from the unbounded channel and send them to the server
-                    println!("Awaiting results... ");
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
@@ -198,7 +197,6 @@ impl ClientClass {
 
                         self_clone.send_result_to_server(packet).await.unwrap();
                     };
-                    println!("Stopped awaiting results..");
                     rx.close();
                 });
             }
@@ -219,39 +217,30 @@ impl ClientClass {
         while let Some(task) = stream.message().await? {
             println!("[Client] Received task");
 
-            // A None task data is sent when the CLI has disconnected during an active task
-            if task.data == None {
-                // TODO make it such that tasks/measurements can be aborted
-                // TODO set active to false
-                // TODO close outbound_channel_tx
-                // TODO set outbound_channel_tx to none
-                println!("[Client] Aborting current measurement")
-            } else {
-                let task_id = task.task_id;
-                // If we already have an active task
-                if *self.active.lock().unwrap() == true {
-                    // If the received task is part of the active task
-                    if *self.current_task.lock().unwrap() == task_id {
-                        self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
-                        // TODO put in sender to outbound
-                    } else {
-                        println!("[Client] Received new measurement during an active measurement")
-                        // If we received a new task during a measurement
-                        // TODO
-                    }
-
-                // If we don't have an active task
+            let task_id = task.task_id;
+            // If we already have an active task
+            if *self.active.lock().unwrap() == true {
+                // If the received task is part of the active task
+                if *self.current_task.lock().unwrap() == task_id {
+                    // Send the task to the prober
+                    self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
                 } else {
-                    *self.active.lock().unwrap() = true;
-                    *self.current_task.lock().unwrap() = task_id;
-
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    self.outbound_channel_tx = Some(tx);
-
-                    self.start_measurement(task, client_id, rx);
+                    println!("[Client] Received new measurement during an active measurement")
+                    // If we received a new task during a measurement
+                    // TODO
                 }
+
+            // If we don't have an active task
+            } else {
+                *self.active.lock().unwrap() = true;
+                *self.current_task.lock().unwrap() = task_id;
+
+                let (tx, rx) = std::sync::mpsc::channel();
+                tx.send(task.clone()).unwrap();
+                self.outbound_channel_tx = Some(tx);
+
+                self.start_measurement(task, client_id, rx);
             }
-            println!("Awaiting next task");
         }
         println!("[Client] Stopped awaiting tasks...");
 

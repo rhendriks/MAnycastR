@@ -413,8 +413,13 @@ impl Controller for ControllerService {
                         println!("[Server] ERROR - Failed to send task to client");
                     }
                 }
-
-                // sub_addresses.push(chunk.to_vec());
+            }
+            // Send a message to each client to let it know it has received everything for the current task
+            for sender in senders_list_clone.clone().into_iter() {
+                sender.try_send(Ok(verfploeter::Task {
+                    data: None,
+                    task_id,
+                })).unwrap();
             }
             // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
             // TODO will drastically increase the probing time
