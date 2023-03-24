@@ -435,7 +435,7 @@ impl Controller for ControllerService {
         };
 
         // Spawn a new thread to execute the task distribution closure
-        let task_thread = thread::spawn(task_distribution);
+        let _task_thread = thread::spawn(task_distribution);
         // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
         // TODO will drastically increase the probing time
 
