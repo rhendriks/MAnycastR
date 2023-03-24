@@ -70,7 +70,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         debug!("Loaded [{}] IPAddresses on _ips vector",ips.len());
 
         // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type} else { return Err(Box::new("Task type could not be converted to a u32 integer.")) };
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type} else { todo!() };
 
         let schedule_task = create_schedule_task(source_ip, ips, task_type);
 
@@ -111,7 +111,6 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
         }
         _ => println!("Undefined type!") // TODO handle this properly
     }
-
 
     verfploeter::ScheduleTask {
         data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
