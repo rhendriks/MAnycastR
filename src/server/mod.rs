@@ -411,6 +411,7 @@ impl Controller for ControllerService {
 
                     // If the CLI disconnects during task distribution, abort
                     if *self_clone.active.lock().unwrap() == false {
+                        println!("[Server] CLI disconnected during task distribution");
                         break
                     }
                     // Sleep one second such that time between probes is ~1 second
@@ -437,7 +438,7 @@ impl Controller for ControllerService {
         let task_thread = thread::spawn(task_distribution);
         // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
         // TODO will drastically increase the probing time
-        
+
         let rx = CLIReceiver {
             inner: rx,
             open_tasks: self.open_tasks.clone(),
