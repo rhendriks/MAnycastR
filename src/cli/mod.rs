@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::net::Ipv4Addr;
+use std::net::{AddrParseError, Ipv4Addr};
 use std::ops::Add;
 use std::str::FromStr;
 
@@ -51,8 +51,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
 
         // Source IP for the measurement
-        let source_ip: u32 =
-            u32::from(Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap());
+        let source_ip = u32::from(match Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()) {
+            Ok(s) => {s}
+            Err(_) => { panic!("Invalid source IP value") }
+        });
 
         // Get the specified IP file
         let ip_file = matches.value_of("IP_FILE").unwrap();
@@ -67,10 +69,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 address
             })
             .collect::<Vec<u32>>();
-        debug!("Loaded [{}] IPAddresses on _ips vector",ips.len());
+        debug!("Loaded [{}] IPAddresses on _ips vector", ips.len());
 
         // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type} else { todo!() };
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type!") };
 
         let schedule_task = create_schedule_task(source_ip, ips, task_type);
 
@@ -206,7 +208,6 @@ impl CliClass {
             let record: [&str; 3] = [&task_id, &client_id, &hostname];
 
             for verfploeter_result in verfploeter_results {
-                // let Some(ping)
                 let value = verfploeter_result.value.unwrap();
                 match value {
                     ResultPing(ping) => {
@@ -308,7 +309,6 @@ impl CliClass {
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    // client.metadata.clone().unwrap().version,
                 ));
         }
         table.printstd();
