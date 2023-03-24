@@ -39,7 +39,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                     // Received when the socket closes on some OS
                     if result == 0 {
-                        println!("Breaking socket receiver");
                         break;
                     }
 
@@ -93,7 +92,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         }
                     }
                 }
-            println!("Stopped checking socket recv");
+            println!("[Client inbound] Stopped listening on socket");
             // });
             // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
             // {
@@ -150,7 +149,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 //     handle.abort();
                 // }
                 println!("[Client inbound] Stopped listening for ICMP packets");
-                socket.shutdown(Shutdown::Both).unwrap();
+                socket.shutdown(Shutdown::Read).unwrap_err();
                 println!("Socket shut down");
             }
         }
