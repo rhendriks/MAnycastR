@@ -378,6 +378,42 @@ impl Controller for ControllerService {
         let task_distribution = move || {
             let senders_list_clone = self_clone.senders.lock().unwrap().clone();
 
+            // Notify all senders that a new measurement is starting
+            for sender in senders_list_clone.iter() {
+
+                let task = match task_type {
+                    1 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                            source_address: src_addr,
+                            destination_addresses: vec![],
+                        })),
+                        task_id,
+                    },
+                    2 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                            source_address: src_addr,
+                            destination_addresses: vec![],
+                        })),
+                        task_id,
+                    },
+                    3 => verfploeter::Task {
+                        data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                            source_address: src_addr,
+                            destination_addresses: vec![],
+                        })),
+                        task_id,
+                    },
+                    _ => verfploeter::Task::default(),
+                };
+
+
+                if let Ok(_) = sender.try_send(Ok(task)) {
+                    println!("[Server] Sent start of task to client");
+                } else {
+                    println!("[Server] ERROR - Failed to send task to client");
+                }
+            }
+
             // Split the destination addresses into chunks and create a task for each chunk
             for chunk in dest_addresses.chunks(100) {
                 // Create a Task with this data
@@ -408,7 +444,6 @@ impl Controller for ControllerService {
 
                 // Send task to each client, and wait 1 second in between
                 for sender in senders_list_clone.iter() {
-
                     // If the CLI disconnects during task distribution, abort
                     if *self_clone.active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
