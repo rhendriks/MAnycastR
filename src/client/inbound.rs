@@ -164,6 +164,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // TODO what if the response does not have a body that can be transformed into a DNSARecord
                     // TODO check that the body length is large enough for a DNSARecord
+                    println!("DNS body length {}", value.body.len());
                     let record = DNSARecord::from(value.body.as_slice());
 
                     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
