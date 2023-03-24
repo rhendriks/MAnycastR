@@ -1,3 +1,4 @@
+use std::net::Shutdown;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use socket2::Socket;
@@ -92,6 +93,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         }
                     }
                 }
+            println!("Stopped checking socket recv");
             // });
             // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
             // {
@@ -148,7 +150,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 //     handle.abort();
                 // }
                 println!("[Client inbound] Stopped listening for ICMP packets");
-
+                socket.shutdown(Shutdown::Both).unwrap();
+                println!("Socket shut down");
             }
         }
     });
