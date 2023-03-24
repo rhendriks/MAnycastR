@@ -414,8 +414,13 @@ impl Controller for ControllerService {
                 }
             }
 
+            // TODO perhaps I can start streaming the entire task to each client in a separate thread
+            // TODO and start these threads one second after eachother
+            // TODO the streams might get out of sync, but perhaps the rate limiter will be the bottleneck and ensure that probes for the same address are sent out ~1s from each other
             // Split the destination addresses into chunks and create a task for each chunk
             for chunk in dest_addresses.chunks(100) {
+                // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
+                // TODO will drastically increase the probing time
                 // Create a Task with this data
                 let task = match task_type {
                     1 => verfploeter::Task {
@@ -471,8 +476,6 @@ impl Controller for ControllerService {
 
         // Spawn a new thread to execute the task distribution closure
         let _task_thread = thread::spawn(task_distribution);
-        // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
-        // TODO will drastically increase the probing time
 
         let rx = CLIReceiver {
             inner: rx,
