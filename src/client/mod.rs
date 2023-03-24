@@ -116,13 +116,6 @@ impl ClientClass {
             source_addr = self.source_address;
         }
 
-        let dest_addresses = match task.data.clone().unwrap() {
-            Data::Ping(ping) => { ping.destination_addresses }
-            Data::Udp(udp) => { udp.destination_addresses }
-            Data::Tcp(tcp) => { tcp.destination_addresses }
-            Data::Empty(_) => { vec![] }
-        };
-
         // Create the socket to send the ping messages from
         let bind_address = format!(
             "{}:0",
@@ -160,7 +153,7 @@ impl ClientClass {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
 
                 // Start sending thread
-                perform_udp(dest_addresses, socket, rx_f, client_id, source_addr,src_port, outbound_rx);
+                perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
@@ -171,7 +164,7 @@ impl ClientClass {
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // Start sending thread
-                perform_tcp(dest_addresses, socket, rx_f, task_id, source_addr, dest_port, src_port, outbound_rx);
+                perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx);
             }
             Data::Empty(_) => { () }
         };
@@ -216,6 +209,12 @@ impl ClientClass {
 
         while let Some(task) = stream.message().await? {
             println!("[Client] Received task");
+
+            if let Data::Empty(_) = task.data.clone().unwrap() {
+                println!("[Client] Received an empty task, skipping measurement");
+                // TODO can use Empty to shut down a client
+                continue
+            }
 
             let task_id = task.task_id;
             // If we already have an active task
