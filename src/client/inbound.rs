@@ -13,29 +13,32 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
     // Handles that are used to close the spawned threads
-    let handles = Arc::new(Mutex::new(Vec::new()));
+    // let handles = Arc::new(Mutex::new(Vec::new()));
 
     println!("[Client inbound] Started ICMP listener");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-        let handles = handles.clone();
+        // let handles = handles.clone();
 
         let socket = socket.clone();
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
 
             // Tokio runtime
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let _enter = rt.enter();
+            // let rt = tokio::runtime::Runtime::new().unwrap();
+            // let _enter = rt.enter();
 
             // Tokio thread
-            let tokio_handle = rt.spawn(async move {
+            // let tokio_handle = rt.spawn(async move {
                 println!("[Client inbound] Listening for ICMP packets for task - {}", task_id); // TODO in rare occasions this does not get executed
+                // TODO perhaps above issue is due to the .clone() lines in thread::spawn
+                // TODO maybe I can solve this by avoiding a tokio runtime, since I don't have any await lines here
                 while let Ok(result) = socket.recv(&mut buffer) {
 
                     // Received when the socket closes on some OS
                     if result == 0 {
+                        println!("Breaking socket receiver");
                         break;
                     }
 
@@ -89,19 +92,19 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                         }
                     }
                 }
-            });
+            // });
             // Push the tokio thread into the handles vec so it can be shutdown later (since socket.recv cannot be aborted)
-            {
-                let mut handles = handles.lock().unwrap();
-                handles.push(tokio_handle);
-            }
+            // {
+            //     let mut handles = handles.lock().unwrap();
+            //     handles.push(tokio_handle);
+            // }
         }
     });
 
     // Thread for sending the received pings to the server as TaskResult
     thread::spawn({
         let result_queue_sender = result_queue.clone();
-        let handles = handles.clone();
+        // let handles = handles.clone();
         move || {
             loop {
                 // Every 5 seconds, forward the ping results to the server
@@ -140,10 +143,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
             {
-                let handles = handles.lock().unwrap();
-                for handle in handles.iter() {
-                    handle.abort();
-                }
+                // let handles = handles.lock().unwrap();
+                // for handle in handles.iter() {
+                //     handle.abort();
+                // }
                 println!("[Client inbound] Stopped listening for ICMP packets");
 
             }
@@ -198,6 +201,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             .as_nanos() as u64;
 
                         // TODO what if the response does not have a body that can be transformed into a DNSARecord
+                        // TODO check that the body length is large enough for a DNSARecord
                         let record = DNSARecord::from(value.body.as_slice());
 
                         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
