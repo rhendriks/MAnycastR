@@ -175,7 +175,6 @@ impl ClientClass {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 let _enter = rt.enter();
 
-
                 rt.block_on(async {
                     // Obtain TaskResults from the unbounded channel and send them to the server
                     while let Some(packet) = rx.recv().await {
