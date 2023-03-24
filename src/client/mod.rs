@@ -209,13 +209,6 @@ impl ClientClass {
 
         while let Some(task) = stream.message().await? {
             println!("[Client] Received task");
-
-            if let Data::Empty(_) = task.data.clone().unwrap() {
-                println!("[Client] Received an empty task, skipping measurement");
-                // TODO can use Empty to shut down a client
-                continue
-            }
-
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
