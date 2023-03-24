@@ -163,6 +163,18 @@ impl Controller for ControllerService {
     ) -> Result<Response<ClientId>, Status> {
         println!("[Server] Received get_client_id");
 
+        let metadata = request.into_inner();
+        let hostname = metadata.hostname;
+
+        let mut clients_list = self.clients.lock().unwrap();
+
+        for client in clients_list.clone().clients.into_iter() {
+            if hostname == client.metadata.unwrap().hostname {
+                println!("[Server] Refusing client as the hostname already exists: {}", hostname);
+                return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
+            }
+        }
+
         // Obtain client id
         let client_id: u32;
         {
@@ -171,29 +183,15 @@ impl Controller for ControllerService {
             current_client_id.add_assign(1);
         }
 
-        let metadata = request.into_inner();
-        let hostname = metadata.hostname;
-
-        {
-            let mut clients_list = self.clients.lock().unwrap();
-
-            for client in clients_list.clone().clients.into_iter() {
-                if hostname == client.metadata.unwrap().hostname {
-                    println!("[Server] Refusing client as the hostname already exists: {}", hostname);
-                    return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
-                }
-            }
-
-            // Add the client to the client list
-            let new_client = verfploeter::Client {
-                client_id,
-                metadata: Some(verfploeter::Metadata {
-                    hostname: hostname.clone(),
-                }),
-            };
-
-            clients_list.clients.push(new_client);
+        // Add the client to the client list
+        let new_client = verfploeter::Client {
+            client_id,
+            metadata: Some(verfploeter::Metadata {
+                hostname: hostname.clone(),
+            }),
         };
+
+        clients_list.clients.push(new_client);
 
         Ok(Response::new(ClientId{
             client_id,
@@ -290,7 +288,6 @@ impl Controller for ControllerService {
     }
 
     type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
-    // TODO perform round robin to send part of the tasks to each clients
     async fn do_task(
         &self,
         request: Request<ScheduleTask>,
@@ -424,43 +421,8 @@ impl Controller for ControllerService {
             // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
             // TODO will drastically increase the probing time
 
-            // TODO split task data into smaller tasks such that they are performed at around the same time
-            // TODO thereby they will be performed in sequence
-
-            // Single task
-
-            // // Get the data from the ScheduleTask
-            // let task_data = match request.into_inner().data.unwrap() {
-            //     Data::Ping(ping) => { task::Data::Ping(ping) }
-            //     Data::Udp(udp) => { task::Data::Udp(udp) }
-            //     Data::Tcp(tcp) => { task::Data::Tcp(tcp) }
-            // };
-            //
-            // // Create a Task with this data
-            // let task = verfploeter::Task {
-            //     data: Some(task_data),
-            //     task_id,
-            // };
-            //
-            // // Send the task to every client
-            // for sender in senders_list_clone.iter() {
-            //
-            //     // If the CLI disconnects during task distribution, abort
-            //     if *self.active.lock().unwrap() == false {
-            //         break
-            //     }
-            //     // Sleep one second such that time between probes is ~1 second
-            //     thread::sleep(Duration::from_secs(1));
-            //     // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
-            //     // Send packet to client
-            //     if let Ok(_) = sender.try_send(Ok(task.clone())) {
-            //         println!("[Server] Sent task to client");
-            //     } else {
-            //         println!("[Server] ERROR - Failed to send task to client");
-            //     }
-            // }
-
             // TODO the client will send back results before this code is executed when the task is very long
+            // TODO perform above task distribution in a separate thread such that CLI gets his receiver in time
             // Establish a stream with the CLI to return the TaskResults through
             let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
             {
