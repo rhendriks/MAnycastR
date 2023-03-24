@@ -29,7 +29,7 @@ use verfploeter::{
 };
 
 // Struct for the Server service
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
@@ -149,8 +149,6 @@ impl<T> Drop for CLIReceiver<T> {
         }
     }
 }
-
-
 
 // gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
 // The Controller service implementation
@@ -326,66 +324,81 @@ impl Controller for ControllerService {
             senders
         };
 
-        // If there are connected clients that will perform this task
-        if senders_list_clone.len() > 0 {
-            // obtain task id
-            let task_id: u32;
-            {
-                let mut current_task_id = self.current_task_id.lock().unwrap();
-                task_id = *current_task_id;
-                current_task_id.add_assign(1);
+        // If there are no connected clients that can perform this task
+        if senders_list_clone.len() == 0 {
+            println!("[Server] No connected clients, termination task.");
+            *self.active.lock().unwrap() = false;
+            return Err(Status::new(tonic::Code::Cancelled, "No connected clients"));
+        }
+
+        // obtain task id
+        let task_id: u32;
+        {
+            let mut current_task_id = self.current_task_id.lock().unwrap();
+            task_id = *current_task_id;
+            current_task_id.add_assign(1);
+        }
+
+        // Store the number of clients that will perform this task
+        {
+            let mut open_tasks = self.open_tasks.lock().unwrap();
+            open_tasks.insert(task_id, senders_list_clone.len() as u32);
+        }
+
+        // Create a Task from the ScheduleTask
+        // Get the destination addresses, the source address and the task type from the CLI task
+        let dest_addresses;
+        let src_addr;
+        let task_type = match request.into_inner().data.unwrap() {
+            Data::Ping(ping) => {
+                dest_addresses = ping.destination_addresses;
+                src_addr = ping.source_address;
+                1
             }
-
-            // Store the number of clients that will perform this task
-            {
-                let mut open_tasks = self.open_tasks.lock().unwrap();
-                open_tasks.insert(task_id, senders_list_clone.len() as u32);
+            Data::Udp(udp) => {
+                dest_addresses = udp.destination_addresses;
+                src_addr = udp.source_address;
+                2
             }
+            Data::Tcp(tcp) => {
+                dest_addresses = tcp.destination_addresses;
+                src_addr = tcp.source_address;
+                3
+            }
+        };
 
-            // Create a Task from the ScheduleTask
+        // Establish a stream with the CLI to return the TaskResults through
+        let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
+        {
+            let mut sender = self.cli_sender.lock().unwrap();
+            let _ = sender.insert(tx);
+        }
 
-            // Get the destination addresses, the source address and the task type from the CLI task
-            let addresses;
-            let source;
-            let task_type = match request.into_inner().data.unwrap() {
-                Data::Ping(ping) => {
-                    addresses = ping.destination_addresses;
-                    source = ping.source_address;
-                    1
-                }
-                Data::Udp(udp) => {
-                    addresses = udp.destination_addresses;
-                    source = udp.source_address;
-                    2
-                }
-                Data::Tcp(tcp) => {
-                    addresses = tcp.destination_addresses;
-                    source = tcp.source_address;
-                    3
-                }
-            };
+        let self_clone = self.clone();
+        let task_distribution = move || {
+            let senders_list_clone = self_clone.senders.lock().unwrap().clone();
 
             // Split the destination addresses into chunks and create a task for each chunk
-            for chunk in addresses.chunks(100) { // TODO chunk size 100 probably too small
+            for chunk in dest_addresses.chunks(100) {
                 // Create a Task with this data
                 let task = match task_type {
                     1 => verfploeter::Task {
                         data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                            source_address: source,
+                            source_address: src_addr,
                             destination_addresses: chunk.to_vec(),
                         })),
                         task_id,
                     },
                     2 => verfploeter::Task {
                         data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                            source_address: source,
+                            source_address: src_addr,
                             destination_addresses: chunk.to_vec(),
                         })),
                         task_id,
                     },
                     3 => verfploeter::Task {
                         data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                            source_address: source,
+                            source_address: src_addr,
                             destination_addresses: chunk.to_vec(),
                         })),
                         task_id,
@@ -397,7 +410,7 @@ impl Controller for ControllerService {
                 for sender in senders_list_clone.iter() {
 
                     // If the CLI disconnects during task distribution, abort
-                    if *self.active.lock().unwrap() == false {
+                    if *self_clone.active.lock().unwrap() == false {
                         break
                     }
                     // Sleep one second such that time between probes is ~1 second
@@ -418,33 +431,23 @@ impl Controller for ControllerService {
                     task_id,
                 })).unwrap();
             }
-            // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
-            // TODO will drastically increase the probing time
+        };
 
-            // TODO the client will send back results before this code is executed when the task is very long
-            // TODO perform above task distribution in a separate thread such that CLI gets his receiver in time
-            // Establish a stream with the CLI to return the TaskResults through
-            let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
-            {
-                let mut sender = self.cli_sender.lock().unwrap();
-                let _ = sender.insert(tx);
-            }
+        // Spawn a new thread to execute the task distribution closure
+        let task_thread = thread::spawn(task_distribution);
+        // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
+        // TODO will drastically increase the probing time
+        
+        let rx = CLIReceiver {
+            inner: rx,
+            open_tasks: self.open_tasks.clone(),
+            task_id,
+            active: self.active.clone(),
+            senders: self.senders.clone(),
+        };
 
-            let rx = CLIReceiver {
-                inner: rx,
-                open_tasks: self.open_tasks.clone(),
-                task_id,
-                active: self.active.clone(),
-                senders: self.senders.clone(),
-            };
-
-            Ok(Response::new(rx))
-        // If there are no connected clients
-        } else {
-            println!("[Server] No connected clients, termination task.");
-            *self.active.lock().unwrap() = false;
-            Err(Status::new(tonic::Code::Cancelled, "No connected clients"))
-        }
+        println!("[Server] Sending task stream receiver to CLI");
+        Ok(Response::new(rx))
     }
 
     async fn list_clients(

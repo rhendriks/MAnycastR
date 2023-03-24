@@ -28,7 +28,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                     Some(t) => t,
                 };
 
-                let ping = if let Ping(ping) = task_data { ping } else { todo!() };
+                let ping = if let Ping(ping) = task_data { ping } else { continue };
                 let dest_addresses = ping.destination_addresses;
 
                 // Loop over the destination addresses
@@ -91,7 +91,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 // Perform a UDP measurement/task
 pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started UDP probing thread");
-    // TODO task_id never used here?
     thread::spawn({
         move || {
             // Rate limiter
@@ -105,7 +104,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                     Some(t) => t,
                 };
 
-                let udp = if let Udp(udp) = task_data { udp } else { todo!() };
+                let udp = if let Udp(udp) = task_data { udp } else { continue };
                 let dest_addresses = udp.destination_addresses;
 
                 // Loop over the destination addresses
@@ -166,7 +165,7 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                     Some(t) => t,
                 };
 
-                let tcp = if let Tcp(tcp) = task_data { tcp } else { todo!() };
+                let tcp = if let Tcp(tcp) = task_data { tcp } else { continue };
                 let dest_addresses = tcp.destination_addresses;
 
                 // Loop over the destination addresses
