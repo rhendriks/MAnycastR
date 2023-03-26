@@ -1,15 +1,17 @@
 use std::net::Shutdown;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use socket2::Socket;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::UnboundedSender;
 
+use socket2::Socket;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot::Sender;
+
+use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
-use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, VerfploeterResult, UdpPayload, UdpResult, TcpResult, verfploeter_result::Value};
 
 // Listen for incoming ping packets
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started ICMP listener");
@@ -33,14 +35,14 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
-                    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue };
+                    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue; };
 
                     let pkt_task_id = u32::from_be_bytes(s);
 
                     // Make sure that this packet belongs to this task
                     if (pkt_task_id != task_id) | (value.body.len() < 24) {
                         // If not, we discard it and await the next packet
-                        continue
+                        continue;
                     }
 
                     let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
@@ -88,38 +90,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     thread::spawn({
         let result_queue_sender = result_queue.clone();
         move || {
-            loop {
-                // Every 5 seconds, forward the ping results to the server
-                thread::sleep(Duration::from_secs(5));
+            handle_results(metadata, &tx, tx_f, task_id, client_id, result_queue_sender);
 
-                // Get the current result queue, and replace it with an empty one
-                let rq;
-                {
-                    let mut rq_mutex = result_queue_sender.lock().unwrap();
-                    rq = rq_mutex.replace(Vec::new()).unwrap();
-                }
-
-                // If we have an empty result queue
-                if rq.len() == 0 {
-                    // Exit the thread if client sends us the signal it's finished
-                    if tx_f.is_closed() {
-                        break;
-                    }
-                    continue;
-                }
-
-                let tr = TaskResult {
-                    task_id,
-                    client: Some(Client {
-                        client_id: client_id as u32,
-                        metadata: Some(metadata.clone()),
-                    }),
-                    result_list: rq,
-                };
-
-                // Send the result to the client handler
-                tx.send(tr).unwrap();
-            }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
             socket.shutdown(Shutdown::Read).unwrap_err();
@@ -129,7 +101,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 }
 
 // Listen for incoming UDP packets
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started UDP listener");
@@ -154,7 +126,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 if let PacketPayload::UDP { value } = packet.payload {
                     // The UDP responses will be from DNS services, with port 53 and our src port as dest port, furthermore the body length has to be large enough to contain a DNS A reply
                     if (value.source_port != 53) | (value.destination_port != sender_src_port) | (value.body.len() < 66) {
-                        continue
+                        continue;
                     }
 
                     let receive_time = SystemTime::now()
@@ -228,40 +200,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         let result_queue_sender = result_queue.clone();
 
         move || {
-            loop {
-                // Every 5 seconds, forward the ping results to the server
-                thread::sleep(Duration::from_secs(5));
+            handle_results(metadata, &tx, tx_f, task_id, client_id, result_queue_sender);
 
-                // Exit the thread if client sends us the signal it's finished
-                if tx_f.is_closed() {
-                    break;
-                }
-
-                // Get the current result queue, and replace it with an empty one
-                let rq;
-                {
-                    let mut result_queue_sender_mutex = result_queue_sender.lock().unwrap();
-                    rq = result_queue_sender_mutex.replace(Vec::new()).unwrap();
-                }
-
-                if rq.len() == 0 {
-                    continue;
-                }
-
-                let tr = TaskResult {
-                    task_id,
-                    client: Some(Client {
-                        client_id: client_id as u32,
-                        metadata: Some(metadata.clone()),
-                    }),
-                    result_list: rq,
-                };
-
-                // Send the result to the client handler
-                tx.send(tr).unwrap();
-
-
-            }
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
             socket.shutdown(Shutdown::Read).unwrap_err();
@@ -271,7 +211,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 }
 
 // Listen for incoming TCP packets
-pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: tokio::sync::oneshot::Sender<()>, task_id: u32, client_id: u8) {
+pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -279,8 +219,8 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-
         let socket = socket.clone();
+
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
 
@@ -300,7 +240,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     // Responses to our probes have destination port > 4000 (as we use these as source)
                     // Use the RST flag, and have ACK 0
                     if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
-                        continue
+                        continue;
                     }
 
                     let receive_time = SystemTime::now()
@@ -342,40 +282,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         let result_queue_sender = result_queue.clone();
 
         move || {
-            loop {
-                // Every 5 seconds, forward the ping results to the server
-                thread::sleep(Duration::from_secs(5));
-
-                // Exit the thread if client sends us the signal it's finished
-                if tx_f.is_closed() {
-                    break;
-                }
-
-                // Get the current result queue, and replace it with an empty one
-                let rq;
-                {
-                    let mut rq_mutex = result_queue_sender.lock().unwrap();
-                    rq = rq_mutex.replace(Vec::new()).unwrap();
-                }
-
-                if rq.len() == 0 {
-                    continue;
-                }
-
-                let tr = TaskResult {
-                    task_id,
-                    client: Some(Client {
-                        client_id: client_id as u32,
-                        metadata: Some(metadata.clone()),
-                    }),
-                    result_list: rq,
-                };
-
-                // Send the result to the client handler
-                tx.send(tr).unwrap();
-
-
-            }
+            handle_results(metadata, &tx, tx_f, task_id, client_id, result_queue_sender);
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
             socket.shutdown(Shutdown::Read).unwrap_err();
@@ -384,3 +291,37 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     });
 }
 
+fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
+    loop {
+        // Every 5 seconds, forward the ping results to the server
+        thread::sleep(Duration::from_secs(5));
+
+        // Get the current result queue, and replace it with an empty one
+        let rq;
+        {
+            let mut rq_mutex = result_queue_sender.lock().unwrap();
+            rq = rq_mutex.replace(Vec::new()).unwrap();
+        }
+
+        // If we have an empty result queue
+        if rq.len() == 0 {
+            // Exit the thread if client sends us the signal it's finished
+            if tx_f.is_closed() {
+                break;
+            }
+            continue;
+        }
+
+        let tr = TaskResult {
+            task_id,
+            client: Some(Client {
+                client_id: client_id as u32,
+                metadata: Some(metadata.clone()),
+            }),
+            result_list: rq,
+        };
+
+        // Send the result to the client handler
+        tx.send(tr).unwrap();
+    }
+}
