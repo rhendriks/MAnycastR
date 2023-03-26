@@ -1,9 +1,8 @@
 use std::error::Error;
 use std::fs::File;
 use std::io;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::net::{AddrParseError, Ipv4Addr};
+use std::io::{BufRead, BufReader};
+use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
 
@@ -111,7 +110,7 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
                 }))
             }
         }
-        _ => println!("Undefined type!") // TODO handle this properly
+        _ => println!("Undefined type, defaulting to ICMP.");
     }
 
     verfploeter::ScheduleTask {
@@ -153,8 +152,8 @@ impl CliClass {
             .add("-").add(&*timestamp.month().to_string())
             .add("-").add(&*timestamp.day().to_string())
             .add("T").add(&*timestamp.hour().to_string())
-            .add(",").add(&*timestamp.minute().to_string())
-            .add(",").add(&*timestamp.second().to_string());
+            .add(";").add(&*timestamp.minute().to_string())
+            .add(";").add(&*timestamp.second().to_string());
 
         // Get task type
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "UNKNOWN" };
@@ -162,7 +161,9 @@ impl CliClass {
         // CSV writer to file
         let mut wtr_file = csv::Writer::from_path("./out/output_".to_string().add(type_str).add(&*timestamp_str).add(".csv"))?;
 
+        // Information contained in TaskResult
         let rows = ["task_id", "recv_client_id", "hostname"];
+        // Information contained in IPv4 header
         let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
         if task_type == 1 { // ICMP
             let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
@@ -205,6 +206,7 @@ impl CliClass {
             let hostname: String = client.metadata.unwrap().hostname;
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
 
+            // TaskResult information
             let record: [&str; 3] = [&task_id, &client_id, &hostname];
 
             for verfploeter_result in verfploeter_results {

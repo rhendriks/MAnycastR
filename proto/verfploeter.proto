@@ -3,11 +3,9 @@
 // https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
 
 // This file details the protocol buffers, which contain the data exchanged between the server/clients.
-// I.e. this is the protocol buffer file
 
 // version of protocol buffer used
 syntax = "proto3";
-
 package verfploeter;
 
 // The controller which controls and is responsible for most communication
@@ -29,7 +27,7 @@ service Controller {
 // Empty message
 message Empty {}
 
-// Acknowledgement of a task, with a task ID, a boolean whether it was successful or not, and a possible error message.
+// Acknowledgement of a task, with a boolean whether it was successful or not, and a possible error message.
 message Ack {
   bool success = 1;
   string error_message = 2;
@@ -38,6 +36,7 @@ message Ack {
 // Send a task ID
 message TaskId { uint32 task_id = 1; }
 
+// Request the client ID
 message ClientId {uint32 client_id = 1;}
 
 // Schedule a task with the Server
@@ -49,15 +48,20 @@ message ScheduleTask {
   }
 }
 
-// A list of Client (note the 'repeated' keyword)
+// A list of Client
 message ClientList {
   repeated Client clients = 1;
 }
 
-// A client, which contains an index, and metadata (defined below)
+// A client, which contains a client ID, and metadata (defined below)
 message Client {
   fixed32 client_id = 1;
   Metadata metadata = 2;
+}
+
+// Metadata (as used in Client), contains a hostname and a version.
+message Metadata {
+  string hostname = 1;
 }
 
 // A task for a Client, with a task ID, can be either a Ping or Empty task
@@ -69,11 +73,6 @@ message Task {
     TCP tcp = 4;
     Empty empty = 5;
   }
-}
-
-// Metadata (as used in Client), contains a hostname and a version.
-message Metadata {
-  string hostname = 1;
 }
 
 // A Ping (used in Task), which has a single source address and a list of destination addresses.
