@@ -12,23 +12,17 @@ use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
-
-// Used for sending messages to the clients
 use crate::server::mpsc::Sender;
 
-// Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
 }
-
-// Load in the Controller service and Controller Server generated code
 use verfploeter::controller_server::{Controller, ControllerServer};
-// Load in struct definitions for the message types
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
 };
 
-// Struct for the Server service
+/// Struct for the Server service
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
@@ -42,8 +36,8 @@ pub struct ControllerService {
 
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
 
-// Special Receiver struct that notices when the receiver drops
-// This allows us to detect when a client has disconnected and handle it
+/// Special Receiver struct that notices when the receiver drops
+/// This allows us to detect when a client has disconnected and handle it
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -97,8 +91,8 @@ impl<T> Drop for ClientReceiver<T> {
     }
 }
 
-// Special Receiver struct that notices when the receiver drops
-// This allows us to detect when a CLI has disconnected and handle it
+/// Special Receiver struct that notices when the receiver drops
+/// This allows us to detect when a CLI has disconnected and handle it
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -524,7 +518,7 @@ impl Controller for ControllerService {
     }
 }
 
-// Start the server
+/// Start the server
 pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
     let port = args.value_of("port").unwrap();
     let addr: SocketAddr = "0.0.0.0:".to_string().add(port).parse().unwrap();

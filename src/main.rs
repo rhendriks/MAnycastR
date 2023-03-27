@@ -28,7 +28,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { client::ClientClass::new(client_matches).await.unwrap() });
+        let _ = rt.block_on(async { client::Client::new(client_matches).await.unwrap() });
 
         return;
     }
@@ -53,7 +53,7 @@ fn main() {
     }
 }
 
-/// Parse $ verfploeter [OPTIONS][SUBCOMANDS]  to start server, client, CLI or help (--help)
+/// Parse $ verfploeter to start server, client, CLI or help (--help)
 fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("Verfploeter")
         .version(env!("CARGO_PKG_VERSION"))

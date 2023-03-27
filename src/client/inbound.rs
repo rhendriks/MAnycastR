@@ -10,7 +10,21 @@ use tokio::sync::oneshot::Sender;
 use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 
-// Listen for incoming ping packets
+/// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
+///
+/// # Arguments
+///
+/// * 'metadata' - contains the metadata of this listening client (the hostname)
+///
+/// * 'socket' - the socket to listen on
+///
+/// * 'tx' - sender to put task results in
+///
+/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+///
+/// * 'task_id' - the task_id of the current measurement
+///
+/// * 'client_id' - the unique client ID of this client
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming pings, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -100,7 +114,24 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     });
 }
 
-// Listen for incoming UDP packets
+/// Listen for incoming DNS/UDP packets,
+/// these packets must have a DNS A record reply and use the correct port numbers to be considered a reply.
+///
+/// # Arguments
+///
+/// * 'metadata' - contains the metadata of this listening client (the hostname)
+///
+/// * 'socket' - the socket to listen on
+///
+/// * 'tx' - sender to put task results in
+///
+/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+///
+/// * 'task_id' - the task_id of the current measurement
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -210,7 +241,22 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     });
 }
 
-// Listen for incoming TCP packets
+/// Listen for incoming TCP/RST packets, these packets must have the correct destination port,
+/// have the right flags set (RST), and have ACK == 0 for it to be considered a reply.
+///
+/// # Arguments
+///
+/// * 'metadata' - contains the metadata of this listening client (the hostname)
+///
+/// * 'socket' - the socket to listen on
+///
+/// * 'tx' - sender to put task results in
+///
+/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+///
+/// * 'task_id' - the task_id of the current measurement
+///
+/// * 'client_id' - the unique client ID of this client
 pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8) {
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -291,6 +337,21 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     });
 }
 
+/// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main client class.
+///
+/// # Arguments
+///
+/// * 'metadata' - contains the metadata of this listening client (the hostname)
+///
+/// * 'tx' - sender to put task results in
+///
+/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+///
+/// * 'task_id' - the task_id of the current measurement
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'result_queue_sender' - contains a vector of all received replies as VerfploeterResult
 fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
     loop {
         // Every 5 seconds, forward the ping results to the server

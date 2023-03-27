@@ -1,16 +1,11 @@
-// Load in the generated code from verfploeter.proto using tonic
 pub mod verfploeter {
     tonic::include_proto!("verfploeter");
 }
-
-// Load in the ControllerClient
 use verfploeter::controller_client::ControllerClient;
-// Load in struct definitions for the message types
 use verfploeter::{
     TaskId, Task, Metadata, TaskResult, task::Data, ClientId
 };
 
-// Ping dependencies
 use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 
@@ -31,8 +26,9 @@ use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 mod inbound;
 mod outbound;
 
+/// The client that is ran at the anycast sites and performs tasks as instructed by the server to which it is connected to
 #[derive(Clone)]
-pub struct ClientClass {
+pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     source_address: u32,
@@ -41,30 +37,31 @@ pub struct ClientClass {
     outbound_channel_tx: Option<std::sync::mpsc::Sender<Task>>,
 }
 
-impl ClientClass {
-    // Create a new client object
-    pub async fn new(args: &ArgMatches<'_>) -> Result<ClientClass, Box<dyn Error>> {
+impl Client {
+    /// Create a client instance, which includes establishing a connection with the server.
+    ///
+    /// # Arguments
+    ///
+    /// * 'args' - contains the parsed CLI arguments
+    pub async fn new(args: &ArgMatches<'_>) -> Result<Client, Box<dyn Error>> {
         println!("[Client] Creating new client");
-
+        // Get values from args
         let hostname = args.value_of("hostname").unwrap();
-
         let server_addr = args.value_of("server").unwrap();
-
-        let mut source = 0;
-        // Get the source address if it's present
-        if args.is_present("source") {
-            source = u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap());
-        }
+        // Get the source address if it's present (optional argument)
+        let source_address = if args.is_present("source") {
+            u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap())
+        } else { 0 };
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
         };
 
-        // Initialize a client class
-        let mut client_class = ClientClass {
+        // Initialize a client instance
+        let mut client_class = Client {
             grpc_client: Self::connect(server_addr.clone()).await?,
             metadata,
-            source_address: source,
+            source_address,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_channel_tx: None,
@@ -75,9 +72,18 @@ impl ClientClass {
         Ok(client_class)
     }
 
-    // Create a connection to the gRPC Controller server
+    /// Connect to the server.
+    ///
+    /// # Arguments
+    ///
+    /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let grpc_client = connect("127.0.0.0:5001");
+    /// ```
     async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        // Create client connection with the Controller Server
         let addr = "https://".to_string().add(address);
         println!("[Client] Connecting to Controller Server at address: {}", addr);
         let client = ControllerClient::connect(addr).await?;
@@ -86,8 +92,17 @@ impl ClientClass {
         Ok(client)
     }
 
-    // Start the appropriate measurement based on the received task
-    fn start_measurement(&mut self, task: Task, client_id: u8, rx: Receiver<Task>) {
+    /// Initialize a new measurement. Establish protocol type & source address, create the socket,
+    /// call the appropriate inbound & outbound functions, forward task results to the server.
+    ///
+    /// # Arguments
+    ///
+    /// * 'task' - the first 'Task' message sent by the server for the new measurement
+    ///
+    /// * 'client_id' - the unique ID of this client
+    ///
+    /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
+    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Receiver<Task>) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -95,34 +110,25 @@ impl ClientClass {
         }
 
         let task_id = task.task_id;
-        // Find what kind of task was sent by the Controller
-        self.init(task, task_id, client_id, rx);
-    }
-
-    fn init(&mut self, task: Task, task_id: u32, client_id: u8, outbound_rx: Receiver<Task>) {
-        // If there's a source address specified use it, otherwise use the one in the task.
-        let source_addr;
-        if self.source_address == 0 {
-            // Use the one specified by the CLI in the task
-
-            source_addr = match task.data.clone().unwrap() {
+        // If this client has a specified source address use it, otherwise use the one from the task
+        let source_addr = if self.source_address == 0 {
+            match task.data.clone().unwrap() {
                 Data::Ping(ping) => { ping.source_address }
                 Data::Udp(udp) => { udp.source_address }
                 Data::Tcp(tcp) => { tcp.source_address }
                 Data::Empty(_) => { 0 }
-            };
+            }
         } else {
-            // Use this client's address that was specified in the command-line arguments
-            source_addr = self.source_address;
-        }
+            self.source_address
+        };
 
-        // Create the socket to send the ping messages from
+        // Create the socket to send and receive to/from
         let bind_address = format!(
             "{}:0",
             Ipv4Addr::from(source_addr).to_string()
         );
 
-        // Get protocol
+        // Get protocol type
         let protocol = match task.data.clone().unwrap() {
             Data::Ping(_) => { Protocol::icmpv4() }
             Data::Udp(_) => { Protocol::udp() }
@@ -169,6 +175,7 @@ impl ClientClass {
             Data::Empty(_) => { () }
         };
 
+        // Thread that listens for task results from inbound and forwards them to the server
         thread::spawn({
             let mut self_clone = self.clone();
             move || {
@@ -195,15 +202,15 @@ impl ClientClass {
         });
     }
 
-    // rpc client_connect(Metadata) returns (stream Task) {}
+    /// Get a unique client ID from the server, establish a stream with the server for receiving tasks,
+    /// handle incoming tasks.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        let request = Request::new(self.metadata.clone());
-
+        // Get the client_id from the server
         let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
 
+        // Connect to the server
         println!("[Client] Sending client connect");
-        let response = self.grpc_client.client_connect(request).await?;
-
+        let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
         let mut stream = response.into_inner();
 
         while let Some(task) = stream.message().await? {
@@ -220,7 +227,6 @@ impl ClientClass {
                     // If we received a new task during a measurement
                     // TODO
                 }
-
             // If we don't have an active task
             } else {
                 *self.active.lock().unwrap() = true;
@@ -230,7 +236,7 @@ impl ClientClass {
                 tx.send(task.clone()).unwrap();
                 self.outbound_channel_tx = Some(tx);
 
-                self.start_measurement(task, client_id, rx);
+                self.init(task, client_id, rx);
             }
         }
         println!("[Client] Stopped awaiting tasks...");
@@ -238,6 +244,7 @@ impl ClientClass {
         Ok(())
     }
 
+    /// Send the get_client_id command to the server to obtain a unique client ID
     // Obtain a unique client_id at the server
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         println!("[Client] Requesting client_id");
@@ -246,7 +253,7 @@ impl ClientClass {
         Ok(client_id)
     }
 
-    // rpc send_result(TaskResult) returns (Ack) {}
+    /// Send a TaskResult to the server
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending TaskResult to server");
         let request = Request::new(task_result);
@@ -255,7 +262,11 @@ impl ClientClass {
         Ok(())
     }
 
-    // rpc task_finished(TaskId) returns (Ack) {}
+    /// Let the server know the current measurement is finished, such that it knows not to expect any more task results for this measurement
+    ///
+    /// # Arguments
+    ///
+    /// * 'task_id' - the task ID of the current measurement
     async fn task_finished_to_server(&mut self, task_id: TaskId) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         *self.active.lock().unwrap() = false;
