@@ -6,11 +6,7 @@ use std::net::Ipv4Addr;
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
 
-/// *****
-/// IPv4
-/// ****
-
-// A struct detailing an IPv4Packet https://en.wikipedia.org/wiki/Internet_Protocol_version_4
+/// A struct detailing an IPv4Packet https://en.wikipedia.org/wiki/Internet_Protocol_version_4
 #[derive(Debug)]
 pub struct IPv4Packet {
     pub ttl: u8,
@@ -19,7 +15,7 @@ pub struct IPv4Packet {
     pub payload: PacketPayload,
 }
 
-// Definition of a PacketPayload (either ICMPv4, or unimplemented)
+/// Definition of a PacketPayload (either ICMPv4, UDP, TCP, or unimplemented)
 #[derive(Debug)]
 pub enum PacketPayload {
     ICMPv4 { value: ICMP4Packet },
@@ -28,7 +24,7 @@ pub enum PacketPayload {
     Unimplemented,
 }
 
-// Convert list of u8 (i.e. received bytes) into an IPv4Packet
+/// Convert list of u8 (i.e. received bytes) into an IPv4Packet
 impl From<&[u8]> for IPv4Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
@@ -68,11 +64,7 @@ impl From<&[u8]> for IPv4Packet {
     }
 }
 
-/// *****
-/// Pseudo header
-/// ****
-
-// TCP and UDP uses a pseudo header for calculating the checksum
+/// TCP and UDP uses a pseudo header for calculating the checksum
 #[derive(Debug)]
 pub struct PseudoHeader {
     pub source_address: u32,
@@ -82,7 +74,7 @@ pub struct PseudoHeader {
     pub length: u16, // TCP/UDP header + data length
 }
 
-// Converting PsuedoHeader to bytes
+/// Converting PsuedoHeader to bytes
 impl Into<Vec<u8>> for PseudoHeader {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -100,7 +92,7 @@ impl Into<Vec<u8>> for PseudoHeader {
     }
 }
 
-// Calculate the checksum for UDP/TCP given the UDP/TCP header and payload in buffer, and a constructed pseudo header
+/// Calculate the checksum for UDP/TCP given the UDP/TCP header and payload in buffer, and a constructed pseudo header
 pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
@@ -134,11 +126,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     !(sum as u16)
 }
 
-/// *****
-/// ICMP
-/// ****
-
-// An ICMP4Packet (ping packet) https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest
+/// An ICMP4Packet (ping packet) https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest
 #[derive(Debug)]
 pub struct ICMP4Packet {
     pub icmp_type: u8,
@@ -149,7 +137,7 @@ pub struct ICMP4Packet {
     pub body: Vec<u8>,
 }
 
-// Parsing from bytes to ICMP4Packet
+/// Parsing from bytes to ICMP4Packet
 impl From<&[u8]> for ICMP4Packet {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -164,7 +152,7 @@ impl From<&[u8]> for ICMP4Packet {
     }
 }
 
-// Convert ICMp4Packet into a vector of u8
+/// Convert ICMp4Packet into a vector of u8
 impl Into<Vec<u8>> for &ICMP4Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -184,7 +172,6 @@ impl Into<Vec<u8>> for &ICMP4Packet {
     }
 }
 
-// Implementations for the ICMP4Packet type
 impl ICMP4Packet {
     /// Create a basic ICMPv4 ECHO_REQUEST (8.0) packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
@@ -230,11 +217,7 @@ impl ICMP4Packet {
     }
 }
 
-/// *****
-/// UDP
-/// ****
-
-// An UDPPacket (UDP packet) https://en.wikipedia.org/wiki/User_Datagram_Protocol
+/// An UDPPacket (UDP packet) https://en.wikipedia.org/wiki/User_Datagram_Protocol
 #[derive(Debug)]
 pub struct UDPPacket {
     pub source_port: u16,
@@ -244,7 +227,7 @@ pub struct UDPPacket {
     pub body: Vec<u8>,
 }
 
-// Parsing from bytes into UDPPacket
+/// Parsing from bytes into UDPPacket
 impl From<&[u8]> for UDPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -258,7 +241,7 @@ impl From<&[u8]> for UDPPacket {
     }
 }
 
-// Convert UDPPacket into a vector of u8
+/// Convert UDPPacket into a vector of u8
 impl Into<Vec<u8>> for &UDPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -276,7 +259,7 @@ impl Into<Vec<u8>> for &UDPPacket {
     }
 }
 
-// A DNS A record
+/// A DNS A record
 #[derive(Debug)]
 pub struct DNSARecord {
     pub transaction_id: u16,
@@ -290,7 +273,7 @@ pub struct DNSARecord {
     pub class: u16,
 }
 
-// Read a DNS name that is contained in a DNS response
+/// Read a DNS name that is contained in a DNS response
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     let mut result = String::new();
     loop {
@@ -322,7 +305,7 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     result
 }
 
-// Parsing from bytes into a DNS A record
+/// Parsing from bytes into a DNS A record
 impl From<&[u8]> for DNSARecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -340,7 +323,7 @@ impl From<&[u8]> for DNSARecord {
     }
 }
 
-// Implementations for the UDPPacket type
+/// Implementations for the UDPPacket type
 impl UDPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
@@ -380,7 +363,7 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    /// Create a DNS A record request. In the domain of the A record, we encode: transmit_time,
+    /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
     /// source_address, destination_address, client_id, source_port, destination_port
     pub fn dns_request(
         source_address: u32,
@@ -429,7 +412,7 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    // http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
+    /// Creating a DNS A Record Request body http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
     fn create_dns_a_record_request(
         domain_name: &str,
         transmit_time: u64,
@@ -467,11 +450,7 @@ impl UDPPacket {
     }
 }
 
-/// *****
-/// TCP
-/// ****
-
-// A TCPPacket https://en.wikipedia.org/wiki/Transmission_Control_Protocol
+/// A TCPPacket https://en.wikipedia.org/wiki/Transmission_Control_Protocol
 #[derive(Debug)]
 pub struct TCPPacket {
     pub source_port: u16,
@@ -487,7 +466,7 @@ pub struct TCPPacket {
     pub body: Vec<u8>,
 }
 
-// Parsing from bytes to TCPPacket
+/// Parsing from bytes to TCPPacket
 impl From<&[u8]> for TCPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -506,7 +485,7 @@ impl From<&[u8]> for TCPPacket {
     }
 }
 
-// Convert TCPPacket into a vector of u8
+/// Convert TCPPacket into a vector of u8
 impl Into<Vec<u8>> for &TCPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -534,7 +513,7 @@ impl Into<Vec<u8>> for &TCPPacket {
     }
 }
 
-// Implementations for the TCPPacket type
+/// Implementations for the TCPPacket type
 impl TCPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT

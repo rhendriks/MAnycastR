@@ -12,11 +12,9 @@ use prettytable::{Attr, Cell, color, format, Row, Table};
 use tonic::Request;
 use tonic::transport::Channel;
 
-// Load in struct definitions for the message types
 use verfploeter::{
     controller_client::ControllerClient, TaskResult
 };
-
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
@@ -26,39 +24,41 @@ pub mod verfploeter {
     tonic::include_proto!("verfploeter");
 }
 
-pub struct CliClass {
+/// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
+pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
 }
 
-// Execute the command that is passed in the command-line
+/// Connect to the server and make it perform the CLI command from the command-line
+///
+/// # Arguments
+///
+/// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let addr = "https://".to_string().add(args.value_of("server").unwrap());
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", addr);
-    let client = ControllerClient::connect(addr).await?;
+    let grpc_client = ControllerClient::connect(addr).await?;
     println!("[CLI] Connected to Controller Server");
 
-    let mut cli_class = CliClass {
-        grpc_client: client,
+    let mut cli_client = CliClient {
+        grpc_client,
     };
 
-    // If the client-list command was specified
     if args.subcommand_matches("client-list").is_some() {
-        cli_class.list_clients_to_server(verfploeter::Empty::default()).await
-        // If the start command was specified
+        // Perform the client-list command
+        cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") {
-
+        // Start a Verfploeter measurement
         // Source IP for the measurement
         let source_ip = u32::from(match Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()) {
             Ok(s) => {s}
             Err(_) => { panic!("Invalid source IP value") }
         });
 
-        // Get the specified IP file
+        // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
-
-        // Get the destination addresses
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
         let ips = buf_reader
@@ -68,22 +68,36 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 address
             })
             .collect::<Vec<u32>>();
-        debug!("Loaded [{}] IPAddresses on _ips vector", ips.len());
+        debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type!") };
 
+        // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type);
-
-        cli_class.do_task_to_server(schedule_task, task_type).await
+        cli_client.do_task_to_server(schedule_task, task_type).await
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
     }
 }
 
-// Create a verfploeter::ScheduleTask that can be sent to the server
-pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32) -> verfploeter::ScheduleTask {
+/// Create a Verfploeter ScheduleTask message that can be sent to the server.
+///
+/// # Arguments
+///
+/// * 'source_address' - the source address to be used for this task (will be overwritten by the clients if they have a source address specified locally)
+///
+/// * 'destination_addresses' - a vector of destination addresses that will be probed in this task
+///
+/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: TCP, 3: UDP
+///
+/// # Examples
+///
+/// ```
+/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1);
+/// ```
+fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32) -> verfploeter::ScheduleTask {
     match task_type {
         1 => { // ICMP
             return verfploeter::ScheduleTask {
@@ -101,7 +115,6 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
                 }))
             }
         }
-
         3 => { // TCP
             return verfploeter::ScheduleTask {
                 data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Tcp {
@@ -110,7 +123,7 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
                 }))
             }
         }
-        _ => println!("Undefined type, defaulting to ICMP.");
+        _ => println!("Undefined type, defaulting to ICMP.")
     }
 
     verfploeter::ScheduleTask {
@@ -121,12 +134,21 @@ pub fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>
     }
 }
 
-impl CliClass {
-    // rpc do_task(ScheduleTask) returns (Ack) {}
-    async fn do_task_to_server(&mut self, schedule_task: verfploeter::ScheduleTask, task_type: u32) -> Result<(), Box<dyn Error>> {
-        let request = Request::new(schedule_task);
+impl CliClient {
+    /// Send the 'do_task' command to the server, await the task results, and print them out to command-line & file as CSV.
+    ///
+    /// # Arguments
+    ///
+    /// * 'self' - the CLI client instance that contains the channel for communicating with the server
+    ///
+    /// * 'task' - the task that is being sent to the server
+    ///
+    /// * 'task_type' - the type of task that is used for determining what type of task results can be expected
+    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32) -> Result<(), Box<dyn Error>> {
+        let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
+        println!("[CLI] Sent task to server");
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
@@ -145,9 +167,8 @@ impl CliClass {
         // CSV writer to command-line interface
         let mut wtr_cli = csv::Writer::from_writer(io::stdout());
 
-        // Get current timestamp
+        // Get current timestamp and create timestamp file encoding
         let timestamp = chrono::offset::Local::now();
-
         let timestamp_str = timestamp.year().to_string()
             .add("-").add(&*timestamp.month().to_string())
             .add("-").add(&*timestamp.day().to_string())
@@ -156,7 +177,7 @@ impl CliClass {
             .add(";").add(&*timestamp.second().to_string());
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "UNKNOWN" };
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "ICMP" };
 
         // CSV writer to file
         let mut wtr_file = csv::Writer::from_path("./out/output_".to_string().add(type_str).add(&*timestamp_str).add(".csv"))?;
@@ -291,12 +312,18 @@ impl CliClass {
         Ok(())
     }
 
+    /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
+    ///
+    /// # Arguments
+    ///
+    /// * 'self' - the CLI client instance that contains the channel for communicating with the server
     // rpc list_clients(Empty) returns (ClientList) {}
-    async fn list_clients_to_server(&mut self, empty: verfploeter::Empty) -> Result<(), Box<dyn Error>> {
+    async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
-        let request = Request::new(empty);
+        let request = Request::new(verfploeter::Empty::default());
         let response = self.grpc_client.list_clients(request).await?;
 
+        // Pretty print to command-line
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
         table.add_row(Row::new(vec![

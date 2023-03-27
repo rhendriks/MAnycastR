@@ -12,7 +12,20 @@ use socket2::Socket;
 use crate::client::verfploeter::{PingPayload, Task};
 use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 
-// Perform a ping measurement/task
+/// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
+/// This payload contains information that allows us to trace back the origin of any received reply.
+///
+/// # Arguments
+///
+/// * 'socket' - the socket to send the probes from
+///
+/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'source_addr' - the source address we use in our probes
+///
+/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started pinging thread");
     thread::spawn({
@@ -88,7 +101,22 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
     });
 }
 
-// Perform a UDP measurement/task
+/// Performs a UDP DNS task by sending out DNS A Record requests with a custom domain name.
+/// This domain name contains information that allows us to trace back the origin of any received reply.
+///
+/// # Arguments
+///
+/// * 'socket' - the socket to send the probes from
+///
+/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'source_addr' - the source address we use in our probes
+///
+/// * 'source_port' - the source port we use in our probes
+///
+/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started UDP probing thread");
     thread::spawn({
@@ -149,7 +177,22 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
     });
 }
 
-// Perform a TCP measurement/task
+/// Performs a TCP task by sending out TCP SYN/ACK probes with a custom port and ACK value.
+/// The destination port uses a constant value with the client ID added, the ACK value has the current millis encoded into it.
+///
+/// # Arguments
+///
+/// * 'socket' - the socket to send the probes from
+///
+/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
+///
+/// * 'source_addr' - the source address we use in our probes
+///
+/// * 'destination_port' - the destination port we use in our probes
+///
+/// * 'source_port' - the source port we use in our probes
+///
+/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
     thread::spawn({
