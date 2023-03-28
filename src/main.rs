@@ -117,13 +117,15 @@ mod server;
 mod client;
 mod net;
 
-/// VerfPloeter:: main() - Parse command line input and start VerfPloeter server/client or CLI
+/// Parse command line input and start VerfPloeter server, client, or CLI
+///
+/// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
     // Setup logging with the default environment, with filter at 'info' level
     let env = env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info");
     env_logger::Builder::from_env(env).init();
 
-    // Parse the command line arguments
+    // Parse the command-line arguments
     let matches = parse_cmd();
 
     if let Some(client_matches) = matches.subcommand_matches("client") {
