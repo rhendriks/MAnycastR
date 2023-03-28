@@ -245,7 +245,6 @@ impl Client {
     }
 
     /// Send the get_client_id command to the server to obtain a unique client ID
-    // Obtain a unique client_id at the server
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         println!("[Client] Requesting client_id");
         let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();

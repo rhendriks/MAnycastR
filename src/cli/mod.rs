@@ -315,7 +315,6 @@ impl CliClient {
     /// # Arguments
     ///
     /// * 'self' - the CLI client instance that contains the channel for communicating with the server
-    // rpc list_clients(Empty) returns (ClientList) {}
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
         let request = Request::new(verfploeter::Empty::default());

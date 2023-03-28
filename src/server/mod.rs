@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
-
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -23,6 +22,16 @@ use verfploeter::{
 };
 
 /// Struct for the Server service
+///
+/// # Fields
+///
+/// * 'clients' - a ClientList that contains all connected clients (hostname and client ID)
+/// * 'senders' - a list of senders that connect to the clients, these senders are used to stream Tasks
+/// * 'cli_sender' - the sender that connects to the CLI, to stream TaskResults
+/// * 'open_tasks' - a list of the current open tasks, and the number of clients that are currently working on it
+/// * 'current_task_id' - keeps track of the last used task ID and is used to assign a unique task ID to a new measurement
+/// * 'current-client_id' - keeps track of the last used client ID and is used to assign a unique client ID to a new connecting client
+/// * 'active' - a boolean value that is set to true when there is an active measurement
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
@@ -149,6 +158,16 @@ impl<T> Drop for CLIReceiver<T> {
 #[tonic::async_trait]
 impl Controller for ControllerService {
 
+    /// Handle a client requesting a client ID.
+    /// Returns a unique client_ID.
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - Metadata message that contains the client's hostname
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hostname already exists
     async fn get_client_id(
         &self,
         request: Request<verfploeter::Metadata>
@@ -190,6 +209,16 @@ impl Controller for ControllerService {
         }))
     }
 
+    /// Called by the client when it has finished its current task.
+    /// When all connected clients have finished this task, it will notify the CLI that the task is finished.
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - A TaskId message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the task ID of task finished does not match an active task, or if the CLI has disconnected.
     async fn task_finished(
         &self,
         request: Request<TaskId>,
@@ -250,8 +279,13 @@ impl Controller for ControllerService {
         }))
     }
 
-    // Both streams are Server-sided
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
+    /// Handles a client connecting to this server formally. Ensures that the hostname of the client is unique.
+    /// Returns the receiver side of a stream to which the server will send Tasks
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - a Metadata message containing the hostname and client ID of the client
     async fn client_connect(
         &self,
         request: Request<verfploeter::Metadata>,
@@ -280,6 +314,24 @@ impl Controller for ControllerService {
     }
 
     type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
+    /// Handles the do_task command from the CLI.
+    /// Instructs all clients to perform the task and returns the receiver side of a stream in which TaskResults will be streamed.
+    ///
+    /// Will lock active to true, such that no other measurement can start.
+    ///
+    /// Makes sure all clients are still connected, removes their senders if not.
+    ///
+    /// Assigns a unique task ID to the measurement.
+    ///
+    /// Streams the task to the clients, in a round-robin fashion, with 1 second delays between clients.
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - a ScheduleTask message containing information about the task
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is already an active measurement, or if there are no connected clients to perform the task.
     async fn do_task(
         &self,
         request: Request<ScheduleTask>,
@@ -483,6 +535,9 @@ impl Controller for ControllerService {
         Ok(Response::new(rx))
     }
 
+    /// Handle the list_clients command from the CLI.
+    ///
+    /// Returns the connected clients.
     async fn list_clients(
         &self,
         _request: Request<verfploeter::Empty>,
@@ -491,7 +546,11 @@ impl Controller for ControllerService {
         Ok(Response::new(self.clients.lock().unwrap().clone()))
     }
 
-    // Receive a TaskResult from the client and put it in the stream towards the CLI
+    /// Receive a TaskResult from the client and put it in the stream towards the CLI
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the CLI has disconnected.
     async fn send_result(
         &self,
         request: Request<TaskResult>,
@@ -518,7 +577,13 @@ impl Controller for ControllerService {
     }
 }
 
-/// Start the server
+/// Start the server.
+///
+/// Starts the server on the specified port.
+///
+/// # Arguments
+///
+/// * 'args' - the parsed command-line arguments
 pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
     let port = args.value_of("port").unwrap();
     let addr: SocketAddr = "0.0.0.0:".to_string().add(port).parse().unwrap();

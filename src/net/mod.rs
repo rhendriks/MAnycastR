@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
 
-/// A struct detailing an IPv4Packet https://en.wikipedia.org/wiki/Internet_Protocol_version_4
+/// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
     pub ttl: u8,
@@ -126,7 +126,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
     !(sum as u16)
 }
 
-/// An ICMP4Packet (ping packet) https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest
+/// An ICMP4Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
 #[derive(Debug)]
 pub struct ICMP4Packet {
     pub icmp_type: u8,
@@ -217,7 +217,7 @@ impl ICMP4Packet {
     }
 }
 
-/// An UDPPacket (UDP packet) https://en.wikipedia.org/wiki/User_Datagram_Protocol
+/// An UDPPacket (UDP packet) <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 #[derive(Debug)]
 pub struct UDPPacket {
     pub source_port: u16,
@@ -412,7 +412,7 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    /// Creating a DNS A Record Request body http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm
+    /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
     fn create_dns_a_record_request(
         domain_name: &str,
         transmit_time: u64,
@@ -450,7 +450,7 @@ impl UDPPacket {
     }
 }
 
-/// A TCPPacket https://en.wikipedia.org/wiki/Transmission_Control_Protocol
+/// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
 #[derive(Debug)]
 pub struct TCPPacket {
     pub source_port: u16,
@@ -513,7 +513,6 @@ impl Into<Vec<u8>> for &TCPPacket {
     }
 }
 
-/// Implementations for the TCPPacket type
 impl TCPPacket {
     /// Create a basic UDP packet with checksum
     /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
