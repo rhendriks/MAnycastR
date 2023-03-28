@@ -1,3 +1,110 @@
+//! This project is an implementation of Verfploeter <https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf>.
+//!
+//! It is an extension of the original Verfploeter code <https://github.com/Woutifier/verfploeter>.
+//!
+//! # The components
+//!
+//! It allows for performing synchronized probes from a distributed set of nodes.
+//! To achieve this, it uses three components (all in the same binary):
+//!
+//! * [Server](server) - a central controller that receives a task from the CLI and sends instructions to the connected clients to achieve this
+//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a task for this that is sent to the server
+//! * [Client](client) - the client connects to the server and awaits tasks to send out probes and listen for incoming replies
+//!
+//! # Tasks
+//!
+//! When performing a task, the CLI sends it to the server, the server forwards it to all clients,
+//! the clients perform it and stream back the results to the server, the server then streams back the results to the CLI.
+//!
+//! The tasks are probing measurements, which can be:
+//! * 'ICMP ECHO requests'
+//! * 'UDP DNS A Record requests'
+//! * 'TCP SYN/ACK probes'
+//!
+//! When creating a task you can specify:
+//! * 'Source address' - the source address from which the probes are to be sent out
+//! * 'Destination addresses' - the target addresses that will be probed (e.g. a hitlist)
+//! * 'Type of measurement' - ICMP, UDP, or TCP
+//!
+//! # Results
+//!
+//! The CLI will await task results after sending its command to the server.
+//! When the server is finished it will notify the CLI, after which it prints out all task results on the command-line interface, and writes them to a .csv file (with the current timestamp encoded in the filename).
+//!
+//! # Usage
+//!
+//! First, run the central server.
+//! ```
+//! server -p [PORT NUMBER]
+//! ```
+//!
+//! Next, run one or more clients.
+//! ```
+//! client -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
+//! ```
+//! Server address has format IPv4:port (e.g. 187.0.0.0:50001), '-a SOURCE IP' is optional.
+//!
+//! To confirm that the clients are connected, you can run the client-list command on the CLI.
+//! ```
+//! cli -s [SERVER ADDRESS] client-list
+//! ```
+//!
+//! Finally, you can perform a task.
+//! ```
+//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE]
+//! ```
+//! SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
+//!
+//! The output of the measurement will be printed to command-line, and be stored in src/out as a CSV file.
+//!
+//! # Measurement details
+//!
+//! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
+//! * Each client probes a target address, approximately 1 second after the previous client sent out theirs.
+//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
+//!
+//! # Robustness
+//!
+//! * A list of connected clients is maintained by the server and clients that disconnect are removed.
+//! * Clients disconnecting during measurements are handled and the server will finish the measurement as well as possible.
+//! * CLI disconnecting during a measurement will result in the measurement being cancelled, to avoid unnecessary probes from being sent out (this allows for cancellation of measurements by forcefully closing the CLI during a measurement).
+//! * Both server and client enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if they is still a measurement active.
+//!
+//! # Probe details
+//!
+//! ICMP
+//! * ICMP ECHO requests (pings) are sent out using a unique payload that contains information about the transmission.
+//! * This payload is echoed back by ICMP-responsive hosts, and the received ECHO replies are verified to be part of the current measurement.
+//! * From the reply payloads we extract information that give us information from the client that sent the probe.
+//!
+//! UDP
+//! * DNS A Record requests are sent using UDP, within the subdomain of the A Record we encode information.
+//! * Since the record does not exist, a DNS server will echo back the domain name, we use this domain to verify the reply is part of our measurement.
+//! * Furthermore, we extract information from the subdomain to obtain information from the client that sent the probe.
+//!
+//! TCP
+//! * We send TCP SYN/ACK packets to high port numbers, such that it is very unlikely that there is a TCP service running on that port.
+//! * This ensures that we will not create any TCP states on the probed targets. Responsive hosts will send back a TCP RST packet.
+//! * Inside the port numbers and ACK number of the probe we encode information that gets echoed back in the RST reply.
+//! * To verify a received TCP RST is part of our measurement, we verify the port numbers have valid values.
+//!
+//! # Requirements
+//!
+//! rustup
+//! ```
+//! rustup install stable
+//! ```
+//!
+//! gcc
+//! ```
+//! apt-get install gcc
+//! ```
+//!
+//! protobuf-complier
+//! ```
+//! apt-get install protobuf-compiler
+//! ```
+
 extern crate env_logger;
 extern crate byteorder;
 #[macro_use]
@@ -9,7 +116,6 @@ mod cli;
 mod server;
 mod client;
 mod net;
-
 
 /// VerfPloeter:: main() - Parse command line input and start VerfPloeter server/client or CLI
 fn main() {
