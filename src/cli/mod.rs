@@ -5,13 +5,11 @@ use std::io::{BufRead, BufReader};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
-
 use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tonic::Request;
 use tonic::transport::Channel;
-
 use verfploeter::{
     controller_client::ControllerClient, TaskResult
 };
