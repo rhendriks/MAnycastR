@@ -7,24 +7,26 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Server](server) - a central controller that receives a task from the CLI and sends instructions to the connected clients to achieve this
-//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a task for this that is sent to the server
+//! * [Server](server) - a central controller that receives a task from the CLI and sends instructions to the connected clients to perform measurements
+//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a task that is sent to the server
 //! * [Client](client) - the client connects to the server and awaits tasks to send out probes and listen for incoming replies
 //!
 //! # Tasks
 //!
-//! When performing a task, the CLI sends it to the server, the server forwards it to all clients,
-//! the clients perform it and stream back the results to the server, the server then streams back the results to the CLI.
+//! A task is created by locally running the CLI using a command, from this command a task is created which is sent to the server.
+//! The server performs this task by sending instructions to the clients, who perform the desired measurement by sending out probes.
+//! These clients then stream back the results to the server, as they receive replies.
+//! The server forwards these results to the CLI.
 //!
 //! The tasks are probing measurements, which can be:
-//! * 'ICMP ECHO requests'
-//! * 'UDP DNS A Record requests'
-//! * 'TCP SYN/ACK probes'
+//! * ICMP ECHO requests
+//! * UDP DNS A Record requests
+//! * TCP SYN/ACK probes
 //!
 //! When creating a task you can specify:
-//! * 'Source address' - the source address from which the probes are to be sent out
-//! * 'Destination addresses' - the target addresses that will be probed (e.g. a hitlist)
-//! * 'Type of measurement' - ICMP, UDP, or TCP
+//! * **Source address** - the source address from which the probes are to be sent out
+//! * **Destination addresses** - the target addresses that will be probed (e.g. a hitlist)
+//! * **Type of measurement** - ICMP, UDP, or TCP
 //!
 //! # Results
 //!

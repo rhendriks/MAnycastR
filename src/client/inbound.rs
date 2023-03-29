@@ -2,19 +2,22 @@ use std::net::Shutdown;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use socket2::Socket;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
-
 use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
 ///
+/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
+///
+/// For a received packet to be considered a reply, it must be an ICMP packet with the current task ID in the first 4 bytes of the ICMP payload.
+/// From these replies it creates task results that are put in a result queue, which get sent to the server.
+///
 /// # Arguments
 ///
-/// * 'metadata' - contains the metadata of this listening client (the hostname)
+/// * 'metadata' - contains the metadata of this listening client (the hostname and client ID)
 ///
 /// * 'socket' - the socket to listen on
 ///
@@ -26,12 +29,12 @@ use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 ///
 /// * 'client_id' - the unique client ID of this client
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8) {
-    // Queue to store incoming pings, and take them out when sending the TaskResults to the server
-    let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
+    // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
+    let rq = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started ICMP listener");
 
     thread::spawn({
-        let result_queue_receiver = result_queue.clone();
+        let rq_receiver = rq.clone();
 
         let socket = socket.clone();
         move || {
@@ -89,7 +92,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                     // Put result in transmission queue
                     {
-                        let mut rq_opt = result_queue_receiver.lock().unwrap();
+                        let mut rq_opt = rq_receiver.lock().unwrap();
                         if let Some(ref mut x) = *rq_opt {
                             x.push(result);
                         }
@@ -102,7 +105,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
     // Thread for sending the received replies to the server as TaskResult
     thread::spawn({
-        let result_queue_sender = result_queue.clone();
+        let result_queue_sender = rq.clone();
         move || {
             handle_results(metadata, &tx, tx_f, task_id, client_id, result_queue_sender);
 
@@ -114,8 +117,13 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     });
 }
 
-/// Listen for incoming DNS/UDP packets,
+/// Listen for incoming UDP DNS packets,
 /// these packets must have a DNS A record reply and use the correct port numbers to be considered a reply.
+///
+/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
+///
+/// For a received packet to be considered a reply, it must be an UDP DNS packet that contains an A record that follows a specific format.
+/// From these replies it creates task results that are put in a result queue, which get sent to the server.
 ///
 /// # Arguments
 ///
@@ -243,6 +251,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
 /// Listen for incoming TCP/RST packets, these packets must have the correct destination port,
 /// have the right flags set (RST), and have ACK == 0 for it to be considered a reply.
+///
+/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
+///
+/// For a received packet to be considered a reply, it must be a TCP packet with the RST flag set and using the correct port numbers.
+/// From these replies it creates task results that are put in a result queue, which get sent to the server.
 ///
 /// # Arguments
 ///

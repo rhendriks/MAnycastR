@@ -27,6 +27,15 @@ mod inbound;
 mod outbound;
 
 /// The client that is ran at the anycast sites and performs tasks as instructed by the server to which it is connected to
+///
+/// # Fields
+///
+/// * 'grpc_client' - the client connection with the server
+/// * 'metadata' - used to store this client's hostname and unique client ID
+/// * 'source_address' - contains the source address this client will use for outgoing probes (optional value that can be defined when creating this client)
+/// * 'active' - boolean value that is set to true when the client is currently doing a measurement
+/// * 'current_task' - contains the task ID of the current measurement
+/// * 'outbound_channel_tx' - contains the sender of a channel to the outbound prober that tasks are send to (will be None when there is no active measurement)
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
@@ -39,6 +48,8 @@ pub struct Client {
 
 impl Client {
     /// Create a client instance, which includes establishing a connection with the server.
+    ///
+    /// Extracts the source address from the optional argument.
     ///
     /// # Arguments
     ///
@@ -92,8 +103,11 @@ impl Client {
         Ok(client)
     }
 
-    /// Initialize a new measurement. Establish protocol type & source address, create the socket,
-    /// call the appropriate inbound & outbound functions, forward task results to the server.
+    /// Initialize a new measurement by creating outbound and inbound threads, and ensures tasks are sent back to the server.
+    ///
+    /// Extracts the protocol type from the task, and determines which source address to use.
+    /// Creates a socket to send out probes and receive replies with, calls the appropriate inbound & outbound functions.
+    /// Creates an additional thread that forwards task results to the server.
     ///
     /// # Arguments
     ///
@@ -202,8 +216,9 @@ impl Client {
         });
     }
 
-    /// Get a unique client ID from the server, establish a stream with the server for receiving tasks,
-    /// handle incoming tasks.
+    /// Establish a formal connection with the server.
+    ///
+    /// Obtains a unique client ID from the server, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         // Get the client_id from the server
         let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
@@ -256,12 +271,14 @@ impl Client {
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending TaskResult to server");
         let request = Request::new(task_result);
-        let _ = self.grpc_client.send_result(request).await?;
+        self.grpc_client.send_result(request).await?;
 
         Ok(())
     }
 
-    /// Let the server know the current measurement is finished, such that it knows not to expect any more task results for this measurement
+    /// Let the server know the current measurement is finished.
+    ///
+    /// When a measurement is finished the server knows not to expect any more results from this client.
     ///
     /// # Arguments
     ///
@@ -270,7 +287,7 @@ impl Client {
         println!("[Client] Sending task finished to server");
         *self.active.lock().unwrap() = false;
         let request = Request::new(task_id);
-        let _ = self.grpc_client.task_finished(request).await?;
+        self.grpc_client.task_finished(request).await?;
 
         Ok(())
     }
