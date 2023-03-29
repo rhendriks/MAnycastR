@@ -15,7 +15,7 @@ pub struct IPv4Packet {
     pub payload: PacketPayload,
 }
 
-/// Definition of a PacketPayload (either ICMPv4, UDP, TCP, or unimplemented)
+/// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
 #[derive(Debug)]
 pub enum PacketPayload {
     ICMPv4 { value: ICMP4Packet },
@@ -64,7 +64,7 @@ impl From<&[u8]> for IPv4Packet {
     }
 }
 
-/// TCP and UDP uses a pseudo header for calculating the checksum
+/// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeader {
     pub source_address: u32,
@@ -92,18 +92,24 @@ impl Into<Vec<u8>> for PseudoHeader {
     }
 }
 
-/// Calculate the checksum for UDP/TCP given the UDP/TCP header and payload in buffer, and a constructed pseudo header
-pub fn calculate_checksum(buffer: &[u8], pseudoheader: &PseudoHeader) -> u16 {
+/// Calculate the checksum for a UDP/TCP packet.
+///
+/// # Arguments
+///
+/// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
+///
+/// * 'pseudo_header' - the pseudo header for this packet
+pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
 
     // Sum the pseudo header
-    sum += pseudoheader.source_address >> 16;
-    sum += pseudoheader.source_address & 0xffff;
-    sum += pseudoheader.destination_address >> 16;
-    sum += pseudoheader.destination_address & 0xffff;
-    sum += u32::from(pseudoheader.protocol);
-    sum += u32::from(pseudoheader.length);
+    sum += pseudo_header.source_address >> 16;
+    sum += pseudo_header.source_address & 0xffff;
+    sum += pseudo_header.destination_address >> 16;
+    sum += pseudo_header.destination_address & 0xffff;
+    sum += u32::from(pseudo_header.protocol);
+    sum += u32::from(pseudo_header.length);
 
     // Sum the packet
     let mut i = 0;
@@ -152,7 +158,7 @@ impl From<&[u8]> for ICMP4Packet {
     }
 }
 
-/// Convert ICMp4Packet into a vector of u8
+/// Convert ICMp4Packet into a vector of bytes
 impl Into<Vec<u8>> for &ICMP4Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -173,8 +179,15 @@ impl Into<Vec<u8>> for &ICMP4Packet {
 }
 
 impl ICMP4Packet {
-    /// Create a basic ICMPv4 ECHO_REQUEST (8.0) packet with checksum
-    /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
+    /// Create a basic ICMPv4 ECHO_REQUEST (8.0) packet with checksum.
+    ///
+    /// # Arguments
+    ///
+    /// * 'identifier' - the identifier for the ICMP header
+    ///
+    /// * 'sequence_number' - the sequence number for the ICMP header
+    ///
+    /// * 'body' - the ICMP payload
     pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
         let mut packet = ICMP4Packet {
             icmp_type: 8,
@@ -200,7 +213,9 @@ impl ICMP4Packet {
         cursor.into_inner()
     }
 
-    /// Calc ICMP Checksum covers the entire ICMPv4 message (16-bit one's complement)
+    /// Calculate the ICMP Checksum.
+    ///
+    /// This calculation covers the entire ICMPv4 message (16-bit one's complement).
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
@@ -241,7 +256,7 @@ impl From<&[u8]> for UDPPacket {
     }
 }
 
-/// Convert UDPPacket into a vector of u8
+/// Convert UDPPacket into a vector of bytes
 impl Into<Vec<u8>> for &UDPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -273,7 +288,8 @@ pub struct DNSARecord {
     pub class: u16,
 }
 
-/// Read a DNS name that is contained in a DNS response
+/// Read a DNS name that is contained in a DNS response.
+/// Returns the domain name string of the A record reply.
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     let mut result = String::new();
     loop {
@@ -323,10 +339,8 @@ impl From<&[u8]> for DNSARecord {
     }
 }
 
-/// Implementations for the UDPPacket type
 impl UDPPacket {
-    /// Create a basic UDP packet with checksum
-    /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
+    /// Create a basic UDP packet with checksum.
     pub fn udp_request(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
@@ -485,7 +499,7 @@ impl From<&[u8]> for TCPPacket {
     }
 }
 
-/// Convert TCPPacket into a vector of u8
+/// Convert TCPPacket into a vector of bytes
 impl Into<Vec<u8>> for &TCPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -514,8 +528,7 @@ impl Into<Vec<u8>> for &TCPPacket {
 }
 
 impl TCPPacket {
-    /// Create a basic UDP packet with checksum
-    /// Each packet will be created using received SEQUENCE_NUMBER, ID and CONTENT
+    /// Create a basic TCP SYN/ACK packet with checksum
     pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
         let mut packet = TCPPacket {

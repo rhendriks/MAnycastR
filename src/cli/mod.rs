@@ -137,11 +137,9 @@ impl CliClient {
     ///
     /// # Arguments
     ///
-    /// * 'self' - the CLI client instance that contains the channel for communicating with the server
-    ///
     /// * 'task' - the task that is being sent to the server
     ///
-    /// * 'task_type' - the type of task that is used for determining what type of task results can be expected
+    /// * 'task_type' - the type of task that is being sent, and the type of the task results we will receive
     async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32) -> Result<(), Box<dyn Error>> {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
@@ -311,10 +309,6 @@ impl CliClient {
     }
 
     /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
-    ///
-    /// # Arguments
-    ///
-    /// * 'self' - the CLI client instance that contains the channel for communicating with the server
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
         let request = Request::new(verfploeter::Empty::default());

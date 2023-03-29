@@ -12,7 +12,6 @@ use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
 use crate::server::mpsc::Sender;
-
 pub mod verfploeter {
     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
 }
@@ -45,8 +44,12 @@ pub struct ControllerService {
 
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
 
-/// Special Receiver struct that notices when the receiver drops
-/// This allows us to detect when a client has disconnected and handle it
+/// Special Receiver struct that notices when the client disconnects.
+///
+/// When a client drops we update the open_tasks such that the server knows this client is not participating in any measurements.
+/// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this client is finished.
+///
+/// Finally, remove this client from the client list.
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -89,6 +92,7 @@ impl<T> Drop for ClientReceiver<T> {
                 // If this is the last client for this open task
                 if remaining == &1 {
                     println!("[Server] The last client for a task dropped, sending task finished to CLI");
+                    // TODO do we need to set active = false here?
                     self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
                 // If there are more clients still performing this task
                 } else {
@@ -100,15 +104,17 @@ impl<T> Drop for ClientReceiver<T> {
     }
 }
 
-/// Special Receiver struct that notices when the receiver drops
-/// This allows us to detect when a CLI has disconnected and handle it
+/// Special Receiver struct that notices when the CLI disconnects.
+///
+/// When a CLI disconnects we cancel all open measurements. We set this server as available for receiving a new measurement.
+///
+/// Furthermore, if a measurement is active, we send a termination message to all clients to quit the current measurement.
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     task_id: u32,
     active: Arc<Mutex<bool>>,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
-    // Client senders
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -158,8 +164,9 @@ impl<T> Drop for CLIReceiver<T> {
 #[tonic::async_trait]
 impl Controller for ControllerService {
 
-    /// Handle a client requesting a client ID.
-    /// Returns a unique client_ID.
+    /// Handles a client requesting a client ID.
+    ///
+    /// Returns a unique client ID.
     ///
     /// # Arguments
     ///
@@ -210,6 +217,7 @@ impl Controller for ControllerService {
     }
 
     /// Called by the client when it has finished its current task.
+    ///
     /// When all connected clients have finished this task, it will notify the CLI that the task is finished.
     ///
     /// # Arguments
@@ -280,7 +288,9 @@ impl Controller for ControllerService {
     }
 
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
-    /// Handles a client connecting to this server formally. Ensures that the hostname of the client is unique.
+
+    /// Handles a client connecting to this server formally.
+    ///
     /// Returns the receiver side of a stream to which the server will send Tasks
     ///
     /// # Arguments
@@ -315,6 +325,7 @@ impl Controller for ControllerService {
 
     type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
     /// Handles the do_task command from the CLI.
+    ///
     /// Instructs all clients to perform the task and returns the receiver side of a stream in which TaskResults will be streamed.
     ///
     /// Will lock active to true, such that no other measurement can start.

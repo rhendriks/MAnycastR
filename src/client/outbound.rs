@@ -2,18 +2,19 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use std::num::NonZeroU32;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::oneshot::Receiver;
 use socket2::Socket;
-
 use crate::client::verfploeter::{PingPayload, Task};
 use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
-/// This payload contains information that allows us to trace back the origin of any received reply.
+///
+/// This payload contains the client ID of this prober, transmission time, source and destination address, and the task ID of the current measurement.
+///
+/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
 ///
 /// # Arguments
 ///
@@ -102,7 +103,10 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 }
 
 /// Performs a UDP DNS task by sending out DNS A Record requests with a custom domain name.
-/// This domain name contains information that allows us to trace back the origin of any received reply.
+///
+/// This domain name contains the transmission time, the client ID of the prober, the task ID of the current task, and the source and destination address of the probe.
+///
+/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
 ///
 /// # Arguments
 ///
@@ -178,7 +182,10 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 }
 
 /// Performs a TCP task by sending out TCP SYN/ACK probes with a custom port and ACK value.
+///
 /// The destination port uses a constant value with the client ID added, the ACK value has the current millis encoded into it.
+///
+/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
 ///
 /// # Arguments
 ///
