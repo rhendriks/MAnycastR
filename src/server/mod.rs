@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
+use tokio::spawn;
 use crate::server::mpsc::Sender;
 pub mod verfploeter {
     tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
@@ -141,14 +142,30 @@ impl<T> Drop for CLIReceiver<T> {
                 task_id: self.task_id + 1000,
             };
 
+            let senders = self.senders.clone();
+            let task = task.clone();
+
             // Tell each client to terminate the task
-            for client in self.senders.lock().unwrap().iter() {
-                if let Ok(_) = client.blocking_send(Ok(task.clone())) {
-                    println!("[Server] Terminated task at client");
-                } else {
-                    println!("[Server] ERROR - Failed to terminate task");
-                }
+            for client in senders.lock().unwrap().iter() {
+                let client = client.clone();
+                let task = task.clone();
+                spawn(async move {
+                    if let Err(e) = client.send(Ok(task)).await {
+                        println!("[Server] ERROR - Failed to terminate task {}", e);
+                    } else {
+                        println!("[Server] Terminated task at client");
+                    }
+                });
             }
+
+            // // Tell each client to terminate the task
+            // for client in self.senders.lock().unwrap().iter() {
+            //     if let Ok(_) = client.blocking_send(Ok(task.clone())) {
+            //         println!("[Server] Terminated task at client");
+            //     } else {
+            //         println!("[Server] ERROR - Failed to terminate task");
+            //     }
+            // }
 
             // Handle the open task that this CLI created
             let mut open_tasks = self.open_tasks.lock().unwrap();
