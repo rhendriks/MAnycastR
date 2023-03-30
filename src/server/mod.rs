@@ -511,15 +511,16 @@ impl Controller for ControllerService {
                                 println!("[Server] CLI disconnected during task distribution");
                                 break
                             }
+
                             // Send packet to client
-                            match sender.try_send(Ok(task.clone())) {
+                            match sender.blocking_send(Ok(task.clone())) {
                                 Ok(_) => (),
                                 Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                             }
                         }
                         println!("[Server] Sending 'task finished' to client");
                         // Send a message to the client to let it know it has received everything for the current task
-                        match sender.try_send(Ok(verfploeter::Task {
+                        match sender.blocking_send(Ok(verfploeter::Task {
                             data: None,
                             task_id,
                         })) {
