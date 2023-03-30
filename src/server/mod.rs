@@ -433,44 +433,43 @@ impl Controller for ControllerService {
 
         let self_clone = self.clone();
         let task_distribution = move || {
-            let senders_list_clone = self_clone.senders.lock().unwrap().clone();
+            let senders = self_clone.senders.lock().unwrap().clone();
+
+            println!("[Server] Letting {} clients know a measurement is starting", senders.len());
+            let start_task = match task_type {
+                1 => verfploeter::Task {
+                    data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                        source_address: src_addr,
+                        destination_addresses: vec![],
+                    })),
+                    task_id,
+                },
+                2 => verfploeter::Task {
+                    data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                        source_address: src_addr,
+                        destination_addresses: vec![],
+                    })),
+                    task_id,
+                },
+                3 => verfploeter::Task {
+                    data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                        source_address: src_addr,
+                        destination_addresses: vec![],
+                    })),
+                    task_id,
+                },
+                _ => verfploeter::Task::default(),
+            };
 
             // Notify all senders that a new measurement is starting
-            for sender in senders_list_clone.iter() {
-
-                let task = match task_type {
-                    1 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                            source_address: src_addr,
-                            destination_addresses: vec![],
-                        })),
-                        task_id,
-                    },
-                    2 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                            source_address: src_addr,
-                            destination_addresses: vec![],
-                        })),
-                        task_id,
-                    },
-                    3 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                            source_address: src_addr,
-                            destination_addresses: vec![],
-                        })),
-                        task_id,
-                    },
-                    _ => verfploeter::Task::default(),
-                };
-
-
-                if let Ok(_) = sender.try_send(Ok(task)) {
-                    println!("[Server] Sent start of task to client");
-                } else {
-                    println!("[Server] ERROR - Failed to send task to client");
+            for sender in senders.iter() {
+                match sender.try_send(Ok(start_task.clone())) {
+                    Ok(_) => (),
+                    Err(e) => println!("[Server] Failed to send 'start measurement' {:?}", e),
                 }
             }
 
+            println!("[Server] Distributing tasks");
             // TODO perhaps I can start streaming the entire task to each client in a separate thread
             // TODO and start these threads one second after eachother
             // TODO the streams might get out of sync, but perhaps the rate limiter will be the bottleneck and ensure that probes for the same address are sent out ~1s from each other
@@ -505,7 +504,7 @@ impl Controller for ControllerService {
                 };
 
                 // Send task to each client, and wait 1 second in between
-                for sender in senders_list_clone.iter() {
+                for sender in senders.iter() {
                     // If the CLI disconnects during task distribution, abort
                     if *self_clone.active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
@@ -515,19 +514,21 @@ impl Controller for ControllerService {
                     thread::sleep(Duration::from_secs(1));
                     // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
                     // Send packet to client
-                    if let Ok(_) = sender.try_send(Ok(task.clone())) {
-                        println!("[Server] Sent task to client");
-                    } else {
-                        println!("[Server] ERROR - Failed to send task to client");
+                    match sender.try_send(Ok(task.clone())) {
+                        Ok(_) => (),
+                        Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                     }
                 }
             }
             // Send a message to each client to let it know it has received everything for the current task
-            for sender in senders_list_clone.clone().into_iter() {
-                sender.try_send(Ok(verfploeter::Task {
+            for sender in senders.clone().into_iter() {
+                match sender.try_send(Ok(verfploeter::Task {
                     data: None,
                     task_id,
-                })).unwrap();
+                })) {
+                    Ok(_) => (),
+                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+                }
             }
         };
 
