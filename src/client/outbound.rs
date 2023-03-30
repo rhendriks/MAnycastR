@@ -76,19 +76,20 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                         thread::sleep(Duration::from_millis(1));
                     }
 
+                    println!("Sending out packet {:?}", icmp);
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &icmp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .unwrap()
-                            .into(),
-                    ) {
-                        error!("Failed to send packet to socket: {:?}", e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
-                    }
+                    // if let Err(e) = socket.send_to(
+                    //     &icmp,
+                    //     &bind_addr_dest
+                    //         .to_string()
+                    //         .parse::<SocketAddr>()
+                    //         .unwrap()
+                    //         .into(),
+                    // ) {
+                    //     error!("Failed to send packet to socket: {:?}", e);
+                    // } else {
+                    //     // println!("[Client outbound] Packet sent!");
+                    // }
                 }
             }
             debug!("finished ping");
