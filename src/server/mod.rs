@@ -156,6 +156,7 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Set task_active to false
             *active = false;
+            println!("active is now false");
         }
     }
 }
@@ -516,6 +517,7 @@ impl Controller for ControllerService {
                                 Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                             }
                         }
+                        println!("[Server] Sending 'task finished' to client");
                         // Send a message to the client to let it know it has received everything for the current task
                         match sender.try_send(Ok(verfploeter::Task {
                             data: None,
