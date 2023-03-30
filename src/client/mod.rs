@@ -229,7 +229,6 @@ impl Client {
         let mut stream = response.into_inner();
 
         while let Some(task) = stream.message().await? {
-            println!("[Client] Received task");
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
@@ -238,12 +237,12 @@ impl Client {
                     // Send the task to the prober
                     self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
                 } else {
-                    println!("[Client] Received new measurement during an active measurement")
                     // If we received a new task during a measurement
-                    // TODO
+                    println!("[Client] Received new measurement during an active measurement, skipping")
                 }
             // If we don't have an active task
             } else {
+                println!("[Client] Starting new measurement");
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 

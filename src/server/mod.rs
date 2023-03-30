@@ -567,8 +567,6 @@ impl Controller for ControllerService {
         &self,
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
-        println!("[Server] Received send_result");
-
         // Send the result to the CLI through the established stream
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
