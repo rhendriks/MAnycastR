@@ -138,7 +138,7 @@ impl<T> Drop for CLIReceiver<T> {
             // Create termination 'task'
             let task = verfploeter::Task {
                 data: None,
-                task_id: self.task_id,
+                task_id: self.task_id + 1000,
             };
 
             // Tell each client to terminate the task

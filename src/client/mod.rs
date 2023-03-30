@@ -19,6 +19,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 
 use clap::ArgMatches;
+use futures::sync::oneshot;
 
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
@@ -116,7 +117,7 @@ impl Client {
     /// * 'client_id' - the unique ID of this client
     ///
     /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
-    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Receiver<Task>) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Receiver<Task>, finish_rx: oneshot::Receiver<()>) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -164,7 +165,7 @@ impl Client {
         match task.data.clone().unwrap() {
             Data::Ping(_) => {
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
-                perform_ping(socket, rx_f, client_id, source_addr, outbound_rx);
+                perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx);
             }
             Data::Udp(_) => {
                 let src_port: u16 = 62321;
@@ -173,7 +174,7 @@ impl Client {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
 
                 // Start sending thread
-                perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx);
+                perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
@@ -184,7 +185,7 @@ impl Client {
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // Start sending thread
-                perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx);
+                perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx, finish_rx);
             }
             Data::Empty(_) => { () }
         };
@@ -222,6 +223,8 @@ impl Client {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         // Get the client_id from the server
         let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
+        let mut f_tx: Option<futures::sync::oneshot::Sender<()>> = None;
+
 
         // Connect to the server
         println!("[Client] Sending client connect");
@@ -232,12 +235,17 @@ impl Client {
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
+                // If the CLI disconnected we will receive this message
+                if *self.current_task.lock().unwrap() + 1000 == task_id {
+                    // Send finish signal
+                    println!("[Client] CLI disconnecting, exiting task");
+                    f_tx.take().unwrap().send(()).unwrap();
+                    // TODO terminate current measurement
+                    // TODO add second channel to force quit it
+                    continue
+                }
                 // If the received task is part of the active task
                 if *self.current_task.lock().unwrap() == task_id {
-
-                    // TODO if task == None and it is a termination task
-                    // TODO add second channel to force quit it
-
                     // Send the task to the prober
                     self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
                 } else {
@@ -250,11 +258,15 @@ impl Client {
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
+                // Signal finish
+                let (finish_tx, finish_rx) = oneshot::channel();
+                f_tx = Some(finish_tx);
+
                 let (tx, rx) = std::sync::mpsc::channel();
                 tx.send(task.clone()).unwrap();
                 self.outbound_channel_tx = Some(tx);
 
-                self.init(task, client_id, rx);
+                self.init(task, client_id, rx, finish_rx);
             }
         }
         println!("[Client] Stopped awaiting tasks...");
