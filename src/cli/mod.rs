@@ -70,10 +70,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type!") };
+        let cli = matches.is_present("STREAM");
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type);
-        cli_client.do_task_to_server(schedule_task, task_type).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli).await
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
@@ -140,7 +141,7 @@ impl CliClient {
     /// * 'task' - the task that is being sent to the server
     ///
     /// * 'task_type' - the type of task that is being sent, and the type of the task results we will receive
-    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool) -> Result<(), Box<dyn Error>> {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
@@ -161,7 +162,7 @@ impl CliClient {
         }
 
         // CSV writer to command-line interface
-        let mut wtr_cli = csv::Writer::from_writer(io::stdout());
+        let mut wtr_cli = if cli { Some(csv::Writer::from_writer(io::stdout())) } else { None };
 
         // Get current timestamp and create timestamp file encoding
         let timestamp = chrono::offset::Local::now();
@@ -190,7 +191,7 @@ impl CliClient {
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&icmp_rows);
 
-            wtr_cli.write_record(all_rows)?;
+            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 2 { // UDP
             let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port",
@@ -201,7 +202,7 @@ impl CliClient {
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&udp_rows);
 
-            wtr_cli.write_record(all_rows)?;
+            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 3 { // TCP
             let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
@@ -211,7 +212,7 @@ impl CliClient {
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&tcp_rows);
 
-            wtr_cli.write_record(all_rows)?;
+            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         }
 
@@ -250,7 +251,7 @@ impl CliClient {
                         all_records[3..].copy_from_slice(&record_ping);
 
 
-                        wtr_cli.write_record(all_records)?;
+                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
                         wtr_file.write_record(all_records)?;
                     }
                     ResultUdp(udp) => {
@@ -276,7 +277,7 @@ impl CliClient {
                         all_records[..3].copy_from_slice(&record);
                         all_records[3..].copy_from_slice(&record_udp);
 
-                        wtr_cli.write_record(&all_records)?;
+                        if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
                         wtr_file.write_record(&all_records)?;
                     },
                     ResultTcp(tcp) => {
@@ -298,7 +299,7 @@ impl CliClient {
                         all_records[..3].copy_from_slice(&record);
                         all_records[3..].copy_from_slice(&record_tcp);
 
-                        wtr_cli.write_record(all_records)?;
+                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
                         wtr_file.write_record(all_records)?;
                     }
                 }

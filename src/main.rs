@@ -53,11 +53,11 @@
 //!
 //! Finally, you can perform a task.
 //! ```
-//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE]
+//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] --stream
 //! ```
 //! SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
 //!
-//! The output of the measurement will be printed to command-line, and be stored in src/out as a CSV file.
+//! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
 //!
 //! # Measurement details
 //!
@@ -218,13 +218,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                 .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                                     .required(true)
                                     .index(2))
-                                // .arg(Arg::with_name("stream") // TODO unused?
-                                //     .short("s")
-                                //     .multiple(false)
-                                //     .help("Stream results to stdout"))
                                 .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP, or 3: TCP)")
-                                    .required(false)
+                                    .required(true)
                                     .index(3))
+                                .arg(Arg::with_name("STREAM").help("Stream results to stdout") // TODO unused?
+                                    .takes_value(false)
+                                    .long("stream")
+                                    .required(false))
                 )
         )
         .get_matches()
