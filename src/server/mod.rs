@@ -427,7 +427,7 @@ impl Controller for ControllerService {
         };
 
         // Establish a stream with the CLI to return the TaskResults through
-        let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000); // TODO
+        let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
         {
             let mut sender = self.cli_sender.lock().unwrap();
             let _ = sender.insert(tx);
@@ -472,67 +472,128 @@ impl Controller for ControllerService {
             }
 
             println!("[Server] Distributing tasks");
-            // TODO perhaps I can start streaming the entire task to each client in a separate thread
-            // TODO and start these threads one second after eachother
-            // TODO the streams might get out of sync, but perhaps the rate limiter will be the bottleneck and ensure that probes for the same address are sent out ~1s from each other
-            // Split the destination addresses into chunks and create a task for each chunk
-            for chunk in dest_addresses.chunks(100) {
-                // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
-                // TODO will drastically increase the probing time
-                // Create a Task with this data
-                let task = match task_type {
-                    1 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                            source_address: src_addr,
-                            destination_addresses: chunk.to_vec(),
-                        })),
-                        task_id,
-                    },
-                    2 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                            source_address: src_addr,
-                            destination_addresses: chunk.to_vec(),
-                        })),
-                        task_id,
-                    },
-                    3 => verfploeter::Task {
-                        data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                            source_address: src_addr,
-                            destination_addresses: chunk.to_vec(),
-                        })),
-                        task_id,
-                    },
-                    _ => verfploeter::Task::default(),
-                };
+            for sender in senders.iter() {
+                let sender = sender.clone();
+                let dest_addresses = dest_addresses.clone();
+                let self_clone = self_clone.clone();
+                thread::spawn({
+                    move || {
+                        println!("[Client] streaming tasks to client");
+                        for chunk in dest_addresses.chunks(100) {
+                            let task = match task_type {
+                                1 => verfploeter::Task {
+                                    data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                                        source_address: src_addr,
+                                        destination_addresses: chunk.to_vec(),
+                                    })),
+                                    task_id,
+                                },
+                                2 => verfploeter::Task {
+                                    data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                                        source_address: src_addr,
+                                        destination_addresses: chunk.to_vec(),
+                                    })),
+                                    task_id,
+                                },
+                                3 => verfploeter::Task {
+                                    data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                                        source_address: src_addr,
+                                        destination_addresses: chunk.to_vec(),
+                                    })),
+                                    task_id,
+                                },
+                                _ => verfploeter::Task::default(),
+                            };
 
-                // Send task to each client, and wait 1 second in between
-                for sender in senders.iter() {
-                    // If the CLI disconnects during task distribution, abort
-                    if *self_clone.active.lock().unwrap() == false {
-                        println!("[Server] CLI disconnected during task distribution");
-                        break
+                            // If the CLI disconnects during task distribution, abort
+                            if *self_clone.active.lock().unwrap() == false {
+                                println!("[Server] CLI disconnected during task distribution");
+                                break
+                            }
+                            // Send packet to client
+                            match sender.try_send(Ok(task.clone())) {
+                                Ok(_) => (),
+                                Err(e) => println!("[Server] Failed to send task to client {:?}", e),
+                            }
+                        }
+                        // Send a message to the client to let it know it has received everything for the current task
+                        match sender.try_send(Ok(verfploeter::Task {
+                            data: None,
+                            task_id,
+                        })) {
+                            Ok(_) => (),
+                            Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+                        }
                     }
-                    // Sleep one second such that time between probes is ~1 second
-                    thread::sleep(Duration::from_secs(1));
-                    // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
-                    // Send packet to client
-                    match sender.try_send(Ok(task.clone())) {
-                        Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send task to client {:?}", e),
-                    }
-                }
-            }
-            // Send a message to each client to let it know it has received everything for the current task
-            for sender in senders.clone().into_iter() {
-                match sender.try_send(Ok(verfploeter::Task {
-                    data: None,
-                    task_id,
-                })) {
-                    Ok(_) => (),
-                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
-                }
+                });
+
+
+                thread::sleep(Duration::from_secs(1)); // 1 second interval between clients probing
             }
         };
+
+        //     println!("[Server] Distributing tasks");
+        //     // TODO perhaps I can start streaming the entire task to each client in a separate thread
+        //     // TODO and start these threads one second after eachother
+        //     // TODO the streams might get out of sync, but perhaps the rate limiter will be the bottleneck and ensure that probes for the same address are sent out ~1s from each other
+        //     // Split the destination addresses into chunks and create a task for each chunk
+        //     for chunk in dest_addresses.chunks(100) {
+        //         // TODO splitting the addresses in small chunks of 100, and waiting 1 second between sending it to each client
+        //         // TODO will drastically increase the probing time
+        //         // Create a Task with this data
+        //         let task = match task_type {
+        //             1 => verfploeter::Task {
+        //                 data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+        //                     source_address: src_addr,
+        //                     destination_addresses: chunk.to_vec(),
+        //                 })),
+        //                 task_id,
+        //             },
+        //             2 => verfploeter::Task {
+        //                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+        //                     source_address: src_addr,
+        //                     destination_addresses: chunk.to_vec(),
+        //                 })),
+        //                 task_id,
+        //             },
+        //             3 => verfploeter::Task {
+        //                 data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+        //                     source_address: src_addr,
+        //                     destination_addresses: chunk.to_vec(),
+        //                 })),
+        //                 task_id,
+        //             },
+        //             _ => verfploeter::Task::default(),
+        //         };
+        //
+        //         // Send task to each client, and wait 1 second in between
+        //         for sender in senders.iter() {
+        //             // If the CLI disconnects during task distribution, abort
+        //             if *self_clone.active.lock().unwrap() == false {
+        //                 println!("[Server] CLI disconnected during task distribution");
+        //                 break
+        //             }
+        //             // Sleep one second such that time between probes is ~1 second
+        //             thread::sleep(Duration::from_secs(1));
+        //             // TODO if the time to send the task to client is significant, the time between probes will not be ~1 second
+        //             // Send packet to client
+        //             match sender.try_send(Ok(task.clone())) {
+        //                 Ok(_) => (),
+        //                 Err(e) => println!("[Server] Failed to send task to client {:?}", e),
+        //             }
+        //         }
+        //     }
+        //     // Send a message to each client to let it know it has received everything for the current task
+        //     for sender in senders.clone().into_iter() {
+        //         match sender.try_send(Ok(verfploeter::Task {
+        //             data: None,
+        //             task_id,
+        //         })) {
+        //             Ok(_) => (),
+        //             Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+        //         }
+        //     }
+        // };
 
         // Spawn a new thread to execute the task distribution closure
         let _task_thread = thread::spawn(task_distribution);
