@@ -69,7 +69,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type!") };
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, or 3)") };
+        // We only accept task types 1, 2, 3
+        if (task_type < 1) | (task_type > 3) {
+            panic!("Invalid task type value! (can be either 1, 2, or 3)")
+        }
+        // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
 
         // Create the task and send it to the server
