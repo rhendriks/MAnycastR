@@ -234,6 +234,10 @@ impl Client {
             if *self.active.lock().unwrap() == true {
                 // If the received task is part of the active task
                 if *self.current_task.lock().unwrap() == task_id {
+
+                    // TODO if task == None and it is a termination task
+                    // TODO add second channel to force quit it
+
                     // Send the task to the prober
                     self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
                 } else {
