@@ -268,7 +268,6 @@ impl Client {
 
     /// Send a TaskResult to the server
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
-        println!("[Client] Sending TaskResult to server");
         let request = Request::new(task_result);
         self.grpc_client.send_result(request).await?;
 
