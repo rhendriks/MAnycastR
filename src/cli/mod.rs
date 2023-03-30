@@ -159,10 +159,10 @@ impl CliClient {
         while let Some(task_result) = stream.message().await? {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
+                println!("[CLI] Received task is finished from server");
                 break;
             }
 
-            println!("[CLI] Received task result");
             results.push(task_result);
         }
 

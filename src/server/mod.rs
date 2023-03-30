@@ -56,6 +56,7 @@ pub struct ClientReceiver<T> {
     cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
     hostname: String,
     clients: Arc<Mutex<ClientList>>,
+    active: Arc<Mutex<bool>>,
 }
 
 impl<T> Stream for ClientReceiver<T> {
@@ -92,7 +93,7 @@ impl<T> Drop for ClientReceiver<T> {
                 // If this is the last client for this open task
                 if remaining == &1 {
                     println!("[Server] The last client for a task dropped, sending task finished to CLI");
-                    // TODO do we need to set active = false here?
+                    *self.active.lock().unwrap() = false;
                     self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();
                 // If there are more clients still performing this task
                 } else {
@@ -318,6 +319,7 @@ impl Controller for ControllerService {
             cli_sender: self.cli_sender.clone(),
             hostname: hostname.clone(),
             clients: self.clients.clone(),
+            active: self.active.clone(),
         };
         // Send the stream receiver to the client
         Ok(Response::new(rx))
@@ -573,7 +575,6 @@ impl Controller for ControllerService {
             sender.clone().unwrap()
         };
 
-        println!("[Server] Forwarding result to CLI");
         match tx.send(Ok(request.into_inner())).await {
             Ok(_) => Ok(Response::new(Ack {
                 success: true,
