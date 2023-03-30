@@ -4,7 +4,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use futures::Future;
 use tokio::sync::oneshot::Receiver;
 use socket2::Socket;
 use crate::client::verfploeter::{PingPayload, Task};
@@ -27,14 +28,32 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'source_addr' - the source address we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
+pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started pinging thread");
+
+    let abort = Arc::new(Mutex::new(false));
+
+    thread::spawn({
+        let abort = abort.clone();
+
+        move || {
+            finish_rx.wait().ok();
+            println!("Force quitting outbound");
+            *abort.lock().unwrap() = true;
+        }
+    });
+
     thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
             loop {
+                if *abort.lock().unwrap() == true {
+                    println!("ABORTING");
+                    break
+                }
+
                 let task = outbound_channel_rx.recv().unwrap();
 
                 let task_data = match task.data {
@@ -76,20 +95,22 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                         thread::sleep(Duration::from_millis(1));
                     }
 
+                    println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
+
                     // println!("Sending out packet {:?}", icmp);
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &icmp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .unwrap()
-                            .into(),
-                    ) {
-                        error!("Failed to send packet to socket: {:?}", e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
-                    }
+                    // if let Err(e) = socket.send_to(
+                    //     &icmp,
+                    //     &bind_addr_dest
+                    //         .to_string()
+                    //         .parse::<SocketAddr>()
+                    //         .unwrap()
+                    //         .into(),
+                    // ) {
+                    //     error!("Failed to send packet to socket: {:?}", e);
+                    // } else {
+                    //     // println!("[Client outbound] Packet sent!");
+                    // }
                 }
             }
             debug!("finished ping");
@@ -122,14 +143,32 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
+pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started UDP probing thread");
+
+    let abort = Arc::new(Mutex::new(false));
+
+    thread::spawn({
+        let abort = abort.clone();
+
+        move || {
+            finish_rx.wait().ok();
+            println!("Force quitting outbound");
+            *abort.lock().unwrap() = true;
+        }
+    });
+
     thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
             loop {
+                if *abort.lock().unwrap() == true {
+                    println!("ABORTING");
+                    break
+                }
+
                 let task = outbound_channel_rx.recv().unwrap();
 
                 let task_data = match task.data {
@@ -201,14 +240,32 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>) {
+pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
+
+    let abort = Arc::new(Mutex::new(false));
+
+    thread::spawn({
+        let abort = abort.clone();
+
+        move || {
+            finish_rx.wait().ok();
+            println!("Force quitting outbound");
+            *abort.lock().unwrap() = true;
+        }
+    });
+
     thread::spawn({
         move || {
             // Rate limiter
             let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
 
             loop {
+                if *abort.lock().unwrap() == true {
+                    println!("ABORTING");
+                    break
+                }
+
                 let task = outbound_channel_rx.recv().unwrap();
 
                 let task_data = match task.data {
