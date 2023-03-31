@@ -744,6 +744,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "manycast"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "byteorder",
+ "chrono",
+ "clap",
+ "csv",
+ "env_logger",
+ "futures",
+ "futures-core",
+ "futures-util",
+ "log",
+ "prettytable-rs",
+ "prost",
+ "ratelimit_meter",
+ "socket2 0.3.19",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+]
+
+[[package]]
 name = "matchit"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1526,30 +1550,6 @@ name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
-
-[[package]]
-name = "verfploeter_comms"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "byteorder",
- "chrono",
- "clap",
- "csv",
- "env_logger",
- "futures",
- "futures-core",
- "futures-util",
- "log",
- "prettytable-rs",
- "prost",
- "ratelimit_meter",
- "socket2 0.3.19",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
-]
 
 [[package]]
 name = "want"
