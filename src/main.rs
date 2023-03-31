@@ -221,7 +221,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                 .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP, or 3: TCP)")
                                     .required(true)
                                     .index(3))
-                                .arg(Arg::with_name("STREAM").help("Stream results to stdout") // TODO unused?
+                                .arg(Arg::with_name("STREAM").help("Stream results to stdout")
                                     .takes_value(false)
                                     .long("stream")
                                     .required(false))
