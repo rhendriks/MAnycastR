@@ -1,5 +1,5 @@
 [package]
-name = "verfploeter_comms"
+name = "manycast"
 version = "0.1.0"
 edition = "2021"
 

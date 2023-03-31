@@ -173,7 +173,6 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Set task_active to false
             *active = false;
-            println!("active is now false");
         }
     }
 }

@@ -102,10 +102,18 @@
 //! apt-get install gcc
 //! ```
 //!
-//! protobuf-complier
+//! protobuf-compiler
 //! ```
 //! apt-get install protobuf-compiler
 //! ```
+//!
+//! # gRPC
+//!
+//! Communication between client, CLI, and server is achieved using tonic (a rust implementation of gRPC) <https://github.com/hyperium/tonic>.
+//!
+//! The protocol definitions are in /proto/verfploeter.proto
+//!
+//! From these definitions code is generated using protobuf (done in build.rs).
 
 extern crate env_logger;
 extern crate byteorder;
