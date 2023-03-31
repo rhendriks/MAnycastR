@@ -161,7 +161,6 @@ impl CliClient {
                 println!("[CLI] Received task is finished from server");
                 break;
             }
-
             results.push(task_result);
         }
 
@@ -170,12 +169,10 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp = chrono::offset::Local::now();
-        let timestamp_str = timestamp.year().to_string()
-            .add("-").add(&*timestamp.month().to_string())
-            .add("-").add(&*timestamp.day().to_string())
-            .add("T").add(&*timestamp.hour().to_string())
-            .add(";").add(&*timestamp.minute().to_string())
-            .add(";").add(&*timestamp.second().to_string());
+
+        let timestamp_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+                                timestamp.year(), timestamp.month(), timestamp.day(),
+                                timestamp.hour(), timestamp.minute(), timestamp.second());
 
         // Get task type
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "ICMP" };
