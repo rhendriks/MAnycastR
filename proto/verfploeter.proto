@@ -1,7 +1,5 @@
 // This file is used in combination with rust protobuf https://docs.rs/protobuf/latest/protobuf/
-
 // https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
-
 // This file details the protocol buffers, which contain the data exchanged between the server/clients.
 
 // version of protocol buffer used
@@ -33,13 +31,13 @@ message Ack {
   string error_message = 2;
 }
 
-// Send a task ID
+// A task ID
 message TaskId { uint32 task_id = 1; }
 
-// Request the client ID
+// A client ID
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task with the Server
+// Schedule a task with the Server, can be either a Ping, UDP, or TCP task
 message ScheduleTask {
   oneof data {
     Ping ping = 2;
@@ -53,18 +51,18 @@ message ClientList {
   repeated Client clients = 1;
 }
 
-// A client, which contains a client ID, and metadata (defined below)
+// A client, which contains a client ID, and metadata
 message Client {
   fixed32 client_id = 1;
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname and a version.
+// Metadata (as used in Client), contains a hostname
 message Metadata {
   string hostname = 1;
 }
 
-// A task for a Client, with a task ID, can be either a Ping or Empty task
+// A task for a Client, with a task ID, can be either a Ping, UDP, TCP, or an Empty task
 message Task {
   uint32 task_id = 1;
   oneof data {
@@ -75,31 +73,32 @@ message Task {
   }
 }
 
-// A Ping (used in Task), which has a single source address and a list of destination addresses.
+// A Ping, which has a single source address and a list of destination addresses
 message Ping {
   fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
+// UDP, which has a single source address and a list of destination addresses
 message UDP {
   fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
+// TCP, which has a single source address and a list of destination addresses
 message TCP {
   fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
-// A TaskResult (i.e. the result of a Ping), contains the task ID, Client that executed the task,
-// a list of Result (one for each targeted dest. address), a boolean indicating whether it was finished.
+// A TaskResult, contains the task ID, Client that executed the task, and a list of results
 message TaskResult {
   uint32 task_id = 1;
   Client client = 2;
   repeated VerfploeterResult result_list = 3;
 }
 
-// A result, always contains a PingResult
+// A result, either a PingResult, UDPResult, or TCPResult
 message VerfploeterResult {
   oneof value {
     PingResult ping = 1;
@@ -108,14 +107,14 @@ message VerfploeterResult {
   }
 }
 
+// IPv4Result, contains all information extracted from the IPv4 header: source, destination addresses and TTL
 message IPv4Result {
   fixed32 source_address = 1;
   fixed32 destination_address = 2;
   fixed32 ttl = 3;
 }
 
-// Result of Ping. It is the result of a single ping (i.e. a received ICMP response)
-// Contains the source and destination of the ping, the receive time, the payload, and the ttl.
+// Result of a ping which has a receive time, an ipv4 result, and the ping payload information
 message PingResult {
   uint64 receive_time = 1;
   IPv4Result ipv4_result = 2;
@@ -130,6 +129,7 @@ message PingPayload {
   fixed32 sender_client_id = 4;
 }
 
+// UDP result contains the receive time, source and destination port from the UDP header, an ipv4 result, and a UDP payload
 message UDPResult {
   uint64 receive_time = 1;
   fixed32 source_port = 2;
@@ -138,6 +138,7 @@ message UDPResult {
   UDPPayload payload = 5;
 }
 
+// UDP payload, which is extracted from the domain of the DNS A Record reply
 message UDPPayload {
   uint64 transmit_time = 1;
   fixed32 source_address = 2;
@@ -146,6 +147,7 @@ message UDPPayload {
   fixed32 source_port = 5;
 }
 
+// TCP result which contains a receive time, source & destination ports, ack and seq, and a receive time
 message TCPResult {
   uint64 receive_time = 1;
   IPv4Result ipv4_result = 2;
