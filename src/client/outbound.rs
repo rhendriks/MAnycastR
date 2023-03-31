@@ -4,7 +4,6 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use tokio::sync::oneshot::Receiver;
@@ -67,7 +66,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    let dest_addr2 = u32::from(Ipv4Addr::from_str("130.89.84.4").unwrap()); // TODO
+                    // let dest_addr2 = u32::from(Ipv4Addr::from_str("192.87.172.45").unwrap()); // TODO
 
                     let transmit_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -78,7 +77,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                     let payload = PingPayload {
                         transmit_time,
                         source_address: source_addr,
-                        destination_address: dest_addr2, // TODO
+                        destination_address: dest_addr,
                         sender_client_id: client_id as u32,
                     };
 
@@ -89,9 +88,9 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                     bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19
                     bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
 
-                    // let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
-                    let bind_addr_dest = "130.89.84.4:0"; // TODO testing purposes only
+                    // let bind_addr_dest = "192.87.172.45:0"; // TODO testing purposes only
 
                     let icmp = ICMP4Packet::echo_request(1, 2, bytes);
 

@@ -158,15 +158,6 @@ impl<T> Drop for CLIReceiver<T> {
                 });
             }
 
-            // // Tell each client to terminate the task
-            // for client in self.senders.lock().unwrap().iter() {
-            //     if let Ok(_) = client.blocking_send(Ok(task.clone())) {
-            //         println!("[Server] Terminated task at client");
-            //     } else {
-            //         println!("[Server] ERROR - Failed to terminate task");
-            //     }
-            // }
-
             // Handle the open task that this CLI created
             let mut open_tasks = self.open_tasks.lock().unwrap();
             open_tasks.remove(&self.task_id);
@@ -495,6 +486,9 @@ impl Controller for ControllerService {
                 thread::spawn({
                     move || {
                         println!("[Client] streaming tasks to client");
+                        // TODO streaming should be slowed down depending on the probing rate of the client
+                        // TODO right now streaming to client is much faster than that it probes
+                        // TODO which results in the client having all these tasks loaded in RAM
                         for chunk in dest_addresses.chunks(100) {
                             let task = match task_type {
                                 1 => verfploeter::Task {
