@@ -322,7 +322,6 @@ impl Controller for ControllerService {
         println!("[Server] Received client_connect");
 
         let hostname = request.into_inner().hostname;
-
         let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later

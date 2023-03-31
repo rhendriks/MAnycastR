@@ -56,7 +56,6 @@ impl Client {
     ///
     /// * 'args' - contains the parsed CLI arguments
     pub async fn new(args: &ArgMatches<'_>) -> Result<Client, Box<dyn Error>> {
-        println!("[Client] Creating new client");
         // Get values from args
         let hostname = args.value_of("hostname").unwrap();
         let server_addr = args.value_of("server").unwrap();
@@ -97,7 +96,7 @@ impl Client {
     /// ```
     async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let addr = "https://".to_string().add(address);
-        println!("[Client] Connecting to Controller Server at address: {}", addr);
+        println!("[Client] Connecting to Controller Server at address: {} ...", addr);
         let client = ControllerClient::connect(addr).await?;
         println!("[Client] Connected to the Controller Server");
 
@@ -223,14 +222,15 @@ impl Client {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         // Get the client_id from the server
         let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
-        let mut f_tx: Option<futures::sync::oneshot::Sender<()>> = None;
-
+        let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the server
         println!("[Client] Sending client connect");
         let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
+        println!("[Client] Registered at the server");
         let mut stream = response.into_inner();
 
+        // Await tasks
         while let Some(task) = stream.message().await? {
             let task_id = task.task_id;
             // If we already have an active task
@@ -240,8 +240,6 @@ impl Client {
                     // Send finish signal
                     println!("[Client] CLI disconnecting, exiting task");
                     f_tx.take().unwrap().send(()).unwrap();
-                    // TODO terminate current measurement
-                    // TODO add second channel to force quit it
                     continue
                 }
                 // If the received task is part of the active task
@@ -269,7 +267,7 @@ impl Client {
                 self.init(task, client_id, rx, finish_rx);
             }
         }
-        println!("[Client] Stopped awaiting tasks...");
+        println!("[Client] Stopped awaiting tasks");
 
         Ok(())
     }

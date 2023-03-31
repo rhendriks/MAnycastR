@@ -150,7 +150,6 @@ impl CliClient {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
-        println!("[CLI] Sent task to server");
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
