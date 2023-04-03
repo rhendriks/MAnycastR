@@ -169,7 +169,6 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp = chrono::offset::Local::now();
-
         let timestamp_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
                                 timestamp.year(), timestamp.month(), timestamp.day(),
                                 timestamp.hour(), timestamp.minute(), timestamp.second());

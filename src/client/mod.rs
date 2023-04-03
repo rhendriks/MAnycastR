@@ -44,7 +44,7 @@ pub struct Client {
     source_address: u32,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
-    outbound_channel_tx: Option<std::sync::mpsc::Sender<Task>>,
+    outbound_channel_tx: Option<tokio::sync::mpsc::Sender<Task>>,
 }
 
 impl Client {
@@ -116,7 +116,7 @@ impl Client {
     /// * 'client_id' - the unique ID of this client
     ///
     /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
-    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Receiver<Task>, finish_rx: oneshot::Receiver<()>) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: oneshot::Receiver<()>) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -154,7 +154,7 @@ impl Client {
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
-        // Channel for receiving and sending to the inbound listening thread
+        // Channel for sending from inbound to the server forwarder thread (at the end of the function)
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when outbound is finished
@@ -232,6 +232,7 @@ impl Client {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
+            println!("received task {:?}", task);
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
@@ -245,7 +246,7 @@ impl Client {
                 // If the received task is part of the active task
                 if *self.current_task.lock().unwrap() == task_id {
                     // Send the task to the prober
-                    self.outbound_channel_tx.clone().unwrap().send(task).unwrap();
+                    self.outbound_channel_tx.clone().unwrap().send(task).await.unwrap();
                 } else {
                     // If we received a new task during a measurement
                     println!("[Client] Received new measurement during an active measurement, skipping")
@@ -260,8 +261,8 @@ impl Client {
                 let (finish_tx, finish_rx) = oneshot::channel();
                 f_tx = Some(finish_tx);
 
-                let (tx, rx) = std::sync::mpsc::channel();
-                tx.send(task.clone()).unwrap();
+                let (tx, rx) = tokio::sync::mpsc::channel(1);
+                tx.send(task.clone()).await.unwrap();
                 self.outbound_channel_tx = Some(tx);
 
                 self.init(task, client_id, rx, finish_rx);

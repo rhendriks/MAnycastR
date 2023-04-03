@@ -111,7 +111,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            socket.shutdown(Shutdown::Read).unwrap_err();
+            match socket.shutdown(Shutdown::Read) {
+                Err(_) => println!("Shut down socket erroneously"),
+                _ => println!("Shut down socket"),
+            }
             println!("[Client inbound] Stopped listening for ICMP packets");
         }
     });
