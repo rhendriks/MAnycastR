@@ -1,4 +1,4 @@
-# Verfploeter
+# Manycast
 
 This project is an implementation of https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf
 

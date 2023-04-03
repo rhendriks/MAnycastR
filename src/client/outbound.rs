@@ -28,7 +28,7 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'source_addr' - the source address we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
+pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started pinging thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -53,8 +53,22 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                     println!("ABORTING");
                     break
                 }
-
-                let task = outbound_channel_rx.recv().unwrap();
+                thread::sleep(Duration::from_millis(1000));
+                println!("new task");
+                let task;
+                // Receive tasks from the outbound channel
+                loop {
+                    match outbound_channel_rx.try_recv() {
+                        Ok(t) => {
+                            task = t;
+                            break;
+                        },
+                        Err(_e) => {
+                            // wait some time and try again
+                            thread::sleep(Duration::from_millis(100));
+                        },
+                    };
+                }
 
                 let task_data = match task.data {
                     None => break, // A None task data means the measurement has finished
@@ -99,22 +113,21 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                         thread::sleep(Duration::from_millis(1));
                     }
 
-                    // println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
+                    println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
 
-                    // println!("Sending out packet {:?}", icmp);
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &icmp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .unwrap()
-                            .into(),
-                    ) {
-                        error!("Failed to send packet to socket: {:?}", e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
-                    }
+                    // if let Err(e) = socket.send_to(
+                    //     &icmp,
+                    //     &bind_addr_dest
+                    //         .to_string()
+                    //         .parse::<SocketAddr>()
+                    //         .unwrap()
+                    //         .into(),
+                    // ) {
+                    //     error!("Failed to send packet to socket: {:?}", e);
+                    // } else {
+                    //     // println!("[Client outbound] Packet sent!");
+                    // }
                 }
             }
             debug!("finished ping");
@@ -147,7 +160,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
+pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -173,7 +186,20 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                     break
                 }
 
-                let task = outbound_channel_rx.recv().unwrap();
+                let task;
+                // Receive tasks from the outbound channel
+                loop {
+                    match outbound_channel_rx.try_recv() {
+                        Ok(t) => {
+                            task = t;
+                            break;
+                        },
+                        Err(_e) => {
+                            // wait some time and try again
+                            thread::sleep(Duration::from_millis(100));
+                        },
+                    };
+                }
 
                 let task_data = match task.data {
                     None => break, // A None task data means the measurement has finished
@@ -244,7 +270,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, outbound_channel_rx: std::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
+pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
 
     let abort = Arc::new(Mutex::new(false));
@@ -269,7 +295,20 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                     break
                 }
 
-                let task = outbound_channel_rx.recv().unwrap();
+                let task;
+                // Receive tasks from the outbound channel
+                loop {
+                    match outbound_channel_rx.try_recv() {
+                        Ok(t) => {
+                            task = t;
+                            break;
+                        },
+                        Err(_e) => {
+                            // wait some time and try again
+                            thread::sleep(Duration::from_millis(100));
+                        },
+                    };
+                }
 
                 let task_data = match task.data {
                     None => break, // A None task data means the measurement has finished
