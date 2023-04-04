@@ -10,6 +10,7 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
+use futures::Future;
 use futures_core::Stream;
 use tokio::spawn;
 use crate::server::mpsc::Sender;
@@ -381,9 +382,8 @@ impl Controller for ControllerService {
             }
         }
 
-        println!("cloning");
         // Get the list of Senders (that connect to the clients)
-        let senders_list_clone = {
+        let senders = {
             // Make sure all clients still have an open connection
             let mut i = 0;
             let mut senders = self.senders.lock().unwrap();
@@ -404,13 +404,12 @@ impl Controller for ControllerService {
         };
 
         // If there are no connected clients that can perform this task
-        if senders_list_clone.len() == 0 {
+        if senders.len() == 0 {
             println!("[Server] No connected clients, termination task.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected clients"));
         }
 
-        println!("taskid");
         // obtain task id
         let task_id: u32;
         {
@@ -422,10 +421,9 @@ impl Controller for ControllerService {
         // Store the number of clients that will perform this task
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
-            open_tasks.insert(task_id, senders_list_clone.len() as u32);
+            open_tasks.insert(task_id, senders.len() as u32);
         }
 
-        println!("creating task");
         // Create a Task from the ScheduleTask
         // Get the destination addresses, the source address and the task type from the CLI task
         let dest_addresses;
@@ -450,18 +448,12 @@ impl Controller for ControllerService {
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
-        // TODO adjust buffer size
         {
             let mut sender = self.cli_sender.lock().unwrap();
             let _ = sender.insert(tx);
         }
-        println!("cloning again");
 
-        // let self_clone = self.clone();
-        // let task_distribution = move || {
-        // let senders = senders_list_clone
-
-        println!("[Server] Letting {} clients know a measurement is starting", senders_list_clone.len());
+        println!("[Server] Letting {} clients know a measurement is starting", senders.len());
         let start_task = match task_type {
             1 => verfploeter::Task {
                 data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
@@ -486,9 +478,8 @@ impl Controller for ControllerService {
             },
             _ => verfploeter::Task::default(),
         };
-
         // Notify all senders that a new measurement is starting
-        for sender in senders_list_clone.iter() {
+        for sender in senders.iter() {
             match sender.try_send(Ok(start_task.clone())) {
                 Ok(_) => (),
                 Err(e) => println!("[Server] Failed to send 'start measurement' {:?}", e),
@@ -496,22 +487,15 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Distributing tasks");
-        let mut i = 0;
-        for sender in senders_list_clone.iter() {
+        // Create a thread that streams tasks for each client
+        for sender in senders.iter() {
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
-            let self_clone = self.clone(); // TODO just need to clone active?
+            let active = self.active.clone();
+
             spawn(async move {
-                // move || {
-                    println!("[Client] streaming tasks to client");
-                    // TODO streaming should be slowed down depending on the probing rate of the client
-                    // TODO right now streaming to client is much faster than that it probes
-                    // TODO which results in the client having all these tasks loaded in RAM
-                    // TODO to fix this we can adjust the buffer size and/or change the chunk size
-
-
+                println!("[Client] streaming tasks to client");
                 for chunk in dest_addresses.chunks(10) {
-                    // TODO adjust chunk size
                     let task = match task_type {
                         1 => verfploeter::Task {
                             data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
@@ -538,34 +522,20 @@ impl Controller for ControllerService {
                     };
 
                     // If the CLI disconnects during task distribution, abort
-                    if *self_clone.active.lock().unwrap() == false {
+                    if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
                         break
                     }
 
                     // Send packet to client
-
-                    let sender = sender.clone();
-                    println!("sending task {} - {}", sender.capacity(), i);
-                    i += 1;
-
-                    // spawn(async move {
-                    //     match sender.send(Ok(task.clone())).await {
-                    //         Ok(_) => (),
-                    //         Err(e) => println!("[Server] Failed to send task to client {:?}", e),
-                    //     }
-                    // });
-
                     match sender.send(Ok(task.clone())).await {
                         Ok(_) => (),
                         Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                     }
-
-                    // match sender.blocking_send(Ok(task.clone())) {
-                    //     Ok(_) => (),
-                    //     Err(e) => println!("[Server] Failed to send task to client {:?}", e),
-                    // }
+                    // Sleep for rate-limiting
+                    tokio::time::sleep(tokio::time::Duration::from_millis( 100)).await;
                 }
+
                 println!("[Server] Sending 'task finished' to client");
                 // Send a message to the client to let it know it has received everything for the current task
                 match sender.send(Ok(verfploeter::Task { // TODO should we call this when we have aborted?
@@ -575,15 +545,12 @@ impl Controller for ControllerService {
                     Ok(_) => (),
                     Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
                 }
-                // }
             });
 
+            // tokio::time::sleep(tokio::time::Duration::from_secs( 1 ) ).await;
             thread::sleep(Duration::from_secs(1)); // 1 second interval between clients probing
+            // TODO calling thread sleep in async possibly harmful
         }
-        // };
-
-        // Spawn a new thread to execute the task distribution closure
-        // let _task_thread = thread::spawn(task_distribution);
 
         let rx = CLIReceiver {
             inner: rx,
