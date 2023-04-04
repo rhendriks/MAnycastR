@@ -31,6 +31,10 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started pinging thread");
 
+    // TODO do we still need a rate limiter at the client, since the server now also rate limits
+    // TODO perhaps rate limiting at the server for sending out chunks of tasks (e.g. 100 tasks per 1 second)
+    // TODO and rate limiting at client for sending out the 100 probes evenly spaced out over the 1 second
+
     let abort = Arc::new(Mutex::new(false));
 
     thread::spawn({
@@ -38,7 +42,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 
         move || {
             finish_rx.wait().ok();
-            println!("Force quitting outbound");
             *abort.lock().unwrap() = true;
         }
     });
@@ -50,11 +53,9 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 
             loop {
                 if *abort.lock().unwrap() == true {
-                    println!("ABORTING");
+                    println!("[Client outbound] ABORTING");
                     break
                 }
-                thread::sleep(Duration::from_millis(1000));
-                println!("new task");
                 let task;
                 // Receive tasks from the outbound channel
                 loop {

@@ -20,6 +20,8 @@ use std::thread;
 
 use clap::ArgMatches;
 use futures::sync::oneshot;
+use futures_core::Stream;
+use futures_util::{StreamExt, TryStreamExt};
 
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
@@ -230,9 +232,9 @@ impl Client {
         println!("[Client] Registered at the server");
         let mut stream = response.into_inner();
 
+
         // Await tasks
         while let Some(task) = stream.message().await? {
-            println!("received task {:?}", task);
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
