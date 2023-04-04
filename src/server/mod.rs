@@ -10,7 +10,6 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
-use futures::Future;
 use futures_core::Stream;
 use tokio::spawn;
 use crate::server::mpsc::Sender;
@@ -151,13 +150,6 @@ impl<T> Drop for CLIReceiver<T> {
                 let client = client.clone();
                 let task = task.clone();
 
-                println!("TERMINATING");
-                // if let Err(e) = client.blocking_send(Ok(task)) {
-                //     println!("[Server] ERROR - Failed to terminate task {}", e);
-                // } else {
-                //     println!("[Server] Terminated task at client");
-                // }
-
                 spawn(async move {
                     if let Err(e) = client.send(Ok(task)).await {
                         println!("[Server] ERROR - Failed to terminate task {}", e);
@@ -165,7 +157,6 @@ impl<T> Drop for CLIReceiver<T> {
                         println!("[Server] Terminated task at client");
                     }
                 });
-                println!("TERMINATED");
             }
 
             // Handle the open task that this CLI created
@@ -494,6 +485,7 @@ impl Controller for ControllerService {
             let active = self.active.clone();
 
             spawn(async move {
+                let mut abort = false;
                 println!("[Client] streaming tasks to client");
                 for chunk in dest_addresses.chunks(10) {
                     let task = match task_type {
@@ -524,6 +516,7 @@ impl Controller for ControllerService {
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
+                        abort = true;
                         break
                     }
 
@@ -532,18 +525,20 @@ impl Controller for ControllerService {
                         Ok(_) => (),
                         Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                     }
-                    // Sleep for rate-limiting
-                    tokio::time::sleep(tokio::time::Duration::from_millis( 100)).await;
+                    // Server-side rate limiting, to avoid filling up large buffer at client-side
+                    tokio::time::sleep(tokio::time::Duration::from_millis( 10)).await;
                 }
 
-                println!("[Server] Sending 'task finished' to client");
-                // Send a message to the client to let it know it has received everything for the current task
-                match sender.send(Ok(verfploeter::Task { // TODO should we call this when we have aborted?
-                    data: None,
-                    task_id,
-                })).await {
-                    Ok(_) => (),
-                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+                if !abort {
+                    println!("[Server] Sending 'task finished' to client");
+                    // Send a message to the client to let it know it has received everything for the current task
+                    match sender.send(Ok(verfploeter::Task { // TODO should we call this when we have aborted?
+                        data: None,
+                        task_id,
+                    })).await {
+                        Ok(_) => (),
+                        Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+                    }
                 }
             });
 

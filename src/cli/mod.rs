@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
@@ -150,6 +151,11 @@ impl CliClient {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        println!("[CLI] Task sent to server, awaiting results");
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
@@ -159,6 +165,11 @@ impl CliClient {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
                 println!("[CLI] Received task is finished from server");
+                let end = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64;
+                println!("[CLI] Waited {:.6} seconds for results.", (end - start) as f64 / 1_000_000_000.0);
                 break;
             }
             results.push(task_result);

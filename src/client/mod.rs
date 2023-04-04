@@ -5,24 +5,17 @@ use verfploeter::controller_client::ControllerClient;
 use verfploeter::{
     TaskId, Task, Metadata, TaskResult, task::Data, ClientId
 };
-
 use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
-
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Receiver;
 use std::thread;
-
 use clap::ArgMatches;
 use futures::sync::oneshot;
-use futures_core::Stream;
-use futures_util::{StreamExt, TryStreamExt};
-
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 
@@ -94,7 +87,7 @@ impl Client {
     /// # Example
     ///
     /// ```
-    /// let grpc_client = connect("127.0.0.0:5001");
+    /// let grpc_client = connect("127.0.0.0:50001");
     /// ```
     async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let addr = "https://".to_string().add(address);
@@ -232,7 +225,6 @@ impl Client {
         println!("[Client] Registered at the server");
         let mut stream = response.into_inner();
 
-
         // Await tasks
         while let Some(task) = stream.message().await? {
             let task_id = task.task_id;
@@ -263,7 +255,7 @@ impl Client {
                 let (finish_tx, finish_rx) = oneshot::channel();
                 f_tx = Some(finish_tx);
 
-                let (tx, rx) = tokio::sync::mpsc::channel(1);
+                let (tx, rx) = tokio::sync::mpsc::channel(1000);
                 tx.send(task.clone()).await.unwrap();
                 self.outbound_channel_tx = Some(tx);
 
