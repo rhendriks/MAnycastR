@@ -30,11 +30,6 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>) {
     println!("[Client outbound] Started pinging thread");
-
-    // TODO do we still need a rate limiter at the client, since the server now also rate limits
-    // TODO perhaps rate limiting at the server for sending out chunks of tasks (e.g. 100 tasks per 1 second)
-    // TODO and rate limiting at client for sending out the 100 probes evenly spaced out over the 1 second
-
     let abort = Arc::new(Mutex::new(false));
 
     thread::spawn({
@@ -48,8 +43,8 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 
     thread::spawn({
         move || {
-            // Rate limiter
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
+            // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second)
+            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(1418).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -65,6 +60,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                             break;
                         },
                         Err(_e) => {
+                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -114,21 +110,21 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                         thread::sleep(Duration::from_millis(1));
                     }
 
-                    println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
+                    // println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
 
                     // Send out packet
-                    // if let Err(e) = socket.send_to(
-                    //     &icmp,
-                    //     &bind_addr_dest
-                    //         .to_string()
-                    //         .parse::<SocketAddr>()
-                    //         .unwrap()
-                    //         .into(),
-                    // ) {
-                    //     error!("Failed to send packet to socket: {:?}", e);
-                    // } else {
-                    //     // println!("[Client outbound] Packet sent!");
-                    // }
+                    if let Err(e) = socket.send_to(
+                        &icmp,
+                        &bind_addr_dest
+                            .to_string()
+                            .parse::<SocketAddr>()
+                            .unwrap()
+                            .into(),
+                    ) {
+                        error!("Failed to send packet to socket: {:?}", e);
+                    } else {
+                        // println!("[Client outbound] Packet sent!");
+                    }
                 }
             }
             debug!("finished ping");
@@ -196,6 +192,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                             break;
                         },
                         Err(_e) => {
+                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -223,6 +220,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 
                     // Rate limiting
                     while let Err(_) = lb.check() {
+                        println!("Checking");
                         thread::sleep(Duration::from_millis(1));
                     }
 
@@ -305,6 +303,7 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                             break;
                         },
                         Err(_e) => {
+                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
