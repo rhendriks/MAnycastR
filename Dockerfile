@@ -4,9 +4,15 @@ FROM rust:latest as build
 RUN USER=root cargo new --bin manycast
 WORKDIR /manycast
 
+# install dependencies
+RUN apt-get update && apt-get install -y protobuf-compiler && apt-get install -y gcc
+
 # TODO copy over your manifests
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
+COPY ./proto ./proto
+COPY ./build.rs ./build.rs
+RUN mkdir /out
 
 # this build step will cache your dependencies
 RUN cargo build --release
@@ -25,8 +31,11 @@ FROM rust:latest
 # copy the build artifact from the build stage
 COPY --from=build /manycast/target/release/manycast .
 
-# set the startup command to run your binary
-CMD ["./manycast"]
+# set the startup command to run your binary (takes arguments from docker command)
+ENTRYPOINT ["./manycast"]
+
+# Default command used
+CMD ["--help"]
 
 # TODO steps 4 and 5 of this tutorial?
 #https://dev.to/rogertorres/first-steps-with-docker-rust-30oi
