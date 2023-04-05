@@ -18,6 +18,7 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
 };
+use crate::RATE_LIMIT;
 
 /// Struct for the Server service
 ///
@@ -482,8 +483,13 @@ impl Controller for ControllerService {
 
             spawn(async move {
                 let mut abort = false;
+                let chunk_size: usize = 10;
+
+                // Send out packets at the required interval
+                let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / RATE_LIMIT as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
+
                 println!("[Client] streaming tasks to client");
-                for chunk in dest_addresses.chunks(10) {
+                for chunk in dest_addresses.chunks(chunk_size) {
                     let task = match task_type {
                         1 => verfploeter::Task {
                             data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
@@ -521,8 +527,8 @@ impl Controller for ControllerService {
                         Ok(_) => (),
                         Err(e) => println!("[Server] Failed to send task to client {:?}", e),
                     }
-                    // Server-side rate limiting, to avoid filling up large buffer at client-side
-                    tokio::time::sleep(tokio::time::Duration::from_millis( 10)).await;
+
+                    interval.tick().await;
                 }
 
                 if !abort {
