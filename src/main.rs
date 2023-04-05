@@ -119,9 +119,7 @@ extern crate env_logger;
 extern crate byteorder;
 #[macro_use]
 extern crate log;
-
 use clap::{App, Arg, ArgMatches, SubCommand};
-
 mod cli;
 mod server;
 mod client;

@@ -1,10 +1,6 @@
-pub mod verfploeter {
-    tonic::include_proto!("verfploeter");
-}
+pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_client::ControllerClient;
-use verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId
-};
+use verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
 use std::net::{Ipv4Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
