@@ -44,7 +44,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
     thread::spawn({
         move || {
             // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second)
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(1418).unwrap());
+            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(crate::RATE_LIMIT).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -60,7 +60,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                             break;
                         },
                         Err(_e) => {
-                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -77,8 +76,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    // let dest_addr2 = u32::from(Ipv4Addr::from_str("192.87.172.45").unwrap()); // TODO
-
                     let transmit_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
@@ -100,8 +97,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                     bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
 
                     let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
-
-                    // let bind_addr_dest = "192.87.172.45:0"; // TODO testing purposes only
 
                     let icmp = ICMP4Packet::echo_request(1, 2, bytes);
 
@@ -175,7 +170,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
     thread::spawn({
         move || {
             // Rate limiter
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
+            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(crate::RATE_LIMIT).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -192,7 +187,6 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                             break;
                         },
                         Err(_e) => {
-                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -286,7 +280,7 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
     thread::spawn({
         move || {
             // Rate limiter
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(5000).unwrap());
+            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(crate::RATE_LIMIT).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -303,7 +297,6 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                             break;
                         },
                         Err(_e) => {
-                            println!("[Client outbound] Empty receiver");
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },

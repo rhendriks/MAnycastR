@@ -223,6 +223,7 @@ impl Client {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
+            // println!("received task");
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {

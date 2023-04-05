@@ -125,6 +125,9 @@ mod server;
 mod client;
 mod net;
 
+// Number of packets per second
+pub static RATE_LIMIT: u32 = 1400;
+
 /// Parse command line input and start VerfPloeter server, client, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
