@@ -13,9 +13,7 @@ use clap::ArgMatches;
 use futures_core::Stream;
 use tokio::spawn;
 use crate::server::mpsc::Sender;
-pub mod verfploeter {
-    tonic::include_proto!("verfploeter"); // Based on the 'verfploeter' package name
-}
+pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
@@ -313,9 +311,7 @@ impl Controller for ControllerService {
         println!("[Server] Received client_connect");
 
         let hostname = request.into_inner().hostname;
-        let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(10);
-        // TODO buffer size is the amount of messages that the receiver side will buffer at any given time
-        // TODO adjust buffer size, since currently a lot of tasks will be loaded up.
+        let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
         {
@@ -532,7 +528,7 @@ impl Controller for ControllerService {
                 if !abort {
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
-                    match sender.send(Ok(verfploeter::Task { // TODO should we call this when we have aborted?
+                    match sender.send(Ok(verfploeter::Task {
                         data: None,
                         task_id,
                     })).await {

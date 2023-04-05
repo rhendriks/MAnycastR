@@ -11,17 +11,11 @@ use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tonic::Request;
 use tonic::transport::Channel;
-use verfploeter::{
-    controller_client::ControllerClient, TaskResult
-};
+pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+use verfploeter::{ controller_client::ControllerClient, TaskResult };
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
-
-// Load in the generated code from verfploeter.proto using tonic
-pub mod verfploeter {
-    tonic::include_proto!("verfploeter");
-}
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
