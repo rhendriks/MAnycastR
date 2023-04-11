@@ -7,7 +7,7 @@ WORKDIR /manycast
 # install dependencies
 RUN apt-get update && apt-get install -y protobuf-compiler && apt-get install -y gcc
 
-# TODO copy over your manifests
+# Copy over manifests
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./proto ./proto
@@ -26,7 +26,7 @@ RUN rm ./target/release/deps/manycast*
 RUN cargo build --release
 
 # our final base
-FROM rust:latest
+FROM debian:buster-slim
 
 # copy the build artifact from the build stage
 COPY --from=build /manycast/target/release/manycast .

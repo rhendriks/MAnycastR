@@ -17,6 +17,10 @@
   <component name="ChangeListManager">
     <list default="true" id="88d3b9e1-b70b-4b5b-bd90-d7c9b3be3ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/client/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/client/outbound.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/outbound.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/server/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/server/mod.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -60,7 +64,7 @@
 }</component>
   <component name="RunManager" selected="Cargo.CLI">
     <configuration name="CLI" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="command" value="run -- cli -s 192.168.178.83:50001 start 192.168.178.83 home.txt 1" />
+      <option name="command" value="run -- cli -s 130.89.86.211:50001 start 130.89.86.211 hitlist.txt 1 --stream" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
@@ -77,7 +81,7 @@
       </method>
     </configuration>
     <configuration name="Client" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="command" value="run -- client -h vm.nl -s 192.168.178.83:50001" />
+      <option name="command" value="run -- client -h vm.nl -s 192.168.178.82:50001" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
@@ -94,7 +98,7 @@
       </method>
     </configuration>
     <configuration name="Client2" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="command" value="run -- client -h vm2.nl -s 192.168.178.83:50001" />
+      <option name="command" value="run -- client -h vm2.nl -s 192.168.178.82:50001" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
@@ -161,6 +165,9 @@
       <workItem from="1680527811628" duration="16391000" />
       <workItem from="1680595338612" duration="16360000" />
       <workItem from="1680695513896" duration="10446000" />
+      <workItem from="1680793980112" duration="8837000" />
+      <workItem from="1680894755849" duration="1853000" />
+      <workItem from="1681199606600" duration="2761000" />
     </task>
     <servers />
   </component>

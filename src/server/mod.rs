@@ -92,6 +92,9 @@ impl<T> Drop for ClientReceiver<T> {
                 }
                 // If this is the last client for this open task
                 if remaining == &1 {
+                    // The server no longer has to wait for this client
+                    *open_tasks.get_mut(&task_id).unwrap() -= 1;
+
                     println!("[Server] The last client for a task dropped, sending task finished to CLI");
                     *self.active.lock().unwrap() = false;
                     self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())).unwrap();

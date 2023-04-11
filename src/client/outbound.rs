@@ -162,7 +162,6 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 
         move || {
             finish_rx.wait().ok();
-            println!("Force quitting outbound");
             *abort.lock().unwrap() = true;
         }
     });
@@ -208,9 +207,9 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                         .unwrap()
                         .as_nanos() as u64;
 
-                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                    let bind_addr_dest = format!("{}:{}", Ipv4Addr::from(dest_addr).to_string(), source_port.to_string());
 
-                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port as u16, Vec::new(), "google.com", transmit_time, client_id);
+                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port, Vec::new(), "google.com", transmit_time, client_id);
 
                     // Rate limiting
                     while let Err(_) = lb.check() {
@@ -318,12 +317,12 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                         .unwrap()
                         .as_millis() as u32; // The least significant bits are kept
 
-                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                    let bind_addr_dest = format!("{}:{}", Ipv4Addr::from(dest_addr).to_string(), destination_port.to_string());
 
                     let seq = task.task_id; // information in seq gets lost
                     let ack = transmit_time; // ack information gets returned as seq
 
-                    let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port as u16, destination_port as u16, seq, ack, Vec::new());
+                    let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port, destination_port, seq, ack, Vec::new());
 
                     // Rate limiting
                     while let Err(_) = lb.check() {
