@@ -127,12 +127,6 @@ impl Client {
             self.source_address
         };
 
-        // Create the socket to send and receive to/from
-        let bind_address = format!(
-            "{}:0",
-            Ipv4Addr::from(source_addr).to_string()
-        );
-
         // Get protocol type
         let protocol = match task.data.clone().unwrap() {
             Data::Ping(_) => { Protocol::icmpv4() }
@@ -142,9 +136,7 @@ impl Client {
         };
 
         let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-        // TODO unbounded_channel can cause the process to run out of memory, if the receiver does not keep up with the sender
         // Channel for sending from inbound to the server forwarder thread (at the end of the function)
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -154,11 +146,26 @@ impl Client {
         // Start listening thread and sending thread
         match task.data.clone().unwrap() {
             Data::Ping(_) => {
+                // Create the socket to send and receive to/from
+                let bind_address = format!(
+                    "{}:0",
+                    Ipv4Addr::from(source_addr).to_string()
+                );
+                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+
+
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
                 perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx);
             }
             Data::Udp(_) => {
                 let src_port: u16 = 62321;
+                // Create the socket to send and receive to/from
+                let bind_address = format!(
+                    "{}:{}",
+                    Ipv4Addr::from(source_addr).to_string(),
+                    src_port.to_string()
+                );
+                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
@@ -170,6 +177,13 @@ impl Client {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port= 63853;
                 let src_port = 62321 + client_id as u16;
+                // Create the socket to send and receive to/from
+                let bind_address = format!(
+                    "{}:{}",
+                    Ipv4Addr::from(source_addr).to_string(),
+                    src_port.to_string()
+                );
+                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
@@ -195,6 +209,8 @@ impl Client {
                             self_clone.task_finished_to_server(TaskId {
                                 task_id
                             }).await.unwrap();
+
+                            // finish_rx.close();
 
                             break;
                         }
