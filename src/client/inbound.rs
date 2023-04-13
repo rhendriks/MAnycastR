@@ -163,8 +163,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
-                println!("received {:?}", packet); // TODO check if we also receive the ICMP port unreachable packets on this port
-                // TODO if not create new socket listening thread that listens for ICMP
 
                 // Obtain the payload
                 if let PacketPayload::UDP { value } = packet.payload {
@@ -256,11 +254,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
-                println!("Received IPv4 packet {:?}", packet);
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
-                    println!("Has ICMP packet {:?}", value);
                     // Make sure that this packet belongs to this task
                     if value.code != 3 { // Code 3 => port unreachable
                         // TODO do people send out random ICMP code 3 messages? this would add false results
@@ -279,14 +275,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         .unwrap()
                         .as_nanos() as u64;
 
-
-                    // IPv4 header is 60 bytes
-                    if value.body.len() >= 60 {
+                    // Some hosts will ICMP reply with port unreachable that contain the original DNS request
+                    if value.body.len() >= 60 { // IPv4 header is 60 bytes
                         let packet_icmp = IPv4Packet::from(&*value.body);
-                        println!("ICMP payload contains IPv4 {:?}", packet_icmp);
 
                         if let PacketPayload::UDP { value } = packet_icmp.payload {
-                            println!("IPv4 contains UDP {:?}", value);
 
                             let record = DNSARecord::from(value.body.as_slice());
 
@@ -317,12 +310,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         }
                     }
 
-
-                    // TODO try and extract our original message from the ICMP payload
-                    // https://hpd.gasmi.net/?data=450000861ADB00003601C5FE6DCFC82AC057AD4C0303A102000000004500006AA51040003611FBD4C057AD4C6DCFC82AF3710035005640ED12340100000100000000000031313638313338393137363931323332383435382D333232363937313436382D313834323333333733382D312D363233323106676F6F676C6503636F6D0000010001&force=ipv4
-
                     // Create a VerfploeterResult for the received ping reply
-                    let result = VerfploeterResult { // TODO
+                    let result = VerfploeterResult {
                         value: Some(Value::Udp(UdpResult {
                             source_port: 0,
                             destination_port: 0,
