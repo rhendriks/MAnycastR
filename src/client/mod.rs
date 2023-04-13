@@ -114,6 +114,7 @@ impl Client {
             return
         }
 
+        let rate:u32 = task.rate;
         let task_id = task.task_id;
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr = if self.source_address == 0 {
@@ -155,7 +156,7 @@ impl Client {
 
 
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
-                perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx);
+                perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx, rate);
             }
             Data::Udp(_) => {
                 let src_port: u16 = 62321;
@@ -171,7 +172,7 @@ impl Client {
                 listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
 
                 // Start sending thread
-                perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx);
+                perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx, rate);
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
@@ -189,7 +190,7 @@ impl Client {
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
 
                 // Start sending thread
-                perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx, finish_rx);
+                perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx, finish_rx, rate);
             }
             Data::Empty(_) => { () }
         };

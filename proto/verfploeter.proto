@@ -37,8 +37,9 @@ message TaskId { uint32 task_id = 1; }
 // A client ID
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task with the Server, can be either a Ping, UDP, or TCP task
+// Schedule a task with the Server with a rate (packets/second), can be either a Ping, UDP, or TCP task
 message ScheduleTask {
+  uint32 rate = 1;
   oneof data {
     Ping ping = 2;
     UDP udp = 3;
@@ -62,14 +63,15 @@ message Metadata {
   string hostname = 1;
 }
 
-// A task for a Client, with a task ID, can be either a Ping, UDP, TCP, or an Empty task
+// A task for a Client, with a task ID, the probing rate (probes / second) can be either a Ping, UDP, TCP, or an Empty task
 message Task {
   uint32 task_id = 1;
+  uint32 rate = 2;
   oneof data {
-    Ping ping = 2;
-    UDP udp = 3;
-    TCP tcp = 4;
-    Empty empty = 5;
+    Ping ping = 3;
+    UDP udp = 4;
+    TCP tcp = 5;
+    Empty empty = 6;
   }
 }
 

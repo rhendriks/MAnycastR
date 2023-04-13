@@ -18,7 +18,6 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
 };
-use crate::RATE_LIMIT;
 
 /// Struct for the Server service
 ///
@@ -140,8 +139,9 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Create termination 'task'
             let task = verfploeter::Task {
-                data: None,
                 task_id: self.task_id + 1000,
+                rate: 0,
+                data: None,
             };
 
             let senders = self.senders.clone();
@@ -416,10 +416,12 @@ impl Controller for ControllerService {
         }
 
         // Create a Task from the ScheduleTask
-        // Get the destination addresses, the source address and the task type from the CLI task
+        // Get the destination addresses, the source address, the rate, and the task type from the CLI task
         let dest_addresses;
         let src_addr;
-        let task_type = match request.into_inner().data.unwrap() {
+        let task = request.into_inner();
+        let rate = task.rate;
+        let task_type = match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
                 src_addr = ping.source_address;
@@ -447,25 +449,28 @@ impl Controller for ControllerService {
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
         let start_task = match task_type {
             1 => verfploeter::Task {
+                task_id,
+                rate,
                 data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
                     source_address: src_addr,
                     destination_addresses: vec![],
                 })),
-                task_id,
             },
             2 => verfploeter::Task {
+                task_id,
+                rate,
                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                     source_address: src_addr,
                     destination_addresses: vec![],
                 })),
-                task_id,
             },
             3 => verfploeter::Task {
+                task_id,
+                rate,
                 data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
                     source_address: src_addr,
                     destination_addresses: vec![],
                 })),
-                task_id,
             },
             _ => verfploeter::Task::default(),
         };
@@ -489,31 +494,34 @@ impl Controller for ControllerService {
                 let chunk_size: usize = 10;
 
                 // Send out packets at the required interval
-                let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / RATE_LIMIT as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
+                let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
                 println!("[Client] streaming tasks to client");
                 for chunk in dest_addresses.chunks(chunk_size) {
                     let task = match task_type {
                         1 => verfploeter::Task {
+                            task_id,
+                            rate,
                             data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
                                 source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
-                            task_id,
                         },
                         2 => verfploeter::Task {
+                            task_id,
+                            rate,
                             data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                 source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
-                            task_id,
                         },
                         3 => verfploeter::Task {
+                            task_id,
+                            rate,
                             data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
                                 source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
-                            task_id,
                         },
                         _ => verfploeter::Task::default(),
                     };
@@ -538,8 +546,9 @@ impl Controller for ControllerService {
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(verfploeter::Task {
-                        data: None,
                         task_id,
+                        rate,
+                        data: None,
                     })).await {
                         Ok(_) => (),
                         Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),

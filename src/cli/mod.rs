@@ -72,8 +72,25 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
 
+        // Get the rate for this task
+        let rate = if matches.is_present("RATE") {
+            u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
+        } else {
+            1000
+        };
+
+        let t_type = match task_type {
+            1 => "ICMP/ping",
+            2 => "UDP/DNS",
+            3 => "TCP/SYN-ACK",
+            _ => "Undefined (defaulting to ICMP/ping)"
+        };
+
+        println!("[CLI] Task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}.", t_type, ips.len(), Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap(), rate);
+
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(source_ip, ips, task_type);
+        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate);
         cli_client.do_task_to_server(schedule_task, task_type, cli).await
     } else {
         println!("[CLI] Unrecognized command");
@@ -96,10 +113,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// ```
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1);
 /// ```
-fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32) -> verfploeter::ScheduleTask {
+fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32, rate: u32) -> verfploeter::ScheduleTask {
     match task_type {
         1 => { // ICMP
             return verfploeter::ScheduleTask {
+                rate,
                 data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
                     destination_addresses,
                     source_address,
@@ -108,6 +126,7 @@ fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, ta
         }
         2 => { // UDP
             return verfploeter::ScheduleTask {
+                rate,
                 data: Some(verfploeter::schedule_task::Data::Udp(verfploeter::Udp {
                     destination_addresses,
                     source_address,
@@ -116,6 +135,7 @@ fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, ta
         }
         3 => { // TCP
             return verfploeter::ScheduleTask {
+                rate,
                 data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Tcp {
                     destination_addresses,
                     source_address
@@ -126,6 +146,7 @@ fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, ta
     }
 
     verfploeter::ScheduleTask {
+        rate,
         data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
             destination_addresses,
             source_address,

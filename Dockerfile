@@ -36,6 +36,3 @@ ENTRYPOINT ["./manycast"]
 
 # Default command used
 CMD ["--help"]
-
-# TODO steps 4 and 5 of this tutorial?
-#https://dev.to/rogertorres/first-steps-with-docker-rust-30oi
