@@ -163,6 +163,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
+                println!("received {:?}", packet); // TODO check if we also receive the ICMP port unreachable packets on this port
+                // TODO if not create new socket listening thread that listens for ICMP
 
                 // Obtain the payload
                 if let PacketPayload::UDP { value } = packet.payload {
