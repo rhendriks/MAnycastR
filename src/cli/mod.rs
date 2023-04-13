@@ -165,8 +165,11 @@ impl CliClient {
     async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool) -> Result<(), Box<dyn Error>> {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
-        let response = self.grpc_client.do_task(request).await?;
-        println!("{:?}", response);
+        let response = self.grpc_client.do_task(request).await;
+        if let Err(e) = response {
+            println!("[CLI] Server did not perform the task for reason: '{}'", e.message());
+            return Err(Box::new(e))
+        }
         let start = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -176,7 +179,7 @@ impl CliClient {
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
         // Obtain the Stream from the server and read from it
-        let mut stream = response.into_inner();
+        let mut stream = response?.into_inner();
         while let Some(task_result) = stream.message().await? {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
