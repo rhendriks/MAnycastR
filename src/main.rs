@@ -125,9 +125,6 @@ mod server;
 mod client;
 mod net;
 
-// Number of packets per second
-pub static RATE_LIMIT: u32 = 1400;
-
 /// Parse command line input and start VerfPloeter server, client, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
@@ -205,7 +202,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Source address for this client's probes")
                         .required(false)
                 )
-            // .arg(Arg::with_name("certificate").short("c").takes_value(true).help("Certificate to use for SSL connection to server (PEM-encoded file)").required(false))
         )
         .subcommand(
             SubCommand::with_name("cli").about("Verfploeter CLI")
@@ -230,6 +226,11 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                 .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP, or 3: TCP)")
                                     .required(true)
                                     .index(3))
+                                .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
+                                    .required(false)
+                                    .index(4)
+                                    .default_value("1000")
+                                )
                                 .arg(Arg::with_name("STREAM").help("Stream results to stdout")
                                     .takes_value(false)
                                     .long("stream")
