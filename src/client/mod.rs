@@ -168,8 +168,16 @@ impl Client {
                 );
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
+                let socket_icmp = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+                let bind_address_icmp = format!(
+                    "{}:0",
+                    Ipv4Addr::from(source_addr).to_string()
+                );
+                socket_icmp.bind(&bind_address_icmp.parse::<SocketAddr>().unwrap().into()).unwrap();
+
+
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port, socket_icmp);
 
                 // Start sending thread
                 perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx, rate);
