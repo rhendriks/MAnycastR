@@ -143,13 +143,13 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16, socket_icmp: Arc<Socket>) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started UDP listener");
 
     thread::spawn({
-        let result_queue_receiver = result_queue.clone();
+        let rq_receiver = result_queue.clone();
 
         let socket = socket.clone();
         move || {
@@ -228,7 +228,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Put result in transmission queue
                     {
-                        let mut rq_opt = result_queue_receiver.lock().unwrap();
+                        let mut rq_opt = rq_receiver.lock().unwrap();
                         if let Some(ref mut x) = *rq_opt {
                             x.push(result);
                         }
@@ -236,6 +236,122 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 }
             }
             println!("[Client inbound] Stopped listening on socket");
+        }
+    });
+
+    // ICMP port unreachable listening thread
+    thread::spawn({
+        let rq_receiver = result_queue.clone();
+        // let socket_icmp;
+
+        move || {
+            let mut buffer: Vec<u8> = vec![0; 1500];
+            println!("[Client inbound] Listening for ICMP packets for UDP task - {}", task_id);
+            while let Ok(result) = socket_icmp.recv(&mut buffer) {
+
+                // Received when the socket closes on some OS
+                if result == 0 {
+                    break;
+                }
+
+                // Create IPv4Packet from the bytes in the buffer
+                let packet = IPv4Packet::from(&buffer[..result]);
+                println!("Received IPv4 packet {:?}", packet);
+
+                // Obtain the payload
+                if let PacketPayload::ICMPv4 { value } = packet.payload {
+                    println!("Has ICMP packet {:?}", value);
+                    // Make sure that this packet belongs to this task
+                    if value.code != 3 { // Code 3 => port unreachable
+                        // TODO do people send out random ICMP code 3 messages? this would add false results
+                        // If not, we discard it and await the next packet
+                        continue;
+                    }
+
+                    let mut transmit_time = 0;
+                    let mut sender_src = 0;
+                    let mut sender_dest = 0;
+                    let mut sender_client_id = 0;
+                    let mut sender_src_port = 0;
+
+                    let receive_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
+
+
+                    // IPv4 header is 60 bytes
+                    if value.body.len() >= 60 {
+                        let packet_icmp = IPv4Packet::from(&*value.body);
+                        println!("ICMP payload contains IPv4 {:?}", packet_icmp);
+
+                        if let PacketPayload::UDP { value } = packet_icmp.payload {
+                            println!("IPv4 contains UDP {:?}", value);
+
+                            let record = DNSARecord::from(value.body.as_slice());
+
+                            let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+
+                            // Get the information from the domain, continue to the next packet if it does not follow the format
+                            let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                            transmit_time = match parts[0].parse::<u64>() {
+                                Ok(t) => t,
+                                Err(_) => continue,
+                            };
+                            sender_src = match parts[1].parse::<u32>() {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                            sender_dest = match parts[2].parse::<u32>() {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                            sender_client_id = match parts[3].parse::<u8>() {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                            sender_src_port = match parts[4].parse::<u16>() {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                        }
+                    }
+
+
+                    // TODO try and extract our original message from the ICMP payload
+                    // https://hpd.gasmi.net/?data=450000861ADB00003601C5FE6DCFC82AC057AD4C0303A102000000004500006AA51040003611FBD4C057AD4C6DCFC82AF3710035005640ED12340100000100000000000031313638313338393137363931323332383435382D333232363937313436382D313834323333333733382D312D363233323106676F6F676C6503636F6D0000010001&force=ipv4
+
+                    // Create a VerfploeterResult for the received ping reply
+                    let result = VerfploeterResult { // TODO
+                        value: Some(Value::Udp(UdpResult {
+                            source_port: 0,
+                            destination_port: 0,
+                            ipv4_result: Some(IPv4Result {
+                                source_address: u32::from(packet.source_address),
+                                destination_address: u32::from(packet.destination_address),
+                                ttl: packet.ttl as u32,
+                            }),
+                            receive_time,
+                            payload: Some(UdpPayload {
+                                transmit_time,
+                                source_address: sender_src,
+                                destination_address: sender_dest,
+                                sender_client_id: sender_client_id as u32,
+                                source_port: sender_src_port as u32,
+                            }),
+                        })),
+                    };
+
+                    // Put result in transmission queue
+                    {
+                        let mut rq_opt = rq_receiver.lock().unwrap();
+                        if let Some(ref mut x) = *rq_opt {
+                            x.push(result);
+                        }
+                    }
+                }
+            }
+            println!("[Client inbound] Stopped listening on ICMP socket for the UDP task");
         }
     });
 
