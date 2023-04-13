@@ -86,8 +86,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}.", t_type, ips.len(), Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap(), rate);
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap(), rate);
+        println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate);
@@ -166,6 +166,7 @@ impl CliClient {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await?;
+        println!("{:?}", response);
         let start = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -298,7 +299,7 @@ impl CliClient {
                         let sender_client_id = payload.sender_client_id.to_string();
                         let request_src_port = payload.source_port.to_string();
 
-                        let record_udp: [&str; 12] = [&recv_time, &reply_source_port, &reply_destination_port, &reply_src, &reply_dest, &ttl, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
+                        let record_udp: [&str; 12] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
                         let mut all_records = [""; 15];
                         all_records[..3].copy_from_slice(&record);
                         all_records[3..].copy_from_slice(&record_udp);
