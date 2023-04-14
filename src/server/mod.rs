@@ -98,7 +98,7 @@ impl<T> Drop for ClientReceiver<T> {
                     *self.active.lock().unwrap() = false;
                     match self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())) {
                         Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send task_finished to CLI")
+                        Err(_) => println!("[Server] Failed to send task_finished to CLI")
                     }
                 // If there are more clients still performing this task
                 } else {
@@ -117,7 +117,6 @@ impl<T> Drop for ClientReceiver<T> {
 /// Furthermore, if a measurement is active, we send a termination message to all clients to quit the current measurement.
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
-    open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     task_id: u32,
     active: Arc<Mutex<bool>>,
     senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
@@ -163,10 +162,6 @@ impl<T> Drop for CLIReceiver<T> {
                     }
                 });
             }
-
-            // Handle the open task that this CLI created
-            // let mut open_tasks = self.open_tasks.lock().unwrap();
-            // open_tasks.remove(&self.task_id);
 
             // Set task_active to false
             *active = false;
@@ -377,7 +372,7 @@ impl Controller for ControllerService {
             }
 
             // If a client is still working on an another measurement
-            let mut open_tasks = self.open_tasks.lock().unwrap();
+            let open_tasks = self.open_tasks.lock().unwrap();
 
             // For every open task
             for (_, open) in open_tasks.iter() {
@@ -581,7 +576,6 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            open_tasks: self.open_tasks.clone(),
             task_id,
             active: self.active.clone(),
             senders: self.senders.clone(),

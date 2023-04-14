@@ -109,8 +109,6 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                         thread::sleep(Duration::from_millis(1));
                     }
 
-                    // println!("Sending packet to {} at time {}", bind_addr_dest, transmit_time);
-
                     // Send out packet
                     if let Err(e) = socket.send_to(
                         &icmp,
