@@ -108,10 +108,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: TCP, 3: UDP
 ///
+/// * 'rate' - the rate (packets / second) at which clients will send out probes (default: 1000)
+///
 /// # Examples
 ///
 /// ```
-/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1);
+/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400);
 /// ```
 fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32, rate: u32) -> verfploeter::ScheduleTask {
     match task_type {
@@ -162,6 +164,8 @@ impl CliClient {
     /// * 'task' - the task that is being sent to the server
     ///
     /// * 'task_type' - the type of task that is being sent, and the type of the task results we will receive
+    ///
+    /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool) -> Result<(), Box<dyn Error>> {
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");

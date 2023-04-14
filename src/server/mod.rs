@@ -349,6 +349,8 @@ impl Controller for ControllerService {
     ///
     /// Streams the task to the clients, in a round-robin fashion, with 1 second delays between clients.
     ///
+    /// Furthermore, lets the clients know of the desired probing rate (defined by the CLI).
+    ///
     /// # Arguments
     ///
     /// * 'request' - a ScheduleTask message containing information about the task

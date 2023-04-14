@@ -28,6 +28,10 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'source_addr' - the source address we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
+///
+/// * 'finish_rx' - used to abort the measurement
+///
+/// * 'rate' - the number of probes to send out each second
 pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
@@ -152,6 +156,10 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
+///
+/// * 'finish_rx' - used to abort the measurement
+///
+/// * 'rate' - the number of probes to send out each second
 pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
@@ -262,6 +270,10 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 /// * 'source_port' - the source port we use in our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
+///
+/// * 'finish_rx' - used to abort the measurement
+///
+/// * 'rate' - the number of probes to send out each second
 pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
 
