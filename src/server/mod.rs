@@ -169,7 +169,7 @@ impl<T> Drop for CLIReceiver<T> {
             // open_tasks.remove(&self.task_id);
 
             // Set task_active to false
-            // *active = false; // TODO client will still send task_finished?
+            *active = false;
         }
     }
 }
@@ -369,13 +369,26 @@ impl Controller for ControllerService {
         
         // If there already is an active measurement, we skip
         {
+            // If the server is already working on another measurement
             let mut active = self.active.lock().unwrap();
             if *active == true {
                 println!("[Server] There is already an active task, returning");
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
-            } else {
-                *active = true;
             }
+
+            // If a client is still working on an another measurement
+            let mut open_tasks = self.open_tasks.lock().unwrap();
+
+            // For every open task
+            for (_, open) in open_tasks.iter() {
+                // If there are still clients who are working on a different measurement
+                if open > &0 {
+                    println!("[Server] There is already an active task, returning");
+                    return Err(Status::new(tonic::Code::Cancelled, "There are still clients working on an active measurement"))
+                }
+            }
+
+            *active = true;
         }
 
         // Get the list of Senders (that connect to the clients)
@@ -532,7 +545,7 @@ impl Controller for ControllerService {
                     };
 
                     // If the CLI disconnects during task distribution, abort
-                    if *active.lock().unwrap() == false {
+                    if *active.lock().unwrap() == false { // TODO this doesn't get triggered anymore when the CLI disconnects
                         println!("[Server] CLI disconnected during task distribution");
                         abort = true;
                         break
