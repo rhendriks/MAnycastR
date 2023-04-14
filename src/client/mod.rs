@@ -257,14 +257,17 @@ impl Client {
                 // If the CLI disconnected we will receive this message
                 if *self.current_task.lock().unwrap() + 1000 == task_id {
                     // Send finish signal
-                    println!("[Client] CLI disconnecting, exiting task");
+                    println!("[Client] CLI disconnected, exiting task");
                     f_tx.take().unwrap().send(()).unwrap();
                     continue
                 }
                 // If the received task is part of the active task
                 if *self.current_task.lock().unwrap() == task_id {
                     // Send the task to the prober
-                    self.outbound_channel_tx.clone().unwrap().send(task).await.unwrap();
+                    match self.outbound_channel_tx.clone().unwrap().send(task).await {
+                        Ok(_) => (),
+                        Err(_) => (),
+                    }
                 } else {
                     // If we received a new task during a measurement
                     println!("[Client] Received new measurement during an active measurement, skipping")
