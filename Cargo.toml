@@ -4,23 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-stream = "0.3.4"
 byteorder = "1.4.3"
 chrono = "0.4.23"
-clap = "~2" # TODO deprecated version
+clap = "~2"
 csv = "1.2.0"
 env_logger = "0.10.0"
-futures = "~0.1" # TODO deprecated version
+futures = "~0.1"
 futures-core = "0.3.26"
-futures-util = "0.3.26"
 log = "0.4.17"
 prettytable-rs = "0.10.0"
 prost = "0.11.6"
 ratelimit_meter = "5.0.0"
-socket2 = "~0.3" # TODO deprecated
+socket2 = "~0.3"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tokio-stream = "0.1.12"
-tonic = "0.8.3"
+tonic = "0.9.1"
 
 [build-dependencies]
-tonic-build = "0.8.4"
+tonic-build = "0.9.1"
