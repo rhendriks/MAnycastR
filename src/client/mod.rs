@@ -107,6 +107,8 @@ impl Client {
     /// * 'client_id' - the unique ID of this client
     ///
     /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
+    ///
+    /// * 'finish_rx' - a channel used to abort the measurement
     fn init(&mut self, task: Task, client_id: u8, outbound_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: oneshot::Receiver<()>) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {

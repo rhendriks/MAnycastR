@@ -123,9 +123,11 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 /// Listen for incoming UDP DNS packets,
 /// these packets must have a DNS A record reply and use the correct port numbers to be considered a reply.
 ///
-/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
+/// Additionally listens for ICMP port unreachable packets, and will parse the request if it is contained in the ICMP payload.
 ///
-/// For a received packet to be considered a reply, it must be an UDP DNS packet that contains an A record that follows a specific format.
+/// Creates three threads, two that listen on the sockets and another that forwards results to the server and shuts down the receiving socket when appropriate.
+///
+/// For a received UDP packet to be considered a reply, it must be an UDP DNS packet that contains an A record that follows a specific format.
 /// From these replies it creates task results that are put in a result queue, which get sent to the server.
 ///
 /// # Arguments
@@ -143,6 +145,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
+///
+/// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
 pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16, socket_icmp: Arc<Socket>) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
