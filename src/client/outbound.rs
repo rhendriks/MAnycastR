@@ -129,7 +129,9 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
             debug!("finished ping");
 
             // All packets have been sent for this task, give the listener 10 seconds for the replies
-            thread::sleep(Duration::from_secs(10));
+            if *abort.lock().unwrap() == false { // Unless if we aborted, then we don't wait
+                thread::sleep(Duration::from_secs(10));
+            }
             // Now close down the listener
             rx_f.close();
             println!("[Client outbound] Outbound thread finished");
