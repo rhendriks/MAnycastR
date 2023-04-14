@@ -190,7 +190,7 @@ impl Client {
                 let src_port = 62321 + client_id as u16;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
-                    "{}:{}",
+                    "{}",
                     Ipv4Addr::from(source_addr).to_string()
                 );
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
