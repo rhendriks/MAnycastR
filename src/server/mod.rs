@@ -540,7 +540,7 @@ impl Controller for ControllerService {
                     };
 
                     // If the CLI disconnects during task distribution, abort
-                    if *active.lock().unwrap() == false { // TODO this doesn't get triggered anymore when the CLI disconnects
+                    if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
                         abort = true;
                         break
