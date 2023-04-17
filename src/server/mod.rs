@@ -169,7 +169,6 @@ impl<T> Drop for CLIReceiver<T> {
     }
 }
 
-// gRPC tutorial https://github.com/hyperium/tonic/blob/master/examples/routeguide-tutorial.md
 // The Controller service implementation
 #[tonic::async_trait]
 impl Controller for ControllerService {
@@ -642,7 +641,6 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
-
         current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(0)),
         active: Arc::new(Mutex::new(false)),
