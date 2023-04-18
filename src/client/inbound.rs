@@ -264,7 +264,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
                     // Make sure that this packet belongs to this task
                     if value.icmp_type != 3 { // Code 3 => destination unreachable
-                        // TODO add icmp_type, code to results?
                         // If not, we discard it and await the next packet
                         continue;
                     }
@@ -282,36 +281,51 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         .as_nanos() as u64;
 
                     // Some hosts will ICMP reply with port unreachable that contain the original DNS request
-                    if value.body.len() >= 60 { // IPv4 header is 60 bytes
+                    if value.body.len() >= 20 { // IPv4 header is 20 bytes
                         let packet_icmp = IPv4Packet::from(&*value.body);
 
-                        if let PacketPayload::UDP { value } = packet_icmp.payload {
-                            // Obtain the DNS A record, including the domain name, from the UDP packet
-                            let record = DNSARecord::from(value.body.as_slice());
-                            let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+                        if value.body.len() >= 28 { // UDP is an additional 8 bytes
+                            if let PacketPayload::UDP { value } = packet_icmp.payload {
+                                // Obtain the DNS A record, including the domain name, from the UDP packet
 
-                            // Get the information from the domain, continue to the next packet if it does not follow the format
-                            let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-                            transmit_time = match parts[0].parse::<u64>() {
-                                Ok(t) => t,
-                                Err(_) => continue,
-                            };
-                            sender_src = match parts[1].parse::<u32>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            sender_dest = match parts[2].parse::<u32>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            sender_client_id = match parts[3].parse::<u8>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            sender_src_port = match parts[4].parse::<u16>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
+                                // IP, UDP, DNS => 66 or more
+                                if value.body.len() >= 66 {
+                                    let record = DNSARecord::from(value.body.as_slice());
+                                    let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+
+                                    // Get the information from the domain, continue to the next packet if it does not follow the format
+                                    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                                    transmit_time = match parts[0].parse::<u64>() {
+                                        Ok(t) => t,
+                                        Err(_) => continue,
+                                    };
+                                    sender_src = match parts[1].parse::<u32>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                    sender_dest = match parts[2].parse::<u32>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                    sender_client_id = match parts[3].parse::<u8>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                    sender_src_port = match parts[4].parse::<u16>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                } else {
+                                    // We received the IP/UDP headers but not the DNS payload
+                                    sender_src_port = value.destination_port;
+                                    sender_src = u32::from(packet_icmp.source_address);
+                                    sender_dest = u32::from(packet_icmp.destination_address);
+                                }
+                            }
+                        } else {
+                            // We just received the IP header
+                            sender_src = u32::from(packet_icmp.source_address);
+                            sender_dest = u32::from(packet_icmp.destination_address);
                         }
                     }
 
