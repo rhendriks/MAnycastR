@@ -147,7 +147,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, sender_src_port: u16, socket_icmp: Arc<Socket>) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, tx_f: Sender<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>) {
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started UDP listener");
@@ -170,8 +170,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Obtain the payload
                 if let PacketPayload::UDP { value } = packet.payload {
-                    // The UDP responses will be from DNS services, with port 53 and our src port as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-                    if (value.source_port != 53) | (value.destination_port != sender_src_port) | (value.body.len() < 66) {
+                    // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+                    if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
                         continue;
                     }
 
