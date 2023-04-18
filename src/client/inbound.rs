@@ -52,6 +52,9 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
+                    // TODO can we assume all ping echo replies (icmp code 0) are part of our measurement
+                    // TODO and with this include replies that do not include our payload
+                    // TODO what if we receive a destination unreachable response with for example an empty payload?
                     let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue; };
 
                     let pkt_task_id = u32::from_be_bytes(s);
@@ -244,7 +247,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     // ICMP port unreachable listening thread
     thread::spawn({
         let rq_receiver = result_queue.clone();
-        // let socket_icmp;
 
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
@@ -262,8 +264,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
                     // Make sure that this packet belongs to this task
-                    if value.code != 3 { // Code 3 => port unreachable
-                        // TODO do people send out random ICMP code 3 messages? this would add false results
+                    if value.icmp_type != 3 { // Code 3 => destination unreachable
+                        // TODO add icmp_type, code to results?
+                        // TODO can we assume that the ICMP replies will always contain our original message?
                         // If not, we discard it and await the next packet
                         continue;
                     }
