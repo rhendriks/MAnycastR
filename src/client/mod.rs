@@ -161,12 +161,11 @@ impl Client {
                 perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx, rate);
             }
             Data::Udp(_) => {
-                let src_port: u16 = 62321;
+                let src_port: u16 = 62321 + client_id as u16;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
-                    "{}:{}",
-                    Ipv4Addr::from(source_addr).to_string(),
-                    src_port.to_string()
+                    "{}:0",
+                    Ipv4Addr::from(source_addr).to_string()
                 );
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
@@ -179,7 +178,7 @@ impl Client {
 
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, src_port, socket_icmp);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id, socket_icmp);
 
                 // Start sending thread
                 perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx, rate);
