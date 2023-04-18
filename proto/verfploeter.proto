@@ -131,13 +131,15 @@ message PingPayload {
   fixed32 sender_client_id = 4;
 }
 
-// UDP result contains the receive time, source and destination port from the UDP header, an ipv4 result, and a UDP payload
+// UDP result contains the receive time, source and destination port from the UDP header, an ipv4 result, the UDP payload,
+// and a code (0-15 for ICMP codes, 16 => UDP response)
 message UDPResult {
   uint64 receive_time = 1;
   fixed32 source_port = 2;
   fixed32 destination_port = 3;
-  IPv4Result ipv4_result = 4;
-  UDPPayload payload = 5;
+  fixed32 code = 4;
+  IPv4Result ipv4_result = 5;
+  UDPPayload payload = 6;
 }
 
 // UDP payload, which is extracted from the domain of the DNS A Record reply

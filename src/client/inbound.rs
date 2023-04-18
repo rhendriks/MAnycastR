@@ -52,9 +52,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
-                    // TODO can we assume all ping echo replies (icmp code 0) are part of our measurement
-                    // TODO and with this include replies that do not include our payload
-                    // TODO what if we receive a destination unreachable response with for example an empty payload?
                     let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue; };
 
                     let pkt_task_id = u32::from_be_bytes(s);
@@ -213,14 +210,15 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     // Create a VerfploeterResult for the received UDP reply
                     let result = VerfploeterResult {
                         value: Some(Value::Udp(UdpResult {
+                            receive_time,
                             source_port: u32::from(value.source_port),
                             destination_port: value.destination_port as u32,
+                            code: 16,
                             ipv4_result: Some(IPv4Result {
                                 source_address: u32::from(packet.source_address),
                                 destination_address: u32::from(packet.destination_address),
                                 ttl: packet.ttl as u32,
                             }),
-                            receive_time,
                             payload: Some(UdpPayload {
                                 transmit_time,
                                 source_address: sender_src,
@@ -247,6 +245,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
     // ICMP port unreachable listening thread
     thread::spawn({
         let rq_receiver = result_queue.clone();
+        let socket_icmp = socket_icmp.clone();
 
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
@@ -266,7 +265,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     // Make sure that this packet belongs to this task
                     if value.icmp_type != 3 { // Code 3 => destination unreachable
                         // TODO add icmp_type, code to results?
-                        // TODO can we assume that the ICMP replies will always contain our original message?
                         // If not, we discard it and await the next packet
                         continue;
                     }
@@ -276,6 +274,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     let mut sender_dest = 0;
                     let mut sender_client_id = 0;
                     let mut sender_src_port = 0;
+                    let code = value.code;
 
                     let receive_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -319,14 +318,15 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     // Create a VerfploeterResult for the received ping reply
                     let result = VerfploeterResult {
                         value: Some(Value::Udp(UdpResult {
+                            receive_time,
                             source_port: 0,
                             destination_port: 0,
+                            code: code as u32,
                             ipv4_result: Some(IPv4Result {
                                 source_address: u32::from(packet.source_address),
                                 destination_address: u32::from(packet.destination_address),
                                 ttl: packet.ttl as u32,
                             }),
-                            receive_time,
                             payload: Some(UdpPayload {
                                 transmit_time,
                                 source_address: sender_src,
