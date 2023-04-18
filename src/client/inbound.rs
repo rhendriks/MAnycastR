@@ -287,9 +287,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         let packet_icmp = IPv4Packet::from(&*value.body);
 
                         if let PacketPayload::UDP { value } = packet_icmp.payload {
-
+                            // Obtain the DNS A record, including the domain name, from the UDP packet
                             let record = DNSARecord::from(value.body.as_slice());
-
                             let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
                             // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -360,7 +359,14 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            socket.shutdown(Shutdown::Read).unwrap_err();
+            match socket.shutdown(Shutdown::Read) {
+                Err(_) => println!("[Client inbound] Shut down socket erroneously"),
+                _ => println!("[Client inbound] Shut down socket"),
+            }
+            match socket_icmp.shutdown(Shutdown::Read) {
+                Err(_) => println!("[Client inbound] Shut down ICMP socket erroneously"),
+                _ => println!("[Client inbound] Shut down ICMP socket"),
+            }
             println!("[Client inbound] Stopped listening for UDP packets");
         }
     });
@@ -461,7 +467,10 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             handle_results(metadata, &tx, tx_f, task_id, client_id, result_queue_sender);
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).unwrap();
-            socket.shutdown(Shutdown::Read).unwrap_err();
+            match socket.shutdown(Shutdown::Read) {
+                Err(_) => println!("[Client inbound] Shut down socket erroneously"),
+                _ => println!("[Client inbound] Shut down socket"),
+            }
             println!("[Client inbound] Stopped listening for TCP packets");
         }
     });
