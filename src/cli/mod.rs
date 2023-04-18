@@ -228,10 +228,10 @@ impl CliClient {
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 2 { // UDP
-            let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port",
+            let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
             "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
 
-            let mut all_rows = [""; 15];
+            let mut all_rows = [""; 16];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&udp_rows);
@@ -292,6 +292,7 @@ impl CliClient {
                         let recv_time = udp.receive_time.to_string();
                         let reply_source_port = udp.source_port.to_string();
                         let reply_destination_port = udp.destination_port.to_string();
+                        let reply_code = udp.code.to_string();
 
                         let ipv4result = udp.ipv4_result.unwrap();
                         let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
@@ -306,8 +307,8 @@ impl CliClient {
                         let sender_client_id = payload.sender_client_id.to_string();
                         let request_src_port = payload.source_port.to_string();
 
-                        let record_udp: [&str; 12] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
-                        let mut all_records = [""; 15];
+                        let record_udp: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
+                        let mut all_records = [""; 16];
                         all_records[..3].copy_from_slice(&record);
                         all_records[3..].copy_from_slice(&record_udp);
 
