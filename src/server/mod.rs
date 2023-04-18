@@ -642,7 +642,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
         current_task_id: Arc::new(Mutex::new(156434)),
-        current_client_id: Arc::new(Mutex::new(0)),
+        current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
     };
 

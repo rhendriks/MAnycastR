@@ -205,13 +205,12 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         Ok(s) => s,
                         Err(_) => continue,
                     };
-                    // let domain = domain.split('.').skip(1).next().unwrap();
 
                     // Create a VerfploeterResult for the received UDP reply
                     let result = VerfploeterResult {
                         value: Some(Value::Udp(UdpResult {
                             receive_time,
-                            source_port: u32::from(value.source_port),
+                            source_port: value.source_port as u32,
                             destination_port: value.destination_port as u32,
                             code: 16,
                             ipv4_result: Some(IPv4Result {
