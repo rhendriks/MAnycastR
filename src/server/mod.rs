@@ -508,7 +508,7 @@ impl Controller for ControllerService {
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
-                println!("[Client] streaming tasks to client");
+                println!("[Server] streaming tasks to client");
                 for chunk in dest_addresses.chunks(chunk_size) {
                     let task = match task_type {
                         1 => verfploeter::Task {
