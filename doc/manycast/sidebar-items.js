@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["main","Parse command line input and start VerfPloeter server, client, or CLI"],["parse_cmd","Parse $ verfploeter to start server, client, CLI or help (–help)"]],"mod":[["cli",""],["client",""],["net",""],["server",""]]};

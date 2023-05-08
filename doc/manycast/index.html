@@ -1,0 +1,96 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This project is an implementation of Verfploeter https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf."><meta name="keywords" content="rust, rustlang, rust-lang, manycast"><title>manycast - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" href="../normalize.css"><link rel="stylesheet" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" href="../ayu.css" disabled><link rel="stylesheet" href="../dark.css" disabled><link rel="stylesheet" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script defer src="../crates.js"></script><script defer src="../main.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../manycast/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div></a><h2 class="location"></h2></nav><nav class="sidebar"><a class="sidebar-logo" href="../manycast/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div></a><h2 class="location"><a href="#">Crate manycast</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.1.0</li><li><a id="all-types" href="all.html">All Items</a></li></ul></div><section><div class="block"><ul><li><a href="#modules">Modules</a></li><li><a href="#functions">Functions</a></li></ul></div></section></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../manycast/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" title="help" tabindex="-1"><button type="button">?</button></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></div></form></nav></div><section id="main-content" class="content"><div class="main-heading"><h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">manycast</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/manycast/main.rs.html#1-243">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This project is an implementation of Verfploeter <a href="https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf">https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf</a>.</p>
+<p>It is an extension of the original Verfploeter code <a href="https://github.com/Woutifier/verfploeter">https://github.com/Woutifier/verfploeter</a>.</p>
+<h2 id="the-components"><a href="#the-components">The components</a></h2>
+<p>It allows for performing synchronized probes from a distributed set of nodes.
+To achieve this, it uses three components (all in the same binary):</p>
+<ul>
+<li><a href="server/index.html">Server</a> - a central controller that receives a task from the CLI and sends instructions to the connected clients to perform measurements</li>
+<li><a href="cli/index.html">CLI</a> - a locally ran instructor that takes a user command-line argument and creates a task that is sent to the server</li>
+<li><a href="client/index.html">Client</a> - the client connects to the server and awaits tasks to send out probes and listen for incoming replies</li>
+</ul>
+<h2 id="tasks"><a href="#tasks">Tasks</a></h2>
+<p>A task is created by locally running the CLI using a command, from this command a task is created which is sent to the server.
+The server performs this task by sending instructions to the clients, who perform the desired measurement by sending out probes.
+These clients then stream back the results to the server, as they receive replies.
+The server forwards these results to the CLI.</p>
+<p>The tasks are probing measurements, which can be:</p>
+<ul>
+<li>ICMP ECHO requests</li>
+<li>UDP DNS A Record requests</li>
+<li>TCP SYN/ACK probes</li>
+</ul>
+<p>When creating a task you can specify:</p>
+<ul>
+<li><strong>Source address</strong> - the source address from which the probes are to be sent out</li>
+<li><strong>Destination addresses</strong> - the target addresses that will be probed (e.g. a hitlist)</li>
+<li><strong>Type of measurement</strong> - ICMP, UDP, or TCP</li>
+<li><strong>Rate</strong> - The rate (packets / second) at which each client will send out probes (default: 1000)</li>
+</ul>
+<h2 id="results"><a href="#results">Results</a></h2>
+<p>The CLI will await task results after sending its command to the server.
+When the server is finished it will notify the CLI, after which it prints out all task results on the command-line interface, and writes them to a .csv file (with the current timestamp encoded in the filename).</p>
+<h2 id="usage"><a href="#usage">Usage</a></h2>
+<p>First, run the central server.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>server -p [PORT NUMBER]</code></pre></div>
+<p>Next, run one or more clients.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>client -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]</code></pre></div>
+<p>Server address has format IPv4:port (e.g. 187.0.0.0:50001), ‘-a SOURCE IP’ is optional.</p>
+<p>To confirm that the clients are connected, you can run the client-list command on the CLI.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>cli -s [SERVER ADDRESS] client-list</code></pre></div>
+<p>Finally, you can perform a task.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] --stream</code></pre></div>
+<p>SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP), RATE the rate (packets / second) at which clients will sent out probes.</p>
+<p>The output of the measurement will be printed to command-line (if –stream is used in the command), and be stored in src/out as a CSV file.</p>
+<h2 id="measurement-details"><a href="#measurement-details">Measurement details</a></h2>
+<ul>
+<li>Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.</li>
+<li>Each client probes a target address, approximately 1 second after the previous client sent out theirs.</li>
+<li>Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).</li>
+<li>The rate of the measurements is adjustable.</li>
+</ul>
+<h2 id="robustness"><a href="#robustness">Robustness</a></h2>
+<ul>
+<li>A list of connected clients is maintained by the server and clients that disconnect are removed.</li>
+<li>Clients disconnecting during measurements are handled and the server will finish the measurement as well as possible.</li>
+<li>CLI disconnecting during a measurement will result in the measurement being cancelled, to avoid unnecessary probes from being sent out (this allows for cancellation of measurements by forcefully closing the CLI during a measurement).</li>
+<li>Both server and client enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if there is still a measurement active.</li>
+</ul>
+<h2 id="probe-details"><a href="#probe-details">Probe details</a></h2>
+<p>ICMP</p>
+<ul>
+<li>ICMP ECHO requests (pings) are sent out using a unique payload that contains information about the transmission.</li>
+<li>This payload is echoed back by ICMP-responsive hosts, and the received ECHO replies are verified to be part of the current measurement.</li>
+<li>From the reply payloads we extract information that give us information from the client that sent the probe.</li>
+</ul>
+<p>UDP</p>
+<ul>
+<li>DNS A Record requests are sent using UDP, within the subdomain of the A Record we encode information.</li>
+<li>Since the record does not exist, a DNS server will echo back the domain name, we use this domain to verify the reply is part of our measurement.</li>
+<li>Furthermore, we extract information from the subdomain to obtain information from the client that sent the probe.</li>
+</ul>
+<p>TCP</p>
+<ul>
+<li>We send TCP SYN/ACK packets to high port numbers, such that it is very unlikely that there is a TCP service running on that port.</li>
+<li>This ensures that we will not create any TCP states on the probed targets. Responsive hosts will send back a TCP RST packet.</li>
+<li>Inside the port numbers and ACK number of the probe we encode information that gets echoed back in the RST reply.</li>
+<li>To verify a received TCP RST is part of our measurement, we verify the port numbers have valid values.</li>
+</ul>
+<h2 id="requirements"><a href="#requirements">Requirements</a></h2>
+<p>rustup</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>rustup install stable</code></pre></div>
+<p>gcc</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>apt-get install gcc</code></pre></div>
+<p>protobuf-compiler</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>apt-get install protobuf-compiler</code></pre></div>
+<h2 id="grpc"><a href="#grpc">gRPC</a></h2>
+<p>Communication between client, CLI, and server is achieved using tonic (a rust implementation of gRPC) <a href="https://github.com/hyperium/tonic">https://github.com/hyperium/tonic</a>.</p>
+<p>The protocol definitions are in /proto/verfploeter.proto</p>
+<p>From these definitions code is generated using protobuf (done in build.rs).</p>
+</div></details><h2 id="modules" class="small-section-header"><a href="#modules">Modules</a></h2><div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="mod" href="cli/index.html" title="manycast::cli mod">cli</a><span title="Restricted Visibility">&nbsp;🔒</span> </div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="client/index.html" title="manycast::client mod">client</a><span title="Restricted Visibility">&nbsp;🔒</span> </div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="net/index.html" title="manycast::net mod">net</a><span title="Restricted Visibility">&nbsp;🔒</span> </div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="server/index.html" title="manycast::server mod">server</a><span title="Restricted Visibility">&nbsp;🔒</span> </div></div></div><h2 id="functions" class="small-section-header"><a href="#functions">Functions</a></h2><div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.main.html" title="manycast::main fn">main</a><span title="Restricted Visibility">&nbsp;🔒</span> </div><div class="item-right docblock-short">Parse command line input and start VerfPloeter server, client, or CLI</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.parse_cmd.html" title="manycast::parse_cmd fn">parse_cmd</a><span title="Restricted Visibility">&nbsp;🔒</span> </div><div class="item-right docblock-short">Parse $ verfploeter to start server, client, CLI or help (–help)</div></div></div></section></div></main><div id="rustdoc-vars" data-root-path="../" data-current-crate="manycast" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0 (897e37553 2022-11-02)" ></div></body></html>
