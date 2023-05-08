@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["start","Start the server."]],"mod":[["verfploeter",""]],"struct":[["CLIReceiver","Special Receiver struct that notices when the CLI disconnects."],["ClientReceiver","Special Receiver struct that notices when the client disconnects."],["ControllerService","Struct for the Server service"]]};
