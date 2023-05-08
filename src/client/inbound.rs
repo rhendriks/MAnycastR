@@ -52,6 +52,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
+                    if *&value.body.len() < 4 { continue; }
+
                     let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue; };
 
                     let pkt_task_id = u32::from_be_bytes(s);
