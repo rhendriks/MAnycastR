@@ -7,7 +7,6 @@ use tonic::transport::Server;
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::thread;
 use std::time::Duration;
 use clap::ArgMatches;
 use futures_core::Stream;
@@ -495,15 +494,25 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Distributing tasks");
+        let mut t = 0;
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
+            t += 1;
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
 
+            // thread::sleep(Duration::from_secs(1)); // 1 second interval between clients probing
+            // tokio::time::sleep(tokio::time::Duration::from_secs( 1 ) ).await;
+
+
             spawn(async move {
                 let mut abort = false;
                 let chunk_size: usize = 10;
+
+                // Sleep the desired time
+                tokio::time::sleep(tokio::time::Duration::from_secs(t)).await;
+
 
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
@@ -567,10 +576,6 @@ impl Controller for ControllerService {
                     }
                 }
             });
-
-            // tokio::time::sleep(tokio::time::Duration::from_secs( 1 ) ).await;
-            thread::sleep(Duration::from_secs(1)); // 1 second interval between clients probing
-            // TODO calling thread sleep in async possibly harmful
         }
 
         let rx = CLIReceiver {
