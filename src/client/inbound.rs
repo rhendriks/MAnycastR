@@ -187,6 +187,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     // Get the information from the domain, continue to the next packet if it does not follow the format
                     let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                    // Our domains have 5 'parts' separated by 4 dashes
+                    if len(parts) != 5 { continue }
+
                     let transmit_time = match parts[0].parse::<u64>() {
                         Ok(t) => t,
                         Err(_) => continue,
