@@ -221,7 +221,6 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 
                     // Rate limiting
                     while let Err(_) = lb.check() {
-                        println!("Checking");
                         thread::sleep(Duration::from_millis(1));
                     }
 
