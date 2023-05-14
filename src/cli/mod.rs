@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
-use std::net::Ipv4Addr;
+use std::net::{AddrParseError, Ipv4Addr};
 use std::ops::Add;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -57,7 +57,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ips = buf_reader
             .lines()
             .map(|l| {
-                let address = u32::from(Ipv4Addr::from_str(&l.unwrap()).unwrap());
+                let address_str = &l.unwrap();
+                let address = match Ipv4Addr::from_str(address_str) {
+                    Ok(a) => u32::from(a),
+                    Err(_) => panic!("Unable to parse address: {}", address_str),
+                };
+
+                // let address = u32::from(Ipv4Addr::from_str(&l.unwrap()).unwrap());
                 address
             })
             .collect::<Vec<u32>>();
@@ -178,7 +184,7 @@ impl CliClient {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        println!("[CLI] Task sent to server, awaiting results");
+        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", chrono::offset::Local::now().format("%H:%M:%S"));
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
