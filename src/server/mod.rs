@@ -502,9 +502,6 @@ impl Controller for ControllerService {
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
 
-            // thread::sleep(Duration::from_secs(1)); // 1 second interval between clients probing
-            // tokio::time::sleep(tokio::time::Duration::from_secs( 1 ) ).await;
-
 
             spawn(async move {
                 let mut abort = false;
@@ -512,8 +509,7 @@ impl Controller for ControllerService {
 
                 // Sleep the desired time
                 tokio::time::sleep(tokio::time::Duration::from_secs(t)).await;
-
-
+                
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
