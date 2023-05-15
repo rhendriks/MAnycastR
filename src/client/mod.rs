@@ -185,8 +185,8 @@ impl Client {
             }
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853;// + client_id as u16;
-                let src_port = 62321;// + client_id as u16;
+                let dest_port = 63853 + client_id as u16;
+                let src_port = 62321 + client_id as u16;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
                     "{}:0",
