@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
-use std::net::{AddrParseError, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
