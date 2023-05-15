@@ -161,7 +161,7 @@ impl Client {
                 perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx, rate);
             }
             Data::Udp(_) => {
-                let src_port: u16 = 62321 + client_id as u16;
+                let src_port: u16 = 62321;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
                     "{}:0",
@@ -186,7 +186,7 @@ impl Client {
             Data::Tcp(_) => {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
-                let src_port = 62321 + client_id as u16;
+                let src_port = 62321;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
                     "{}:0",
