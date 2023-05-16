@@ -43,9 +43,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             while let Ok(result) = socket.recv(&mut buffer) {
 
                 // Received when the socket closes on some OS
-                if result == 0 {
-                    break;
-                }
+                if result == 0 { break }
+
+                // IPv4 20 + ICMP ECHO 8 minimum
+                if result < 28 { continue }
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
@@ -163,9 +164,10 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
             while let Ok(result) = socket.recv(&mut buffer) {
                 // Received when the socket closes on some OS
-                if result == 0 {
-                    break;
-                }
+                if result == 0 { break }
+
+                // IPv4 20 + UDP 8 minimum
+                if result < 28 { continue }
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
@@ -257,9 +259,10 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             while let Ok(result) = socket_icmp.recv(&mut buffer) {
 
                 // Received when the socket closes on some OS
-                if result == 0 {
-                    break;
-                }
+                if result == 0 { break }
+
+                // IPv4 20 + ICMP ECHO 8 minimum
+                if result < 28 { continue }
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
@@ -428,9 +431,10 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             while let Ok(result) = socket.recv(&mut buffer) {
 
                 // Received when the socket closes on some OS
-                if result == 0 {
-                    break;
-                }
+                if result == 0 { break }
+
+                // IPv4 20 + TCP 20 minimum
+                if result < 40 { continue }
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
