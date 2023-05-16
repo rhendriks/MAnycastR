@@ -43,14 +43,29 @@ impl From<&[u8]> for IPv4Packet {
 
         let payload_bytes = &cursor.into_inner()[header_length..];
         let payload = match packet_type {
-            1 => PacketPayload::ICMPv4 {
-                value: ICMP4Packet::from(payload_bytes),
+            1 => {
+                if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
+                else {
+                    PacketPayload::ICMPv4 {
+                        value: ICMP4Packet::from(payload_bytes),
+                    }
+                }
             },
-            17 => PacketPayload::UDP {
-                value: UDPPacket::from(payload_bytes),
+            17 => {
+                if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
+                else {
+                    PacketPayload::UDP {
+                        value: UDPPacket::from(payload_bytes),
+                    }
+                }
             },
-            6 => PacketPayload::TCP {
-                value: TCPPacket::from(payload_bytes),
+            6 => {
+                if payload_bytes.len() < 20 { PacketPayload::Unimplemented }
+                else {
+                    PacketPayload::TCP {
+                        value: TCPPacket::from(payload_bytes),
+                    }
+                }
             },
             _ => PacketPayload::Unimplemented,
         };

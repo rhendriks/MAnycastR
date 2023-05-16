@@ -8,7 +8,6 @@ WORKDIR /manycast
 RUN apt-get update && apt-get install -y protobuf-compiler && apt-get install -y gcc
 
 # Copy over manifests
-COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./proto ./proto
 COPY ./build.rs ./build.rs
