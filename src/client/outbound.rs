@@ -118,7 +118,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                             .unwrap()
                             .into(),
                     ) {
-                        error!("Failed to send packet to socket: {:?}", e);
+                        error!("Failed to send ICMP packet with source {} to socket: {:?}", bind_addr_dest, e);
                     } else {
                         // println!("[Client outbound] Packet sent!");
                     }
@@ -233,7 +233,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
                             .unwrap()
                             .into(),
                     ) {
-                        error!("Failed to send UDP packet to socket: {:?}", e);
+                        error!("Failed to send UDP packet with source {} to socket: {:?}", bind_addr_dest, e);
                     } else {
                         // println!("[Client outbound] Packet sent!");
                     }
@@ -349,7 +349,7 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
                             .unwrap()
                             .into(),
                     ) {
-                        error!("Failed to send TCP packet to socket: {:?}", e);
+                        error!("Failed to send TCP packet with source {} to socket: {:?}", bind_addr_dest, e);
                     } else {
                         // println!("[Client outbound] Packet sent!");
                     }
