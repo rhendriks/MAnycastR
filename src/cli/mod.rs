@@ -1,4 +1,5 @@
 use std::error::Error;
+use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -54,7 +55,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ip_file = matches.value_of("IP_FILE").unwrap();
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
-        let ips = buf_reader
+        let mut ips = buf_reader
             .lines()
             .map(|l| {
                 let address_str = &l.unwrap();
@@ -63,11 +64,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     Err(_) => panic!("Unable to parse address: {}", address_str),
                 };
 
-                // let address = u32::from(Ipv4Addr::from_str(&l.unwrap()).unwrap());
                 address
             })
             .collect::<Vec<u32>>();
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
+
+        // Shuffle the hitlist if desired
+        if matches.is_present("SHUFFLE") {
+            let mut rng = rand::thread_rng();
+            ips.as_mut_slice().shuffle(&mut rng);
+        }
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, or 3)") };
