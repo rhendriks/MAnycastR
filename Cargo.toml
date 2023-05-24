@@ -18,6 +18,7 @@ ratelimit_meter = "5.0.0"
 socket2 = "~0.3"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = "0.8.3"
+rand = "0.8"
 
 [build-dependencies]
 tonic-build = "0.8.4"
