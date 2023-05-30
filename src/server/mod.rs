@@ -141,7 +141,7 @@ impl<T> Drop for CLIReceiver<T> {
             // Create termination 'task'
             let task = verfploeter::Task {
                 task_id: self.task_id + 1000,
-                rate: 0,
+                // rate: 0,
                 data: None,
             };
 
@@ -412,7 +412,7 @@ impl Controller for ControllerService {
             return Err(Status::new(tonic::Code::Cancelled, "No connected clients"));
         }
 
-        // obtain task id
+        // Obtain task id
         let task_id: u32;
         {
             let mut current_task_id = self.current_task_id.lock().unwrap();
@@ -420,32 +420,47 @@ impl Controller for ControllerService {
             current_task_id.add_assign(1);
         }
 
+        let task = request.into_inner();
+
+        // Check if there is a list of clients specified
+        let clients: Vec<u32> = task.clients;
+        if clients.len() != 0 {
+            // Make sure all client IDs are valid
+            let mut client_list_u32: Vec<u32> = vec![];
+            for client in &self.clients.lock().unwrap().clients {
+                client_list_u32.push(client.client_id);
+            }
+            for client in clients {
+                if !client_list_u32.contains(&client) {
+                    return Err(Status::new(tonic::Code::Cancelled, format!("There is no client with ID {}", client)));
+                }
+            }
+        }
         // Store the number of clients that will perform this task
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
-            open_tasks.insert(task_id, senders.len() as u32);
+            open_tasks.insert(task_id, senders.len() as u32); // TODO client list length
         }
 
         // Create a Task from the ScheduleTask
         // Get the destination addresses, the source address, the rate, and the task type from the CLI task
         let dest_addresses;
-        let src_addr;
-        let task = request.into_inner();
+        let src_addr = task.source_address;
         let rate = task.rate;
         let task_type = match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
-                src_addr = ping.source_address;
+                // src_addr = ping.source_address;
                 1
             }
             Data::Udp(udp) => {
                 dest_addresses = udp.destination_addresses;
-                src_addr = udp.source_address;
+                // src_addr = udp.source_address;
                 2
             }
             Data::Tcp(tcp) => {
                 dest_addresses = tcp.destination_addresses;
-                src_addr = tcp.source_address;
+                // src_addr = tcp.source_address;
                 3
             }
         };
@@ -458,33 +473,45 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
-        let start_task = match task_type {
-            1 => verfploeter::Task {
-                task_id,
+
+        let start_task = verfploeter::Task {
+            task_id,
+            data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                 rate,
-                data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                    source_address: src_addr,
-                    destination_addresses: vec![],
-                })),
-            },
-            2 => verfploeter::Task {
-                task_id,
-                rate,
-                data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                    source_address: src_addr,
-                    destination_addresses: vec![],
-                })),
-            },
-            3 => verfploeter::Task {
-                task_id,
-                rate,
-                data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                    source_address: src_addr,
-                    destination_addresses: vec![],
-                })),
-            },
-            _ => verfploeter::Task::default(),
+                active: true, // TODO
+                task_type,
+                source_address: src_addr,
+            }))
         };
+
+        // let start_task = match task_type {
+        //     1 => verfploeter::Task {
+        //         task_id,
+        //         // rate,
+        //         data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+        //             // source_address: src_addr,
+        //             destination_addresses: vec![],
+        //         })),
+        //     },
+        //     2 => verfploeter::Task {
+        //         task_id,
+        //         // rate,
+        //         data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+        //             // source_address: src_addr,
+        //             destination_addresses: vec![],
+        //         })),
+        //     },
+        //     3 => verfploeter::Task {
+        //         task_id,
+        //         // rate,
+        //         data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+        //             // source_address: src_addr,
+        //             destination_addresses: vec![],
+        //         })),
+        //     },
+        //     _ => verfploeter::Task::default(),
+        // };
+
         // Notify all senders that a new measurement is starting
         for sender in senders.iter() {
             match sender.try_send(Ok(start_task.clone())) {
@@ -518,25 +545,25 @@ impl Controller for ControllerService {
                     let task = match task_type {
                         1 => verfploeter::Task {
                             task_id,
-                            rate,
+                            // rate,
                             data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                                source_address: src_addr,
+                                // source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
                         },
                         2 => verfploeter::Task {
                             task_id,
-                            rate,
+                            // rate,
                             data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                                source_address: src_addr,
+                                // source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
                         },
                         3 => verfploeter::Task {
                             task_id,
-                            rate,
+                            // rate,
                             data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                                source_address: src_addr,
+                                // source_address: src_addr,
                                 destination_addresses: chunk.to_vec(),
                             })),
                         },
@@ -564,7 +591,7 @@ impl Controller for ControllerService {
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(verfploeter::Task {
                         task_id,
-                        rate,
+                        // rate,
                         data: None,
                     })).await {
                         Ok(_) => (),

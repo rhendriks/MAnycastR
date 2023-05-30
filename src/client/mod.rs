@@ -116,26 +116,35 @@ impl Client {
             return
         }
 
-        let rate:u32 = task.rate;
+        let start = if let Data::Start(start) = task.data.unwrap() { start } else { todo!() };
+
+        let rate: u32 = start.rate;
         let task_id = task.task_id;
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr = if self.source_address == 0 {
-            match task.data.clone().unwrap() {
-                Data::Ping(ping) => { ping.source_address }
-                Data::Udp(udp) => { udp.source_address }
-                Data::Tcp(tcp) => { tcp.source_address }
-                Data::Empty(_) => { 0 }
-            }
+            start.source_address
+            // match task.data.clone().unwrap() {
+            //     Data::Ping(ping) => { ping.source_address }
+            //     Data::Udp(udp) => { udp.source_address }
+            //     Data::Tcp(tcp) => { tcp.source_address }
+            //     Data::Empty(_) => { 0 }
+            // }
         } else {
             self.source_address
         };
 
         // Get protocol type
-        let protocol = match task.data.clone().unwrap() {
-            Data::Ping(_) => { Protocol::icmpv4() }
-            Data::Udp(_) => { Protocol::udp() }
-            Data::Tcp(_) => { Protocol::tcp() }
-            Data::Empty(_) => { Protocol::icmpv4() }
+        // let protocol = match task.data.clone().unwrap() {
+        //     Data::Ping(_) => { Protocol::icmpv4() }
+        //     Data::Udp(_) => { Protocol::udp() }
+        //     Data::Tcp(_) => { Protocol::tcp() }
+        //     Data::Empty(_) => { Protocol::icmpv4() }
+        // };
+        let protocol = match start.task_type {
+            1 => { Protocol::icmpv4() }
+            2 => { Protocol::udp() }
+            3 => { Protocol::tcp() }
+            _ => { Protocol::icmpv4() }
         };
 
         let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
@@ -147,8 +156,8 @@ impl Client {
         let (tx_f, rx_f): (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) = tokio::sync::oneshot::channel();
 
         // Start listening thread and sending thread
-        match task.data.clone().unwrap() {
-            Data::Ping(_) => {
+        match start.task_type {
+            1 => {
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
                     "{}:0",
@@ -160,7 +169,7 @@ impl Client {
                 listen_ping(self.metadata.clone(), socket.clone(), tx, tx_f, task_id, client_id);
                 perform_ping(socket, rx_f, client_id, source_addr, outbound_rx, finish_rx, rate);
             }
-            Data::Udp(_) => {
+            2 => {
                 let src_port: u16 = 62321;
                 // Create the socket to send and receive to/from
                 let bind_address = format!(
@@ -183,7 +192,7 @@ impl Client {
                 // Start sending thread
                 perform_udp(socket, rx_f, client_id, source_addr,src_port, outbound_rx, finish_rx, rate);
             }
-            Data::Tcp(_) => {
+            3 => {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
                 let src_port = 62321;
@@ -200,7 +209,7 @@ impl Client {
                 // Start sending thread
                 perform_tcp(socket, rx_f, source_addr, dest_port, src_port, outbound_rx, finish_rx, rate);
             }
-            Data::Empty(_) => { () }
+            _ => { () }
         };
 
         // Thread that listens for task results from inbound and forwards them to the server
@@ -276,14 +285,17 @@ impl Client {
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
-                // Signal finish
+                // Initialize signal finish channel
                 let (finish_tx, finish_rx) = oneshot::channel();
                 f_tx = Some(finish_tx);
 
+                // Channel for forwarding tasks to outbound
+                // TODO only required if this client is 'active'
                 let (tx, rx) = tokio::sync::mpsc::channel(1000);
                 tx.send(task.clone()).await.unwrap();
                 self.outbound_channel_tx = Some(tx);
 
+                // TODO make sure task is a Start task
                 self.init(task, client_id, rx, finish_rx);
             }
         }

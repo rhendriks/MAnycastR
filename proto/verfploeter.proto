@@ -37,13 +37,15 @@ message TaskId { uint32 task_id = 1; }
 // A client ID
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task with the Server with a rate (packets/second), can be either a Ping, UDP, or TCP task
+// Schedule a task with the Server can be either a Ping, UDP, or TCP task, with a probing rate and clients that have to perform the task
 message ScheduleTask {
   uint32 rate = 1;
+  repeated uint32 clients = 2;
+  fixed32 source_address = 3;
   oneof data {
-    Ping ping = 2;
-    UDP udp = 3;
-    TCP tcp = 4;
+    Ping ping = 4;
+    UDP udp = 5;
+    TCP tcp = 6;
   }
 }
 
@@ -66,8 +68,8 @@ message Metadata {
 // A task for a Client, with a task ID, the probing rate (probes / second) can be either a Ping, UDP, TCP, or an Empty task
 message Task {
   uint32 task_id = 1;
-  uint32 rate = 2;
   oneof data {
+    Start start = 2;
     Ping ping = 3;
     UDP udp = 4;
     TCP tcp = 5;
@@ -75,21 +77,29 @@ message Task {
   }
 }
 
+// A start message, indicates the probing rate (packets per second), whether the client should send out probes, and the type of task
+message Start {
+  uint32 rate = 1;
+  bool active = 2;
+  uint32 task_type = 3;
+  fixed32 source_address = 4;
+}
+
 // A Ping, which has a single source address and a list of destination addresses
 message Ping {
-  fixed32 source_address = 1;
+//  fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
 // UDP, which has a single source address and a list of destination addresses
 message UDP {
-  fixed32 source_address = 1;
+//  fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
 // TCP, which has a single source address and a list of destination addresses
 message TCP {
-  fixed32 source_address = 1;
+//  fixed32 source_address = 1;
   repeated fixed32 destination_addresses = 2;
 }
 
