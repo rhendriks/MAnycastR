@@ -422,15 +422,17 @@ impl Controller for ControllerService {
 
         let task = request.into_inner();
 
+        // Create a list of the connected clients' IDs
+        let mut client_list_u32: Vec<u32> = vec![];
+        for client in &self.clients.lock().unwrap().clients {
+            client_list_u32.push(client.client_id);
+        }
+
         // Check if there is a list of clients specified
         let clients: Vec<u32> = task.clients;
         if clients.len() != 0 {
             // Make sure all client IDs are valid
-            let mut client_list_u32: Vec<u32> = vec![];
-            for client in &self.clients.lock().unwrap().clients {
-                client_list_u32.push(client.client_id);
-            }
-            for client in clients {
+            for client in clients.clone() {
                 if !client_list_u32.contains(&client) {
                     return Err(Status::new(tonic::Code::Cancelled, format!("There is no client with ID {}", client)));
                 }
@@ -473,17 +475,6 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
-
-        let start_task = verfploeter::Task {
-            task_id,
-            data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                rate,
-                active: true, // TODO
-                task_type,
-                source_address: src_addr,
-            }))
-        };
-
         // let start_task = match task_type {
         //     1 => verfploeter::Task {
         //         task_id,
@@ -513,7 +504,47 @@ impl Controller for ControllerService {
         // };
 
         // Notify all senders that a new measurement is starting
+        let mut i = 0;
         for sender in senders.iter() {
+            // If no client list was specified, all clients will perform the task
+            let start_task = if clients.clone().len() == 0 {
+                verfploeter::Task {
+                    task_id,
+                    data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                        rate,
+                        active: true,
+                        task_type,
+                        source_address: src_addr,
+                    }))
+                }
+            } else {
+                // If a client list is specified, only those in that list will perform the task
+                // TODO assumes the senders list are in the same order as client_list_u32 list
+                let start_task = if clients.contains(client_list_u32.get(i).unwrap()) {
+                    verfploeter::Task {
+                        task_id,
+                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                            rate,
+                            active: true,
+                            task_type,
+                            source_address: src_addr,
+                        }))
+                    }
+                } else {
+                    verfploeter::Task {
+                        task_id,
+                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                            rate,
+                            active: false,
+                            task_type,
+                            source_address: src_addr,
+                        }))
+                    }
+                };
+                i = i + 1;
+                start_task
+            };
+
             match sender.try_send(Ok(start_task.clone())) {
                 Ok(_) => (),
                 Err(e) => println!("[Server] Failed to send 'start measurement' {:?}", e),
@@ -587,6 +618,8 @@ impl Controller for ControllerService {
                 }
 
                 if !abort {
+                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(verfploeter::Task {
