@@ -32,13 +32,14 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'finish_rx' - used to abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
 
     thread::spawn({
         let abort = abort.clone();
 
+        // Waits for a possible abort
         move || {
             finish_rx.wait().ok();
             *abort.lock().unwrap() = true;
@@ -71,7 +72,9 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
                 }
 
                 let task_data = match task.data {
-                    None => break, // A None task data means the measurement has finished
+                    None => {
+                        break
+                    }, // A None task data means the measurement has finished
                     Some(t) => t,
                 };
 
@@ -126,12 +129,12 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
             }
             debug!("finished ping");
 
-            // All packets have been sent for this task, give the listener 10 seconds for the replies
-            if *abort.lock().unwrap() == false { // Unless if we aborted, then we don't wait
-                thread::sleep(Duration::from_secs(10));
-            }
-            // Now close down the listener
-            rx_f.close();
+            // // All packets have been sent for this task, give the listener 10 seconds for the replies
+            // if *abort.lock().unwrap() == false { // Unless if we aborted, then we don't wait
+            //     thread::sleep(Duration::from_secs(10));
+            // }
+            // // Now close down the listener
+            // rx_f.close();
             println!("[Client outbound] Outbound thread finished");
         }
     });
@@ -160,7 +163,7 @@ pub fn perform_ping(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, 
 /// * 'finish_rx' - used to abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -241,10 +244,10 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
             }
             debug!("finished udp probing");
 
-            // All packets have been sent for this task, give the listener 10 seconds for the replies
-            thread::sleep(Duration::from_secs(10));
-            // Now close down the listener
-            rx_f.close();
+            // // All packets have been sent for this task, give the listener 10 seconds for the replies
+            // thread::sleep(Duration::from_secs(10));
+            // // Now close down the listener
+            // rx_f.close();
             println!("[Client outbound] UDP Outbound thread finished");
         }
     });
@@ -273,7 +276,7 @@ pub fn perform_udp(socket: Arc<Socket>, mut rx_f: Receiver<()>, client_id: u8, s
 /// * 'finish_rx' - used to abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
 
     let abort = Arc::new(Mutex::new(false));
@@ -357,10 +360,10 @@ pub fn perform_tcp(socket: Arc<Socket>, mut rx_f: Receiver<()>, source_addr: u32
             }
             debug!("finished TCP probing");
 
-            // All packets have been sent for this task, give the listener 10 seconds for the replies
-            thread::sleep(Duration::from_secs(10));
-            // Now close down the listener
-            rx_f.close();
+            // // All packets have been sent for this task, give the listener 10 seconds for the replies
+            // thread::sleep(Duration::from_secs(10));
+            // // Now close down the listener
+            // rx_f.close();
             println!("[Client outbound] TCP Outbound thread finished");
         }
     });
