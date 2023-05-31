@@ -155,7 +155,7 @@ impl Client {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when outbound is finished
-        let (tx_f, mut rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+        let (tx_f, rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
 
         self.inbound_f = Some(tx_f);
 
@@ -169,7 +169,6 @@ impl Client {
                 );
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-                println!("Listening on socket {:?}", socket);
                 listen_ping(self.metadata.clone(), socket.clone(), tx, rx_f, task_id, client_id);
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx, finish_rx, rate);
@@ -276,18 +275,15 @@ impl Client {
                     // Send finish signal
                     println!("[Client] CLI disconnected, exiting task");
                     f_tx.take().unwrap().send(()).unwrap();
-                    // continue
                 // If the received task is part of the active task
                 } else if *self.current_task.lock().unwrap() == task_id {
 
                     // A task with data None identifies the end of a measurement
                     if task.data == None {
                         println!("[Client] Received measurement finished from Server");
-                        // TODO exit inbound thread
+                        // Close the inbound threads
                         self.inbound_f.clone().unwrap().send(()).await.unwrap();
-                        // f_tx.take().unwrap().send(()).unwrap();
-                        // continue
-                        // Outbound gets exited by sending this None task to outbound
+                        // Outbound threads gets exited by sending this None task to outbound
                     }
 
                     // Send the task to the prober
@@ -296,7 +292,6 @@ impl Client {
                         Ok(_) => (),
                         Err(_) => (),
                     }
-                    println!("Forwarded task to prober");
                 } else {
                     // If we received a new task during a measurement
                     println!("[Client] Received new measurement during an active measurement, skipping")

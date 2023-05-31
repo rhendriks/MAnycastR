@@ -407,7 +407,7 @@ impl Controller for ControllerService {
 
         // If there are no connected clients that can perform this task
         if senders.len() == 0 {
-            println!("[Server] No connected clients, termination task.");
+            println!("[Server] No connected clients, terminating task.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected clients"));
         }
@@ -434,14 +434,16 @@ impl Controller for ControllerService {
             // Make sure all client IDs are valid
             for client in clients.clone() {
                 if !client_list_u32.contains(&client) {
-                    return Err(Status::new(tonic::Code::Cancelled, format!("There is no client with ID {}", client)));
+                    println!("[Server] Client ID requested that is not connected, terminating task.");
+                    *self.active.lock().unwrap() = false;
+                    return Err(Status::new(tonic::Code::Cancelled, format!("There is no client with ID {}", client)))
                 }
             }
         }
         // Store the number of clients that will perform this task
         {
             let mut open_tasks = self.open_tasks.lock().unwrap();
-            open_tasks.insert(task_id, senders.len() as u32); // TODO client list length
+            open_tasks.insert(task_id, senders.len() as u32);
         }
 
         // Create a Task from the ScheduleTask
@@ -475,33 +477,6 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
-        // let start_task = match task_type {
-        //     1 => verfploeter::Task {
-        //         task_id,
-        //         // rate,
-        //         data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-        //             // source_address: src_addr,
-        //             destination_addresses: vec![],
-        //         })),
-        //     },
-        //     2 => verfploeter::Task {
-        //         task_id,
-        //         // rate,
-        //         data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-        //             // source_address: src_addr,
-        //             destination_addresses: vec![],
-        //         })),
-        //     },
-        //     3 => verfploeter::Task {
-        //         task_id,
-        //         // rate,
-        //         data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-        //             // source_address: src_addr,
-        //             destination_addresses: vec![],
-        //         })),
-        //     },
-        //     _ => verfploeter::Task::default(),
-        // };
 
         // Notify all senders that a new measurement is starting
         let mut i = 0;

@@ -6,7 +6,6 @@ use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use futures::Future;
-use tokio::sync::oneshot::Receiver;
 use socket2::Socket;
 use crate::client::verfploeter::{PingPayload, Task};
 use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
