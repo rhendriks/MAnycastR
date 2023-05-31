@@ -83,9 +83,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .map(|id| u32::from_str(id).unwrap())
                 .collect();
 
-            println!("Client IDs: {:?}", client_ids);
+            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
             client_ids
         } else {
+            println!("[CLI] Probes will be sent out from all clients");
             vec![]
         };
 

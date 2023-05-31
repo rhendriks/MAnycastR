@@ -4,7 +4,6 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use socket2::Socket;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender;
 use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 use tokio::sync::mpsc::Receiver;
@@ -51,7 +50,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
-                println!("Received packet {:?}", packet);
 
                 // Obtain the payload
                 if let PacketPayload::ICMPv4 { value } = packet.payload {
