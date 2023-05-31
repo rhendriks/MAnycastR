@@ -35,8 +35,8 @@ pub struct Client {
     source_address: u32,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
-    outbound_channel_tx: Option<tokio::sync::mpsc::Sender<Task>>,
-    inbound_f: Option<tokio::sync::mpsc::Sender<()>>,
+    outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
+    inbound_tx_f: Option<tokio::sync::mpsc::Sender<()>>,
 }
 
 impl Client {
@@ -67,8 +67,8 @@ impl Client {
             source_address,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
-            outbound_channel_tx: None,
-            inbound_f: None,
+            outbound_tx: None,
+            inbound_tx_f: None,
         };
 
         client_class.connect_to_server().await?;
@@ -111,37 +111,23 @@ impl Client {
     /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
     ///
     /// * 'finish_rx' - a channel used to abort the measurement
-    fn init(&mut self, task: Task, client_id: u8, outbound_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: oneshot::Receiver<()>, probing: bool) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Option<tokio::sync::mpsc::Receiver<Task>>, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
             return
         }
 
-        let start = if let Data::Start(start) = task.data.unwrap() { start } else { todo!() };
-
+        let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = task.task_id;
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr = if self.source_address == 0 {
             start.source_address
-            // match task.data.clone().unwrap() {
-            //     Data::Ping(ping) => { ping.source_address }
-            //     Data::Udp(udp) => { udp.source_address }
-            //     Data::Tcp(tcp) => { tcp.source_address }
-            //     Data::Empty(_) => { 0 }
-            // }
         } else {
             self.source_address
         };
 
-        // Get protocol type
-        // let protocol = match task.data.clone().unwrap() {
-        //     Data::Ping(_) => { Protocol::icmpv4() }
-        //     Data::Udp(_) => { Protocol::udp() }
-        //     Data::Tcp(_) => { Protocol::tcp() }
-        //     Data::Empty(_) => { Protocol::icmpv4() }
-        // };
         let protocol = match start.task_type {
             1 => { Protocol::icmpv4() }
             2 => { Protocol::udp() }
@@ -154,10 +140,9 @@ impl Client {
         // Channel for sending from inbound to the server forwarder thread (at the end of the function)
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // Channel for signalling when outbound is finished
-        let (tx_f, rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-
-        self.inbound_f = Some(tx_f);
+        // Channel for signalling when inbound is finished
+        let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+        self.inbound_tx_f = Some(inbound_tx_f);
 
         // Start listening thread and sending thread
         match start.task_type {
@@ -169,9 +154,9 @@ impl Client {
                 );
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-                listen_ping(self.metadata.clone(), socket.clone(), tx, rx_f, task_id, client_id);
+                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx, finish_rx, rate);
+                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
                 }
             }
             2 => {
@@ -192,11 +177,11 @@ impl Client {
                 socket_icmp.bind(&bind_address_icmp.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, rx_f, task_id, client_id, socket_icmp);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp);
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr,src_port, outbound_rx, finish_rx, rate);
+                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
                 }
             }
             3 => {
@@ -211,11 +196,11 @@ impl Client {
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx, rx_f, task_id, client_id);
+                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx, finish_rx, rate);
+                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
                 }
             }
             _ => { () }
@@ -269,58 +254,70 @@ impl Client {
             let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
-                // TODO task finished message by server
                 // If the CLI disconnected we will receive this message
                 if *self.current_task.lock().unwrap() + 1000 == task_id {
                     // Send finish signal
-                    println!("[Client] CLI disconnected, exiting task");
-                    f_tx.take().unwrap().send(()).unwrap();
+                    println!("[Client] CLI disconnected, aborting measurement");
+                    // Close the inbound threads
+                    self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
+
+                    // f_tx will be None if this client is not probing
+                    if f_tx.is_some() {
+                        // Close outbound threads
+                        f_tx.take().unwrap().send(()).unwrap();
+                    }
                 // If the received task is part of the active task
                 } else if *self.current_task.lock().unwrap() == task_id {
-
                     // A task with data None identifies the end of a measurement
                     if task.data == None {
                         println!("[Client] Received measurement finished from Server");
                         // Close the inbound threads
-                        self.inbound_f.clone().unwrap().send(()).await.unwrap();
+                        self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
                         // Outbound threads gets exited by sending this None task to outbound
                     }
 
-                    // Send the task to the prober
-                    // TODO this is not neccesary if this client is not sending out tasks
-                    match self.outbound_channel_tx.clone().unwrap().send(task).await {
-                        Ok(_) => (),
-                        Err(_) => (),
+                    // outbound_tx will be None if this client is not probing
+                    if self.outbound_tx.is_some() {
+                        // Send the task to the prober
+                        match self.outbound_tx.clone().unwrap().send(task).await {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
                     }
                 } else {
                     // If we received a new task during a measurement
                     println!("[Client] Received new measurement during an active measurement, skipping")
                 }
-            // If we don't have an active task
+            // If we don't have an active measurement
             } else {
                 println!("[Client] Starting new measurement");
 
                 let task_active = match task.clone().data.unwrap() {
                     Data::Start(start) => start.active,
-                    _ => todo!(), // TODO must be a start task
+                    _ => continue, // First task must be a Start task
                 };
 
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
-                // Initialize signal finish channel
-                let (finish_tx, finish_rx) = oneshot::channel();
-                f_tx = Some(finish_tx);
+                if task_active {
+                    // Initialize signal finish channel
+                    // TODO can be created in init
+                    let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
+                    f_tx = Some(outbound_tx_f);
 
-                // if task_active { // TODO certain variables not neccessary when task_active == false
-                // Channel for forwarding tasks to outbound
-                let (tx, rx) = tokio::sync::mpsc::channel(1000);
-                tx.send(task.clone()).await.unwrap();
-                self.outbound_channel_tx = Some(tx);
-                // }
+                    // Channel for forwarding tasks to outbound
+                    // TODO can be created in init
+                    let (tx, rx) = tokio::sync::mpsc::channel(1000);
+                    tx.send(task.clone()).await.unwrap(); // TODO do we need to forward the Start packet?
+                    self.outbound_tx = Some(tx);
 
-                // TODO make sure task is a Start task
-                self.init(task, client_id, rx, finish_rx, task_active);
+                    self.init(task, client_id, Some(rx), Some(outbound_rx_f), task_active);
+                } else {
+                    f_tx = None;
+                    self.outbound_tx = None;
+                    self.init(task, client_id, None, None, task_active);
+                }
             }
         }
         println!("[Client] Stopped awaiting tasks");

@@ -76,11 +76,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the clients that have to send out probes
-        // TODO handle when there are non int client ids
         let client_ids = if matches.is_present("CLIENTS") {
             let client_ids = matches.values_of("CLIENTS").unwrap();
             let client_ids: Vec<u32> = client_ids
-                .map(|id| u32::from_str(id).unwrap())
+                .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
                 .collect();
 
             println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
