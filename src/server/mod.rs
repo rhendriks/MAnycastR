@@ -454,17 +454,14 @@ impl Controller for ControllerService {
         let task_type = match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
-                // src_addr = ping.source_address;
                 1
             }
             Data::Udp(udp) => {
                 dest_addresses = udp.destination_addresses;
-                // src_addr = udp.source_address;
                 2
             }
             Data::Tcp(tcp) => {
                 dest_addresses = tcp.destination_addresses;
-                // src_addr = tcp.source_address;
                 3
             }
         };
@@ -477,7 +474,6 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
-
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
@@ -527,55 +523,43 @@ impl Controller for ControllerService {
         }
 
         println!("[Server] Distributing tasks");
-        let mut t = 0;
+        let mut t: u64 = 0;
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             t += 1;
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
-
+            // This client's unique ID
+            let client_id = *client_list_u32.get(t as usize - 1).unwrap();
+            let clients = clients.clone();
 
             spawn(async move {
                 let mut abort = false;
                 let chunk_size: usize = 10;
 
                 // Sleep the desired time
-                tokio::time::sleep(tokio::time::Duration::from_secs(t)).await;
-                
+                tokio::time::sleep(Duration::from_secs(t)).await;
+
+                // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
+                let probing = if clients.clone().len() == 0 {
+                    true // All clients are probing
+                } else if clients.contains(&client_id) {
+                    true // This client was selected to probe
+                } else {
+                    false // This client was not selected to probe
+                };
+
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
-                println!("[Server] streaming tasks to client");
-                for chunk in dest_addresses.chunks(chunk_size) {
-                    let task = match task_type {
-                        1 => verfploeter::Task {
-                            task_id,
-                            // rate,
-                            data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
-                                // source_address: src_addr,
-                                destination_addresses: chunk.to_vec(),
-                            })),
-                        },
-                        2 => verfploeter::Task {
-                            task_id,
-                            // rate,
-                            data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
-                                // source_address: src_addr,
-                                destination_addresses: chunk.to_vec(),
-                            })),
-                        },
-                        3 => verfploeter::Task {
-                            task_id,
-                            // rate,
-                            data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
-                                // source_address: src_addr,
-                                destination_addresses: chunk.to_vec(),
-                            })),
-                        },
-                        _ => verfploeter::Task::default(),
-                    };
+                if probing {
+                    println!("[Server] streaming tasks to client with ID {}", client_id);
+                } else {
+                    println!("[Server] not streaming tasks to client with ID {}", client_id);
+                }
 
+                for chunk in dest_addresses.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
@@ -583,10 +567,34 @@ impl Controller for ControllerService {
                         break
                     }
 
-                    // Send packet to client
-                    match sender.send(Ok(task.clone())).await {
-                        Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send task to client {:?}", e),
+                    if probing {
+                        let task = match task_type {
+                            1 => verfploeter::Task {
+                                task_id,
+                                data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                                    destination_addresses: chunk.to_vec(),
+                                })),
+                            },
+                            2 => verfploeter::Task {
+                                task_id,
+                                data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                                    destination_addresses: chunk.to_vec(),
+                                })),
+                            },
+                            3 => verfploeter::Task {
+                                task_id,
+                                data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                                    destination_addresses: chunk.to_vec(),
+                                })),
+                            },
+                            _ => verfploeter::Task::default(),
+                        };
+
+                        // Send packet to client
+                        match sender.send(Ok(task.clone())).await {
+                            Ok(_) => (),
+                            Err(e) => println!("[Server] Failed to send task to client {:?}", e),
+                        }
                     }
 
                     interval.tick().await;
@@ -599,7 +607,6 @@ impl Controller for ControllerService {
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(verfploeter::Task {
                         task_id,
-                        // rate,
                         data: None,
                     })).await {
                         Ok(_) => (),

@@ -112,6 +112,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
+        // TODO thousand seperater for addresses
         println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap(), rate);
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
