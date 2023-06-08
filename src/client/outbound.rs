@@ -14,13 +14,9 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 ///
 /// This payload contains the client ID of this prober, transmission time, source and destination address, and the task ID of the current measurement.
 ///
-/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
-///
 /// # Arguments
 ///
 /// * 'socket' - the socket to send the probes from
-///
-/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
@@ -28,7 +24,7 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
-/// * 'finish_rx' - used to abort the measurement
+/// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
 pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
@@ -128,12 +124,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
             }
             debug!("finished ping");
 
-            // // All packets have been sent for this task, give the listener 10 seconds for the replies
-            // if *abort.lock().unwrap() == false { // Unless if we aborted, then we don't wait
-            //     thread::sleep(Duration::from_secs(10));
-            // }
-            // // Now close down the listener
-            // rx_f.close();
             println!("[Client outbound] Outbound thread finished");
         }
     });
@@ -143,13 +133,9 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
 ///
 /// This domain name contains the transmission time, the client ID of the prober, the task ID of the current task, and the source and destination address of the probe.
 ///
-/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
-///
 /// # Arguments
 ///
 /// * 'socket' - the socket to send the probes from
-///
-/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
@@ -159,7 +145,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
-/// * 'finish_rx' - used to abort the measurement
+/// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
 pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
@@ -243,10 +229,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
             }
             debug!("finished udp probing");
 
-            // // All packets have been sent for this task, give the listener 10 seconds for the replies
-            // thread::sleep(Duration::from_secs(10));
-            // // Now close down the listener
-            // rx_f.close();
             println!("[Client outbound] UDP Outbound thread finished");
         }
     });
@@ -256,13 +238,9 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
 ///
 /// The destination port uses a constant value with the client ID added, the ACK value has the current millis encoded into it.
 ///
-/// We notify the receiver that it is finished 10 seconds after the last packet is sent.
-///
 /// # Arguments
 ///
 /// * 'socket' - the socket to send the probes from
-///
-/// * 'rx_f' - channel that we close when we are done probing, to notify the inbound listener that we are finished
 ///
 /// * 'source_addr' - the source address we use in our probes
 ///
@@ -272,7 +250,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
-/// * 'finish_rx' - used to abort the measurement
+/// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
 pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
@@ -359,10 +337,6 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16,
             }
             debug!("finished TCP probing");
 
-            // // All packets have been sent for this task, give the listener 10 seconds for the replies
-            // thread::sleep(Duration::from_secs(10));
-            // // Now close down the listener
-            // rx_f.close();
             println!("[Client outbound] TCP Outbound thread finished");
         }
     });

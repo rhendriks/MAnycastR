@@ -462,7 +462,6 @@ impl UDPPacket {
         dns_body.write_u8(client_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
-        // TODO a static transaction ID will cause problems where a DNS server will only respond once despite receiving multiple probes
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs

@@ -23,7 +23,7 @@ use tokio::sync::mpsc::Receiver;
 ///
 /// * 'tx' - sender to put task results in
 ///
-/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+/// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
 /// * 'task_id' - the task_id of the current measurement
 ///
@@ -141,7 +141,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 ///
 /// * 'tx' - sender to put task results in
 ///
-/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+/// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
 /// * 'task_id' - the task_id of the current measurement
 ///
@@ -409,7 +409,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 ///
 /// * 'tx' - sender to put task results in
 ///
-/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+/// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
 /// * 'task_id' - the task_id of the current measurement
 ///
@@ -506,7 +506,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 ///
 /// * 'tx' - sender to put task results in
 ///
-/// * 'tx_f' - channel that gets closed when the outbound prober is finished for the current measurement
+/// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
 /// * 'task_id' - the task_id of the current measurement
 ///

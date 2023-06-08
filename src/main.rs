@@ -28,6 +28,7 @@
 //! * **Destination addresses** - the target addresses that will be probed (e.g. a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
+//! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
 //!
 //! # Results
 //!
@@ -54,9 +55,11 @@
 //!
 //! Finally, you can perform a task.
 //! ```
-//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] --stream
+//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
 //! ```
-//! SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP), RATE the rate (packets / second) at which clients will sent out probes.
+//! SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP), RATE the rate (packets / second) at which clients will sent out probes, CLIENTS is an optional command that is used to specify which clients have to send out probes (omitting this means all clients will send out probes).
+//!
+//! The hitlist can be shuffled by using the --shuffle option in the command.
 //!
 //! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
 //!
@@ -64,8 +67,9 @@
 //!
 //! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
 //! * Each client probes a target address, approximately 1 second after the previous client sent out theirs.
-//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
+//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI) [UNIMPLEMENTED].
 //! * The rate of the measurements is adjustable.
+//! * The clients that have to send out probes can be specified.
 //!
 //! # Robustness
 //!
@@ -73,6 +77,7 @@
 //! * Clients disconnecting during measurements are handled and the server will finish the measurement as well as possible.
 //! * CLI disconnecting during a measurement will result in the measurement being cancelled, to avoid unnecessary probes from being sent out (this allows for cancellation of measurements by forcefully closing the CLI during a measurement).
 //! * Both server and client enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if there is still a measurement active.
+//! * The server ensures that measurements are started and ended properly.
 //!
 //! # Probe details
 //!
