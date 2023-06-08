@@ -53,6 +53,7 @@ FLAGS:
 
 OPTIONS:
     -s, --server          ip address:port of the server [default: 127.0.0.1:50001]
+    -h,                   the hostname for this client
     -a, --source          source address for this client to use in its probes
                           (overwrites source address specified by CLI in tasks)
 ```

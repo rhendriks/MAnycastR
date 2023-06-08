@@ -27,7 +27,8 @@ mod outbound;
 /// * 'source_address' - contains the source address this client will use for outgoing probes (optional value that can be defined when creating this client)
 /// * 'active' - boolean value that is set to true when the client is currently doing a measurement
 /// * 'current_task' - contains the task ID of the current measurement
-/// * 'outbound_channel_tx' - contains the sender of a channel to the outbound prober that tasks are send to (will be None when there is no active measurement)
+/// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
+/// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
@@ -42,11 +43,11 @@ pub struct Client {
 impl Client {
     /// Create a client instance, which includes establishing a connection with the server.
     ///
-    /// Extracts the source address from the optional argument.
+    /// Extracts the parameters of the command-line arguments.
     ///
     /// # Arguments
     ///
-    /// * 'args' - contains the parsed CLI arguments
+    /// * 'args' - contains the parsed command-line arguments
     pub async fn new(args: &ArgMatches<'_>) -> Result<Client, Box<dyn Error>> {
         // Get values from args
         let hostname = args.value_of("hostname").unwrap();
@@ -110,7 +111,9 @@ impl Client {
     ///
     /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
     ///
-    /// * 'finish_rx' - a channel used to abort the measurement
+    /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
+    ///
+    /// * 'probing' - a boolean that indicates whether this client has to send out probes
     fn init(&mut self, task: Task, client_id: u8, outbound_rx: Option<tokio::sync::mpsc::Receiver<Task>>, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
@@ -221,8 +224,6 @@ impl Client {
                             self_clone.task_finished_to_server(TaskId {
                                 task_id
                             }).await.unwrap();
-
-                            // finish_rx.close();
 
                             break;
                         }
