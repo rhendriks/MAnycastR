@@ -1,5 +1,5 @@
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-use std::num::NonZeroU32;
+// use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+// use std::num::NonZeroU32;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
@@ -27,7 +27,7 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
 
@@ -44,7 +44,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
     thread::spawn({
         move || {
             // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second)
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
+            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -103,9 +103,9 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
                     let icmp = ICMP4Packet::echo_request(1, 2, bytes);
 
                     // Rate limiting
-                    while let Err(_) = lb.check() {
-                        thread::sleep(Duration::from_millis(1));
-                    }
+                    // while let Err(_) = lb.check() {
+                    //     thread::sleep(Duration::from_millis(1));
+                    // }
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
@@ -148,7 +148,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -165,7 +165,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
     thread::spawn({
         move || {
             // Rate limiter
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
+            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -208,9 +208,9 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
                     let udp = UDPPacket::dns_request(source_address, dest_addr, source_port, Vec::new(), "google.com", transmit_time, client_id);
 
                     // Rate limiting
-                    while let Err(_) = lb.check() {
-                        thread::sleep(Duration::from_millis(1));
-                    }
+                    // while let Err(_) = lb.check() {
+                    //     thread::sleep(Duration::from_millis(1));
+                    // }
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
@@ -253,7 +253,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, rate: u32) {
+pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
 
     let abort = Arc::new(Mutex::new(false));
@@ -270,7 +270,7 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16,
     thread::spawn({
         move || {
             // Rate limiter
-            let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
+            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
 
             loop {
                 if *abort.lock().unwrap() == true {
@@ -316,9 +316,9 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16,
                     let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port, destination_port, seq, ack, Vec::new());
 
                     // Rate limiting
-                    while let Err(_) = lb.check() {
-                        thread::sleep(Duration::from_millis(1));
-                    }
+                    // while let Err(_) = lb.check() {
+                    //     thread::sleep(Duration::from_millis(1));
+                    // }
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
