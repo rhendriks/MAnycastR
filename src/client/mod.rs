@@ -131,30 +131,22 @@ impl Client {
             self.source_address
         };
 
-        let protocol = match start.task_type {
-            1 => { Protocol::icmpv4() }
-            2 => { Protocol::udp() }
-            3 => { Protocol::tcp() }
-            _ => { Protocol::icmpv4() }
-        };
-
-        let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(protocol)).unwrap());
-
         // Channel for sending from inbound to the server forwarder thread (at the end of the function)
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when inbound is finished
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(inbound_tx_f);
+        let bind_address = format!(
+            "{}:0",
+            Ipv4Addr::from(source_addr).to_string()
+        );
 
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
                 // Create the socket to send and receive to/from
-                let bind_address = format!(
-                    "{}:0",
-                    Ipv4Addr::from(source_addr).to_string()
-                );
+                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
@@ -165,19 +157,12 @@ impl Client {
             2 => {
                 let src_port: u16 = 62321;
                 // Create the socket to send and receive to/from
-                let bind_address = format!(
-                    "{}:0",
-                    Ipv4Addr::from(source_addr).to_string()
-                );
+                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::udp())).unwrap());
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Create ICMP socket
                 let socket_icmp = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
-                let bind_address_icmp = format!(
-                    "{}:0",
-                    Ipv4Addr::from(source_addr).to_string()
-                );
-                socket_icmp.bind(&bind_address_icmp.parse::<SocketAddr>().unwrap().into()).unwrap();
+                socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
                 listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp);
@@ -191,11 +176,9 @@ impl Client {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
                 let src_port = 62321;
+
                 // Create the socket to send and receive to/from
-                let bind_address = format!(
-                    "{}:0",
-                    Ipv4Addr::from(source_addr).to_string()
-                );
+                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::tcp())).unwrap());
                 socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
