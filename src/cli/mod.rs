@@ -139,10 +139,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'rate' - the rate (packets / second) at which clients will send out probes (default: 1000)
 ///
+/// * 'client_ids' - the list of clients (by IDs) who participate in the measurement (empty list means all clients participate)
+///
 /// # Examples
 ///
 /// ```
-/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400);
+/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
 fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32, rate: u32, client_ids: Vec<u32>) -> verfploeter::ScheduleTask {
     match task_type {
