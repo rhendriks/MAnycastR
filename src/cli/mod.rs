@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
@@ -204,8 +205,16 @@ impl CliClient {
     ///
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str) -> Result<(), Box<dyn Error>> {
-        let rate = task.rate.to_string();
+        let rate = task.rate;
         let source_address = Ipv4Addr::from(task.source_address).to_string();
+
+        // Obtain connected client information for metadata
+        let request = Request::new(verfploeter::Empty::default());
+        let response = self.grpc_client.list_clients(request).await?;
+        let mut clients = HashMap::new();
+        for client in response.into_inner().clients {
+            clients.insert(client.client_id, client.metadata.clone().unwrap().hostname);
+        }
 
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
@@ -284,7 +293,10 @@ impl CliClient {
         file.write_all(format!("End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("Measurement length (seconds): {:.6}\n", length).as_ref())?;
 
-        // TODO metadata for each client (client ID, hostname, source address)
+        file.write_all(b"Connected clients:\n")?;
+        for (id, hostname) in &clients {
+            file.write_all(format!("\t * ID: {}, hostname: {}\n", id, hostname).as_ref())?; // TODO source address used for each client
+        }
 
         file.write_all(b"----------\n")?; // Separator metadata, and data
         file.flush()?;
@@ -299,37 +311,37 @@ impl CliClient {
         let mut wtr_file = csv::Writer::from_writer(file);
 
         // Information contained in TaskResult
-        let rows = ["recv_client_id", "hostname"]; // TODO define hostnames in metadata
+        let rows = ["recv_client_id"];
         // Information contained in IPv4 header
         let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
-        if task_type == 1 { // ICMP
+        if task_type == 1 { // ICMP // TODO can simplify/combine these if statements
             let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
 
-            let mut all_rows = [""; 10];
-            all_rows[..3].copy_from_slice(&rows);
-            all_rows[3..6].copy_from_slice(&ipv4_rows);
-            all_rows[6..].copy_from_slice(&icmp_rows);
+            let mut all_rows = [""; 9];
+            all_rows[..1].copy_from_slice(&rows);
+            all_rows[1..4].copy_from_slice(&ipv4_rows);
+            all_rows[4..].copy_from_slice(&icmp_rows);
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
-            wtr_file.write_record(all_rows).expect("TODO: panic message");
+            wtr_file.write_record(all_rows)?;
         } else if task_type == 2 { // UDP
             let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
             "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
 
-            let mut all_rows = [""; 15];
-            all_rows[..3].copy_from_slice(&rows);
-            all_rows[3..6].copy_from_slice(&ipv4_rows);
-            all_rows[6..].copy_from_slice(&udp_rows);
+            let mut all_rows = [""; 14];
+            all_rows[..1].copy_from_slice(&rows);
+            all_rows[1..4].copy_from_slice(&ipv4_rows);
+            all_rows[4..].copy_from_slice(&udp_rows);
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 3 { // TCP
             let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
 
-            let mut all_rows = [""; 10];
-            all_rows[..3].copy_from_slice(&rows);
-            all_rows[3..6].copy_from_slice(&ipv4_rows);
-            all_rows[6..].copy_from_slice(&tcp_rows);
+            let mut all_rows = [""; 9];
+            all_rows[..1].copy_from_slice(&rows);
+            all_rows[1..4].copy_from_slice(&ipv4_rows);
+            all_rows[4..].copy_from_slice(&tcp_rows);
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
@@ -337,14 +349,12 @@ impl CliClient {
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let task_id = result.task_id.to_string();
             let client: verfploeter::Client = result.client.unwrap();
-            let client_id = client.client_id.to_string();
-            let hostname: String = client.metadata.unwrap().hostname;
+            let receiver_client_id = client.client_id.to_string();
             let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
 
-            // TaskResult information
-            let record: [&str; 3] = [&task_id, &client_id, &hostname];
+            // TaskResult information TODO TaskResult still contains hostname and task_id which does not need to be repeated
+            let record: [&str; 1] = [&receiver_client_id];
 
             for verfploeter_result in verfploeter_results {
                 let value = verfploeter_result.value.unwrap();
@@ -365,9 +375,9 @@ impl CliClient {
                         let sender_client_id = payload.sender_client_id.to_string();
 
                         let record_ping: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &transmit_time, &request_src, &request_dest, &sender_client_id];
-                        let mut all_records = [""; 11];
-                        all_records[..3].copy_from_slice(&record);
-                        all_records[3..].copy_from_slice(&record_ping);
+                        let mut all_records = [""; 9];
+                        all_records[..1].copy_from_slice(&record);
+                        all_records[1..].copy_from_slice(&record_ping);
 
 
                         if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
@@ -393,9 +403,9 @@ impl CliClient {
                         let request_src_port = payload.source_port.to_string();
 
                         let record_udp: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
-                        let mut all_records = [""; 16];
-                        all_records[..3].copy_from_slice(&record);
-                        all_records[3..].copy_from_slice(&record_udp);
+                        let mut all_records = [""; 14];
+                        all_records[..1].copy_from_slice(&record);
+                        all_records[1..].copy_from_slice(&record_udp);
 
                         if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
                         wtr_file.write_record(&all_records)?;
@@ -415,9 +425,9 @@ impl CliClient {
                         let ack = tcp.ack.to_string();
 
                         let record_tcp: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &seq, &ack];
-                        let mut all_records = [""; 11];
-                        all_records[..3].copy_from_slice(&record);
-                        all_records[3..].copy_from_slice(&record_tcp);
+                        let mut all_records = [""; 9];
+                        all_records[..1].copy_from_slice(&record);
+                        all_records[1..].copy_from_slice(&record_tcp);
 
                         if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
                         wtr_file.write_record(all_records)?;
