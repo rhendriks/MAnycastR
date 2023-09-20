@@ -1,8 +1,8 @@
 use std::error::Error;
 use rand::seq::SliceRandom;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
@@ -70,10 +70,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist if desired
-        if matches.is_present("SHUFFLE") {
+        let shuffle = if matches.is_present("SHUFFLE") {
             let mut rng = rand::thread_rng();
             ips.as_mut_slice().shuffle(&mut rng);
-        }
+            true
+        } else {
+            false
+        };
 
         // Get the clients that have to send out probes
         let client_ids = if matches.is_present("CLIENTS") {
@@ -117,7 +120,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids);
-        cli_client.do_task_to_server(schedule_task, task_type, cli).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file).await
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
@@ -196,7 +199,12 @@ impl CliClient {
     /// * 'task_type' - the type of task that is being sent, and the type of the task results we will receive
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
-    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool) -> Result<(), Box<dyn Error>> {
+    ///
+    /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
+    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str) -> Result<(), Box<dyn Error>> {
+        let rate = task.rate.to_string();
+        let source_address = Ipv4Addr::from(task.source_address).to_string();
+
         let request = Request::new(task);
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await;
@@ -208,60 +216,105 @@ impl CliClient {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
+        let timestamp_start = chrono::offset::Local::now();
+
         println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", chrono::offset::Local::now().format("%H:%M:%S"));
 
         let mut results: Vec<verfploeter::TaskResult> = Vec::new();
 
+        let mut graceful = false;
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
-        while let Some(task_result) = stream.message().await? {
+        while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
-                println!("[CLI] Received task is finished from server");
-                let end = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos() as u64;
-                println!("[CLI] Waited {:.6} seconds for results.", (end - start) as f64 / 1_000_000_000.0);
+                graceful = true;
                 break;
             }
+
+            // TODO check for anycast targets live
             results.push(task_result);
         }
+        let end = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
+        println!("[CLI] Waited {:.6} seconds for results.", length);
+
+        // If the stream closed during a measurement
+        if !graceful { println!("[CLI] Measurement ended prematurely!"); }
 
         // CSV writer to command-line interface
         let mut wtr_cli = if cli { Some(csv::Writer::from_writer(io::stdout())) } else { None };
 
         // Get current timestamp and create timestamp file encoding
-        let timestamp = chrono::offset::Local::now();
-        let timestamp_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
-                                timestamp.year(), timestamp.month(), timestamp.day(),
-                                timestamp.hour(), timestamp.minute(), timestamp.second());
+        let timestamp_end = chrono::offset::Local::now();
+        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+                                        timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
+                                        timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
+        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+                                        timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
+                                        timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         // Get task type
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "ICMP" };
 
-        // CSV writer to file
-        let mut wtr_file = csv::Writer::from_path("./out/output_".to_string().add(type_str).add(&*timestamp_str).add(".csv"))?;
+        // Output file
+        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
+
+        // Write metadata of measurement
+        if !graceful {
+            file.write_all(b"Incomplete measurement\n")?;
+        } else {
+            file.write_all(b"Completed measurement\n")?;
+        }
+        file.write_all(format!("Source address: {}\n", source_address).as_ref())?;
+        if shuffle {
+            file.write_all(format!("Hitlist (shuffled): {}\n", hitlist).as_ref())?;
+        } else {
+            file.write_all(format!("Hitlist: {}\n", hitlist).as_ref())?;
+        }
+        file.write_all(format!("Task type: {}\n", type_str).as_ref())?;
+        // file.write_all(format!("Task ID: {}\n", type_str).as_ref())?; // TODO
+        file.write_all(format!("Probing rate: {}\n", rate).as_ref())?;
+        file.write_all(format!("Start measurement: {}\n", timestamp_start_str).as_ref())?;
+        file.write_all(format!("End measurement: {}\n", timestamp_end_str).as_ref())?;
+        file.write_all(format!("Measurement length (seconds): {:.6}\n", length).as_ref())?;
+
+        // TODO metadata for each client (client ID, hostname, source address)
+
+        file.write_all(b"----------\n")?; // Separator metadata, and data
+        file.flush()?;
+
+        // Open file again in append mode
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))
+            .unwrap();
+        // CSV writer for output file
+        let mut wtr_file = csv::Writer::from_writer(file);
 
         // Information contained in TaskResult
-        let rows = ["task_id", "recv_client_id", "hostname"];
+        let rows = ["recv_client_id", "hostname"]; // TODO define hostnames in metadata
         // Information contained in IPv4 header
         let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
         if task_type == 1 { // ICMP
             let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
 
-            let mut all_rows = [""; 11];
+            let mut all_rows = [""; 10];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&icmp_rows);
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
-            wtr_file.write_record(all_rows)?;
+            wtr_file.write_record(all_rows).expect("TODO: panic message");
         } else if task_type == 2 { // UDP
             let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
             "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
 
-            let mut all_rows = [""; 16];
+            let mut all_rows = [""; 15];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&udp_rows);
@@ -271,7 +324,7 @@ impl CliClient {
         } else if task_type == 3 { // TCP
             let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
 
-            let mut all_rows = [""; 11];
+            let mut all_rows = [""; 10];
             all_rows[..3].copy_from_slice(&rows);
             all_rows[3..6].copy_from_slice(&ipv4_rows);
             all_rows[6..].copy_from_slice(&tcp_rows);
