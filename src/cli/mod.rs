@@ -7,10 +7,13 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::Request;
 use tonic::transport::Channel;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
@@ -18,6 +21,7 @@ use verfploeter::{ controller_client::ControllerClient, TaskResult };
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
+use crate::client::verfploeter::VerfploeterResult;
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -314,7 +318,7 @@ impl CliClient {
         let rows = ["recv_client_id"];
         // Information contained in IPv4 header
         let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
-        if task_type == 1 { // ICMP // TODO can simplify/combine these if statements
+        if task_type == 1 { // ICMP
             let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
 
             let mut all_rows = [""; 9];
@@ -465,5 +469,69 @@ impl CliClient {
         table.printstd();
 
         Ok(())
+    }
+
+    /// Check for Anycast addresses live, by keeping track of the number of unique clients receiving a response for all addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * 'rx' - Receives task results to be analyzed
+    /// 
+    /// * 'cleanup_interval' - The interval at which results are cleaned up
+    ///
+    async fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration) { // TODO might not be able to keep up at high probing rates
+        let mut map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
+
+        let map_clone = map.clone();
+        // Start the cleanup task in a separate Tokio task
+        tokio::spawn(async move {
+            loop {
+                // Sleep for the cleanup interval
+                tokio::time::sleep(cleanup_interval).await;
+
+                // Perform the cleanup
+                let mut map = map_clone.lock().unwrap();
+                let current_time = Instant::now();
+
+                map.retain(|_, &mut (client_id, timestamp)| {
+                    current_time.duration_since(timestamp) <= cleanup_interval
+                });
+            }
+        });
+
+        // Receive tasks from the outbound channel
+        while let Some(task_result) = rx.recv().await {
+            // Get the client ID
+            let client_id: u8 = task_result.client.unwrap().client_id.try_into().unwrap();
+
+            // Loop over all results
+            for result in task_result.result_list {
+                // Get the source address of this result
+                let address: u32 = match result.value.unwrap() {
+                    verfploeter::verfploeter_result::Value::Ping(ping_result) => ping_result.ipv4_result.unwrap().source_address,
+                    verfploeter::verfploeter_result::Value::Udp(udp_result) => udp_result.ipv4_result.unwrap().source_address,
+                    verfploeter::verfploeter_result::Value::Tcp(tcp_result) => tcp_result.ipv4_result.unwrap().source_address,
+                };
+
+                let mut map = map.lock().unwrap();
+
+                if !map.contains_key(&address) {
+                    // If we have not yet recorded this address, make a new entry with current timestamp and the receiving client's ID
+                    map.insert(address, (client_id, Instant::now()));
+                } else {
+                    // If we have already recorded it retrieve the record
+                    let (client_id_old, timestamp) = map.get(&address).unwrap().clone();
+                    if (client_id_old == 0) | (client_id == client_id_old) {
+                        // If the client ID == 0 (already recorded as anycast suspect) or has the same client ID (still unicast suspect) do nothing
+                        continue;
+                    } else {
+                        // If this was also recorded at a different client, it is an anycast suspect
+                        println!("Anycast suspect! {}", address);
+                        // Set client ID to 0 (already checked)
+                        map.insert(address, (0, timestamp));
+                    }
+                }
+            }
+        }
     }
 }
