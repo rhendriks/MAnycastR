@@ -8,12 +8,11 @@ use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::Channel;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
@@ -21,7 +20,6 @@ use verfploeter::{ controller_client::ControllerClient, TaskResult };
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
-use crate::client::verfploeter::VerfploeterResult;
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -240,13 +238,20 @@ impl CliClient {
         let mut graceful = false;
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
+
+        let (tx, rx) = unbounded_channel();
+
+        address_feed(rx, Default::default()); //TODO cleanup_interval
+
+
+
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
                 graceful = true;
                 break;
             }
-
+            tx.send(task_result.clone()).unwrap();
             // TODO check for anycast targets live
             results.push(task_result);
         }
@@ -470,35 +475,37 @@ impl CliClient {
 
         Ok(())
     }
+}
 
-    /// Check for Anycast addresses live, by keeping track of the number of unique clients receiving a response for all addresses.
-    ///
-    /// # Arguments
-    ///
-    /// * 'rx' - Receives task results to be analyzed
-    /// 
-    /// * 'cleanup_interval' - The interval at which results are cleaned up
-    ///
-    async fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration) { // TODO might not be able to keep up at high probing rates
-        let mut map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
+/// Check for Anycast addresses live, by keeping track of the number of unique clients receiving a response for all addresses.
+///
+/// # Arguments
+///
+/// * 'rx' - Receives task results to be analyzed
+///
+/// * 'cleanup_interval' - The interval at which results are cleaned up
+///
+fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration) { // TODO might not be able to keep up at high probing rates
+    let map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
 
-        let map_clone = map.clone();
-        // Start the cleanup task in a separate Tokio task
-        tokio::spawn(async move {
-            loop {
-                // Sleep for the cleanup interval
-                tokio::time::sleep(cleanup_interval).await;
+    let map_clone = map.clone();
+    // Start the cleanup task in a separate Tokio task
+    tokio::spawn(async move {
+        loop {
+            // Sleep for the cleanup interval
+            tokio::time::sleep(cleanup_interval).await;
 
-                // Perform the cleanup
-                let mut map = map_clone.lock().unwrap();
-                let current_time = Instant::now();
+            // Perform the cleanup
+            let mut map = map_clone.lock().unwrap();
+            let current_time = Instant::now();
 
-                map.retain(|_, &mut (client_id, timestamp)| {
-                    current_time.duration_since(timestamp) <= cleanup_interval
-                });
-            }
-        });
+            map.retain(|_, &mut (_, timestamp)| {
+                current_time.duration_since(timestamp) <= cleanup_interval
+            });
+        }
+    });
 
+    tokio::spawn(async move {
         // Receive tasks from the outbound channel
         while let Some(task_result) = rx.recv().await {
             // Get the client ID
@@ -526,12 +533,14 @@ impl CliClient {
                         continue;
                     } else {
                         // If this was also recorded at a different client, it is an anycast suspect
-                        println!("Anycast suspect! {}", address);
+                        // TODO currently spams the CLI
+                        println!("[CLI] Anycast suspect! {}", Ipv4Addr::from(address).to_string());
                         // Set client ID to 0 (already checked)
                         map.insert(address, (0, timestamp));
                     }
                 }
             }
         }
-    }
+    });
 }
+
