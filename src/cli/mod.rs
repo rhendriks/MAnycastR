@@ -123,7 +123,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, matches.is_present("LIVE")).await
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
@@ -206,7 +206,9 @@ impl CliClient {
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
-    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str) -> Result<(), Box<dyn Error>> {
+    ///
+    /// * 'live' - if true results will be checked for anycast targets as they come in.
+    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, live: bool) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = Ipv4Addr::from(task.source_address).to_string();
 
@@ -239,11 +241,14 @@ impl CliClient {
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
 
-        let (tx, rx) = unbounded_channel();
-
-        address_feed(rx, Default::default()); //TODO cleanup_interval
-
-
+        let tx = if live {
+            // Channel for address_feed
+            let (tx, rx) = unbounded_channel();
+            address_feed(rx,  Duration::from_secs((clients.len() * 2) as u64));
+            Some(tx)
+        } else {
+            None
+        };
 
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
@@ -251,8 +256,9 @@ impl CliClient {
                 graceful = true;
                 break;
             }
-            tx.send(task_result.clone()).unwrap();
-            // TODO check for anycast targets live
+            if let Some(tx) = &tx {
+                tx.send(task_result.clone()).unwrap();
+            }
             results.push(task_result);
         }
         let end = SystemTime::now()
