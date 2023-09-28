@@ -443,6 +443,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 if let PacketPayload::TCP { value } = packet.payload {
                     // Responses to our probes have destination port > 4000 (as we use these as source)
                     // Use the RST flag, and have ACK 0
+                    // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
                     if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
                         continue;
                     }
