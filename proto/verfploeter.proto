@@ -60,9 +60,10 @@ message Client {
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname
+// Metadata (as used in Client), contains a hostname and a source address (0 if client uses the default source)
 message Metadata {
   string hostname = 1;
+  uint32 source_address = 2;
 }
 
 // A task for a Client, with a task ID, the probing rate (probes / second) can be either a Start, Ping, UDP, TCP, or an Empty task
