@@ -248,7 +248,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false))
                     .arg(Arg::with_name("LIVE").help("Check results for Anycast targets as they come in live")
                         .takes_value(false)
-                        .long("shuffle")
+                        .long("live")
                         .required(false))
                 )
         )
