@@ -59,6 +59,7 @@ impl Client {
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
+            source_address,
         };
 
         // Initialize a client instance
@@ -276,7 +277,7 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let task_active = match task.clone().data.unwrap() {
+                let task_active = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
                     Data::Start(start) => start.active,
                     _ => continue, // First task must be a Start task
                 };
