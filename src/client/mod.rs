@@ -125,6 +125,10 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = task.task_id;
+
+        let client_sources: Vec<u32> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
+        println!("Client sources {:?}", client_sources);
+
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr = if self.source_address == 0 {
             start.source_address
