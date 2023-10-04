@@ -84,6 +84,7 @@ message Start {
   bool active = 2;
   uint32 task_type = 3;
   fixed32 source_address = 4;
+  repeated fixed32 client_sources = 5;
 }
 
 // A Ping, which has a list of destination addresses
