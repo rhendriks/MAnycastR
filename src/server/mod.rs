@@ -475,19 +475,30 @@ impl Controller for ControllerService {
             let _ = sender.insert(tx);
         }
 
+        // Create a list of source addresses used by clients
+        let mut client_sources: Vec<u32> = vec![];
+        for client in &self.clients.lock().unwrap().clients {
+            let client_address: u32 = client.metadata.clone().unwrap().source_address;
+            // Add all client addresses (except those with value 0, and those already in the list)
+            if (client_address != 0) | (client_sources.contains(&client_address)) {
+                client_sources.push(client_address);
+            }
+        }
+
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
             // If no client list was specified, all clients will perform the task
-            let start_task = if clients.clone().len() == 0 {
+            let start_task = if clients.clone().len() == 0 { // TODO can simplify the start_task variable creations
                 verfploeter::Task {
                     task_id,
                     data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                         rate,
                         active: true,
                         task_type,
-                        source_address: src_addr,
+                        source_address: src_addr, // TODO add client_addresses
+                        client_sources: client_sources.clone(),
                     }))
                 }
             } else {
@@ -501,6 +512,7 @@ impl Controller for ControllerService {
                             active: true,
                             task_type,
                             source_address: src_addr,
+                            client_sources: client_sources.clone(),
                         }))
                     }
                 } else {
@@ -511,6 +523,7 @@ impl Controller for ControllerService {
                             active: false,
                             task_type,
                             source_address: src_addr,
+                            client_sources: client_sources.clone(),
                         }))
                     }
                 };
