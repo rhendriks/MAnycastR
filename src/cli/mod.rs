@@ -21,6 +21,9 @@ use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
 
+use std::fs;
+use std::process::{Command, Stdio};
+
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
@@ -48,6 +51,47 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a Verfploeter measurement
+
+        // Check if iGreedy is present, and has a valid path if so
+        let igreedy: Option<&str> = if matches.is_present("LIVE") {
+            let path = matches.value_of("LIVE");
+
+            if let Ok(metadata) = fs::metadata(path.unwrap()) {
+                println!("metadata: {:?}", metadata);
+
+                println!("Path: {}", path.unwrap());
+                let output = Command::new("bash")
+                    .arg(path.unwrap())
+                    .stdout(Stdio::piped()) // Capture stdout
+                    .spawn()?
+                    .wait_with_output()?;
+
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    println!("Script output:\n{}", stdout);
+                } else {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    println!("Script output:\n{}", stdout);
+                    println!("The script executed but returned a non-zero exit status: {}", output.status);
+                }
+
+
+            } else {
+                panic!("Invalid iGreedy path (no file located at {}", path.unwrap());
+
+            }
+
+            path
+            // TODO verify path points to a working iGreedy location
+        } else {
+            None
+        };
+
+
+
+
+
+
         // Source IP for the measurement
         let source_ip = u32::from(match Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()) {
             Ok(s) => {s}
@@ -123,7 +167,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, matches.is_present("LIVE")).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, matches.is_present("LIVE")).await // TODO LIVE
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
