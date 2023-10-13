@@ -247,9 +247,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("shuffle")
                         .required(false))
                     .arg(Arg::with_name("LIVE").help("Check results for Anycast targets as they come in live")
-                        .takes_value(false)
+                        .takes_value(true)
                         .long("live")
                         .required(false))
+
+                    // TODO option to perform manycast for all 3 protocols on a hitlist
+                    // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
+                    // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
+
                 )
         )
         .get_matches()
