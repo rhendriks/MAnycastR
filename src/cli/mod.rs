@@ -327,34 +327,34 @@ impl CliClient {
 
         // Write metadata of measurement
         if !graceful {
-            file.write_all(b"Incomplete measurement\n")?;
+            file.write_all(b"# Incomplete measurement\n")?;
         } else {
-            file.write_all(b"Completed measurement\n")?;
+            file.write_all(b"# Completed measurement\n")?;
         }
-        file.write_all(format!("Default source address: {}\n", source_address).as_ref())?;
+        file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
         if shuffle {
-            file.write_all(format!("Hitlist (shuffled): {}\n", hitlist).as_ref())?;
+            file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
         } else {
-            file.write_all(format!("Hitlist: {}\n", hitlist).as_ref())?;
+            file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
         }
-        file.write_all(format!("Task type: {}\n", type_str).as_ref())?;
+        file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
         // file.write_all(format!("Task ID: {}\n", type_str).as_ref())?; // TODO
-        file.write_all(format!("Probing rate: {}\n", rate).as_ref())?;
-        file.write_all(format!("Start measurement: {}\n", timestamp_start_str).as_ref())?;
-        file.write_all(format!("End measurement: {}\n", timestamp_end_str).as_ref())?;
-        file.write_all(format!("Measurement length (seconds): {:.6}\n", length).as_ref())?;
+        file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
+        file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
+        file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
+        file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
 
-        file.write_all(b"Connected clients:\n")?;
+        file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
             let source_addr = if metadata.source_address == 0 {
                 "Default".to_string()
             } else {
                 Ipv4Addr::from(metadata.source_address).to_string()
             };
-            file.write_all(format!("\t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
+            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
 
-        file.write_all(b"----------\n")?; // Separator metadata, and data
+        file.write_all(b"# ----------\n")?; // Separator metadata, and data
         file.flush()?;
 
         // Open file again in append mode
