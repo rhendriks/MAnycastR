@@ -9,7 +9,7 @@ use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use chrono::{Datelike, Timelike};
+use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
@@ -53,14 +53,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Start a Verfploeter measurement
 
         // Check if iGreedy is present, and has a valid path if so
-        let igreedy: Option<&str> = if matches.is_present("LIVE") {
+        let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
             if let Ok(metadata) = fs::metadata(path.unwrap()) {
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
-                let output = Command::new("bash")
+
+                let output = Command::new("python")
                     .arg(path.unwrap())
                     .stdout(Stdio::piped()) // Capture stdout
                     .spawn()?
@@ -73,24 +74,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     println!("Script output:\n{}", stdout);
                     println!("The script executed but returned a non-zero exit status: {}", output.status);
+                    panic!("iGreedy did not get executed properly.")
                 }
-
-
             } else {
-                panic!("Invalid iGreedy path (no file located at {}", path.unwrap());
-
+                panic!("Invalid iGreedy path: {}", path.unwrap());
             }
-
-            path
-            // TODO verify path points to a working iGreedy location
+            Some(path.unwrap().to_owned())
         } else {
             None
         };
-
-
-
-
-
 
         // Source IP for the measurement
         let source_ip = u32::from(match Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()) {
@@ -167,7 +159,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, matches.is_present("LIVE")).await // TODO LIVE
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy).await
     } else {
         println!("[CLI] Unrecognized command");
         unimplemented!();
@@ -252,7 +244,7 @@ impl CliClient {
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     ///
     /// * 'live' - if true results will be checked for anycast targets as they come in.
-    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, live: bool) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = Ipv4Addr::from(task.source_address).to_string();
 
@@ -285,10 +277,10 @@ impl CliClient {
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
 
-        let tx = if live {
+        let tx = if igreedy != None {
             // Channel for address_feed
             let (tx, rx) = unbounded_channel();
-            address_feed(rx,  Duration::from_secs((clients.len() * 2) as u64));
+            address_feed(rx,  Duration::from_secs((clients.len() * 2) as u64), igreedy.unwrap());
             Some(tx)
         } else {
             None
@@ -553,7 +545,7 @@ impl CliClient {
 ///
 /// * 'cleanup_interval' - The interval at which results are cleaned up
 ///
-fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration) { // TODO might not be able to keep up at high probing rates
+fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration, path: String) {
     let map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
 
     let map_clone = map.clone();
@@ -603,6 +595,9 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
                         // If this was also recorded at a different client, it is an anycast suspect
                         // TODO currently spams the CLI
                         println!("[CLI] Anycast suspect! {}", Ipv4Addr::from(address).to_string());
+                        igreedy(path.clone(), &Ipv4Addr::from(address).to_string());
+
+                        // TODO keep list of checked anycast targets, and make sure to not check targets multiple times
                         // Set client ID to 0 (already checked)
                         map.insert(address, (0, timestamp));
                     }
@@ -612,3 +607,15 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
     });
 }
 
+/// Perform an iGreedy measurement on a given IP address
+fn igreedy(path: String, target: &str) {
+    let output = format!("igreedy/{}/{}", Local::now().format("%Y%m%d").to_string(), target);
+
+    Command::new("python")
+        .arg(&path)
+        .arg("-m")
+        .arg(target)
+        .arg("-o")
+        .arg(&output)
+        .spawn().expect("iGreedy failed!");
+}
