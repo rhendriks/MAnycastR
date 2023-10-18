@@ -61,7 +61,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                 println!("Path: {}", path.unwrap());
 
-                let output = Command::new("python")
+                let output = Command::new("python3") // TODO write when this function fails
                     .arg(path.unwrap())
                     .stdout(Stdio::piped()) // Capture stdout
                     .spawn()?
@@ -611,7 +611,7 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
 fn igreedy(path: String, target: &str) {
     let output = format!("igreedy/{}/{}", Local::now().format("%Y%m%d").to_string(), target);
 
-    Command::new("python")
+    Command::new("python3")
         .arg(&path)
         .arg("-m")
         .arg(target)
