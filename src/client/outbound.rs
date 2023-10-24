@@ -205,7 +205,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
 
                     let bind_addr_dest = format!("{}:{}", Ipv4Addr::from(dest_addr).to_string(), source_port.to_string());
 
-                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port, Vec::new(), "google.com", transmit_time, client_id);
+                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id);
 
                     // Rate limiting
                     // while let Err(_) = lb.check() {
