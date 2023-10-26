@@ -1,4 +1,7 @@
-use super::byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+mod netv6;
+
+extern crate byteorder;
+use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 use std::io::Write;
 use std::net::Ipv4Addr;

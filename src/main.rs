@@ -123,7 +123,6 @@
 //! From these definitions code is generated using protobuf (done in build.rs).
 
 extern crate env_logger;
-extern crate byteorder;
 #[macro_use]
 extern crate log;
 use clap::{App, Arg, ArgMatches, SubCommand};
