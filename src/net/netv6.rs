@@ -92,3 +92,72 @@ impl From<&[u8]> for IPv6Packet {
         }
     }
 }
+
+// TODO calculate checksum for udp/tcp with ipv6header
+/// Struct defining a pseudo header (ipv6) that is used by both TCP and UDP to calculate their checksum
+#[derive(Debug)]
+pub struct PseudoHeaderv6 {
+    pub source_address: u128,
+    pub destination_address: u128,
+    pub length: u32,  // TCP/UDP header + data length
+    // pub zeros: u24, // 24 0's
+    pub next_header: u8  // 6 for TCP, 17 for UDP
+}
+
+/// Converting PsuedoHeaderv6 to bytes
+impl Into<Vec<u8>> for PseudoHeaderv6 {
+    fn into(self) -> Vec<u8> {
+        let mut wtr = vec![];
+        wtr.write_u128::<NetworkEndian>(self.source_address)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u128::<NetworkEndian>(self.destination_address)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u32::<NetworkEndian>(self.length)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        // wtr.write_u24(self.zeroes) // TODO needed?
+        //     .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u8(self.next_header)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr
+    }
+}
+
+/// Calculate the checksum for an IPv6 UDP/TCP packet.
+///
+/// # Arguments
+///
+/// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
+///
+/// * 'pseudo_header' - the pseudo header for this packet
+pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 { // TODO untested
+    // Convert the PseudoHeaderv6 to a byte vector manually // TODO use Into<Vec<u8>> for PseudoHeaderv6
+    let mut pseudo_header_bytes = vec![];
+    pseudo_header_bytes.write_u128::<NetworkEndian>(pseudo_header.source_address)
+        .expect("Failed to write source_address to pseudo-header");
+    pseudo_header_bytes.write_u128::<NetworkEndian>(pseudo_header.destination_address)
+        .expect("Failed to write destination_address to pseudo-header");
+    pseudo_header_bytes.write_u32::<NetworkEndian>(pseudo_header.length)
+        .expect("Failed to write length to pseudo-header");
+    pseudo_header_bytes.write_u8(pseudo_header.next_header)
+        .expect("Failed to write next_header to pseudo-header");
+
+    // Concatenate the pseudo-header bytes and the UDP/TCP packet bytes
+    let mut data = pseudo_header_bytes;
+    data.extend_from_slice(buffer);
+
+    // Divide the concatenated data into 16-bit words and calculate the sum
+    let mut sum = 0u32;
+    for i in (0..data.len()).step_by(2) {
+        let word = u16::from_le_bytes([data[i], data[i + 1]]);
+        sum = sum.wrapping_add(u32::from(word));
+    }
+
+    // Take the one's complement of the sum
+    while (sum >> 16) > 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // The result is the 16-bit checksum
+    !sum as u16
+}
+
