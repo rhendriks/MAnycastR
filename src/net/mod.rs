@@ -21,7 +21,7 @@ pub struct IPv4Packet {
 /// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
 #[derive(Debug)]
 pub enum PacketPayload {
-    ICMPv4 { value: ICMP4Packet },
+    ICMPv4 { value: ICMPPacket },
     UDP {value: UDPPacket },
     TCP {value: TCPPacket },
     Unimplemented,
@@ -50,7 +50,7 @@ impl From<&[u8]> for IPv4Packet {
                 if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
                 else {
                     PacketPayload::ICMPv4 {
-                        value: ICMP4Packet::from(payload_bytes),
+                        value: ICMPPacket::from(payload_bytes),
                     }
                 }
             },
@@ -152,7 +152,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
 
 /// An ICMP4Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
 #[derive(Debug)]
-pub struct ICMP4Packet {
+pub struct ICMPPacket {
     pub icmp_type: u8,
     pub code: u8,
     pub checksum: u16,
@@ -162,10 +162,10 @@ pub struct ICMP4Packet {
 }
 
 /// Parsing from bytes to ICMP4Packet
-impl From<&[u8]> for ICMP4Packet {
+impl From<&[u8]> for ICMPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
-        ICMP4Packet {
+        ICMPPacket {
             icmp_type: data.read_u8().unwrap(),
             code: data.read_u8().unwrap(),
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
@@ -177,7 +177,7 @@ impl From<&[u8]> for ICMP4Packet {
 }
 
 /// Convert ICMp4Packet into a vector of bytes
-impl Into<Vec<u8>> for &ICMP4Packet {
+impl Into<Vec<u8>> for &ICMPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
         wtr.write_u8(self.icmp_type)
@@ -196,7 +196,7 @@ impl Into<Vec<u8>> for &ICMP4Packet {
     }
 }
 
-impl ICMP4Packet {
+impl ICMPPacket {
     /// Create a basic ICMPv4 ECHO_REQUEST (8.0) packet with checksum.
     ///
     /// # Arguments
@@ -207,7 +207,7 @@ impl ICMP4Packet {
     ///
     /// * 'body' - the ICMP payload
     pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
-        let mut packet = ICMP4Packet {
+        let mut packet = ICMPPacket {
             icmp_type: 8,
             code: 0,
             checksum: 0,
@@ -219,7 +219,7 @@ impl ICMP4Packet {
         // Turn everything into a vec of bytes and calculate checksum
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
-        packet.checksum = ICMP4Packet::calc_checksum(&bytes);
+        packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
         // Put the checksum at the right position in the packet (calling into() again is also
         // possible but is likely slower).
@@ -231,7 +231,7 @@ impl ICMP4Packet {
         cursor.into_inner()
     }
 
-    /// Calculate the ICMP Checksum.
+    /// Calculate the ICMP Checksum. TODO test for ipv6
     ///
     /// This calculation covers the entire ICMPv4 message (16-bit one's complement).
     fn calc_checksum(buffer: &[u8]) -> u16 {
@@ -364,7 +364,7 @@ impl UDPPacket {
 
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
 
-        let mut packet = UDPPacket {
+        let mut packet = Self {
             source_port,
             destination_port,
             length: udp_length,
@@ -406,14 +406,14 @@ impl UDPPacket {
         transmit_time: u64,
         client_id: u8
     ) -> Vec<u8> {
-        let destination_port = 53 as u16;
+        let destination_port = 53u16;
 
         let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time,
                      source_address, destination_address, client_id, source_port);
 
         let udp_length = (8 + body.len() + dns_body.len()) as u16;
 
-        let mut packet = UDPPacket {
+        let mut packet = Self {
             source_port,
             destination_port,
             length: udp_length,
@@ -482,6 +482,8 @@ impl UDPPacket {
 
         dns_body
     }
+
+    //TODO create CHAOS request
 }
 
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
@@ -551,7 +553,7 @@ impl TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
     pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
-        let mut packet = TCPPacket {
+        let mut packet = Self {
             source_port,
             destination_port,
             seq,

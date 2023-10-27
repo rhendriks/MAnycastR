@@ -1,6 +1,5 @@
-use super::byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read};
-use std::io::Write;
+use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
 use super::PacketPayload;
 
@@ -160,4 +159,176 @@ pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u
     // The result is the 16-bit checksum
     !sum as u16
 }
+
+impl super::UDPPacket {
+    /// Create a basic UDP packet with checksum.
+    pub fn udp_request_v6(source_address: u128, destination_address: u128,
+                       source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
+
+        let udp_length = (8 + body.len() + super::INFO_URL.bytes().len()) as u32; // TODO check if this is correct
+
+        let mut packet = Self {
+            source_port,
+            destination_port,
+            length: udp_length as u16, // TODO check if this is correct
+            checksum: 0,
+            body,
+        };
+
+        let mut bytes: Vec<u8> = (&packet).into();
+        bytes.extend(super::INFO_URL.bytes()); // Add INFO_URL
+
+        let pseudo_header = PseudoHeaderv6 {
+            source_address,
+            destination_address,
+            // zeroes: 0,
+            next_header: 17,
+            length: udp_length,
+        };
+
+        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+
+        // Put the checksum at the right position in the packet (calling into() again is also
+        // possible but is likely slower).
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+
+    /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
+    /// source_address, destination_address, client_id, source_port, destination_port
+    pub fn dns_request_v6(
+        source_address: u128,
+        destination_address: u128,
+        source_port: u16,
+        body: Vec<u8>,
+        domain_name: &str,
+        transmit_time: u64,
+        client_id: u8
+    ) -> Vec<u8> {
+        let destination_port = 53u16;
+
+        let dns_body = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
+                                                         source_address, destination_address, client_id, source_port);
+
+        let udp_length = (8 + body.len() + dns_body.len()) as u32;
+
+        let mut packet = Self {
+            source_port,
+            destination_port,
+            length: udp_length as u16,
+            checksum: 0,
+            body,
+        };
+
+        let mut bytes: Vec<u8> = (&packet).into();
+
+        bytes.extend(dns_body);
+
+        let pseudo_header = PseudoHeaderv6 {
+            source_address,
+            destination_address,
+            // zeroes: 0,
+            next_header: 17,
+            length: udp_length,
+        };
+
+        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+
+        // Put the checksum at the right position in the packet
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+
+    /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
+    fn create_dns_a_record_request_v6(
+        domain_name: &str,
+        transmit_time: u64,
+        source_address: u128,
+        destination_address: u128,
+        client_id: u8,
+        source_port: u16,
+    ) -> Vec<u8> {
+        // Max length of DNS domain name is 253 character
+
+        // Each label has a max length of 63 characters
+        // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
+        let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, (source_address & 0xFFFFFFFFFFFFFFFF) as u32,
+                                (destination_address & 0xFFFFFFFFFFFFFFFF) as u32, client_id, source_port, domain_name); // TODO verify this takes the 32 right most bits of the ipv6 addresses
+        let mut dns_body: Vec<u8> = Vec::new();
+
+        // DNS Header
+        dns_body.write_u8(client_id)
+            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
+        dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
+
+        // DNS Question
+        for label in subdomain.split('.') {
+            dns_body.push(label.len() as u8);
+            dns_body.write_all(label.as_bytes()).unwrap();
+        }
+        dns_body.push(0); // Terminate the QNAME
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QTYPE (A record)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QCLASS (IN)
+
+        dns_body
+    }
+
+    //TODO create CHAOS request
+}
+
+impl super::TCPPacket {
+    /// Create a basic TCP SYN/ACK packet with checksum
+    pub fn tcp_syn_ack_v6(source_address: u128, destination_address: u128,
+                       source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
+        let mut packet = Self {
+            source_port,
+            destination_port,
+            seq,
+            ack,
+            offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved
+            flags: 0b00010010, // SYN and ACK flags
+            checksum: 0,
+            pointer: 0,
+            body,
+            window_size: 0
+        };
+
+        let mut bytes: Vec<u8> = (&packet).into();
+        bytes.extend(super::INFO_URL.bytes()); // Add INFO_URL
+
+        let pseudo_header = PseudoHeaderv6 {
+            source_address,
+            destination_address,
+            // zeroes: 0,
+            next_header: 6, // TCP
+            length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
+        };
+
+        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+
+        // Put the checksum at the right position in the packet
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(16); // Skip source port (2 bytes), destination port (2 bytes), seq (4 bytes), ack (4 bytes), offset/reserved (1 byte), flags (1 bytes), window (2 bytes)
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+}
+
+// TODO impl tcp_request for ipv6
+
 
