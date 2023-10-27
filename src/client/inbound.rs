@@ -163,6 +163,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
             while let Ok(result) = socket.recv(&mut buffer) {
+                println!("{:?}", result);
                 // Received when the socket closes on some OS
                 if result == 0 { break }
 
@@ -171,9 +172,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                 // Create IPv4Packet from the bytes in the buffer
                 let packet = IPv4Packet::from(&buffer[..result]);
+                println!("{:?}", packet);
 
                 // Obtain the payload
                 if let PacketPayload::UDP { value } = packet.payload {
+                    println!("{:?}", value);
                     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
                     if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
                         continue;
@@ -186,9 +189,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     let record = DNSARecord::from(value.body.as_slice());
 
                     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+                    println!("{:?}", domain);
 
                     // Get the information from the domain, continue to the next packet if it does not follow the format
                     let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                    println!("{:?}", parts);
                     // Our domains have 5 'parts' separated by 4 dashes
                     if parts.len() != 5 { continue }
 
