@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::{BufRead, BufReader, Write};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -20,6 +20,10 @@ use verfploeter::{ controller_client::ControllerClient, TaskResult };
 use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
 use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
 use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
+use crate::cli::verfploeter::address::Value::V4;
+use crate::cli::verfploeter::address::Value::V6;
+use crate::cli::verfploeter::Address;
+
 
 use std::fs;
 use std::process::{Command, Stdio};
@@ -346,11 +350,22 @@ impl CliClient {
 
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            let source_addr = if metadata.source_address == 0 {
-                "Default".to_string()
-            } else {
-                Ipv4Addr::from(metadata.source_address).to_string()
+
+            let source_addr = match &metadata.source_address {
+                Some(Address { value: Some(AddressValue::AddressV4(v4)) }) => {
+                    std::net::Ipv4Addr::from(v4.value).to_string()
+                }
+                Some(Address { value: Some(AddressValue::AddressV6(v6)) }) => {
+                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
+                }
+                None => "Default".to_string(),
             };
+
+            // let source_addr = match &metadata.source_address {
+            //     Some(V4(v4)) => std::net::Ipv4Addr::from(*v4).to_string(),
+            //     Some(V6(v6)) => Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string(),
+            //     None => "Default".to_string()
+            // };
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
 
@@ -518,12 +533,22 @@ impl CliClient {
         for client in response.into_inner().clients {
 
             let metadata = client.metadata.clone().unwrap();
-            let source_address = metadata.source_address;
-            let sa = if source_address == 0 {
-                "Default".to_string()
-            } else {
-                Ipv4Addr::from(source_address).to_string()
+
+            let sa = match &metadata.source_address {
+                Some(Address { value: Some(AddressValue::AddressV4(v4)) }) => {
+                    std::net::Ipv4Addr::from(v4.value).to_string()
+                }
+                Some(Address { value: Some(AddressValue::AddressV6(v6)) }) => {
+                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
+                }
+                None => "Default".to_string(),
             };
+
+            // let sa = match metadata.source_address {
+            //     Some(V4(v4)) => std::net::Ipv4Addr::from(v4).to_string(),
+            //     Some(V6(v6)) => Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string(),
+            //     None => "Default".to_string()
+            // };
 
             table.add_row(prettytable::row!(
                     metadata.hostname,
