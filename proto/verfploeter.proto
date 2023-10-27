@@ -63,7 +63,21 @@ message Client {
 // Metadata (as used in Client), contains a hostname and a source address (0 if client uses the default source)
 message Metadata {
   string hostname = 1;
-  uint32 source_address = 2;
+  Address source_address = 2;
+}
+
+// Address message, can be either an IPv4 or IPv6 address
+message Address {
+  oneof value {
+    fixed32 v4 = 1;
+    IPv6 v6 = 2;
+  }
+}
+
+// IPv6 address message (since protobuf does not support 128 bit values)
+message IPv6 {
+  fixed64 p1 = 1;
+  fixed64 p2 = 2;
 }
 
 // A task for a Client, with a task ID, the probing rate (probes / second) can be either a Start, Ping, UDP, TCP, or an Empty task
@@ -84,7 +98,7 @@ message Start {
   bool active = 2;
   uint32 task_type = 3;
   fixed32 source_address = 4;
-  repeated fixed32 client_sources = 5;
+  repeated Address client_sources = 5;
 }
 
 // A Ping, which has a list of destination addresses
