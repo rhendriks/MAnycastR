@@ -328,7 +328,3 @@ impl super::TCPPacket {
         cursor.into_inner()
     }
 }
-
-// TODO impl tcp_request for ipv6
-
-

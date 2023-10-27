@@ -1,7 +1,7 @@
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_client::ControllerClient;
 use verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
 use tonic::transport::Channel;
@@ -14,6 +14,11 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use crate::client::verfploeter::address::Value::V4;
+use crate::client::verfploeter::address::Value::V6;
+use crate::client::verfploeter::IPv6;
+use crate::client::verfploeter::Address;
+use crate::client::verfploeter::address::Value;
 
 mod inbound;
 mod outbound;
@@ -33,11 +38,18 @@ mod outbound;
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
-    source_address: u32,
+    source_address: IP,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
     inbound_tx_f: Option<tokio::sync::mpsc::Sender<()>>,
+}
+
+#[derive(Clone)]
+enum IP {
+    V4(Ipv4Addr),
+    V6(Ipv6Addr),
+    None,
 }
 
 impl Client {
@@ -52,14 +64,64 @@ impl Client {
         // Get values from args
         let hostname = args.value_of("hostname").unwrap();
         let server_addr = args.value_of("server").unwrap();
-        // Get the source address if it's present (optional argument)
+
+        // Get the custom source address for this client (optional)
         let source_address = if args.is_present("source") {
-            u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap())
-        } else { 0 };
+            let source = args.value_of("source").unwrap();
+            println!("[Client] Using custom source address: {}", source);
+
+            if source.contains(':') {
+                IP::V6(Ipv6Addr::from_str(source).expect("Invalid IPv6 address"))
+            } else {
+                IP::V4(Ipv4Addr::from_str(source).expect("Invalid IPv4 address"))
+            }
+        } else {
+            println!("[Client] Using source address from task");
+            IP::None
+        };
+
+        // let source_address_m = match source_address {
+        //     IP::V4(v4) => Some(V4(
+        //         v4.into()
+        //     )),
+        //     IP::V6(v6) => Some(V6(
+        //         verfploeter::IPv6 {
+        //             p1: (v6.segments()[0] as u64) << 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
+        //             p2: (v6.segments()[4] as u64) << 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
+        //         }
+        //     )),
+        //     IP::None => None,
+        // };
+
+        // let source_address_m = match source_address {
+        //     IP::V4(v4) => Some(Address {
+        //         value: Some(AddressValue: AddressV4(v4))
+        //     }),
+        //     IP::V6(v6) => Some(Address {
+        //         value: Some(AddressValue: AddressV6 {
+        //             p1: (v6.segments()[0] as u64) < < 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
+        //             p2: (v6.segments()[4] as u64) < < 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
+        //         })
+        //     }),
+        //     IP::None => None,
+        // };
+
+        let source_address_m = match source_address {
+            IP::V4(v4) => Some(Address {
+                value: Some(V4(v4.into()))
+            }),
+            IP::V6(v6) => Some(Address {
+                value: Some(V6(IPv6 {
+                    p1: (v6.segments()[0] as u64) << 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
+                    p2: (v6.segments()[4] as u64) << 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
+                }))
+            }),
+            IP::None => None,
+        };
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address,
+            source_address: source_address_m,
         };
 
         // Initialize a client instance
@@ -130,7 +192,7 @@ impl Client {
         println!("Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr = if self.source_address == 0 {
+        let source_addr = if self.source_address == IP::None {
             start.source_address
         } else {
             self.source_address
@@ -142,18 +204,44 @@ impl Client {
         // Channel for signalling when inbound is finished
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(inbound_tx_f);
-        let bind_address = format!( // TODO recognize if the address is ipv6
-            "{}:0",
-            Ipv4Addr::from(source_addr).to_string()
-        );
+
+        let mut ipv6;
+        let mut domain;
+
+        let bind_address = if source_addr.to_string().contains(':') {
+            println!("[Client] Using IPv6");
+            ipv6 = true;
+            domain = Domain::ipv6();
+
+            format!("{}:0", source_addr.to_string())
+        } else {
+            println!("[Client] Using IPv4");
+            ipv6 = false;
+            domain = Domain::ipv4();
+
+            format!("{}:0", source_addr.to_string())
+        };
+
+
+        let protocol = match start.task_type {
+            1 => {
+                if ipv6 {
+                    Protocol::icmpv6()
+                } else {
+                    Protocol::icmpv4()
+                }
+            },
+            2 => Protocol::udp(),
+            3 => Protocol::tcp(),
+        };
+
+        // Create the socket to send and receive to/from
+        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
+        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
                 listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
@@ -161,12 +249,13 @@ impl Client {
             }
             2 => {
                 let src_port: u16 = 62321;
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::udp())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Create ICMP socket
-                let socket_icmp = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+                let socket_icmp = if ipv6 {
+                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
+                } else {
+                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv4())).unwrap())
+                };
                 socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
@@ -181,10 +270,6 @@ impl Client {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
                 let src_port = 62321;
-
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::tcp())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);

@@ -17,6 +17,9 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
 };
+use crate::server::verfploeter::address::Value::V4;
+use crate::server::verfploeter::address::Value::V6;
+use crate::server::verfploeter::Address;
 
 /// Struct for the Server service
 ///
@@ -51,7 +54,7 @@ pub struct ControllerService {
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
+    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
     clients: Arc<Mutex<ClientList>>,
     active: Arc<Mutex<bool>>,
@@ -118,7 +121,7 @@ pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     task_id: u32,
     active: Arc<Mutex<bool>>,
-    senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
+    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -139,7 +142,7 @@ impl<T> Drop for CLIReceiver<T> {
         if *active == true {
 
             // Create termination 'task'
-            let task = verfploeter::Task {
+            let task = Task {
                 task_id: self.task_id + 1000,
                 // rate: 0,
                 data: None,
@@ -476,13 +479,9 @@ impl Controller for ControllerService {
         }
 
         // Create a list of source addresses used by clients
-        let mut client_sources: Vec<u32> = vec![];
+        let mut client_sources: Vec<Address> = vec![];
         for client in &self.clients.lock().unwrap().clients {
-            let client_address: u32 = client.metadata.clone().unwrap().source_address;
-            // Add all client addresses (except those with value 0, and those already in the list)
-            if (client_address != 0) | (client_sources.contains(&client_address)) {
-                client_sources.push(client_address);
-            }
+            client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
@@ -491,7 +490,7 @@ impl Controller for ControllerService {
         for sender in senders.iter() {
             // If no client list was specified, all clients will perform the task
             let start_task = if clients.clone().len() == 0 { // TODO can simplify the start_task variable creations
-                verfploeter::Task {
+                Task {
                     task_id,
                     data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                         rate,
@@ -505,7 +504,7 @@ impl Controller for ControllerService {
                 // If a client list is specified, only those in that list will perform the task
                 // TODO assumes the senders list are in the same order as client_list_u32 list
                 let start_task = if clients.contains(client_list_u32.get(i).unwrap()) {
-                    verfploeter::Task {
+                    Task {
                         task_id,
                         data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                             rate,
@@ -516,7 +515,7 @@ impl Controller for ControllerService {
                         }))
                     }
                 } else {
-                    verfploeter::Task {
+                    Task {
                         task_id,
                         data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                             rate,
@@ -584,25 +583,25 @@ impl Controller for ControllerService {
 
                     if probing {
                         let task = match task_type {
-                            1 => verfploeter::Task {
+                            1 => Task {
                                 task_id,
                                 data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            2 => verfploeter::Task {
+                            2 => Task {
                                 task_id,
                                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            3 => verfploeter::Task {
+                            3 => Task {
                                 task_id,
                                 data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            _ => verfploeter::Task::default(),
+                            _ => Task::default(),
                         };
 
                         // Send packet to client
