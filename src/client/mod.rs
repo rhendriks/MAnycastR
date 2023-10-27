@@ -142,7 +142,7 @@ impl Client {
         // Channel for signalling when inbound is finished
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(inbound_tx_f);
-        let bind_address = format!(
+        let bind_address = format!( // TODO recognize if the address is ipv6
             "{}:0",
             Ipv4Addr::from(source_addr).to_string()
         );

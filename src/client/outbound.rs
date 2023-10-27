@@ -2,7 +2,7 @@
 // use std::num::NonZeroU32;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::net::{ICMP4Packet, TCPPacket, UDPPacket};
+use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use futures::Future;
@@ -100,7 +100,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut ou
 
                     let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
 
-                    let icmp = ICMP4Packet::echo_request(1, 2, bytes);
+                    let icmp = ICMPPacket::echo_request(1, 2, bytes);
 
                     // Rate limiting
                     // while let Err(_) = lb.check() {
