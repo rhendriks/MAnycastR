@@ -130,6 +130,7 @@ mod cli;
 mod server;
 mod client;
 mod net;
+mod custom_module;
 
 /// Parse command line input and start VerfPloeter server, client, or CLI
 ///

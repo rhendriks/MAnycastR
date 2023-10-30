@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use socket2::Socket;
+use crate::client::IP;
 use crate::client::verfploeter::{PingPayload, Task};
 use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 
@@ -27,7 +28,7 @@ use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: u32, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
 

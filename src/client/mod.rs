@@ -1,6 +1,7 @@
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::controller_client::ControllerClient;
-use verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
+use crate::custom_module;
+use custom_module::verfploeter::controller_client::ControllerClient;
+use custom_module::verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
@@ -14,11 +15,12 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use crate::client::verfploeter::address::Value::V4;
-use crate::client::verfploeter::address::Value::V6;
-use crate::client::verfploeter::IPv6;
-use crate::client::verfploeter::Address;
-use crate::client::verfploeter::address::Value;
+use crate::custom_module::verfploeter::address::Value::V4;
+use crate::custom_module::verfploeter::address::Value::V6;
+use crate::custom_module::verfploeter::IPv6;
+use crate::custom_module::verfploeter::Address;
+use crate::custom_module::verfploeter::address::Value;
+use crate::custom_module::IP;
 
 mod inbound;
 mod outbound;
@@ -43,13 +45,6 @@ pub struct Client {
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
     inbound_tx_f: Option<tokio::sync::mpsc::Sender<()>>,
-}
-
-#[derive(Clone)]
-enum IP {
-    V4(Ipv4Addr),
-    V6(Ipv6Addr),
-    None,
 }
 
 impl Client {
@@ -80,48 +75,11 @@ impl Client {
             IP::None
         };
 
-        // let source_address_m = match source_address {
-        //     IP::V4(v4) => Some(V4(
-        //         v4.into()
-        //     )),
-        //     IP::V6(v6) => Some(V6(
-        //         verfploeter::IPv6 {
-        //             p1: (v6.segments()[0] as u64) << 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
-        //             p2: (v6.segments()[4] as u64) << 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
-        //         }
-        //     )),
-        //     IP::None => None,
-        // };
-
-        // let source_address_m = match source_address {
-        //     IP::V4(v4) => Some(Address {
-        //         value: Some(AddressValue: AddressV4(v4))
-        //     }),
-        //     IP::V6(v6) => Some(Address {
-        //         value: Some(AddressValue: AddressV6 {
-        //             p1: (v6.segments()[0] as u64) < < 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
-        //             p2: (v6.segments()[4] as u64) < < 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
-        //         })
-        //     }),
-        //     IP::None => None,
-        // };
-
-        let source_address_m = match source_address {
-            IP::V4(v4) => Some(Address {
-                value: Some(V4(v4.into()))
-            }),
-            IP::V6(v6) => Some(Address {
-                value: Some(V6(IPv6 {
-                    p1: (v6.segments()[0] as u64) << 48 | (v6.segments()[1] as u64) << 32 | (v6.segments()[2] as u64) << 16 | v6.segments()[3] as u64,
-                    p2: (v6.segments()[4] as u64) << 48 | (v6.segments()[5] as u64) << 32 | (v6.segments()[6] as u64) << 16 | v6.segments()[7] as u64,
-                }))
-            }),
-            IP::None => None,
-        };
+        let source_address_m = Address::from(source_address.clone());
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address: source_address_m,
+            source_address: Some(source_address_m),
         };
 
         // Initialize a client instance
@@ -188,12 +146,12 @@ impl Client {
         let rate: u32 = start.rate;
         let task_id = task.task_id;
 
-        let client_sources: Vec<u32> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
+        let client_sources: Vec<Address> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
         println!("Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr = if self.source_address == IP::None {
-            start.source_address
+        let source_addr: IP = if self.source_address == IP::None {
+            start.source_address as IP
         } else {
             self.source_address
         };
