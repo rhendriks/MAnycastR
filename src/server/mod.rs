@@ -496,7 +496,7 @@ impl Controller for ControllerService {
                         rate,
                         active: true,
                         task_type,
-                        source_address: src_addr, // TODO add client_addresses
+                        source_address: src_addr.clone(), // TODO add client_addresses
                         client_sources: client_sources.clone(),
                     }))
                 }
@@ -510,7 +510,7 @@ impl Controller for ControllerService {
                             rate,
                             active: true,
                             task_type,
-                            source_address: src_addr,
+                            source_address: src_addr.clone(),
                             client_sources: client_sources.clone(),
                         }))
                     }
@@ -521,7 +521,7 @@ impl Controller for ControllerService {
                             rate,
                             active: false,
                             task_type,
-                            source_address: src_addr,
+                            source_address: src_addr.clone(),
                             client_sources: client_sources.clone(),
                         }))
                     }

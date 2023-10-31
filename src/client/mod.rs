@@ -1,4 +1,3 @@
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use crate::custom_module;
 use custom_module::verfploeter::controller_client::ControllerClient;
 use custom_module::verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
@@ -151,9 +150,9 @@ impl Client {
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
-            start.source_address as IP
+            IP::from(start.source_address.unwrap())
         } else {
-            self.source_address
+            self.source_address.clone()
         };
 
         // Channel for sending from inbound to the server forwarder thread (at the end of the function)
@@ -191,6 +190,7 @@ impl Client {
             },
             2 => Protocol::udp(),
             3 => Protocol::tcp(),
+            _ => panic!("Invalid task type"),
         };
 
         // Create the socket to send and receive to/from

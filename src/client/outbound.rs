@@ -7,9 +7,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use socket2::Socket;
-use crate::client::IP;
-use crate::client::verfploeter::{PingPayload, Task};
-use crate::client::verfploeter::task::Data::{Ping, Tcp, Udp};
+use crate::custom_module::IP;
+use crate::custom_module::verfploeter::{PingPayload, Task, Address};
+use crate::custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
+use crate::custom_module::verfploeter::address::Value::V4;
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
@@ -87,19 +88,19 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     // Create ping payload
                     let payload = PingPayload {
                         transmit_time,
-                        source_address: source_addr,
-                        destination_address: dest_addr,
+                        source_address: Some(source_addr.clone().into()),
+                        destination_address: Some(dest_addr.clone()),
                         sender_client_id: client_id as u32,
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
                     bytes.extend_from_slice(&task.task_id.to_be_bytes()); // Bytes 0 - 3
                     bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
-                    bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15
-                    bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19
+                    // bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15 TODO
+                    // bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19 TODO
                     bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
 
-                    let bind_addr_dest = format!("{}:0", Ipv4Addr::from(dest_addr).to_string());
+                    let bind_addr_dest = format!("{}:0", IP::from(dest_addr.clone()).to_string());
 
                     let icmp = ICMPPacket::echo_request(1, 2, bytes);
 
@@ -149,7 +150,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -204,14 +205,18 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
                         .unwrap()
                         .as_nanos() as u64;
 
-                    let bind_addr_dest = format!("{}:{}", Ipv4Addr::from(dest_addr).to_string(), source_port.to_string());
+                    let dest = match IP::from(dest_addr.clone()) {
+                        IP::V4(v4) => v4,
+                        _ => panic!("IPv6 not supported"),
+                    };
+                    let bind_addr_dest = format!("{}:{}", IP::from(dest_addr).to_string(), source_port.to_string());
 
-                    let udp = UDPPacket::dns_request(source_address, dest_addr, source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id);
+                    let source = match source_address {
+                        IP::V4(v4) => v4,
+                        _ => panic!("IPv6 not supported"),
+                    };
 
-                    // Rate limiting
-                    // while let Err(_) = lb.check() {
-                    //     thread::sleep(Duration::from_millis(1));
-                    // }
+                    let udp = UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id);
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
@@ -254,8 +259,8 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: u32, sour
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
-    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr);
+pub fn perform_tcp(socket: Arc<Socket>, source_addr: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
+    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr.to_string());
 
     let abort = Arc::new(Mutex::new(false));
 
@@ -309,17 +314,22 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: u32, destination_port: u16,
                         .unwrap()
                         .as_millis() as u32; // The least significant bits are kept
 
-                    let bind_addr_dest = format!("{}:{}", Ipv4Addr::from(dest_addr).to_string(), destination_port.to_string());
+                    let bind_addr_dest = format!("{}:{}", IP::from(dest_addr.clone()).to_string(), destination_port.to_string());
 
                     let seq = task.task_id; // information in seq gets lost
                     let ack = transmit_time; // ack information gets returned as seq
 
-                    let tcp = TCPPacket::tcp_syn_ack(source_addr, dest_addr, source_port, destination_port, seq, ack, Vec::new());
+                    let dest = match IP::from(dest_addr) {
+                        IP::V4(v4) => v4,
+                        _ => panic!("IPv6 not supported"),
+                    };
 
-                    // Rate limiting
-                    // while let Err(_) = lb.check() {
-                    //     thread::sleep(Duration::from_millis(1));
-                    // }
+                    let source = match source_addr {
+                        IP::V4(v4) => v4,
+                        _ => panic!("IPv6 not supported"),
+                    };
+
+                    let tcp = TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new());
 
                     // Send out packet
                     if let Err(e) = socket.send_to(

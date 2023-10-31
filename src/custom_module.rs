@@ -4,7 +4,7 @@ use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv
 
 #[derive(Clone)]
 #[derive(PartialEq)]
-pub(crate) enum IP {
+pub enum IP {
     V4(Ipv4Addr),
     V6(Ipv6Addr),
     None,
@@ -33,11 +33,10 @@ impl From<IP> for Address {
     fn from(ip: IP) -> Self {
         match ip {
             IP::V4(v4) => Address {
-                value: Some(V4(v4.to_string())),
+                value: Some(V4(u32::from(v4))),
             },
             IP::V6(v6) => Address {
-                value: Some(V6(IPv6Result {
-                    source_address: IPv6 {
+                value: Some(V6(IPv6 {
                         p1: (v6.segments()[0] as u64) << 48
                             | (v6.segments()[1] as u64) << 32
                             | (v6.segments()[2] as u64) << 16
@@ -46,17 +45,6 @@ impl From<IP> for Address {
                             | (v6.segments()[5] as u64) << 32
                             | (v6.segments()[6] as u64) << 16
                             | (v6.segments()[7] as u64),
-                    },
-                    destination_address: IPv6 {
-                        p1: (v6.segments()[0] as u64) << 48
-                            | (v6.segments()[1] as u64) << 32
-                            | (v6.segments()[2] as u64) << 16
-                            | (v6.segments()[3] as u64),
-                        p2: (v6.segments()[4] as u64) << 48
-                            | (v6.segments()[5] as u64) << 32
-                            | (v6.segments()[6] as u64) << 16
-                            | (v6.segments()[7] as u64),
-                    },
                 })),
             },
             IP::None => Address {
@@ -106,16 +94,18 @@ impl ToString for IPv6 {
 
 impl IpResult {
     pub fn get_source_address_str(&self) -> String {
-        match self.value.unwrap() {
-            verfploeter::ip_result::Value::IPv4Result(v4) => v4.source_address.to_string(),
-            verfploeter::ip_result::Value::IPv6Result(v6) => v6.source_address.to_string(),
+        match &self.value {
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.source_address.to_string(),
+            Some(verfploeter::ip_result::Value::Ipv6(v6)) => v6.source_address.clone().expect("None IPv6 data type").to_string(),
+            None => String::from("None"),
         }
     }
 
     pub fn get_dest_address_str(&self) -> String {
-        match self.value.unwrap() {
-            verfploeter::ip_result::Value::IPv4Result(v4) => v4.destination_address.to_string(),
-            verfploeter::ip_result::Value::IPv6Result(v6) => v6.destination_address.to_string(),
+        match &self.value {
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.destination_address.to_string(),
+            Some(verfploeter::ip_result::Value::Ipv6(v6)) => v6.destination_address.clone().expect("None IPv6 data type").to_string(),
+            None => String::from("None"),
         }
     }
 }
