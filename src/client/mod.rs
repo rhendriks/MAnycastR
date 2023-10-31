@@ -1,6 +1,9 @@
 use crate::custom_module;
-use custom_module::verfploeter::controller_client::ControllerClient;
-use custom_module::verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
+use custom_module::IP;
+use custom_module::verfploeter::{
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient,
+    address::Value::V4, address::Value::V6, address::Value, Address, IPv6
+};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
@@ -14,12 +17,6 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use crate::custom_module::verfploeter::address::Value::V4;
-use crate::custom_module::verfploeter::address::Value::V6;
-use crate::custom_module::verfploeter::IPv6;
-use crate::custom_module::verfploeter::Address;
-use crate::custom_module::verfploeter::address::Value;
-use crate::custom_module::IP;
 
 mod inbound;
 mod outbound;

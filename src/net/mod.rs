@@ -2,8 +2,7 @@ mod netv6;
 
 extern crate byteorder;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read};
-use std::io::Write;
+use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.

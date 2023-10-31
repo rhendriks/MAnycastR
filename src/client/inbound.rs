@@ -3,11 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use socket2::{Socket};
-use tokio::sync::mpsc::UnboundedSender;
-use crate::client::custom_module::verfploeter::{Address, ip_result, Client, IPv4Result, IpResult, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
+use tokio::sync::mpsc::{UnboundedSender, Receiver};
+use crate::custom_module;
+use custom_module::verfploeter::{
+    Address, ip_result, Client, IPv4Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
+    TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult, address::Value::V4
+};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
-use tokio::sync::mpsc::Receiver;
-use crate::client::custom_module::verfploeter::address::Value::V4;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
