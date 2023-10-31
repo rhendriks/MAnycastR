@@ -45,7 +45,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
     thread::spawn({
         move || {
-            // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second)
+            // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second) TODO
             // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
 
             loop {
