@@ -381,11 +381,6 @@ impl CliClient {
                 None => "Default".to_string(),
             };
 
-            // let source_addr = match &metadata.source_address {
-            //     Some(V4(v4)) => std::net::Ipv4Addr::from(*v4).to_string(),
-            //     Some(V6(v6)) => Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string(),
-            //     None => "Default".to_string()
-            // };
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
 

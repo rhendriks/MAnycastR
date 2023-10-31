@@ -104,11 +104,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
                     let icmp = ICMPPacket::echo_request(1, 2, bytes);
 
-                    // Rate limiting
-                    // while let Err(_) = lb.check() {
-                    //     thread::sleep(Duration::from_millis(1));
-                    // }
-
                     // Send out packet
                     if let Err(e) = socket.send_to(
                         &icmp,
@@ -119,8 +114,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                             .into(),
                     ) {
                         error!("Failed to send ICMP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
                     }
                 }
             }

@@ -96,16 +96,22 @@ impl ToString for IPv6 {
 impl IpResult {
     pub fn get_source_address_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.source_address.to_string(),
-            Some(verfploeter::ip_result::Value::Ipv6(v6)) => v6.source_address.clone().expect("None IPv6 data type").to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => Ipv4Addr::from(v4.source_address).to_string(),
+            Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
+                let source_address = v6.source_address.clone().expect("None IPv6 data type");
+                Ipv6Addr::from((source_address.p1 as u128) << 64 | source_address.p2 as u128).to_string()
+            },
             None => String::from("None"),
         }
     }
 
     pub fn get_dest_address_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.destination_address.to_string(),
-            Some(verfploeter::ip_result::Value::Ipv6(v6)) => v6.destination_address.clone().expect("None IPv6 data type").to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => Ipv4Addr::from(v4.destination_address).to_string(),
+            Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
+                let destination_address = v6.destination_address.clone().expect("None IPv6 data type");
+                Ipv6Addr::from((destination_address.p1 as u128) << 64 | destination_address.p2 as u128).to_string()
+            },
             None => String::from("None"),
         }
     }
