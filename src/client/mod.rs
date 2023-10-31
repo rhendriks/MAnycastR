@@ -197,7 +197,7 @@ impl Client {
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
+                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
                 }

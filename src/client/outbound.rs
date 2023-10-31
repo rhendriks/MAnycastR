@@ -9,7 +9,7 @@ use futures::Future;
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
-use custom_module::verfploeter::{PingPayload, Task, Address, address::Value::V4};
+use custom_module::verfploeter::{PingPayload, Task, Address, address::Value::V4, address::Value::V6};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
@@ -45,9 +45,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
     thread::spawn({
         move || {
-            // Rate limiter, to avoid server tasks being sent out in bursts (amount of packets per second) TODO
-            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
-
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -96,9 +93,27 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     let mut bytes: Vec<u8> = Vec::new();
                     bytes.extend_from_slice(&task.task_id.to_be_bytes()); // Bytes 0 - 3
                     bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
-                    // bytes.extend_from_slice(&payload.source_address.to_be_bytes()); // Bytes 12 - 15 TODO
-                    // bytes.extend_from_slice(&payload.destination_address.to_be_bytes()); // Bytes 16 - 19 TODO
-                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 20 - 23
+                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15
+                    if let Some(source_address) = payload.source_address {
+                        match source_address.value {
+                            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
+                            Some(V6(v6)) => {
+                                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
+                                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
+                            },
+                            None => panic!("Source address is None"),
+                        }
+                    }
+                    if let Some(destination_address) = payload.destination_address {
+                        match destination_address.value {
+                            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
+                            Some(V6(v6)) => {
+                                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
+                                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
+                            },
+                            None => panic!("Destination address is None"),
+                        }
+                    }
 
                     let bind_addr_dest = format!("{}:0", IP::from(dest_addr.clone()).to_string());
 
@@ -159,9 +174,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 
     thread::spawn({
         move || {
-            // Rate limiter
-            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
-
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -268,9 +280,6 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: IP, destination_port: u16, 
 
     thread::spawn({
         move || {
-            // Rate limiter
-            // let mut lb = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(rate).unwrap());
-
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("ABORTING");

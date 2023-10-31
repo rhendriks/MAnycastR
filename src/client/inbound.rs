@@ -6,10 +6,11 @@ use socket2::{Socket};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
 use crate::custom_module;
 use custom_module::verfploeter::{
-    Address, ip_result, Client, IPv4Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
-    TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult, address::Value::V4
+    Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
+    TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
+    address::Value::V4, address::Value::V6, IPv6
 };
-use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
+use crate::net::{DNSARecord, IPv4Packet, netv6::IPv6Packet, PacketPayload};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -32,7 +33,7 @@ use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool) {
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     println!("[Client inbound] Started ICMP listener");
@@ -42,31 +43,21 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
         let socket = socket.clone();
         move || {
-
-            let local_addr = socket.local_addr().expect("Could not get local address");
-
-            // let v6 = match local_addr { TODO
-            //     SocketAddr::V4(_) => {
-            //         println!("[Client inbound] Listening for ICMPv4 packets for task - {}", task_id);
-            //         false
-            //     },
-            //     SocketAddr::V6(_) => {
-            //         println!("[Client inbound] Listening for ICMPv6 packets for task - {}", task_id);
-            //         true
-            //     },
-            // };
-
             let mut buffer: Vec<u8> = vec![0; 1500];
             // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-            while let Ok(result) = socket.recv(&mut buffer) {
+            while let Ok(b_size) = socket.recv(&mut buffer) {
 
                 // Received when the socket closes on some OS
-                if result == 0 { break }
+                if b_size == 0 { break }
 
-                let verfploeter_result = parse_ipv4(&buffer[..result], task_id);
+                let result = if v6 {
+                    parse_ipv6(&buffer[..b_size], task_id)
+                } else {
+                    parse_ipv4(&buffer[..b_size], task_id)
+                };
                 // TODO parse_ipv6 for v6
 
-                if verfploeter_result == None {
+                if result == None {
                     continue
                 }
 
@@ -74,7 +65,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 {
                     let mut rq_opt = rq_receiver.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
-                        x.push(verfploeter_result.unwrap())
+                        x.push(result.unwrap())
                     }
                 }
             }
@@ -251,7 +242,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 let packet = IPv4Packet::from(&buffer[..result]);
 
                 // Obtain the payload
-                if let PacketPayload::ICMPv4 { value } = packet.payload {
+                if let PacketPayload::ICMP { value } = packet.payload {
                     // Make sure that this packet belongs to this task
                     if value.icmp_type != 3 { // Code 3 => destination unreachable
                         // If not, we discard it and await the next packet
@@ -545,7 +536,7 @@ fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     let packet = IPv4Packet::from(packet_bytes);
 
     // Obtain the payload
-    if let PacketPayload::ICMPv4 { value } = packet.payload {
+    if let PacketPayload::ICMP { value } = packet.payload {
         if *&value.body.len() < 4 { return None }
 
         let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
@@ -559,9 +550,9 @@ fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         }
 
         let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-        let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-        let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+        let sender_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+        let source_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
+        let destination_address = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
 
         let receive_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -587,6 +578,77 @@ fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
                     destination_address: Some(Address {
                     value: Some(V4(destination_address)),
                 }),
+                    sender_client_id,
+                }),
+            })),
+        });
+    } else {
+        return None
+    }
+}
+
+fn parse_ipv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+    // IPv6 40 + ICMP ECHO 8 minimum
+    if packet_bytes.len() < 48 { return None }
+
+    // Create IPv6Packet from the bytes in the buffer
+    let packet = IPv6Packet::from(packet_bytes);
+
+    // Obtain the payload
+    if let PacketPayload::ICMP { value } = packet.payload {
+        if *&value.body.len() < 4 { return None }
+
+        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
+
+        let pkt_task_id = u32::from_be_bytes(s);
+
+        // Make sure that this packet belongs to this task
+        if (pkt_task_id != task_id) | (value.body.len() < 24) {
+            // If not, we discard it and await the next packet
+            return None;
+        }
+
+        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
+        let sender_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+        let source_address = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
+        let destination_address = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
+
+        let receive_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        // Create a VerfploeterResult for the received ping reply
+        return Some(VerfploeterResult {
+            value: Some(Value::Ping(PingResult {
+                receive_time,
+                ip_result: Some(IpResult {
+                    value: Some(ip_result::Value::Ipv6(IPv6Result {
+                        source_address: Some(IPv6 {
+                            p1: (u128::from(packet.source_address) >> 64) as u64,
+                            p2: u128::from(packet.source_address) as u64,
+                        }),
+                        destination_address: Some(custom_module::verfploeter::IPv6 {
+                            p1: (u128::from(packet.destination_address) >> 64) as u64,
+                            p2: u128::from(packet.destination_address) as u64,
+                        }),
+                    })),
+                    ttl: packet.hop_limit as u32,
+                }),
+                payload: Some(PingPayload {
+                    transmit_time,
+                    source_address: Some(Address {
+                        value: Some(V6(IPv6 {
+                            p1: (source_address >> 64) as u64,
+                            p2: source_address as u64,
+                        })),
+                    }),
+                    destination_address: Some(Address {
+                        value: Some(V6(IPv6 {
+                            p1: (destination_address >> 64) as u64,
+                            p2: destination_address as u64,
+                        })),
+                    }),
                     sender_client_id,
                 }),
             })),
