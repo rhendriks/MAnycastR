@@ -29,7 +29,7 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
 
@@ -115,7 +115,11 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         }
                     }
 
-                    let bind_addr_dest = format!("{}:0", IP::from(dest_addr.clone()).to_string());
+                    let bind_addr_dest = if ipv6 {
+                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
+                    } else {
+                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
+                    };
 
                     let icmp = ICMPPacket::echo_request(1, 2, bytes);
 
