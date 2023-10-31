@@ -1,12 +1,14 @@
-use std::net::Shutdown;
+use std::net::{Shutdown};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use socket2::Socket;
+use socket2::{Socket};
 use tokio::sync::mpsc::UnboundedSender;
-use crate::client::verfploeter::{Client, IPv4Result, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
+use crate::client::custom_module::verfploeter::{Address, ip_result, Client, IPv4Result, IpResult, Metadata, PingPayload, PingResult, TaskResult, TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult};
 use crate::net::{DNSARecord, IPv4Packet, PacketPayload};
 use tokio::sync::mpsc::Receiver;
+use crate::client::custom_module::verfploeter::address::Value::V4;
+
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
 ///
@@ -38,67 +40,39 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
         let socket = socket.clone();
         move || {
+
+            let local_addr = socket.local_addr().expect("Could not get local address");
+
+            // let v6 = match local_addr { TODO
+            //     SocketAddr::V4(_) => {
+            //         println!("[Client inbound] Listening for ICMPv4 packets for task - {}", task_id);
+            //         false
+            //     },
+            //     SocketAddr::V6(_) => {
+            //         println!("[Client inbound] Listening for ICMPv6 packets for task - {}", task_id);
+            //         true
+            //     },
+            // };
+
             let mut buffer: Vec<u8> = vec![0; 1500];
-            println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+            // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             while let Ok(result) = socket.recv(&mut buffer) {
 
                 // Received when the socket closes on some OS
                 if result == 0 { break }
 
-                // IPv4 20 + ICMP ECHO 8 minimum
-                if result < 28 { continue }
+                let verfploeter_result = parse_ipv4(&buffer[..result], task_id);
+                // TODO parse_ipv6 for v6
 
-                // Create IPv4Packet from the bytes in the buffer
-                let packet = IPv4Packet::from(&buffer[..result]);
-
-                // Obtain the payload
-                if let PacketPayload::ICMPv4 { value } = packet.payload {
-                    if *&value.body.len() < 4 { continue; }
-
-                    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { continue; };
-
-                    let pkt_task_id = u32::from_be_bytes(s);
-
-                    // Make sure that this packet belongs to this task
-                    if (pkt_task_id != task_id) | (value.body.len() < 24) {
-                        // If not, we discard it and await the next packet
-                        continue;
-                    }
-
-                    let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-                    let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-                    let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-                    let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
-
-                    let receive_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
-
-                    // Create a VerfploeterResult for the received ping reply
-                    let result = VerfploeterResult {
-                        value: Some(Value::Ping(PingResult {
-                            receive_time,
-                            ipv4_result: Some(IPv4Result {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
-                                ttl: packet.ttl as u32,
-                            }),
-                            payload: Some(PingPayload {
-                                transmit_time,
-                                source_address,
-                                destination_address,
-                                sender_client_id,
-                            }),
-                        })),
-                    };
+                if verfploeter_result == None {
+                    continue
+                }
 
                     // Put result in transmission queue
-                    {
-                        let mut rq_opt = rq_receiver.lock().unwrap();
-                        if let Some(ref mut x) = *rq_opt {
-                            x.push(result);
-                        }
+                {
+                    let mut rq_opt = rq_receiver.lock().unwrap();
+                    if let Some(ref mut x) = *rq_opt {
+                        x.push(verfploeter_result.unwrap())
                     }
                 }
             }
@@ -225,9 +199,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             source_port: value.source_port as u32,
                             destination_port: value.destination_port as u32,
                             code: 16,
-                            ipv4_result: Some(IPv4Result {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
+                            ip_result: Some(IpResult {
+                                value: Some(ip_result::Value::Ipv4(IPv4Result {
+                                    source_address: u32::from(packet.source_address),
+                                    destination_address: u32::from(packet.destination_address),
+                                })),
                                 ttl: packet.ttl as u32,
                             }),
                             payload: Some(UdpPayload {
@@ -348,9 +324,11 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             source_port: 0,
                             destination_port: 0,
                             code: code as u32,
-                            ipv4_result: Some(IPv4Result {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
+                            ip_result: Some(IpResult {
+                                value: Some(ip_result::Value::Ipv4(IPv4Result {
+                                    source_address: u32::from(packet.source_address),
+                                    destination_address: u32::from(packet.destination_address),
+                                })),
                                 ttl: packet.ttl as u32,
                             }),
                             payload: Some(UdpPayload {
@@ -464,9 +442,11 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             source_port: u32::from(value.source_port),
                             destination_port: value.destination_port as u32,
                             seq: value.seq,
-                            ipv4_result: Some(IPv4Result {
-                                source_address: u32::from(packet.source_address),
-                                destination_address: u32::from(packet.destination_address),
+                            ip_result: Some(IpResult {
+                                value: Some(ip_result::Value::Ipv4(IPv4Result {
+                                    source_address: u32::from(packet.source_address),
+                                    destination_address: u32::from(packet.destination_address),
+                                })),
                                 ttl: packet.ttl as u32,
                             }),
                             receive_time,
@@ -552,5 +532,64 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
 
         // Send the result to the client handler
         tx.send(tr).unwrap();
+    }
+}
+
+fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+    // IPv4 20 + ICMP ECHO 8 minimum
+    if packet_bytes.len() < 28 { return None }
+
+    // Create IPv4Packet from the bytes in the buffer
+    let packet = IPv4Packet::from(packet_bytes);
+
+    // Obtain the payload
+    if let PacketPayload::ICMPv4 { value } = packet.payload {
+        if *&value.body.len() < 4 { return None }
+
+        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
+
+        let pkt_task_id = u32::from_be_bytes(s);
+
+        // Make sure that this packet belongs to this task
+        if (pkt_task_id != task_id) | (value.body.len() < 24) {
+            // If not, we discard it and await the next packet
+            return None;
+        }
+
+        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
+        let source_address = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+        let destination_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
+        let sender_client_id = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+
+        let receive_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        // Create a VerfploeterResult for the received ping reply
+        return Some(VerfploeterResult {
+            value: Some(Value::Ping(PingResult {
+                receive_time,
+                ip_result: Some(IpResult {
+                    value: Some(ip_result::Value::Ipv4(IPv4Result {
+                        source_address: u32::from(packet.source_address),
+                        destination_address: u32::from(packet.destination_address),
+                    })),
+                    ttl: packet.ttl as u32,
+                }),
+                payload: Some(PingPayload {
+                    transmit_time,
+                    source_address: Some(Address {
+                        value: Some(V4(source_address)),
+                    }),
+                    destination_address: Some(Address {
+                    value: Some(V4(destination_address)),
+                }),
+                    sender_client_id,
+                }),
+            })),
+        });
+    } else {
+        return None
     }
 }

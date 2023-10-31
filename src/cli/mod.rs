@@ -26,6 +26,7 @@ use crate::custom_module::verfploeter::verfploeter_result::Value::Tcp as ResultT
 use crate::custom_module::verfploeter::address::Value::V4;
 use crate::custom_module::verfploeter::address::Value::V6;
 use crate::custom_module::verfploeter::Address;
+// use crate::custom_module::verfploeter::Address::Value as AddressValue;
 
 
 use std::fs;
@@ -101,18 +102,42 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ip_file = matches.value_of("IP_FILE").unwrap();
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
-        let mut ips = buf_reader // TODO create list of Addresses (make sure they are all ipv4 or ipv6)
+
+        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address will be skipeed?
+        // let v4 = if first.contains(':') { false } else { true };
+
+        // let addresses: Vec<Address> = if v4 {
+        //     let mut ips: Vec<_> = buf_reader // TODO create list of Addresses (make sure they are all ipv4 or ipv6)
+        //         .lines()
+        //         .map(|l| {
+        //             let address_str = &l.unwrap();
+        //             if v4 {
+        //                 match Ipv4Addr::from_str(address_str) {
+        //                     Ok(a) => u32::from(a),
+        //                     Err(_) => panic!("Unable to parse v4 address: {}", address_str),
+        //                 }
+        //             } else {
+        //                 match Ipv6Addr::from_str(address_str) {
+        //                     Ok(a) => u128::from(a),
+        //                     Err(_) => panic!("Unable to parse v6 address: {}", address_str),
+        //                 }
+        //             }
+        //         })
+        //         .collect::<Vec<_>>();
+        // } else {
+        //
+        // }
+
+        // TODO make sure that all addresses are the same type (v4 or v6)
+
+        let mut ips: Vec<Address> = buf_reader
             .lines()
             .map(|l| {
-                let address_str = &l.unwrap();
-                let address = match Ipv4Addr::from_str(address_str) {
-                    Ok(a) => u32::from(a),
-                    Err(_) => panic!("Unable to parse address: {}", address_str),
-                };
-
-                address
+                let address_str = l.unwrap();
+                Address::from(IP::from(address_str))
             })
-            .collect::<Vec<u32>>();
+            .collect::<Vec<_>>();
+
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist if desired
@@ -192,7 +217,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// ```
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
-fn create_schedule_task(source_address: IP, destination_addresses: Vec<u32>, task_type: u32, rate: u32, client_ids: Vec<u32>) -> ScheduleTask {
+fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>, task_type: u32, rate: u32, client_ids: Vec<u32>) -> ScheduleTask {
     match task_type {
         1 => { // ICMP
             return ScheduleTask {
@@ -208,7 +233,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<u32>, tas
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address,
+                source_address: Some(Address::from(source_address)),
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -218,7 +243,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<u32>, tas
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address,
+                source_address: Some(Address::from(source_address)),
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
@@ -230,7 +255,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<u32>, tas
     ScheduleTask {
         rate,
         clients: client_ids,
-        source_address,
+        source_address: Some(Address::from(source_address)),
         data: Some(schedule_task::Data::Ping(Ping {
             destination_addresses,
         }))
@@ -253,7 +278,7 @@ impl CliClient {
     /// * 'live' - if true results will be checked for anycast targets as they come in.
     async fn do_task_to_server(&mut self, task: ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
-        let source_address = IP::from(task.source_address.unwrap()).to_string();
+        let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
 
         // Obtain connected client information for metadata
         let request = Request::new(Empty::default());
@@ -355,12 +380,13 @@ impl CliClient {
         for (id, metadata) in &clients {
 
             let source_addr = match &metadata.source_address {
-                Some(Address { value: Some(AddressValue::AddressV4(v4)) }) => {
-                    std::net::Ipv4Addr::from(v4.value).to_string()
-                }
-                Some(Address { value: Some(AddressValue::AddressV6(v6)) }) => {
+                Some(Address { value: Some(V4(v4)) }) => {
+                    std::net::Ipv4Addr::from(*v4).to_string()
+                },
+                Some(Address { value: Some(V6(v6)) }) => {
                     Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-                }
+                },
+                Some(Address { value: None }) => panic!("Client {} has no source address!", id),
                 None => "Default".to_string(),
             };
 
@@ -538,12 +564,13 @@ impl CliClient {
             let metadata = client.metadata.clone().unwrap();
 
             let sa = match &metadata.source_address {
-                Some(Address { value: Some(AddressValue::AddressV4(v4)) }) => {
-                    std::net::Ipv4Addr::from(v4.value).to_string()
-                }
-                Some(Address { value: Some(AddressValue::AddressV6(v6)) }) => {
+                Some(Address { value: Some(V4(v4)) }) => {
+                    std::net::Ipv4Addr::from(*v4).to_string()
+                },
+                Some(Address { value: Some(V6(v6)) }) => {
                     Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-                }
+                },
+                Some(Address { value: None }) => panic!("Client {} has no source address!", client.client_id),
                 None => "Default".to_string(),
             };
 
@@ -603,9 +630,9 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
             for result in task_result.result_list {
                 // Get the source address of this result
                 let address: u32 = match result.value.unwrap() {
-                    ResultPing(ping_result) => ping_result.ipv4_result.unwrap().source_address,
-                    ResultUdp(udp_result) => udp_result.ipv4_result.unwrap().source_address,
-                    ResultTcp(tcp_result) => tcp_result.ipv4_result.unwrap().source_address,
+                    ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
+                    ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
+                    ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                 };
 
                 let mut map = map.lock().unwrap();
