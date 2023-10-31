@@ -1,4 +1,4 @@
-mod netv6;
+pub(crate) mod netv6;
 
 extern crate byteorder;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -20,7 +20,7 @@ pub struct IPv4Packet {
 /// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
 #[derive(Debug)]
 pub enum PacketPayload {
-    ICMPv4 { value: ICMPPacket },
+    ICMP { value: ICMPPacket },
     UDP {value: UDPPacket },
     TCP {value: TCPPacket },
     Unimplemented,
@@ -48,7 +48,7 @@ impl From<&[u8]> for IPv4Packet {
             1 => {
                 if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
                 else {
-                    PacketPayload::ICMPv4 {
+                    PacketPayload::ICMP {
                         value: ICMPPacket::from(payload_bytes),
                     }
                 }
