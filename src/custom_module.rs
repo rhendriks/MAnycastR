@@ -13,9 +13,9 @@ pub enum IP {
 impl From<Address> for IP {
     // TODO untested
     fn from(address: Address) -> Self {
-        match address.value.unwrap() {
-            V4(v4) => IP::V4(v4.into()),
-            V6(v6) => IP::V6(Ipv6Addr::new(
+        match address.value {
+            Some(V4(v4)) => IP::V4(v4.into()),
+            Some(V6(v6)) => IP::V6(Ipv6Addr::new(
                 (v6.p1 >> 48) as u16,
                 (v6.p1 >> 32) as u16,
                 (v6.p1 >> 16) as u16,
@@ -25,6 +25,7 @@ impl From<Address> for IP {
                 (v6.p2 >> 16) as u16,
                 v6.p2 as u16,
             )),
+            None => IP::None,
         }
     }
 }
