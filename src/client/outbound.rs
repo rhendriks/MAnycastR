@@ -7,10 +7,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use socket2::Socket;
-use crate::custom_module::IP;
-use crate::custom_module::verfploeter::{PingPayload, Task, Address};
-use crate::custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
-use crate::custom_module::verfploeter::address::Value::V4;
+use crate::custom_module;
+use custom_module::IP;
+use custom_module::verfploeter::{PingPayload, Task, Address, address::Value::V4};
+use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///

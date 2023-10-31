@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status};
-use tonic::transport::Server;
+use tonic::{Request, Response, Status, transport::Server};
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -15,11 +14,8 @@ use crate::server::mpsc::Sender;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
-    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data
+    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Address
 };
-use crate::server::verfploeter::address::Value::V4;
-use crate::server::verfploeter::address::Value::V6;
-use crate::server::verfploeter::Address;
 
 /// Struct for the Server service
 ///
@@ -35,8 +31,8 @@ use crate::server::verfploeter::Address;
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
-    senders: Arc<Mutex<Vec<Sender<Result<verfploeter::Task, Status>>>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<verfploeter::TaskResult, Status>>>>>,
+    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
+    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,

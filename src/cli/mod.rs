@@ -15,25 +15,16 @@ use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::Channel;
-// pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+use std::process::{Command, Stdio};
 
 use crate::custom_module;
-
-use custom_module::verfploeter::{ VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask, schedule_task, Ping, Udp, Tcp, Empty };
-use crate::custom_module::verfploeter::verfploeter_result::Value::Ping as ResultPing;
-use crate::custom_module::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
-use crate::custom_module::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
-use crate::custom_module::verfploeter::address::Value::V4;
-use crate::custom_module::verfploeter::address::Value::V6;
-use crate::custom_module::verfploeter::Address;
-// use crate::custom_module::verfploeter::Address::Value as AddressValue;
-
-
-use std::fs;
-use std::process::{Command, Stdio};
-// use crate::custom_module::IP;
-use crate::custom_module::IP;
-use crate::custom_module::verfploeter::IpResult as IPResult;
+use custom_module::IP;
+use custom_module::verfploeter::{
+    VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
+    schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
+    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
+    verfploeter_result::Value::Tcp as ResultTcp, IpResult,
+};
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -67,7 +58,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
-            if let Ok(metadata) = fs::metadata(path.unwrap()) {
+            if let Ok(metadata) = std::fs::metadata(path.unwrap()) {
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
@@ -462,7 +453,7 @@ impl CliClient {
                     ResultPing(ping) => {
                         let recv_time = ping.receive_time.to_string();
 
-                        let ip_result: IPResult = ping.ip_result.unwrap();
+                        let ip_result = ping.ip_result.unwrap();
                         let reply_src = ip_result.get_source_address_str();
                         let reply_dest = ip_result.get_dest_address_str();
                         let ttl = ip_result.ttl.to_string();
