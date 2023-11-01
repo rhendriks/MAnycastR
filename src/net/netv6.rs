@@ -24,20 +24,23 @@ impl From<&[u8]> for IPv6Packet {
         println!("data: {:?}", data);
         let mut cursor = Cursor::new(data);
 
-        let version_traffic_flow: u32 = cursor.read_u32::<BigEndian>().unwrap();
-        let payload_length = cursor.read_u16::<BigEndian>().unwrap();
+        // TODO make sure version == 6 -> ipv6 code
+
+        let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
+        let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
 
         // Extract the source and destination addresses
-        let mut source_address_bytes = [0u8; 16];
-        cursor.read_exact(&mut source_address_bytes).unwrap();
-        let source_address = Ipv6Addr::from(source_address_bytes);
+        // let mut source_address_bytes = [0u8; 16];
+        // cursor.read_exact(&mut source_address_bytes).unwrap();
+        // let source_address = Ipv6Addr::from(source_address_bytes);
+        //
+        // let mut destination_address_bytes = [0u8; 16];
+        // cursor.read_exact(&mut destination_address_bytes).unwrap();
+        // let destination_address = Ipv6Addr::from(destination_address_bytes);
 
-        let mut destination_address_bytes = [0u8; 16];
-        cursor.read_exact(&mut destination_address_bytes).unwrap();
-        let destination_address = Ipv6Addr::from(destination_address_bytes);
-
+        println!("version_traffic_flow: {}", version_traffic_flow);
 
         // cursor.set_position(4); // Payload length
         // let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
@@ -48,28 +51,28 @@ impl From<&[u8]> for IPv6Packet {
         // let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
         println!("hop_limit: {}", hop_limit);
 
-        // let source_address = Ipv6Addr::new(
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap()
-        // );
+        let source_address = Ipv6Addr::new(
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap()
+        );
         println!("source_address: {}", source_address.to_string());
 
-        // let destination_address = Ipv6Addr::new(
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap(),
-        //     cursor.read_u16::<NetworkEndian>().unwrap()
-        // );
+        let destination_address = Ipv6Addr::new(
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap(),
+            cursor.read_u16::<NetworkEndian>().unwrap()
+        );
         println!("destination_address: {}", destination_address.to_string());
 
         // TODO anycast ipv6?
