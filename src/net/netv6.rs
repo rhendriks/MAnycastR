@@ -11,7 +11,7 @@ pub struct IPv6Packet {
     // pub traffic_class: u8,       // 8-bit Traffic Class
     // pub flow_label: u32,         // 20-bit Flow Label
     pub payload_length: u16,      // 16-bit Payload Length
-    // pub next_header: u8,         // 8-bit Next Header
+    pub next_header: u8,         // 8-bit Next Header
     pub hop_limit: u8,           // 8-bit Hop Limit
     pub source_address: Ipv6Addr,
     pub destination_address: Ipv6Addr,
@@ -22,13 +22,29 @@ pub struct IPv6Packet {
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
-        cursor.set_position(4); // Payload length
+
+        let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
         let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
+        let next_header = cursor.read_u8().unwrap();
+        let hop_limit = cursor.read_u8().unwrap();
+
+        // Extract the source and destination addresses
+        // let mut source_address_bytes = [0u8; 16];
+        // cursor.read_exact(&mut source_address_bytes).map_err(|_| "Failed to read source_address")?;
+        // let source_address = Ipv6Addr::from(source_address_bytes);
+        //
+        // let mut destination_address_bytes = [0u8; 16];
+        // cursor.read_exact(&mut destination_address_bytes).map_err(|_| "Failed to read destination_address")?;
+        // let destination_address = Ipv6Addr::from(destination_address_bytes);
+
+
+        // cursor.set_position(4); // Payload length
+        // let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
         println!("payload_length: {}", payload_length);
         // TODO can use payload_length to determine extension headers / making sure packet can be parsed into icmp/udp/tcp
-        let next_header = cursor.read_u8().unwrap();
+        // let next_header = cursor.read_u8().unwrap();
         println!("next_header: {}", next_header);
-        let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
+        // let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
         println!("hop_limit: {}", hop_limit);
 
         let source_address = Ipv6Addr::new(
@@ -90,7 +106,7 @@ impl From<&[u8]> for IPv6Packet {
             // traffic_class: ((version_traffic_class >> 4) & 0xFF) as u8,
             // flow_label,
             payload_length,
-            // next_header,
+            next_header,
             hop_limit,
             source_address,
             destination_address,
