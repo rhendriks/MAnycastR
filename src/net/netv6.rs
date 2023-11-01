@@ -1,7 +1,7 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::net::Ipv6Addr;
-use byteorder::LittleEndian;
+use byteorder::{BigEndian, LittleEndian};
 use super::{ICMPPacket, INFO_URL, PacketPayload};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -21,21 +21,22 @@ pub struct IPv6Packet {
 /// Convert list of u8 (i.e. received bytes) into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
+        println!("data: {:?}", data);
         let mut cursor = Cursor::new(data);
 
-        let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
-        let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
+        let version_traffic_flow: u32 = cursor.read_u32::<BigEndian>().unwrap();
+        let payload_length = cursor.read_u16::<BigEndian>().unwrap();
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
 
         // Extract the source and destination addresses
-        // let mut source_address_bytes = [0u8; 16];
-        // cursor.read_exact(&mut source_address_bytes).map_err(|_| "Failed to read source_address")?;
-        // let source_address = Ipv6Addr::from(source_address_bytes);
-        //
-        // let mut destination_address_bytes = [0u8; 16];
-        // cursor.read_exact(&mut destination_address_bytes).map_err(|_| "Failed to read destination_address")?;
-        // let destination_address = Ipv6Addr::from(destination_address_bytes);
+        let mut source_address_bytes = [0u8; 16];
+        cursor.read_exact(&mut source_address_bytes).unwrap();
+        let source_address = Ipv6Addr::from(source_address_bytes);
+
+        let mut destination_address_bytes = [0u8; 16];
+        cursor.read_exact(&mut destination_address_bytes).unwrap();
+        let destination_address = Ipv6Addr::from(destination_address_bytes);
 
 
         // cursor.set_position(4); // Payload length
@@ -47,28 +48,28 @@ impl From<&[u8]> for IPv6Packet {
         // let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
         println!("hop_limit: {}", hop_limit);
 
-        let source_address = Ipv6Addr::new(
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap()
-        );
+        // let source_address = Ipv6Addr::new(
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap()
+        // );
         println!("source_address: {}", source_address.to_string());
 
-        let destination_address = Ipv6Addr::new(
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap()
-        );
+        // let destination_address = Ipv6Addr::new(
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap(),
+        //     cursor.read_u16::<NetworkEndian>().unwrap()
+        // );
         println!("destination_address: {}", destination_address.to_string());
 
         // TODO anycast ipv6?
