@@ -176,7 +176,6 @@ impl Client {
             format!("{}:0", source_addr.to_string())
         };
 
-
         let protocol = match start.task_type {
             1 => {
                 if ipv6 {
@@ -199,7 +198,7 @@ impl Client {
             1 => {
                 listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             2 => {
