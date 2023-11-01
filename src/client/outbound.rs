@@ -116,9 +116,9 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     }
 
                     let bind_addr_dest = if ipv6 {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
                         format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
+                    } else {
+                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
                     };
 
                     let icmp = if ipv6 {
