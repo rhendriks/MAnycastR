@@ -55,14 +55,15 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 } else {
                     parse_ipv4(&buffer[..b_size], task_id)
                 };
-                // TODO parse_ipv6 for v6
 
                 if result == None {
+                    println!("[Client inbound] Received invalid ICMP packet");
                     continue
                 }
 
                     // Put result in transmission queue
                 {
+                    println!("[Client inbound] Received ICMP packet");
                     let mut rq_opt = rq_receiver.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
@@ -588,6 +589,7 @@ fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 }
 
 fn parse_ipv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+    println!("Received IPv6 packet");
     // IPv6 40 + ICMP ECHO 8 minimum
     if packet_bytes.len() < 48 { return None }
 
