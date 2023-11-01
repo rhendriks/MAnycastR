@@ -121,7 +121,11 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
                     };
 
-                    let icmp = ICMPPacket::echo_request(1, 2, bytes);
+                    let icmp = if ipv6 {
+                        ICMPPacket::echo_request_v6(1, 2, bytes)
+                    } else {
+                        ICMPPacket::echo_request(1, 2, bytes)
+                    };
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
