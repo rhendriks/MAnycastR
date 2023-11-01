@@ -591,21 +591,28 @@ fn parse_ipv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 fn parse_ipv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     println!("Received IPv6 packet");
     // IPv6 40 + ICMP ECHO 8 minimum
-    if packet_bytes.len() < 48 { return None }
+    if packet_bytes.len() < 48 {
+        println!("Too small {} < 48", packet_bytes.len());
+        return None }
 
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
     // Obtain the payload
     if let PacketPayload::ICMP { value } = packet.payload {
-        if *&value.body.len() < 4 { return None }
+        if *&value.body.len() < 4 {
+            println!("Too small body {} < 4", value.body.len());
+            return None }
 
-        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
+        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else {
+            println!("Empty");
+            return None };
 
         let pkt_task_id = u32::from_be_bytes(s);
 
         // Make sure that this packet belongs to this task
-        if (pkt_task_id != task_id) | (value.body.len() < 24) {
+        if (pkt_task_id != task_id) | (value.body.len() < 48) {
+            println!("Not our task");
             // If not, we discard it and await the next packet
             return None;
         }
@@ -656,6 +663,7 @@ fn parse_ipv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
             })),
         });
     } else {
+        println!("Not ICMP");
         return None
     }
 }
