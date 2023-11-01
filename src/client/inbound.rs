@@ -46,6 +46,8 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             let mut buffer: Vec<u8> = vec![0; 1500];
             // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             while let Ok(b_size) = socket.recv(&mut buffer) {
+                println!("bsize {:?}", b_size);
+                println!("buffer {:?}", buffer);
 
                 // Received when the socket closes on some OS
                 if b_size == 0 { break }
