@@ -191,9 +191,14 @@ impl Client {
 
         println!("Bind address first: {}", bind_address);
 
+        println!("domain: {:?}", domain);
+        println!("protocol: {:?}", protocol);
+
         // Create the socket to send and receive to/from
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+
+        println!("socket: {:?}", socket);
 
         // Start listening thread and sending thread
         match start.task_type {
