@@ -189,6 +189,8 @@ impl Client {
             _ => panic!("Invalid task type"),
         };
 
+        println!("Bind address first: {}", bind_address);
+
         // Create the socket to send and receive to/from
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
