@@ -127,6 +127,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
 
+                    println!("[Client outbound] Sending ICMP packet with source {} to socket", bind_addr_dest);
+
                     // Send out packet
                     if let Err(e) = socket.send_to(
                         &icmp,
