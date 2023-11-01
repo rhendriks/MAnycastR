@@ -21,6 +21,18 @@ pub struct IPv6Packet {
 /// Convert list of u8 (i.e. received bytes) into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
+
+        for byte in data {
+            print!("{:02X} ", byte);
+        }
+        println!();
+
+        for byte in data {
+            print!("{:08b} ", byte);
+        }
+        println!(); // Add a newline after printing all bytes
+
+
         println!("data: {:?}", data);
         let mut cursor = Cursor::new(data);
 
