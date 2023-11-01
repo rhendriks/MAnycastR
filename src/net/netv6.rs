@@ -56,7 +56,7 @@ impl From<&[u8]> for IPv6Packet {
 
         // Implement PacketPayload based on the next_header value
         let payload = match next_header { //TODO extension headers
-            1 => { // ICMPv6
+            58 => { // ICMPv6
                 PacketPayload::ICMP {
                     value: super::ICMPPacket::from(payload_bytes),
                 }
