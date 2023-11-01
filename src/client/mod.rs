@@ -167,7 +167,7 @@ impl Client {
             ipv6 = true;
             domain = Domain::ipv6();
 
-            format!("{}:0", source_addr.to_string())
+            format!("[{}]:0", source_addr.to_string())
         } else {
             println!("[Client] Using IPv4");
             ipv6 = false;
