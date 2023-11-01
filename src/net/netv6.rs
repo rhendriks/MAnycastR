@@ -1,7 +1,8 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
-use super::PacketPayload;
+use byteorder::LittleEndian;
+use super::{ICMPPacket, INFO_URL, PacketPayload};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
 #[derive(Debug)]
@@ -92,7 +93,33 @@ impl From<&[u8]> for IPv6Packet {
     }
 }
 
-// TODO calculate checksum for udp/tcp with ipv6header
+impl ICMPPacket {
+    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
+        let mut packet = ICMPPacket {
+            icmp_type: 128,
+            code: 0,
+            checksum: 0,
+            identifier,
+            sequence_number,
+            body,
+        };
+
+        // Turn everything into a vec of bytes and calculate checksum
+        let mut bytes: Vec<u8> = (&packet).into();
+        bytes.extend(INFO_URL.bytes());
+        packet.checksum = ICMPPacket::calc_checksum(&bytes);
+
+        // Put the checksum at the right position in the packet (calling into() again is also
+        // possible but is likely slower).
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
+        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+}
+
 /// Struct defining a pseudo header (ipv6) that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeaderv6 {
@@ -165,7 +192,7 @@ impl super::UDPPacket {
     pub fn udp_request_v6(source_address: u128, destination_address: u128,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
-        let udp_length = (8 + body.len() + super::INFO_URL.bytes().len()) as u32; // TODO check if this is correct
+        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32; // TODO check if this is correct
 
         let mut packet = Self {
             source_port,
@@ -176,7 +203,7 @@ impl super::UDPPacket {
         };
 
         let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(super::INFO_URL.bytes()); // Add INFO_URL
+        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
             source_address,
