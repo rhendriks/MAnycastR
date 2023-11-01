@@ -43,7 +43,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
         let socket = socket.clone();
         move || {
-            let mut buffer: Vec<u8> = vec![0; 1500];
+            let mut buffer: Vec<u8> = vec![0; 15000];
             // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             while let Ok(b_size) = socket.recv(&mut buffer) {
                 println!("bsize {:?}", b_size);
