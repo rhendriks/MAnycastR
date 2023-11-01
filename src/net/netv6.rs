@@ -57,8 +57,9 @@ impl From<&[u8]> for IPv6Packet {
         // Implement PacketPayload based on the next_header value
         let payload = match next_header { //TODO extension headers
             1 => { // ICMPv6
-                // ICMPv6 implementation here
-                PacketPayload::Unimplemented
+                PacketPayload::ICMP {
+                    value: super::ICMPPacket::from(payload_bytes),
+                }
             },
             17 => { // UDP
                 if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
