@@ -663,7 +663,7 @@ fn parse_ipv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
             })),
         });
     } else {
-        println!("Not ICMP");
+        println!("Not ICMP {:?}", packet.payload);
         return None
     }
 }

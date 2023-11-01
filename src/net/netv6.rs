@@ -24,9 +24,12 @@ impl From<&[u8]> for IPv6Packet {
         let mut cursor = Cursor::new(data);
         cursor.set_position(4); // Payload length
         let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
+        println!("payload_length: {}", payload_length);
         // TODO can use payload_length to determine extension headers / making sure packet can be parsed into icmp/udp/tcp
         let next_header = cursor.read_u8().unwrap();
+        println!("next_header: {}", next_header);
         let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
+        println!("hop_limit: {}", hop_limit);
 
         let source_address = Ipv6Addr::new(
             cursor.read_u16::<NetworkEndian>().unwrap(),
@@ -38,6 +41,7 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap()
         );
+        println!("source_address: {}", source_address.to_string());
 
         let destination_address = Ipv6Addr::new(
             cursor.read_u16::<NetworkEndian>().unwrap(),
@@ -49,6 +53,7 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap()
         );
+        println!("destination_address: {}", destination_address.to_string());
 
         // TODO anycast ipv6?
 
