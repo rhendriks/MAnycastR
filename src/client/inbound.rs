@@ -46,7 +46,11 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             let mut buffer: Vec<u8> = vec![0; 15000]; // TODO set back to 1500
             println!("socket {:?}", socket);
             // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-            while let Ok(b_size) = socket.recv(&mut buffer) {
+            // https://web.stanford.edu/class/cs242/materials/assignments/rust_doc/libc/constant.IPV6_RECVRTHDR.html
+            // https://docs.rs/socket2/latest/socket2/struct.Socket.html
+            //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
+
+            while let Ok(b_size) = socket.recv_with_flags(&mut buffer, 56) {
                 println!("bsize {:?}", b_size);
                 println!("buffer {:?}", buffer);
 
