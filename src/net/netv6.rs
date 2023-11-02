@@ -373,7 +373,7 @@ impl super::TCPPacket {
         };
 
         let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(super::INFO_URL.bytes()); // Add INFO_URL
+        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
             source_address,
