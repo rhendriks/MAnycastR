@@ -220,7 +220,7 @@ impl Client {
                 socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp, ipv6);
 
                 // Start sending thread
                 if probing {
@@ -233,7 +233,7 @@ impl Client {
                 let src_port = 62321;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
+                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
 
                 // Start sending thread
                 if probing {
