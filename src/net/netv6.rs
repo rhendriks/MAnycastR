@@ -21,6 +21,7 @@ pub struct IPv6Packet {
 /// Convert list of u8 (i.e. received bytes) into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
+        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
 
         for byte in data {
             print!("{:02X} ", byte);
