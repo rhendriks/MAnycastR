@@ -349,7 +349,8 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
             while let Ok(p_size) = socket.recv(&mut buffer) {
-                println!("Received TCP {:?}", p_size);
+                println!("bsize {:?}", p_size);
+                println!("buffer {:?}", buffer);
 
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
