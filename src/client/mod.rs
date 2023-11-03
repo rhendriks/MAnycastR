@@ -160,32 +160,38 @@ impl Client {
         self.inbound_tx_f = Some(inbound_tx_f);
 
         let mut ipv6;
-        let mut domain;
+        let src_port: u16 = 62321;
+        let mut bind_address;
 
-        let bind_address = if source_addr.to_string().contains(':') {
+        let domain = if source_addr.to_string().contains(':') {
             println!("[Client] Using IPv6");
             ipv6 = true;
-            domain = Domain::ipv6();
-
-            format!("[{}]:0", source_addr.to_string())
+            bind_address = format!("[{}]", source_addr.to_string());
+            Domain::ipv6()
         } else {
             println!("[Client] Using IPv4");
+            bind_address = format!("{}", source_addr.to_string());
             ipv6 = false;
-            domain = Domain::ipv4();
-
-            format!("{}:0", source_addr.to_string())
+            Domain::ipv4()
         };
 
         let protocol = match start.task_type {
             1 => {
+                bind_address = format!("{}:{}", bind_address, "0");
                 if ipv6 {
                     Protocol::icmpv6()
                 } else {
                     Protocol::icmpv4()
                 }
             },
-            2 => Protocol::udp(),
-            3 => Protocol::tcp(),
+            2 =>  {
+                bind_address = format!("{}:{}", bind_address, src_port);
+                Protocol::udp()
+            },
+            3 => {
+                bind_address = format!("{}:{}", bind_address, src_port);
+                Protocol::tcp()
+            },
             _ => panic!("Invalid task type"),
         };
 
@@ -209,8 +215,6 @@ impl Client {
                 }
             }
             2 => {
-                let src_port: u16 = 62321;
-
                 // Create ICMP socket
                 let socket_icmp = if ipv6 {
                     Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
@@ -230,7 +234,6 @@ impl Client {
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
-                let src_port = 62321;
 
                 // Start listening thread
                 listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
