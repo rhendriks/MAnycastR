@@ -23,7 +23,7 @@ use custom_module::verfploeter::{
     VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
     verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
-    verfploeter_result::Value::Tcp as ResultTcp, IpResult,
+    verfploeter_result::Value::Tcp as ResultTcp
 };
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.

@@ -230,9 +230,10 @@ impl ICMPPacket {
         cursor.into_inner()
     }
 
-    /// Calculate the ICMP Checksum. TODO test for ipv6
+    /// Calculate the ICMP Checksum.
     ///
-    /// This calculation covers the entire ICMPv4 message (16-bit one's complement).
+    /// This calculation covers the entire ICMP  message (16-bit one's complement).
+    /// Works for both ICMPv4 and ICMPv6
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;

@@ -1,7 +1,7 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
-use byteorder::{BigEndian, LittleEndian};
+use byteorder::LittleEndian;
 use super::{ICMPPacket, INFO_URL, PacketPayload};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -21,48 +21,11 @@ pub struct IPv6Packet {
 /// Convert list of u8 (i.e. received bytes) into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
-        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
-
-        for byte in data {
-            print!("{:02X} ", byte);
-        }
-        println!();
-
-        for byte in data {
-            print!("{:08b} ", byte);
-        }
-        println!(); // Add a newline after printing all bytes
-
-
-        println!("data: {:?}", data);
         let mut cursor = Cursor::new(data);
-
-        // TODO make sure version == 6 -> ipv6 code
-
-        let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
+        // let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
         let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
-
-        // Extract the source and destination addresses
-        // let mut source_address_bytes = [0u8; 16];
-        // cursor.read_exact(&mut source_address_bytes).unwrap();
-        // let source_address = Ipv6Addr::from(source_address_bytes);
-        //
-        // let mut destination_address_bytes = [0u8; 16];
-        // cursor.read_exact(&mut destination_address_bytes).unwrap();
-        // let destination_address = Ipv6Addr::from(destination_address_bytes);
-
-        println!("version_traffic_flow: {}", version_traffic_flow);
-
-        // cursor.set_position(4); // Payload length
-        // let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
-        println!("payload_length: {}", payload_length);
-        // TODO can use payload_length to determine extension headers / making sure packet can be parsed into icmp/udp/tcp
-        // let next_header = cursor.read_u8().unwrap();
-        println!("next_header: {}", next_header);
-        // let hop_limit = cursor.read_u8().unwrap(); // Hop limit (similar to TTL)
-        println!("hop_limit: {}", hop_limit);
 
         let source_address = Ipv6Addr::new(
             cursor.read_u16::<NetworkEndian>().unwrap(),
@@ -74,8 +37,6 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap()
         );
-        println!("source_address: {}", source_address.to_string());
-
         let destination_address = Ipv6Addr::new(
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap(),
@@ -86,10 +47,6 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap()
         );
-        println!("destination_address: {}", destination_address.to_string());
-
-        // TODO anycast ipv6?
-
         let payload_bytes = &cursor.into_inner()[40..]; // IPv6 header is 40 bytes
 
         // Implement PacketPayload based on the next_header value
@@ -179,8 +136,6 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u32::<NetworkEndian>(self.length)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        // wtr.write_u24(self.zeroes) // TODO needed?
-        //     .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u8(self.next_header)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr
@@ -240,12 +195,12 @@ impl super::UDPPacket {
     pub fn udp_request_v6(source_address: u128, destination_address: u128,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
-        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32; // TODO check if this is correct
+        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32;
 
         let mut packet = Self {
             source_port,
             destination_port,
-            length: udp_length as u16, // TODO check if this is correct
+            length: udp_length as u16,
             checksum: 0,
             body,
         };

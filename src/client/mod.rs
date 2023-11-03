@@ -1,8 +1,7 @@
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient,
-    address::Value::V4, address::Value::V6, address::Value, Address, IPv6
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -80,7 +79,7 @@ impl Client {
 
         // Initialize a client instance
         let mut client_class = Client {
-            grpc_client: Self::connect(server_addr.clone()).await?,
+            grpc_client: Self::connect(server_addr).await?,
             metadata,
             source_address,
             active: Arc::new(Mutex::new(false)),
@@ -159,7 +158,7 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(inbound_tx_f);
 
-        let mut ipv6;
+        let ipv6;
         let src_port: u16 = 62321;
         let mut bind_address;
 
@@ -195,16 +194,10 @@ impl Client {
             _ => panic!("Invalid task type"),
         };
 
-        println!("Bind address first: {}", bind_address);
-
-        println!("domain: {:?}", domain);
-        println!("protocol: {:?}", protocol);
-
+        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
         // Create the socket to send and receive to/from
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
-        println!("socket: {:?}", socket);
 
         // Start listening thread and sending thread
         match start.task_type {
