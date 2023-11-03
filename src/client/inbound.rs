@@ -801,8 +801,8 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 }
 
 fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
-    // IPv6 40 + TCP 20 minimum
-    if packet_bytes.len() < 60 { return None }
+    // TCP 20 minimum
+    if packet_bytes.len() < 20 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);

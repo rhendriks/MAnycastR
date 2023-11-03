@@ -194,49 +194,6 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
 /// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-// pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 { // TODO untested
-//     // Convert the PseudoHeaderv6 to a byte vector manually // TODO use Into<Vec<u8>> for PseudoHeaderv6
-//     let mut pseudo_header_bytes = vec![];
-//     pseudo_header_bytes.write_u128::<NetworkEndian>(pseudo_header.source_address)
-//         .expect("Failed to write source_address to pseudo-header");
-//     pseudo_header_bytes.write_u128::<NetworkEndian>(pseudo_header.destination_address)
-//         .expect("Failed to write destination_address to pseudo-header");
-//     pseudo_header_bytes.write_u32::<NetworkEndian>(pseudo_header.length)
-//         .expect("Failed to write length to pseudo-header");
-//     // Write 24 zeroes
-//     pseudo_header_bytes.write_u16::<NetworkEndian>(0)
-//         .expect("Failed to write zeroes field to pseudo-header");
-//     pseudo_header_bytes.write_u8::<>(0)
-//         .expect("Failed to write zeroes field to pseudo-header");
-//     pseudo_header_bytes.write_u8(pseudo_header.next_header)
-//         .expect("Failed to write next_header to pseudo-header");
-//
-//     // Concatenate the pseudo-header bytes and the UDP/TCP packet bytes
-//     let mut data = pseudo_header_bytes;
-//     data.extend_from_slice(buffer);
-//
-//     // Divide the concatenated data into 16-bit words and calculate the sum
-//     let mut sum = 0u32;
-//
-//     // If the data length is odd, add a zero byte to the end
-//     if data.len() % 2 != 0 {
-//         data.push(0);
-//     }
-//
-//     for i in (0..data.len()).step_by(2) {
-//         let word = u16::from_le_bytes([data[i], data[i + 1]]);
-//         sum = sum.wrapping_add(u32::from(word));
-//     }
-//
-//     // Take the one's complement of the sum
-//     while (sum >> 16) > 0 {
-//         sum = (sum & 0xFFFF) + (sum >> 16);
-//     }
-//
-//     // The result is the 16-bit checksum
-//     !sum as u16
-// }
-
 pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
