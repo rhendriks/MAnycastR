@@ -203,6 +203,11 @@ pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u
         .expect("Failed to write destination_address to pseudo-header");
     pseudo_header_bytes.write_u32::<NetworkEndian>(pseudo_header.length)
         .expect("Failed to write length to pseudo-header");
+    // Write 24 zeroes
+    pseudo_header_bytes.write_u16::<NetworkEndian>(0)
+        .expect("Failed to write zeroes field to pseudo-header");
+    pseudo_header_bytes.write_u8::<>(0)
+        .expect("Failed to write zeroes field to pseudo-header");
     pseudo_header_bytes.write_u8(pseudo_header.next_header)
         .expect("Failed to write next_header to pseudo-header");
 
