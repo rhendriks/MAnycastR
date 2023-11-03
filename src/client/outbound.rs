@@ -168,7 +168,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -220,18 +220,35 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         .unwrap()
                         .as_nanos() as u64;
 
-                    let dest = match IP::from(dest_addr.clone()) {
-                        IP::V4(v4) => v4,
-                        _ => panic!("IPv6 not supported"),
-                    };
-                    let bind_addr_dest = format!("{}:{}", IP::from(dest_addr).to_string(), source_port.to_string());
-
-                    let source = match source_address {
-                        IP::V4(v4) => v4,
-                        _ => panic!("IPv6 not supported"),
+                    let bind_addr_dest = if ipv6 {
+                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
+                    } else {
+                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
                     };
 
-                    let udp = UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id);
+                    let udp = if ipv6 {
+                        let source = match IP::from(source_address) {
+                            IP::V6(v6) => v6,
+                            _ => panic!("Destination address is not IPv6")
+                        };
+                        let dest = match IP::from(dest_addr) {
+                            IP::V6(v6) => v6,
+                            _ => panic!("Source address is not IPv6")
+                        };
+
+                        UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                    } else {
+                        let source = match IP::from(source_address) {
+                            IP::V4(v4) => v4,
+                            _ => panic!("Destination address is not IPv4")
+                        };
+                        let dest = match IP::from(dest_addr) {
+                            IP::V4(v4) => v4,
+                            _ => panic!("Source address is not IPv4")
+                        };
+
+                        UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                    };
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
@@ -243,8 +260,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                             .into(),
                     ) {
                         error!("Failed to send UDP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
                     }
                 }
             }
@@ -274,8 +289,8 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_addr: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32) {
-    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_addr.to_string());
+pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
 
@@ -326,22 +341,38 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: IP, destination_port: u16, 
                         .unwrap()
                         .as_millis() as u32; // The least significant bits are kept
 
-                    let bind_addr_dest = format!("{}:{}", IP::from(dest_addr.clone()).to_string(), destination_port.to_string());
+                    let bind_addr_dest = if ipv6 {
+                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
+                    } else {
+                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
+                    };
 
                     let seq = task.task_id; // information in seq gets lost
                     let ack = transmit_time; // ack information gets returned as seq
 
-                    let dest = match IP::from(dest_addr) {
-                        IP::V4(v4) => v4,
-                        _ => panic!("IPv6 not supported"),
-                    };
+                    let tcp = if ipv6 {
+                        let source = match IP::from(source_address) {
+                            IP::V6(v6) => v6,
+                            _ => panic!("Destination address is not IPv6")
+                        };
+                        let dest = match IP::from(dest_addr) {
+                            IP::V6(v6) => v6,
+                            _ => panic!("Source address is not IPv6")
+                        };
 
-                    let source = match source_addr {
-                        IP::V4(v4) => v4,
-                        _ => panic!("IPv6 not supported"),
-                    };
+                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                    } else {
+                        let source = match IP::from(source_address) {
+                            IP::V4(v4) => v4,
+                            _ => panic!("Destination address is not IPv4")
+                        };
+                        let dest = match IP::from(dest_addr) {
+                            IP::V4(v4) => v4,
+                            _ => panic!("Source address is not IPv4")
+                        };
 
-                    let tcp = TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new());
+                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                    };
 
                     // Send out packet
                     if let Err(e) = socket.send_to(
@@ -353,8 +384,6 @@ pub fn perform_tcp(socket: Arc<Socket>, source_addr: IP, destination_port: u16, 
                             .into(),
                     ) {
                         error!("Failed to send TCP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    } else {
-                        // println!("[Client outbound] Packet sent!");
                     }
                 }
             }

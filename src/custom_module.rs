@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv4Result, IPv6Result, IPv6};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 #[derive(PartialEq)]
 pub enum IP {
     V4(Ipv4Addr),

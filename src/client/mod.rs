@@ -224,7 +224,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             3 => {
@@ -237,7 +237,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             _ => { () }
