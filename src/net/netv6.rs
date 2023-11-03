@@ -212,6 +212,12 @@ pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u
 
     // Divide the concatenated data into 16-bit words and calculate the sum
     let mut sum = 0u32;
+
+    // If the data length is odd, add a zero byte to the end
+    if data.len() % 2 != 0 {
+        data.push(0);
+    }
+
     for i in (0..data.len()).step_by(2) {
         let word = u16::from_le_bytes([data[i], data[i + 1]]);
         sum = sum.wrapping_add(u32::from(word));
