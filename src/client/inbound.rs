@@ -663,87 +663,87 @@ fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     if packet_bytes.len() < 48 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
-    let packet = UDPPacket::from(packet_bytes);
-    println!("{:?}", packet);
+    let packet = IPv6Packet::from(packet_bytes);
+    println!("UDP packet with IP {:?}", packet);
 
-    let value = packet;
+    // let value = packet;
 
     // Obtain the payload
-    // if let PacketPayload::UDP { value } = packet.payload {
-    println!("{:?}", value);
-    // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
+    if let PacketPayload::UDP { value } = packet.payload {
+        println!("{:?}", value);
+        // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+        if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
+            return None
+        }
+
+        let receive_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        let record = DNSARecord::from(value.body.as_slice());
+
+        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+        println!("{:?}", domain);
+
+        // Get the information from the domain, continue to the next packet if it does not follow the format
+        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+        println!("{:?}", parts);
+        // Our domains have 5 'parts' separated by 4 dashes
+        if parts.len() != 5 { return None }
+
+        let transmit_time = match parts[0].parse::<u64>() {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+        let sender_src = match parts[1].parse::<u32>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_dest = match parts[2].parse::<u32>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_client_id = match parts[3].parse::<u8>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_src_port = match parts[4].parse::<u16>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        // Create a VerfploeterResult for the received UDP reply
+        return Some(VerfploeterResult {
+            value: Some(Value::Udp(UdpResult {
+                receive_time,
+                source_port: value.source_port as u32,
+                destination_port: value.destination_port as u32,
+                code: 16,
+                ip_result: Some(IpResult {
+                    value: Some(ip_result::Value::Ipv6(IPv6Result {
+                        source_address: Some(IPv6 {
+                            p1: 0,
+                            p2: 0,
+                        }),
+                        destination_address: Some(custom_module::verfploeter::IPv6 {
+                            p1: 0,
+                            p2: 0,
+                        }),
+                    })),
+                    ttl: 0,
+                }),
+                payload: Some(UdpPayload {
+                    transmit_time,
+                    source_address: sender_src,
+                    destination_address: sender_dest,
+                    sender_client_id: sender_client_id as u32,
+                    source_port: sender_src_port as u32,
+                }),
+            })),
+        });
+    } else {
         return None
     }
-
-    let receive_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    let record = DNSARecord::from(value.body.as_slice());
-
-    let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-    println!("{:?}", domain);
-
-    // Get the information from the domain, continue to the next packet if it does not follow the format
-    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-    println!("{:?}", parts);
-    // Our domains have 5 'parts' separated by 4 dashes
-    if parts.len() != 5 { return None }
-
-    let transmit_time = match parts[0].parse::<u64>() {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let sender_src = match parts[1].parse::<u32>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_dest = match parts[2].parse::<u32>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_client_id = match parts[3].parse::<u8>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_src_port = match parts[4].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-
-    // Create a VerfploeterResult for the received UDP reply
-    return Some(VerfploeterResult {
-        value: Some(Value::Udp(UdpResult {
-            receive_time,
-            source_port: value.source_port as u32,
-            destination_port: value.destination_port as u32,
-            code: 16,
-            ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result {
-                    source_address: Some(IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                    destination_address: Some(custom_module::verfploeter::IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                })),
-                ttl: 0,
-            }),
-            payload: Some(UdpPayload {
-                transmit_time,
-                source_address: sender_src,
-                destination_address: sender_dest,
-                sender_client_id: sender_client_id as u32,
-                source_port: sender_src_port as u32,
-            }),
-        })),
-    });
-    // } else {
-    //     return None
-    // }
 }
 
 fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
@@ -794,47 +794,48 @@ fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     if packet_bytes.len() < 60 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
-    let packet = TCPPacket::from(packet_bytes);
+    let packet = IPv6Packet::from(packet_bytes);
+    println!("TCP packet with IP: {:?}", packet);
 
-    let value = packet;
+    // let value = packet;
     // Obtain the payload
-    // if let PacketPayload::TCP { value } = packet.payload {
-    // Responses to our probes have destination port > 4000 (as we use these as source)
-    // Use the RST flag, and have ACK 0
-    // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-    if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+    if let PacketPayload::TCP { value } = packet.payload {
+        // Responses to our probes have destination port > 4000 (as we use these as source)
+        // Use the RST flag, and have ACK 0
+        // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
+        if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+            return None
+        }
+
+        let receive_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        // Create a VerfploeterResult for the received UDP reply
+        return Some(VerfploeterResult {
+            value: Some(Value::Tcp(TcpResult {
+                source_port: u32::from(value.source_port),
+                destination_port: value.destination_port as u32,
+                seq: value.seq,
+                ip_result: Some(IpResult {
+                    value: Some(ip_result::Value::Ipv6(IPv6Result {
+                        source_address: Some(IPv6 {
+                            p1: 0,
+                            p2: 0,
+                        }),
+                        destination_address: Some(custom_module::verfploeter::IPv6 {
+                            p1: 0,
+                            p2: 0,
+                        }),
+                    })),
+                    ttl: 0,
+                }),
+                receive_time,
+                ack: value.ack,
+            })),
+        })
+    } else {
         return None
     }
-
-    let receive_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-
-    // Create a VerfploeterResult for the received UDP reply
-    return Some(VerfploeterResult {
-        value: Some(Value::Tcp(TcpResult {
-            source_port: u32::from(value.source_port),
-            destination_port: value.destination_port as u32,
-            seq: value.seq,
-            ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result {
-                    source_address: Some(IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                    destination_address: Some(custom_module::verfploeter::IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                })),
-                ttl: 0,
-            }),
-            receive_time,
-            ack: value.ack,
-        })),
-    })
-    // } else {
-    //     return None
-    // }
 }
