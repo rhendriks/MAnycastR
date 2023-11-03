@@ -123,7 +123,6 @@
 //! From these definitions code is generated using protobuf (done in build.rs).
 
 extern crate env_logger;
-extern crate byteorder;
 #[macro_use]
 extern crate log;
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -131,6 +130,7 @@ mod cli;
 mod server;
 mod client;
 mod net;
+mod custom_module;
 
 /// Parse command line input and start VerfPloeter server, client, or CLI
 ///

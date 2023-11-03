@@ -1,7 +1,9 @@
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::controller_client::ControllerClient;
-use verfploeter::{ TaskId, Task, Metadata, TaskResult, task::Data, ClientId };
-use std::net::{Ipv4Addr, SocketAddr};
+use crate::custom_module;
+use custom_module::IP;
+use custom_module::verfploeter::{
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
+};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
 use tonic::Request;
 use tonic::transport::Channel;
@@ -33,7 +35,7 @@ mod outbound;
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
-    source_address: u32,
+    source_address: IP,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
@@ -52,19 +54,32 @@ impl Client {
         // Get values from args
         let hostname = args.value_of("hostname").unwrap();
         let server_addr = args.value_of("server").unwrap();
-        // Get the source address if it's present (optional argument)
+
+        // Get the custom source address for this client (optional)
         let source_address = if args.is_present("source") {
-            u32::from(Ipv4Addr::from_str(args.value_of("source").unwrap()).unwrap())
-        } else { 0 };
+            let source = args.value_of("source").unwrap();
+            println!("[Client] Using custom source address: {}", source);
+
+            if source.contains(':') {
+                IP::V6(Ipv6Addr::from_str(source).expect("Invalid IPv6 address"))
+            } else {
+                IP::V4(Ipv4Addr::from_str(source).expect("Invalid IPv4 address"))
+            }
+        } else {
+            println!("[Client] Using source address from task");
+            IP::None
+        };
+
+        let source_address_m = Address::from(source_address.clone());
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address,
+            source_address: Some(source_address_m),
         };
 
         // Initialize a client instance
         let mut client_class = Client {
-            grpc_client: Self::connect(server_addr.clone()).await?,
+            grpc_client: Self::connect(server_addr).await?,
             metadata,
             source_address,
             active: Arc::new(Mutex::new(false)),
@@ -126,14 +141,14 @@ impl Client {
         let rate: u32 = start.rate;
         let task_id = task.task_id;
 
-        let client_sources: Vec<u32> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
+        let client_sources: Vec<Address> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
         println!("Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr = if self.source_address == 0 {
-            start.source_address
+        let source_addr: IP = if self.source_address == IP::None {
+            IP::from(start.source_address.unwrap())
         } else {
-            self.source_address
+            self.source_address.clone()
         };
 
         // Channel for sending from inbound to the server forwarder thread (at the end of the function)
@@ -142,56 +157,83 @@ impl Client {
         // Channel for signalling when inbound is finished
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(inbound_tx_f);
-        let bind_address = format!(
-            "{}:0",
-            Ipv4Addr::from(source_addr).to_string()
-        );
+
+        let ipv6;
+        let src_port: u16 = 62321;
+        let mut bind_address;
+
+        let domain = if source_addr.to_string().contains(':') {
+            println!("[Client] Using IPv6");
+            ipv6 = true;
+            bind_address = format!("[{}]", source_addr.to_string());
+            Domain::ipv6()
+        } else {
+            println!("[Client] Using IPv4");
+            bind_address = format!("{}", source_addr.to_string());
+            ipv6 = false;
+            Domain::ipv4()
+        };
+
+        let protocol = match start.task_type {
+            1 => {
+                bind_address = format!("{}:{}", bind_address, "0");
+                if ipv6 {
+                    Protocol::icmpv6()
+                } else {
+                    Protocol::icmpv4()
+                }
+            },
+            2 =>  {
+                bind_address = format!("{}:{}", bind_address, src_port);
+                Protocol::udp()
+            },
+            3 => {
+                bind_address = format!("{}:{}", bind_address, src_port);
+                Protocol::tcp()
+            },
+            _ => panic!("Invalid task type"),
+        };
+
+        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
+        // Create the socket to send and receive to/from
+        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
+        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
-                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
+                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             2 => {
-                let src_port: u16 = 62321;
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::udp())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
                 // Create ICMP socket
-                let socket_icmp = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::icmpv4())).unwrap());
+                let socket_icmp = if ipv6 {
+                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
+                } else {
+                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv4())).unwrap())
+                };
                 socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp, ipv6);
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853 + client_id as u16;
-                let src_port = 62321;
-
-                // Create the socket to send and receive to/from
-                let socket = Arc::new(Socket::new(Domain::ipv4(), Type::raw(), Some(Protocol::tcp())).unwrap());
-                socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id);
+                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate);
+                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             _ => { () }
