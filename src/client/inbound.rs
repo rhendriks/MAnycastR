@@ -349,14 +349,15 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
             while let Ok(p_size) = socket.recv(&mut buffer) {
+                println!("Received TCP {:?}", p_size);
 
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
 
                 let result = if v6 {
-                    parse_udpv6(&buffer[..p_size], task_id)
+                    parse_tcpv6(&buffer[..p_size], task_id)
                 } else {
-                    parse_udpv4(&buffer[..p_size], task_id)
+                    parse_tcpv4(&buffer[..p_size], task_id)
                 };
 
                 // Put result in transmission queue
