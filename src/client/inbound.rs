@@ -10,7 +10,7 @@ use custom_module::verfploeter::{
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6
 };
-use crate::net::{DNSARecord, ICMPPacket, IPv4Packet, netv6::IPv6Packet, PacketPayload, TCPPacket, UDPPacket};
+use crate::net::{DNSARecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, UDPPacket};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -34,26 +34,22 @@ use crate::net::{DNSARecord, ICMPPacket, IPv4Packet, netv6::IPv6Packet, PacketPa
 ///
 /// * 'client_id' - the unique client ID of this client
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool) {
+    println!("[Client inbound] Started ICMP listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
-    println!("[Client inbound] Started ICMP listener");
 
     thread::spawn({
         let rq_receiver = rq.clone();
 
         let socket = socket.clone();
         move || {
-            let mut buffer: Vec<u8> = vec![0; 15000]; // TODO set back to 1500
-            println!("socket {:?}", socket);
-            // println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+            let mut buffer: Vec<u8> = vec![0; 1500];
+            println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             // https://web.stanford.edu/class/cs242/materials/assignments/rust_doc/libc/constant.IPV6_RECVRTHDR.html
             // https://docs.rs/socket2/latest/socket2/struct.Socket.html
             //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
 
             while let Ok(p_size) = socket.recv_with_flags(&mut buffer, 56) {
-                println!("bsize {:?}", p_size);
-                println!("buffer {:?}", buffer);
-
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
 
@@ -63,12 +59,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     parse_icmpv4(&buffer[..p_size], task_id)
                 };
 
-                if result == None {
-                    println!("[Client inbound] Received invalid ICMP packet");
-                    continue
-                }
+                // Invalid ICMP packets have value None
+                if result == None { continue }
 
-                    // Put result in transmission queue
+                // Put result in transmission queue
                 {
                     println!("[Client inbound] Received ICMP packet");
                     let mut rq_opt = rq_receiver.lock().unwrap();
@@ -143,15 +137,13 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 if p_size == 0 { break }
 
                 let result = if v6 {
-                    parse_udpv6(&buffer[..p_size], task_id)
+                    parse_udpv6(&buffer[..p_size])
                 } else {
-                    parse_udpv4(&buffer[..p_size], task_id)
+                    parse_udpv4(&buffer[..p_size])
                 };
 
-                if result == None {
-                    println!("[Client inbound] Received invalid UDP packet");
-                    continue
-                }
+                // Invalid UDP packets have value None
+                if result == None { continue }
 
                 // Put result in transmission queue
                 {
@@ -335,10 +327,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 ///
 /// * 'client_id' - the unique client ID of this client
 pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool) {
+    println!("[Client inbound] Started TCP prober");
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
-
-    println!("[Client inbound] Started TCP prober");
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
@@ -349,22 +340,17 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
             while let Ok(p_size) = socket.recv(&mut buffer) {
-                println!("bsize {:?}", p_size);
-                println!("buffer {:?}", buffer);
-
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
 
                 let result = if v6 {
-                    parse_tcpv6(&buffer[..p_size], task_id)
+                    parse_tcpv6(&buffer[..p_size])
                 } else {
-                    parse_tcpv4(&buffer[..p_size], task_id)
+                    parse_tcpv4(&buffer[..p_size])
                 };
 
-                if result == None {
-                    println!("[Client inbound] Received invalid TCP packet");
-                    continue
-                }
+                // Invalid TCP packets have value None
+                if result == None { continue }
 
                 // Put result in transmission queue
                 {
@@ -506,11 +492,10 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
-    println!("Received IPv6 packet");
     // IPv6 40 + ICMP ECHO 8 minimum
-    if packet_bytes.len() < 8 { // TODO update length for ipv6 header
-        println!("Too small {} < 8", packet_bytes.len());
-        return None }
+    if packet_bytes.len() < 8 { return None }
+
+    // TODO update for ipv6 header
 
     // Create IPv6Packet from the bytes in the buffer
     let packet = ICMPPacket::from(packet_bytes);
@@ -518,19 +503,14 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     // Obtain the payload
     // if let PacketPayload::ICMP { value } = packet.payload {
     let value = packet;
-    if *&value.body.len() < 4 {
-        println!("Too small body {} < 4", value.body.len());
-        return None }
+    if *&value.body.len() < 4 { return None }
 
-    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else {
-        println!("Empty");
-        return None };
+    let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
 
     let pkt_task_id = u32::from_be_bytes(s);
 
     // Make sure that this packet belongs to this task
     if (pkt_task_id != task_id) | (value.body.len() < 48) {
-        println!("Not our task");
         // If not, we discard it and await the next packet
         return None;
     }
@@ -550,7 +530,7 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         value: Some(Value::Ping(PingResult {
             receive_time,
             ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result { // TODO update for ipv6 header
+                value: Some(ip_result::Value::Ipv6(IPv6Result {
                     source_address: Some(IPv6 {
                         p1: 0,
                         p2: 0,
@@ -585,17 +565,15 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     // }
 }
 
-fn parse_udpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // IPv4 20 + UDP 8 minimum
     if packet_bytes.len() < 28 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
-    println!("{:?}", packet);
 
     // Obtain the payload
     if let PacketPayload::UDP { value } = packet.payload {
-        println!("{:?}", value);
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
             return None
@@ -606,13 +584,10 @@ fn parse_udpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
             .unwrap()
             .as_nanos() as u64;
         let record = DNSARecord::from(value.body.as_slice());
-
         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-        println!("{:?}", domain);
 
         // Get the information from the domain, continue to the next packet if it does not follow the format
         let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-        println!("{:?}", parts);
         // Our domains have 5 'parts' separated by 4 dashes
         if parts.len() != 5 { return None }
 
@@ -665,19 +640,19 @@ fn parse_udpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     }
 }
 
-fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // IPv6 40 + UDP 8 minimum
-    if packet_bytes.len() < 8 { return None } // TODO packet length
+    if packet_bytes.len() < 8 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);
+    // TODO update for ipv6 header
 
     let value = UDPPacket::from(packet_bytes);
     println!("UDP packet with IP {:?}", value);
 
     // Obtain the payload
     // if let PacketPayload::UDP { value } = packet.payload {
-    println!("{:?}", value);
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
     if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
         return None
@@ -688,13 +663,10 @@ fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         .unwrap()
         .as_nanos() as u64;
     let record = DNSARecord::from(value.body.as_slice());
-
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-    println!("{:?}", domain);
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
     let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-    println!("{:?}", parts);
     // Our domains have 5 'parts' separated by 4 dashes
     if parts.len() != 5 { return None }
 
@@ -753,11 +725,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     // }
 }
 
-fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // IPv4 20 + TCP 20 minimum
-    if packet_bytes.len() < 40 {
-        println!("Invalid 1");
-        return None }
+    if packet_bytes.len() < 40 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
@@ -768,7 +738,6 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
         if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
-            println!("Invalid 2");
             return None
         }
 
@@ -795,23 +764,19 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
             })),
         })
     } else {
-        println!("Invalid 3");
         return None
     }
 }
 
-fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // TCP 20 minimum
-    if packet_bytes.len() < 20 {
-        println!("Invalid 1 {}", packet_bytes.len());
-        return None
-    }
+    if packet_bytes.len() < 20 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);
+    // TODO update for ipv6 header
 
     let value = TCPPacket::from(packet_bytes);
-    println!("TCP packet with IP: {:?}", value);
 
     // let value = packet;
     // Obtain the payload
@@ -820,7 +785,6 @@ fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
     if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
-        println!("Invalid 2");
         return None
     }
 

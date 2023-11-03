@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv4Result, IPv6Result, IPv6};
+use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
 #[derive(Clone, Copy)]
 #[derive(PartialEq)]
@@ -11,7 +11,6 @@ pub enum IP {
 }
 
 impl From<Address> for IP {
-    // TODO untested
     fn from(address: Address) -> Self {
         match address.value {
             Some(V4(v4)) => IP::V4(v4.into()),
