@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::{BufRead, BufReader, Write};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -15,14 +15,16 @@ use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::Channel;
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::{ controller_client::ControllerClient, TaskResult };
-use crate::cli::verfploeter::verfploeter_result::Value::Ping as ResultPing;
-use crate::cli::verfploeter::verfploeter_result::Value::Udp as ResultUdp;
-use crate::cli::verfploeter::verfploeter_result::Value::Tcp as ResultTcp;
-
-use std::fs;
 use std::process::{Command, Stdio};
+
+use crate::custom_module;
+use custom_module::IP;
+use custom_module::verfploeter::{
+    VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
+    schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
+    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
+    verfploeter_result::Value::Tcp as ResultTcp
+};
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -56,7 +58,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
-            if let Ok(metadata) = fs::metadata(path.unwrap()) {
+            if let Ok(metadata) = std::fs::metadata(path.unwrap()) {
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
@@ -85,27 +87,48 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Source IP for the measurement
-        let source_ip = u32::from(match Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()) {
-            Ok(s) => {s}
-            Err(_) => { panic!("Invalid source IP value") }
-        });
+        let source_ip = IP::from(matches.value_of("SOURCE_IP").unwrap().to_string());
 
         // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
-        let mut ips = buf_reader
+
+        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address will be skipeed?
+        // let v4 = if first.contains(':') { false } else { true };
+
+        // let addresses: Vec<Address> = if v4 {
+        //     let mut ips: Vec<_> = buf_reader // TODO create list of Addresses (make sure they are all ipv4 or ipv6)
+        //         .lines()
+        //         .map(|l| {
+        //             let address_str = &l.unwrap();
+        //             if v4 {
+        //                 match Ipv4Addr::from_str(address_str) {
+        //                     Ok(a) => u32::from(a),
+        //                     Err(_) => panic!("Unable to parse v4 address: {}", address_str),
+        //                 }
+        //             } else {
+        //                 match Ipv6Addr::from_str(address_str) {
+        //                     Ok(a) => u128::from(a),
+        //                     Err(_) => panic!("Unable to parse v6 address: {}", address_str),
+        //                 }
+        //             }
+        //         })
+        //         .collect::<Vec<_>>();
+        // } else {
+        //
+        // }
+
+        // TODO make sure that all addresses are the same type (v4 or v6)
+
+        let mut ips: Vec<Address> = buf_reader
             .lines()
             .map(|l| {
-                let address_str = &l.unwrap();
-                let address = match Ipv4Addr::from_str(address_str) {
-                    Ok(a) => u32::from(a),
-                    Err(_) => panic!("Unable to parse address: {}", address_str),
-                };
-
-                address
+                let address_str = l.unwrap();
+                Address::from(IP::from(address_str))
             })
-            .collect::<Vec<u32>>();
+            .collect::<Vec<_>>();
+
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist if desired
@@ -154,7 +177,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), Ipv4Addr::from_str(matches.value_of("SOURCE_IP").unwrap()).unwrap(), rate);
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), source_ip.to_string(), rate);
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
@@ -185,34 +208,34 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// ```
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
-fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, task_type: u32, rate: u32, client_ids: Vec<u32>) -> verfploeter::ScheduleTask {
+fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>, task_type: u32, rate: u32, client_ids: Vec<u32>) -> ScheduleTask {
     match task_type {
         1 => { // ICMP
-            return verfploeter::ScheduleTask {
+            return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address,
-                data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
+                source_address: Some(Address::from(source_address)),
+                data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
             }
         }
         2 => { // UDP
-            return verfploeter::ScheduleTask {
+            return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address,
-                data: Some(verfploeter::schedule_task::Data::Udp(verfploeter::Udp {
+                source_address: Some(Address::from(source_address)),
+                data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
             }
         }
         3 => { // TCP
-            return verfploeter::ScheduleTask {
+            return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address,
-                data: Some(verfploeter::schedule_task::Data::Tcp(verfploeter::Tcp {
+                source_address: Some(Address::from(source_address)),
+                data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
             }
@@ -220,11 +243,11 @@ fn create_schedule_task(source_address: u32, destination_addresses: Vec<u32>, ta
         _ => println!("Undefined type, defaulting to ICMP.")
     }
 
-    verfploeter::ScheduleTask {
+    ScheduleTask {
         rate,
         clients: client_ids,
-        source_address,
-        data: Some(verfploeter::schedule_task::Data::Ping(verfploeter::Ping {
+        source_address: Some(Address::from(source_address)),
+        data: Some(schedule_task::Data::Ping(Ping {
             destination_addresses,
         }))
     }
@@ -244,12 +267,12 @@ impl CliClient {
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     ///
     /// * 'live' - if true results will be checked for anycast targets as they come in.
-    async fn do_task_to_server(&mut self, task: verfploeter::ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(&mut self, task: ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
-        let source_address = Ipv4Addr::from(task.source_address).to_string();
+        let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
 
         // Obtain connected client information for metadata
-        let request = Request::new(verfploeter::Empty::default());
+        let request = Request::new(Empty::default());
         let response = self.grpc_client.list_clients(request).await?;
         let mut clients = HashMap::new();
         for client in response.into_inner().clients {
@@ -267,11 +290,11 @@ impl CliClient {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let timestamp_start = chrono::offset::Local::now();
+        let timestamp_start = Local::now();
 
-        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", chrono::offset::Local::now().format("%H:%M:%S"));
+        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", Local::now().format("%H:%M:%S"));
 
-        let mut results: Vec<verfploeter::TaskResult> = Vec::new();
+        let mut results: Vec<TaskResult> = Vec::new();
 
         let mut graceful = false;
         // Obtain the Stream from the server and read from it
@@ -346,11 +369,18 @@ impl CliClient {
 
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            let source_addr = if metadata.source_address == 0 {
-                "Default".to_string()
-            } else {
-                Ipv4Addr::from(metadata.source_address).to_string()
+
+            let source_addr = match &metadata.source_address {
+                Some(Address { value: Some(V4(v4)) }) => {
+                    std::net::Ipv4Addr::from(*v4).to_string()
+                },
+                Some(Address { value: Some(V6(v6)) }) => {
+                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
+                },
+                Some(Address { value: None }) => "Default".to_string(),
+                None => "Default".to_string(),
             };
+
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
 
@@ -405,9 +435,9 @@ impl CliClient {
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let client: verfploeter::Client = result.client.unwrap();
+            let client: Client = result.client.unwrap();
             let receiver_client_id = client.client_id.to_string();
-            let verfploeter_results: Vec<verfploeter::VerfploeterResult> = result.result_list;
+            let verfploeter_results: Vec<VerfploeterResult> = result.result_list;
 
             // TaskResult information TODO TaskResult still contains hostname and task_id which does not need to be repeated
             let record: [&str; 1] = [&receiver_client_id];
@@ -418,16 +448,16 @@ impl CliClient {
                     ResultPing(ping) => {
                         let recv_time = ping.receive_time.to_string();
 
-                        let ipv4result = ping.ipv4_result.unwrap();
-                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
-                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
-                        let ttl = ipv4result.ttl.to_string();
+                        let ip_result = ping.ip_result.unwrap();
+                        let reply_src = ip_result.get_source_address_str();
+                        let reply_dest = ip_result.get_dest_address_str();
+                        let ttl = ip_result.ttl.to_string();
 
                         // Ping payload
                         let payload = ping.payload.unwrap();
                         let transmit_time = payload.transmit_time.to_string();
-                        let request_src = Ipv4Addr::from(payload.source_address).to_string();
-                        let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
+                        let request_src = IP::from(payload.source_address.unwrap()).to_string();
+                        let request_dest = IP::from(payload.destination_address.unwrap()).to_string();
                         let sender_client_id = payload.sender_client_id.to_string();
 
                         let record_ping: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &transmit_time, &request_src, &request_dest, &sender_client_id];
@@ -445,10 +475,10 @@ impl CliClient {
                         let reply_destination_port = udp.destination_port.to_string();
                         let reply_code = udp.code.to_string();
 
-                        let ipv4result = udp.ipv4_result.unwrap();
-                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
-                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
-                        let ttl = ipv4result.ttl.to_string();
+                        let ip_result = udp.ip_result.unwrap();
+                        let reply_src = ip_result.get_source_address_str();
+                        let reply_dest = ip_result.get_dest_address_str();
+                        let ttl = ip_result.ttl.to_string();
 
 
                         let payload = udp.payload.unwrap();
@@ -469,10 +499,10 @@ impl CliClient {
                     ResultTcp(tcp) => {
                         let recv_time = tcp.receive_time.to_string();
 
-                        let ipv4result = tcp.ipv4_result.unwrap();
-                        let reply_src = Ipv4Addr::from(ipv4result.source_address).to_string();
-                        let reply_dest = Ipv4Addr::from(ipv4result.destination_address).to_string();
-                        let ttl = ipv4result.ttl.to_string();
+                        let ip_result = tcp.ip_result.unwrap();
+                        let reply_src = ip_result.get_source_address_str();
+                        let reply_dest = ip_result.get_dest_address_str();
+                        let ttl = ip_result.ttl.to_string();
 
                         let reply_source_port = tcp.source_port.to_string();
                         let reply_destination_port = tcp.destination_port.to_string();
@@ -498,7 +528,7 @@ impl CliClient {
     /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
-        let request = Request::new(verfploeter::Empty::default());
+        let request = Request::new(Empty::default());
         let response = self.grpc_client.list_clients(request).await?;
 
         // Pretty print to command-line
@@ -518,11 +548,16 @@ impl CliClient {
         for client in response.into_inner().clients {
 
             let metadata = client.metadata.clone().unwrap();
-            let source_address = metadata.source_address;
-            let sa = if source_address == 0 {
-                "Default".to_string()
-            } else {
-                Ipv4Addr::from(source_address).to_string()
+
+            let sa = match &metadata.source_address {
+                Some(Address { value: Some(V4(v4)) }) => {
+                    std::net::Ipv4Addr::from(*v4).to_string()
+                },
+                Some(Address { value: Some(V6(v6)) }) => {
+                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
+                },
+                Some(Address { value: None }) => "Default".to_string(),
+                None => "Default".to_string(),
             };
 
             table.add_row(prettytable::row!(
@@ -575,9 +610,9 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
             for result in task_result.result_list {
                 // Get the source address of this result
                 let address: u32 = match result.value.unwrap() {
-                    verfploeter::verfploeter_result::Value::Ping(ping_result) => ping_result.ipv4_result.unwrap().source_address,
-                    verfploeter::verfploeter_result::Value::Udp(udp_result) => udp_result.ipv4_result.unwrap().source_address,
-                    verfploeter::verfploeter_result::Value::Tcp(tcp_result) => tcp_result.ipv4_result.unwrap().source_address,
+                    ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
+                    ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
+                    ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                 };
 
                 let mut map = map.lock().unwrap();

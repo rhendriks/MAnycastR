@@ -41,7 +41,7 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  fixed32 source_address = 3;
+  Address source_address = 3;
   oneof data {
     Ping ping = 4;
     UDP udp = 5;
@@ -63,7 +63,21 @@ message Client {
 // Metadata (as used in Client), contains a hostname and a source address (0 if client uses the default source)
 message Metadata {
   string hostname = 1;
-  uint32 source_address = 2;
+  Address source_address = 2;
+}
+
+// Address message, can be either an IPv4 or IPv6 address
+message Address {
+  oneof value {
+    fixed32 v4 = 1;
+    IPv6 v6 = 2;
+  }
+}
+
+// IPv6 address message (since protobuf does not support 128 bit values)
+message IPv6 {
+  fixed64 p1 = 1;
+  fixed64 p2 = 2;
 }
 
 // A task for a Client, with a task ID, the probing rate (probes / second) can be either a Start, Ping, UDP, TCP, or an Empty task
@@ -83,25 +97,25 @@ message Start {
   uint32 rate = 1;
   bool active = 2;
   uint32 task_type = 3;
-  fixed32 source_address = 4;
-  repeated fixed32 client_sources = 5;
+  Address source_address = 4;
+  repeated Address client_sources = 5;
 }
 
 // A Ping, which has a list of destination addresses
 message Ping {
-  repeated fixed32 destination_addresses = 2;
+  repeated Address destination_addresses = 2;
 }
 
 // UDP, which has a list of destination addresses
 message UDP {
 //  fixed32 source_address = 1;
-  repeated fixed32 destination_addresses = 2;
+  repeated Address destination_addresses = 2;
 }
 
 // TCP, which has a list of destination addresses
 message TCP {
 //  fixed32 source_address = 1;
-  repeated fixed32 destination_addresses = 2;
+  repeated Address destination_addresses = 2;
 }
 
 // A TaskResult, contains the task ID, the Client that executed the task, and a list of results
@@ -120,25 +134,37 @@ message VerfploeterResult {
   }
 }
 
+message IPResult {
+  oneof value {
+    IPv4Result ipv4 = 1;
+    IPv6Result ipv6 = 2;
+  }
+  fixed32 ttl = 3;
+}
+
 // IPv4Result, contains all information extracted from the IPv4 header: source, destination addresses and TTL
 message IPv4Result {
   fixed32 source_address = 1;
   fixed32 destination_address = 2;
-  fixed32 ttl = 3;
+}
+
+message IPv6Result {
+  IPv6 source_address = 1;
+  IPv6 destination_address = 2;
 }
 
 // Result of a ping which has a receive time, an ipv4 result, and the ping payload information
 message PingResult {
   uint64 receive_time = 1;
-  IPv4Result ipv4_result = 2;
+  IPResult ip_result = 2;
   PingPayload payload = 3;
 }
 
 // PingPayload. The payload of a ping which contains the transmission time, source/dest address, and the sender client ID
 message PingPayload {
   uint64 transmit_time = 1;
-  fixed32 source_address = 2;
-  fixed32 destination_address = 3;
+  Address source_address = 2;
+  Address destination_address = 3;
   fixed32 sender_client_id = 4;
 }
 
@@ -148,14 +174,14 @@ message UDPResult {
   fixed32 source_port = 2;
   fixed32 destination_port = 3;
   fixed32 code = 4;
-  IPv4Result ipv4_result = 5;
+  IPResult ip_result = 5;
   UDPPayload payload = 6;
 }
 
 // UDP payload, which is extracted from the domain of the DNS A Record reply, containing information about the probe
 message UDPPayload {
   uint64 transmit_time = 1;
-  fixed32 source_address = 2;
+  fixed32 source_address = 2; // we can't fit 128 bit addresses into the domain (so for ipv6 we store the 32 right-most bits)
   fixed32 destination_address = 3;
   fixed32 sender_client_id = 4;
   fixed32 source_port = 5;
@@ -164,7 +190,7 @@ message UDPPayload {
 // TCP result which contains a receive time, an ipv4 result, source & destination ports, and the ack & seq numbers
 message TCPResult {
   uint64 receive_time = 1;
-  IPv4Result ipv4_result = 2;
+  IPResult ip_result = 2;
   fixed32 source_port = 3;
   fixed32 destination_port = 4;
   fixed32 seq = 5;
