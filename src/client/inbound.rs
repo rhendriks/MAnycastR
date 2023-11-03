@@ -360,6 +360,11 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     parse_tcpv4(&buffer[..p_size], task_id)
                 };
 
+                if result == None {
+                    println!("[Client inbound] Received invalid TCP packet");
+                    continue
+                }
+
                 // Put result in transmission queue
                 {
                     let mut rq_opt = result_queue_receiver.lock().unwrap();
@@ -749,7 +754,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 
 fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     // IPv4 20 + TCP 20 minimum
-    if packet_bytes.len() < 40 { return None }
+    if packet_bytes.len() < 40 {
+        println!("Invalid 1");
+        return None }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
@@ -760,6 +767,7 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
         if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+            println!("Invalid 2");
             return None
         }
 
@@ -786,6 +794,7 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
             })),
         })
     } else {
+        println!("Invalid 3");
         return None
     }
 }
