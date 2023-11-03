@@ -667,7 +667,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 
 fn parse_udpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     // IPv6 40 + UDP 8 minimum
-    if packet_bytes.len() < 48 { return None }
+    if packet_bytes.len() < 8 { return None } // TODO packet length
 
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);
@@ -802,7 +802,10 @@ fn parse_tcpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
 
 fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     // TCP 20 minimum
-    if packet_bytes.len() < 20 { return None }
+    if packet_bytes.len() < 20 {
+        println!("Invalid 1 {}", packet_bytes.len());
+        return None
+    }
 
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);
@@ -817,6 +820,7 @@ fn parse_tcpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
     if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+        println!("Invalid 2");
         return None
     }
 
