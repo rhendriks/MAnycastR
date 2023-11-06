@@ -103,19 +103,17 @@ message Start {
 
 // A Ping, which has a list of destination addresses
 message Ping {
-  repeated Address destination_addresses = 2;
+  repeated Address destination_addresses = 1;
 }
 
-// UDP, which has a list of destination addresses
+// UDP, which has a list of destination addresses and the type of UDP (A or CHAOS)
 message UDP {
-//  fixed32 source_address = 1;
-  repeated Address destination_addresses = 2;
+  repeated Address destination_addresses = 1;
 }
 
 // TCP, which has a list of destination addresses
 message TCP {
-//  fixed32 source_address = 1;
-  repeated Address destination_addresses = 2;
+  repeated Address destination_addresses = 1;
 }
 
 // A TaskResult, contains the task ID, the Client that executed the task, and a list of results

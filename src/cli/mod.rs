@@ -155,9 +155,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, or 3)") };
-        // We only accept task types 1, 2, 3
-        if (task_type < 1) | (task_type > 3) {
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
+        // We only accept task types 1, 2, 3, 4
+        if (task_type < 1) | (task_type > 4) {
             panic!("Invalid task type value! (can be either 1, 2, or 3)")
         }
         // Check for command-line option that determines whether to stream to CLI
@@ -174,6 +174,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
+            4 => "UDP/CHAOS",
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
@@ -343,7 +344,7 @@ impl CliClient {
                                         timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "ICMP" };
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP/DNS" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP/CHAOS"} else { "ICMP" };
 
         // Output file
         let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
@@ -410,7 +411,7 @@ impl CliClient {
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
-        } else if task_type == 2 { // UDP
+        } else if task_type == 2 { // UDP/DNS
             let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
             "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
 
@@ -431,6 +432,8 @@ impl CliClient {
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
+        } else if task_type == 4 { // UDP/CHAOS
+            // TODO
         }
 
         // Loop over the results and write them to CLI/file
