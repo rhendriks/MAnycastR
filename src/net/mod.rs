@@ -516,11 +516,11 @@ impl UDPPacket {
         dns_body.write_u8(client_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
-        dns_body.write_u16::<byteorder::BigEndian>(0x0120).unwrap(); // Flags (Standard query, recursion desired)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
-        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of additional RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question
         for label in subdomain.split('.') {
@@ -594,11 +594,11 @@ impl UDPPacket {
         dns_body.write_u8(client_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
-        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired) //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question (hostname.bind)
         let domain = "hostname.bind";
