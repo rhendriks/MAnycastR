@@ -8,7 +8,7 @@ use crate::custom_module;
 use custom_module::verfploeter::{
     Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
-    address::Value::V4, address::Value::V6, IPv6
+    address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord
 };
 use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
 
@@ -138,9 +138,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 if p_size == 0 { break }
 
                 let result = if v6 {
-                    parse_udpv6(&buffer[..p_size])
+                    parse_udpv6(&buffer[..p_size], task_type)
                 } else {
-                    parse_udpv4(&buffer[..p_size])
+                    parse_udpv4(&buffer[..p_size], task_type)
                 };
 
                 println!("result {:?}", result);
@@ -598,7 +598,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     if let PacketPayload::UDP { value } = packet.payload {
         println!("UDP packet {:?}", value);
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
+        if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) { // TODO body length doesnt match for TXT record replies
             return None
         }
 
@@ -606,36 +606,6 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let record = DNSRecord::from(value.body.as_slice());
-        println!("DNS RECORD: {:?}", record);
-        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-        println!("DOMAIN: {}", domain);
-
-        // Get the information from the domain, continue to the next packet if it does not follow the format
-        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-        // Our domains have 5 'parts' separated by 4 dashes
-        if parts.len() != 5 { return None }
-
-        let transmit_time = match parts[0].parse::<u64>() {
-            Ok(t) => t,
-            Err(_) => return None,
-        };
-        let sender_src = match parts[1].parse::<u32>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let sender_dest = match parts[2].parse::<u32>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let sender_client_id = match parts[3].parse::<u8>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let sender_src_port = match parts[4].parse::<u16>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
 
         // Create a VerfploeterResult for the received UDP reply
         return Some(VerfploeterResult {
@@ -651,13 +621,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
                     })),
                     ttl: packet.ttl as u32,
                 }),
-                payload: Some(UdpPayload {
-                    transmit_time,
-                    source_address: sender_src,
-                    destination_address: sender_dest,
-                    sender_client_id: sender_client_id as u32,
-                    source_port: sender_src_port as u32,
-                }),
+                payload: parse_dns_a_record(value.body.as_slice()), // TODO
             })),
         });
     } else {
@@ -665,7 +629,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     }
 }
 
-fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
+fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
     // IPv6 40 + UDP 8 minimum
     if packet_bytes.len() < 8 { return None }
 
@@ -673,13 +637,15 @@ fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // let packet = IPv6Packet::from(packet_bytes);
     // TODO update for ipv6 header
 
-    let value = UDPPacket::from(packet_bytes);
-    println!("UDP packet with IP {:?}", value);
+    let udp_packet = UDPPacket::from(packet_bytes);
+    println!("UDP packet with IP {:?}", udp_packet);
 
     // Obtain the payload
     // if let PacketPayload::UDP { value } = packet.payload {
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
+    if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
+        return None
+    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 20)) { // TODO length CHAOS TXT
         return None
     }
 
@@ -687,7 +653,37 @@ fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let record = DNSRecord::from(value.body.as_slice());
+
+    // Create a VerfploeterResult for the received UDP reply
+    return Some(VerfploeterResult {
+        value: Some(Value::Udp(UdpResult {
+            receive_time,
+            source_port: udp_packet.source_port as u32,
+            destination_port: udp_packet.destination_port as u32,
+            code: 16,
+            ip_result: Some(IpResult {
+                value: Some(ip_result::Value::Ipv6(IPv6Result {
+                    source_address: Some(IPv6 {
+                        p1: 0,
+                        p2: 0,
+                    }),
+                    destination_address: Some(custom_module::verfploeter::IPv6 {
+                        p1: 0,
+                        p2: 0,
+                    }),
+                })),
+                ttl: 0,
+            }),
+            payload: parse_dns_a_record(udp_packet.body.as_slice()), // TODO parse_chaos when chaos
+        })),
+    });
+    // } else {
+    //     return None
+    // }
+}
+
+fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A_record type
+    let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -716,38 +712,30 @@ fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         Err(_) => return None,
     };
 
-    // Create a VerfploeterResult for the received UDP reply
-    return Some(VerfploeterResult {
-        value: Some(Value::Udp(UdpResult {
-            receive_time,
-            source_port: value.source_port as u32,
-            destination_port: value.destination_port as u32,
-            code: 16,
-            ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result {
-                    source_address: Some(IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                    destination_address: Some(custom_module::verfploeter::IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                })),
-                ttl: 0,
-            }),
-            payload: Some(UdpPayload {
-                transmit_time,
-                source_address: sender_src,
-                destination_address: sender_dest,
-                sender_client_id: sender_client_id as u32,
-                source_port: sender_src_port as u32,
-            }),
-        })),
+    return Some(UdpPayload {
+        transmit_time,
+        source_address: sender_src,
+        destination_address: sender_dest,
+        sender_client_id: sender_client_id as u32,
+        source_port: sender_src_port as u32,
     });
-    // } else {
-    //     return None
-    // }
+}
+
+
+fn parse_chaos(packet_bytes: &[u8]) -> Option<DnsChaos> {
+    let record = DNSRecord::from(packet_bytes);
+    // 8 right most bits are the client_id
+    let client_id: u8 = record.transaction_id as u8; // TODO test
+
+    let txt = TXTRecord::from(record.body.as_slice());
+    let chaos_record = txt.txt;
+
+    return some(DnsChaos {
+        client_id,
+        chaos_record,
+    })
+
+
 }
 
 fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {

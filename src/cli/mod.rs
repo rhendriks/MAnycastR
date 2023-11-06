@@ -486,7 +486,7 @@ impl CliClient {
 
 
                         let payload = udp.payload.unwrap();
-                        let transmit_time = payload.transmit_time.to_string();
+                        let transmit_time = payload.transmit_time.to_string(); // TODO get type of udp payload
                         let request_src = Ipv4Addr::from(payload.source_address).to_string();
                         let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
                         let sender_client_id = payload.sender_client_id.to_string();
