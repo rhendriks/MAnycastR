@@ -655,6 +655,9 @@ impl Controller for ControllerService {
         &self,
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
+
+        println!("forwarding result to CLI");
+
         // Send the result to the CLI through the established stream
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
