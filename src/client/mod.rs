@@ -183,7 +183,7 @@ impl Client {
                     Protocol::icmpv4()
                 }
             },
-            2 =>  {
+            2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, src_port);
                 Protocol::udp()
             },
@@ -207,7 +207,7 @@ impl Client {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
-            2 => {
+            2 | 4 => { // TODO 4
                 // Create ICMP socket
                 let socket_icmp = if ipv6 {
                     Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
@@ -216,12 +216,14 @@ impl Client {
                 };
                 socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
+                let task_type: u32 = start.task_type;
+
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp, ipv6);
+                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
             3 => {

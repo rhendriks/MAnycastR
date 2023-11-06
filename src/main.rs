@@ -227,7 +227,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                     .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                         .required(true)
                         .index(2))
-                    .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP, or 3: TCP)")
+                    .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
                         .required(true)
                         .index(3))
                     .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
