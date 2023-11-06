@@ -207,7 +207,7 @@ impl Client {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
-            2 | 4 => { // TODO 4
+            2 | 4 => {
                 // Create ICMP socket
                 let socket_icmp = if ipv6 {
                     Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
