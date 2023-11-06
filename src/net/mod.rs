@@ -296,7 +296,7 @@ impl Into<Vec<u8>> for &UDPPacket {
 
 /// DNS request body
 #[derive(Debug)]
-pub struct DNSRequest {
+pub struct DNSRecord {
     pub transaction_id: u16,
     pub flags: u16,
     pub questions: u16,
@@ -363,10 +363,10 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
 }
 
 /// Parsing from bytes into a DNS A record
-impl From<&[u8]> for DNSRequest {
+impl From<&[u8]> for DNSRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
-        DNSRequest {
+        DNSRecord {
             transaction_id: data.read_u16::<NetworkEndian>().unwrap(),
             flags: data.read_u16::<NetworkEndian>().unwrap(),
             questions: data.read_u16::<NetworkEndian>().unwrap(),

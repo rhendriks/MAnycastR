@@ -10,7 +10,7 @@ use custom_module::verfploeter::{
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6
 };
-use crate::net::{DNSAnswer, DNSRequest, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
+use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -143,6 +143,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     parse_udpv4(&buffer[..p_size])
                 };
 
+                println!("{:?}", result);
+
                 // Invalid UDP packets have value None
                 if result == None { continue }
 
@@ -208,7 +210,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                                 // IP, UDP, DNS => 66 or more
                                 if value.body.len() >= 66 {
-                                    let record = DNSRequest::from(value.body.as_slice());
+                                    let record = DNSRecord::from(value.body.as_slice());
 
                                     if task_type == 2 { // DNS A record reply
                                         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
@@ -594,6 +596,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
 
     // Obtain the payload
     if let PacketPayload::UDP { value } = packet.payload {
+        println!("UDP packet {:?}", value);
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) {
             return None
@@ -603,8 +606,10 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let record = DNSRequest::from(value.body.as_slice());
+        let record = DNSRecord::from(value.body.as_slice());
+        println!("DNS RECORD: {:?}", record);
         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+        println!("DOMAIN: {}", domain);
 
         // Get the information from the domain, continue to the next packet if it does not follow the format
         let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
@@ -682,7 +687,7 @@ fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let record = DNSRequest::from(value.body.as_slice());
+    let record = DNSRecord::from(value.body.as_slice());
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
