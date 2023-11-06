@@ -4,6 +4,8 @@ extern crate byteorder;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
+use crate::custom_module::IP;
+use crate::net::netv6::{calculate_checksum_v6, PseudoHeaderv6};
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
@@ -292,9 +294,9 @@ impl Into<Vec<u8>> for &UDPPacket {
     }
 }
 
-/// A DNS A record
+/// DNS request body
 #[derive(Debug)]
-pub struct DNSARecord {
+pub struct DNSRequest {
     pub transaction_id: u16,
     pub flags: u16,
     pub questions: u16,
@@ -305,6 +307,8 @@ pub struct DNSARecord {
     pub record_type: u16,
     pub class: u16,
 }
+
+
 
 /// Read a DNS name that is contained in a DNS response.
 /// Returns the domain name string of the A record reply.
@@ -340,10 +344,10 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
 }
 
 /// Parsing from bytes into a DNS A record
-impl From<&[u8]> for DNSARecord {
+impl From<&[u8]> for DNSRequest {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
-        DNSARecord {
+        DNSRequest {
             transaction_id: data.read_u16::<NetworkEndian>().unwrap(),
             flags: data.read_u16::<NetworkEndian>().unwrap(),
             questions: data.read_u16::<NetworkEndian>().unwrap(),
@@ -408,8 +412,8 @@ impl UDPPacket {
     ) -> Vec<u8> {
         let destination_port = 53u16;
 
-        let dns_body = Self::create_dns_a_record_request(domain_name, transmit_time,
-                     source_address, destination_address, client_id, source_port);
+        let dns_body = Self::create_a_record_request(domain_name, transmit_time,
+                                                     source_address, destination_address, client_id, source_port);
 
         let udp_length = (8 + body.len() + dns_body.len()) as u16;
 
@@ -445,7 +449,7 @@ impl UDPPacket {
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
-    fn create_dns_a_record_request(
+    fn create_a_record_request(
         domain_name: &str,
         transmit_time: u64,
         source_address: u32,
@@ -483,7 +487,85 @@ impl UDPPacket {
         dns_body
     }
 
-    //TODO create CHAOS request
+    /// Create a UDP packet with a CHAOS TXT record request.
+    pub fn chaos_request(source_address: IP, destination_address: IP,
+                         source_port: u16, body: Vec<u8>, client_id: u8) -> Vec<u8> { // TODO test
+        let destination_port = 53u16;
+
+        let dns_body = Self::create_chaos_request(client_id);
+
+        let udp_length = 8 + body.len() + dns_body.len();
+
+        let mut packet = Self {
+            source_port,
+            destination_port,
+            length: udp_length as u16,
+            checksum: 0,
+            body,
+        };
+
+        let mut bytes: Vec<u8> = (&packet).into();
+
+        bytes.extend(dns_body);
+
+
+        packet.checksum = if source_address.is_v4() {
+            let pseudo_header = PseudoHeader {
+                source_address: source_address.get_v4().into(),
+                destination_address: destination_address.get_v4().into(),
+                zeroes: 0,
+                protocol: 17,
+                length: udp_length as u16,
+            };
+
+            calculate_checksum(&bytes, &pseudo_header)
+        } else {
+            let pseudo_header = PseudoHeaderv6 {
+                source_address: source_address.get_v6().into(),
+                destination_address: destination_address.get_v6().into(),
+                length: udp_length as u32,
+                next_header: 17,
+            };
+
+            calculate_checksum_v6(&bytes, &pseudo_header)
+        };
+
+        // Put the checksum at the right position in the packet
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
+        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+
+        // Return the vec
+        cursor.into_inner()
+    }
+
+    /// Creating a DNS TXT record request body for hostname.bind CHAOS request
+    fn create_chaos_request(client_id: u8) -> Vec<u8> {
+        let mut dns_body: Vec<u8> = Vec::new();
+
+        // DNS Header
+        dns_body.write_u8(client_id)
+            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
+        dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs //TODO
+
+        // DNS Question (hostname.bind)
+        let domain = "hostname.bind";
+        for label in domain.split('.') {
+            dns_body.push(label.len() as u8);
+            dns_body.write_all(label.as_bytes()).unwrap();
+        }
+        dns_body.push(0); // Terminate the QNAME //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(16).unwrap(); // QTYPE (TXT record) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(3).unwrap(); // QCLASS (CHAOS) //TODO
+
+
+        dns_body
+    }
 }
 
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>

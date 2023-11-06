@@ -10,7 +10,7 @@ use custom_module::verfploeter::{
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6
 };
-use crate::net::{DNSARecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, UDPPacket};
+use crate::net::{DNSRequest, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, UDPPacket};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -207,7 +207,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                                 // IP, UDP, DNS => 66 or more
                                 if value.body.len() >= 66 {
-                                    let record = DNSARecord::from(value.body.as_slice());
+                                    let record = DNSRequest::from(value.body.as_slice());
                                     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
                                     // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -583,7 +583,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let record = DNSARecord::from(value.body.as_slice());
+        let record = DNSRequest::from(value.body.as_slice());
         let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
         // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -662,7 +662,7 @@ fn parse_udpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let record = DNSARecord::from(value.body.as_slice());
+    let record = DNSRequest::from(value.body.as_slice());
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
