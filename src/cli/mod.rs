@@ -310,6 +310,9 @@ impl CliClient {
                 graceful = true;
                 break;
             }
+
+            println!("Received result from client {:?}", task_result);
+
             if let Some(tx) = &tx {
                 tx.send(task_result.clone()).unwrap();
             }
@@ -329,7 +332,7 @@ impl CliClient {
         let mut wtr_cli = if cli { Some(csv::Writer::from_writer(io::stdout())) } else { None };
 
         // Get current timestamp and create timestamp file encoding
-        let timestamp_end = chrono::offset::Local::now();
+        let timestamp_end = Local::now();
         let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
@@ -338,7 +341,7 @@ impl CliClient {
                                         timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP/DNS" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP/CHAOS"} else { "ICMP" };
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP/DNS" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP/CHAOS" } else { "ICMP" };
 
         // Output file
         let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
