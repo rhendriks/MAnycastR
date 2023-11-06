@@ -10,7 +10,7 @@ use custom_module::verfploeter::{
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6
 };
-use crate::net::{DNSRequest, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, UDPPacket};
+use crate::net::{DNSAnswer, DNSRequest, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -122,8 +122,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32) {
     println!("[Client inbound] Started UDP listener");
 
-    // TODO task type
-
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
 
@@ -211,30 +209,49 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                                 // IP, UDP, DNS => 66 or more
                                 if value.body.len() >= 66 {
                                     let record = DNSRequest::from(value.body.as_slice());
-                                    let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
-                                    // Get the information from the domain, continue to the next packet if it does not follow the format
-                                    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-                                    transmit_time = match parts[0].parse::<u64>() {
-                                        Ok(t) => t,
-                                        Err(_) => continue,
-                                    };
-                                    sender_src = match parts[1].parse::<u32>() {
-                                        Ok(s) => s,
-                                        Err(_) => continue,
-                                    };
-                                    sender_dest = match parts[2].parse::<u32>() {
-                                        Ok(s) => s,
-                                        Err(_) => continue,
-                                    };
-                                    sender_client_id = match parts[3].parse::<u8>() {
-                                        Ok(s) => s,
-                                        Err(_) => continue,
-                                    };
-                                    sender_src_port = match parts[4].parse::<u16>() {
-                                        Ok(s) => s,
-                                        Err(_) => continue,
-                                    };
+                                    if task_type == 2 { // DNS A record reply
+                                        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+
+                                        // Get the information from the domain, continue to the next packet if it does not follow the format
+                                        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
+                                        transmit_time = match parts[0].parse::<u64>() {
+                                            Ok(t) => t,
+                                            Err(_) => continue,
+                                        };
+                                        sender_src = match parts[1].parse::<u32>() {
+                                            Ok(s) => s,
+                                            Err(_) => continue,
+                                        };
+                                        sender_dest = match parts[2].parse::<u32>() {
+                                            Ok(s) => s,
+                                            Err(_) => continue,
+                                        };
+                                        sender_client_id = match parts[3].parse::<u8>() {
+                                            Ok(s) => s,
+                                            Err(_) => continue,
+                                        };
+                                        sender_src_port = match parts[4].parse::<u16>() {
+                                            Ok(s) => s,
+                                            Err(_) => continue,
+                                        };
+                                    } else if task_type == 4 { // DNS CHAOS TXT reply
+                                        if record.answer == 0 {
+                                            // TODO DNS response but no DNS CHAOS reply
+                                        } else {
+                                            let answer = DNSAnswer::from(record.body.as_slice());
+                                            println!("DNS ANSWER: {:?}", answer);
+                                            let txt_data = TXTRecord::from(answer.data.as_slice());
+                                            println!("TXT DATA: {:?}", txt_data);
+                                            let chaos_reply = txt_data.txt;
+                                            println!("CHAOS REPLY: {}", chaos_reply);
+                                            // TODO retrieve DNS CHAOS reply
+                                            // TODO return DNS chaos reply to server
+
+                                        }
+                                    } else {
+                                        panic!("Invalid task type for UDP listener: {}", task_type);
+                                    }
                                 } else {
                                     // We received the IP/UDP headers but not the DNS payload
                                     sender_src_port = value.destination_port;

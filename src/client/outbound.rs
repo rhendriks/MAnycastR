@@ -169,8 +169,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
-    // TODO task type
-
     let abort = Arc::new(Mutex::new(false));
 
     thread::spawn({
@@ -227,27 +225,27 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                     };
 
                     let udp = if ipv6 {
-                        let source = match IP::from(source_address) {
-                            IP::V6(v6) => v6,
-                            _ => panic!("Destination address is not IPv6")
-                        };
-                        let dest = match IP::from(dest_addr) {
-                            IP::V6(v6) => v6,
-                            _ => panic!("Source address is not IPv6")
-                        };
+                        let source = source_address.get_v6();
+                        let dest = IP::from(dest_addr.clone()).get_v6();
 
-                        UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                        if task_type == 2 {
+                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                        } else if task_type == 4 {
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                        } else {
+                            panic!("Invalid task type")
+                        }
                     } else {
-                        let source = match IP::from(source_address) {
-                            IP::V4(v4) => v4,
-                            _ => panic!("Destination address is not IPv4")
-                        };
-                        let dest = match IP::from(dest_addr) {
-                            IP::V4(v4) => v4,
-                            _ => panic!("Source address is not IPv4")
-                        };
+                        let source =source_address.get_v4();
+                        let dest = IP::from(dest_addr.clone()).get_v4();
 
-                        UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                        if task_type == 2 {
+                            UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                        } else if task_type == 4 {
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                        } else {
+                            panic!("Invalid task type")
+                        }
                     };
 
                     // Send out packet
