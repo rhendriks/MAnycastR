@@ -344,7 +344,7 @@ impl CliClient {
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
 
         // Output file
-        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
+        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
 
         // Write metadata of measurement
         if !graceful {

@@ -607,8 +607,8 @@ impl UDPPacket {
             dns_body.write_all(label.as_bytes()).unwrap();
         }
         dns_body.push(0); // Terminate the QNAME //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QTYPE (TXT record) //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QCLASS (CHAOS) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS) //TODO
 
 
         dns_body
