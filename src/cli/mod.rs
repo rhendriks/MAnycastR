@@ -198,7 +198,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'destination_addresses' - a vector of destination addresses that will be probed in this task
 ///
-/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: TCP, 3: UDP
+/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: UDP/A, 3: TCP, 4: UDP/CHAOS
 ///
 /// * 'rate' - the rate (packets / second) at which clients will send out probes (default: 1000)
 ///
@@ -216,16 +216,18 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
             }
         }
-        2 => { // UDP
+        2 | 4 => { // UDP
             return ScheduleTask {
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -236,21 +238,13 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
             }
         }
-        _ => println!("Undefined type, defaulting to ICMP.")
-    }
-
-    ScheduleTask {
-        rate,
-        clients: client_ids,
-        source_address: Some(Address::from(source_address)),
-        data: Some(schedule_task::Data::Ping(Ping {
-            destination_addresses,
-        }))
+        _ => panic!("Undefined type.")
     }
 }
 

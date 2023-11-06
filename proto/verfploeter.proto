@@ -42,10 +42,11 @@ message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
   Address source_address = 3;
+  uint32 task_type = 4;
   oneof data {
-    Ping ping = 4;
-    UDP udp = 5;
-    TCP tcp = 6;
+    Ping ping = 5;
+    UDP udp = 6;
+    TCP tcp = 7;
   }
 }
 

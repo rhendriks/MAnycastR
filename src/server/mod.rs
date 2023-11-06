@@ -452,18 +452,16 @@ impl Controller for ControllerService {
         let dest_addresses;
         let src_addr = task.source_address;
         let rate = task.rate;
-        let task_type = match task.data.unwrap() {
+        let task_type = task.task_type;
+        match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
-                1
             }
             Data::Udp(udp) => {
                 dest_addresses = udp.destination_addresses;
-                2
             }
             Data::Tcp(tcp) => {
                 dest_addresses = tcp.destination_addresses;
-                3
             }
         };
 
