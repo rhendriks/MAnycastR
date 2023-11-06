@@ -306,6 +306,25 @@ pub struct DNSRequest {
     pub domain: String,
     pub record_type: u16,
     pub class: u16,
+    pub body: Vec<u8>, // Possible answer sections
+}
+
+/// DNS answer body
+#[derive(Debug)]
+pub struct DNSAnswer {
+    pub domain: String,
+    pub record_type: u16,
+    pub class: u16,
+    pub ttl: u32,
+    pub data_length: u16,
+    pub data: Vec<u8>,
+}
+
+/// DNS TXT data record
+#[derive(Debug)]
+pub struct TXTRecord {
+    pub txt_length: u16,
+    pub txt: String,
 }
 
 
@@ -357,6 +376,34 @@ impl From<&[u8]> for DNSRequest {
             domain: read_dns_name(&mut data),
             record_type: data.read_u16::<NetworkEndian>().unwrap(),
             class: data.read_u16::<NetworkEndian>().unwrap(),
+            body: data.clone().into_inner()[data.position() as usize..].to_vec(), // TODO test
+        }
+    }
+}
+
+impl From<&[u8]> for DNSAnswer {
+    fn from(data: &[u8]) -> Self {
+        let mut data = Cursor::new(data);
+
+        DNSAnswer {
+            domain: read_dns_name(&mut data),
+            record_type: data.read_u16::<NetworkEndian>().unwrap(),
+            class: data.read_u16::<NetworkEndian>().unwrap(),
+            ttl: data.read_u32::<NetworkEndian>().unwrap(),
+            data_length: data.read_u16::<NetworkEndian>().unwrap(),
+            data: data.clone().into_inner()[data.position() as usize..].to_vec(), // TODO test
+        }
+    }
+}
+
+impl From<&[u8]> for TXTRecord {
+    fn from(data: &[u8]) -> Self {
+        let mut data = Cursor::new(data);
+
+        let txt_length = data.read_u16::<NetworkEndian>().unwrap();
+        TXTRecord {
+            txt_length,
+            txt: String::from_utf8_lossy(&data.clone().into_inner()[data.position() as usize..(data.position() + txt_length as u64) as usize]).to_string(),
         }
     }
 }
@@ -469,11 +516,11 @@ impl UDPPacket {
         dns_body.write_u8(client_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
-        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0120).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
+        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of additional RRs
 
         // DNS Question
         for label in subdomain.split('.') {
@@ -560,8 +607,8 @@ impl UDPPacket {
             dns_body.write_all(label.as_bytes()).unwrap();
         }
         dns_body.push(0); // Terminate the QNAME //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(16).unwrap(); // QTYPE (TXT record) //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(3).unwrap(); // QCLASS (CHAOS) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QTYPE (TXT record) //TODO
+        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QCLASS (CHAOS) //TODO
 
 
         dns_body
