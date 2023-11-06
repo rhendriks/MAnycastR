@@ -427,6 +427,7 @@ impl CliClient {
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 4 { // UDP/CHAOS
+            println!("UDP/CHAOS not implemented yet!");
             // TODO
         }
 
