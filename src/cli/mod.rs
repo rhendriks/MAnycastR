@@ -63,11 +63,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                 println!("Path: {}", path.unwrap());
 
-                let output = Command::new("python3") // TODO write when this function fails
+                let output = Command::new("python3")
                     .arg(path.unwrap())
                     .stdout(Stdio::piped()) // Capture stdout
-                    .spawn()?
-                    .wait_with_output()?;
+                    .spawn().expect("Failed to spawn iGreedy")
+                    .wait_with_output().expect("Failed to execute iGreedy");
 
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -94,7 +94,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
 
-        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address will be skipeed?
+        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address to be skipped?
         // let v4 = if first.contains(':') { false } else { true };
 
         // let addresses: Vec<Address> = if v4 {

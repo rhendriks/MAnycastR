@@ -143,7 +143,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     parse_udpv4(&buffer[..p_size])
                 };
 
-                println!("{:?}", result);
+                println!("result {:?}", result);
 
                 // Invalid UDP packets have value None
                 if result == None { continue }

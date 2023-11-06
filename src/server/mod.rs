@@ -583,7 +583,7 @@ impl Controller for ControllerService {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            2 => Task {
+                            2 | 4 => Task { //TODO 4
                                 task_id,
                                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                     destination_addresses: chunk.to_vec(),
@@ -610,10 +610,10 @@ impl Controller for ControllerService {
 
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
-                    match sender.send(Ok(verfploeter::Task {
+                    match sender.send(Ok(Task {
                         task_id,
                         data: None,
                     })).await {
