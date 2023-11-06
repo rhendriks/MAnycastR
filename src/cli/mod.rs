@@ -341,7 +341,7 @@ impl CliClient {
                                         timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP/DNS" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP/CHAOS" } else { "ICMP" };
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
 
         // Output file
         let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
@@ -446,6 +446,7 @@ impl CliClient {
 
             for verfploeter_result in verfploeter_results {
                 let value = verfploeter_result.value.unwrap();
+                println!("Value: {:?}", value);
                 match value {
                     ResultPing(ping) => {
                         let recv_time = ping.receive_time.to_string();
