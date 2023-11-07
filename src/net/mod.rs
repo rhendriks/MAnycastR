@@ -1,7 +1,7 @@
 pub(crate) mod netv6;
 
 extern crate byteorder;
-use byteorder::{BigEndian, LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
 use crate::custom_module::IP;

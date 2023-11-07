@@ -186,10 +186,10 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         continue;
                     }
 
-                    let mut transmit_time = 0;
+                    let transmit_time = 0;
                     let mut sender_src = 0;
                     let mut sender_dest = 0;
-                    let mut sender_client_id = 0;
+                    let sender_client_id = 0;
                     let mut sender_src_port = 0;
                     let code = icmp_packet.code;
                     let mut result = None;
@@ -221,14 +221,14 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                     if result == None {
                         // Create a VerfploeterResult for the received ping reply
-                        let result = VerfploeterResult {
+                        result = Some(VerfploeterResult {
                             value: Some(Value::Udp(UdpResult {
                                 receive_time,
                                 source_port: 0,
                                 destination_port: 0,
                                 code: code as u32,
                                 ip_result: Some(IpResult {
-                                    value: Some(ip_result::Value::Ipv4(IPv4Result {
+                                    value: Some(ip_result::Value::Ipv4(IPv4Result { // TODO v6
                                         source_address: u32::from(packet.source_address),
                                         destination_address: u32::from(packet.destination_address),
                                     })),
@@ -244,7 +244,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                                     })),
                                 }),
                             })),
-                        };
+                        });
                     }
 
                     // Put result in transmission queue
@@ -547,14 +547,14 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     if packet_bytes.len() < 28 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
-    let packet = IPv4Packet::from(packet_bytes);
+    let ip4_packet = IPv4Packet::from(packet_bytes);
 
     // Obtain the payload
-    if let PacketPayload::UDP { value: udp_packet } = packet.payload {
+    if let PacketPayload::UDP { value: udp_packet } = ip4_packet.payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
             return None
-        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 20)) { // TODO length CHAOS TXT
+        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 10)) {
             return None
         }
 
@@ -580,10 +580,10 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
                 code: 16,
                 ip_result: Some(IpResult {
                     value: Some(ip_result::Value::Ipv4(IPv4Result {
-                        source_address: u32::from(packet.source_address),
-                        destination_address: u32::from(packet.destination_address),
+                        source_address: u32::from(ip4_packet.source_address),
+                        destination_address: u32::from(ip4_packet.destination_address),
                     })),
-                    ttl: packet.ttl as u32,
+                    ttl: ip4_packet.ttl as u32,
                 }),
                 payload,
             })),
@@ -608,7 +608,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
     if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
         return None
-    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 20)) { // TODO length CHAOS TXT
+    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 10)) {
         return None
     }
 
@@ -653,7 +653,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // }
 }
 
-fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A_record type
+fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
 
