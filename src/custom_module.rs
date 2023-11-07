@@ -29,6 +29,36 @@ impl From<Address> for IP {
     }
 }
 
+impl IP {
+    pub fn is_v4(&self) -> bool {
+        match self {
+            IP::V4(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_v6(&self) -> bool {
+        match self {
+            IP::V6(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_v4(&self) -> Ipv4Addr {
+        match self {
+            IP::V4(v4) => *v4,
+            _ => panic!("Not a v4 address"),
+        }
+    }
+
+    pub fn get_v6(&self) -> Ipv6Addr {
+        match self {
+            IP::V6(v6) => *v6,
+            _ => panic!("Not a v6 address"),
+        }
+    }
+}
+
 impl From<IP> for Address {
     fn from(ip: IP) -> Self {
         match ip {

@@ -23,7 +23,7 @@ use custom_module::verfploeter::{
     VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
     verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
-    verfploeter_result::Value::Tcp as ResultTcp
+    verfploeter_result::Value::Tcp as ResultTcp, udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
 };
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
@@ -63,11 +63,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                 println!("Path: {}", path.unwrap());
 
-                let output = Command::new("python3") // TODO write when this function fails
+                let output = Command::new("python3")
                     .arg(path.unwrap())
                     .stdout(Stdio::piped()) // Capture stdout
-                    .spawn()?
-                    .wait_with_output()?;
+                    .spawn().expect("Failed to spawn iGreedy")
+                    .wait_with_output().expect("Failed to execute iGreedy");
 
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -94,7 +94,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
 
-        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address will be skipeed?
+        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address to be skipped?
         // let v4 = if first.contains(':') { false } else { true };
 
         // let addresses: Vec<Address> = if v4 {
@@ -155,9 +155,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, or 3)") };
-        // We only accept task types 1, 2, 3
-        if (task_type < 1) | (task_type > 3) {
+        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
+        // We only accept task types 1, 2, 3, 4
+        if (task_type < 1) | (task_type > 4) {
             panic!("Invalid task type value! (can be either 1, 2, or 3)")
         }
         // Check for command-line option that determines whether to stream to CLI
@@ -174,6 +174,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
+            4 => "UDP/CHAOS",
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
@@ -197,7 +198,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'destination_addresses' - a vector of destination addresses that will be probed in this task
 ///
-/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: TCP, 3: UDP
+/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: UDP/A, 3: TCP, 4: UDP/CHAOS
 ///
 /// * 'rate' - the rate (packets / second) at which clients will send out probes (default: 1000)
 ///
@@ -215,16 +216,18 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
             }
         }
-        2 => { // UDP
+        2 | 4 => { // UDP
             return ScheduleTask {
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -235,21 +238,13 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 rate,
                 clients: client_ids,
                 source_address: Some(Address::from(source_address)),
+                task_type,
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
             }
         }
-        _ => println!("Undefined type, defaulting to ICMP.")
-    }
-
-    ScheduleTask {
-        rate,
-        clients: client_ids,
-        source_address: Some(Address::from(source_address)),
-        data: Some(schedule_task::Data::Ping(Ping {
-            destination_addresses,
-        }))
+        _ => panic!("Undefined type.")
     }
 }
 
@@ -315,6 +310,7 @@ impl CliClient {
                 graceful = true;
                 break;
             }
+
             if let Some(tx) = &tx {
                 tx.send(task_result.clone()).unwrap();
             }
@@ -334,7 +330,7 @@ impl CliClient {
         let mut wtr_cli = if cli { Some(csv::Writer::from_writer(io::stdout())) } else { None };
 
         // Get current timestamp and create timestamp file encoding
-        let timestamp_end = chrono::offset::Local::now();
+        let timestamp_end = Local::now();
         let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
@@ -343,10 +339,10 @@ impl CliClient {
                                         timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP" } else if task_type == 3 { "TCP" } else { "ICMP" };
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
 
         // Output file
-        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))?;
+        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
 
         // Write metadata of measurement
         if !graceful {
@@ -370,16 +366,7 @@ impl CliClient {
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
 
-            let source_addr = match &metadata.source_address {
-                Some(Address { value: Some(V4(v4)) }) => {
-                    std::net::Ipv4Addr::from(*v4).to_string()
-                },
-                Some(Address { value: Some(V6(v6)) }) => {
-                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-                },
-                Some(Address { value: None }) => "Default".to_string(),
-                None => "Default".to_string(),
-            };
+            let source_addr = IP::from(metadata.source_address.clone().expect("Invalid source address")).to_string();
 
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
@@ -410,7 +397,7 @@ impl CliClient {
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
-        } else if task_type == 2 { // UDP
+        } else if task_type == 2 { // UDP/DNS
             let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
             "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
 
@@ -431,6 +418,13 @@ impl CliClient {
 
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
+        } else if task_type == 4 { // UDP/CHAOS
+            let chaos_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code", "sender_client_id", "chaos_data"];
+
+            let mut all_rows = [""; 10];
+            all_rows[..1].copy_from_slice(&rows);
+            all_rows[1..4].copy_from_slice(&ipv4_rows);
+            all_rows[4..].copy_from_slice(&chaos_rows);
         }
 
         // Loop over the results and write them to CLI/file
@@ -481,20 +475,41 @@ impl CliClient {
                         let ttl = ip_result.ttl.to_string();
 
 
-                        let payload = udp.payload.unwrap();
-                        let transmit_time = payload.transmit_time.to_string();
-                        let request_src = Ipv4Addr::from(payload.source_address).to_string();
-                        let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
-                        let sender_client_id = payload.sender_client_id.to_string();
-                        let request_src_port = payload.source_port.to_string();
+                        let payload = udp.payload.expect("No payload found for UDP result!");
 
-                        let record_udp: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
-                        let mut all_records = [""; 14];
-                        all_records[..1].copy_from_slice(&record);
-                        all_records[1..].copy_from_slice(&record_udp);
+                        match payload.value {
+                            Some(DnsARecord(dns_a_record)) => {
+                                let transmit_time = dns_a_record.transmit_time.to_string();
+                                let request_src = Ipv4Addr::from(dns_a_record.source_address).to_string();
+                                let request_dest = Ipv4Addr::from(dns_a_record.destination_address).to_string();
+                                let sender_client_id = dns_a_record.sender_client_id.to_string();
+                                let request_src_port = dns_a_record.source_port.to_string();
+                                let request_dest_port = "53";
 
-                        if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                        wtr_file.write_record(&all_records)?;
+                                let record_dns: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
+                                let mut all_records = [""; 14];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            },
+                            Some(DnsChaos(dns_chaos)) => {
+                                let sender_client_id = dns_chaos.sender_client_id.to_string();
+                                let chaos = dns_chaos.chaos_data;
+
+                                let record_dns: [&str; 9] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &sender_client_id, &chaos];
+                                let mut all_records = [""; 10];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            },
+                            None => {
+                                panic!("No payload found for UDP result!");
+                            }
+                        }
                     },
                     ResultTcp(tcp) => {
                         let recv_time = tcp.receive_time.to_string();
