@@ -704,8 +704,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     println!("record {:?}", record);
 
     // 8 right most bits are the client_id
-    let sender_client_id = ((record.transaction_id >> 8) & 0xFF) as u32; // TODO test
-    println!("sender_client_id {:?}", sender_client_id);
+    let sender_client_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {
         return Some(UdpPayload {
@@ -717,6 +716,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     }
 
     let dns_answer = DNSAnswer::from(record.body.as_slice());
+    println!("dns_answer {:?}", dns_answer);
 
     let txt = TXTRecord::from(dns_answer.data.as_slice());
     println!("txt {:?}", txt);

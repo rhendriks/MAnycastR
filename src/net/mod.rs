@@ -399,11 +399,13 @@ impl From<&[u8]> for DNSAnswer {
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+        println!("data {:?}", data);
 
         let txt_length = data.read_u16::<NetworkEndian>().unwrap();
+        println!("TXT length: {}", txt_length);
         TXTRecord {
             txt_length,
-            txt: String::from_utf8_lossy(&data.clone().into_inner()[data.position() as usize..(data.position() + txt_length as u64) as usize]).to_string(),
+            txt: String::from_utf8_lossy(&data.clone().into_inner()[2..(2 + txt_length as u64) as usize]).to_string(),
         }
     }
 }
