@@ -694,7 +694,6 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
     });
 }
 
-
 fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
 
@@ -722,14 +721,9 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     });
 }
 
-fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
-    let (ip_result, payload) = match parse_ipv4(packet_bytes) {
-        Some((ip_result, payload)) => (ip_result, payload),
-        None => return None,
-    };
-
+fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<VerfploeterResult> {
     // Obtain the payload
-    if let PacketPayload::TCP { value: tcp_packet } = payload {
+    if let PacketPayload::TCP { value: tcp_packet } = ip_payload {
         // Responses to our probes have destination port > 4000 (as we use these as source)
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
@@ -742,7 +736,6 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
             .unwrap()
             .as_nanos() as u64;
 
-        // Create a VerfploeterResult for the received UDP reply
         return Some(VerfploeterResult {
             value: Some(Value::Tcp(TcpResult {
                 source_port: u32::from(tcp_packet.source_port),
@@ -758,6 +751,17 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     }
 }
 
+
+fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
+    let (ip_result, payload) = match parse_ipv4(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
+    };
+
+    return parse_tcp(payload, ip_result);
+
+}
+
 fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // TCP 20 minimum
     if packet_bytes.len() < 20 { return None }
@@ -765,6 +769,7 @@ fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     // Create IPv4Packet from the bytes in the buffer
     // let packet = IPv6Packet::from(packet_bytes);
     // TODO update for ipv6 header
+    // TODO use parse_tcp with the ip_result and packetpayload
 
     let value = TCPPacket::from(packet_bytes);
 
