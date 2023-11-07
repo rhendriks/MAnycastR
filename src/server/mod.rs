@@ -452,23 +452,21 @@ impl Controller for ControllerService {
         let dest_addresses;
         let src_addr = task.source_address;
         let rate = task.rate;
-        let task_type = match task.data.unwrap() {
+        let task_type = task.task_type;
+        match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
-                1
             }
             Data::Udp(udp) => {
                 dest_addresses = udp.destination_addresses;
-                2
             }
             Data::Tcp(tcp) => {
                 dest_addresses = tcp.destination_addresses;
-                3
             }
         };
 
         // Establish a stream with the CLI to return the TaskResults through
-        let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
         {
             let mut sender = self.cli_sender.lock().unwrap();
             let _ = sender.insert(tx);
@@ -484,46 +482,24 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
-            // If no client list was specified, all clients will perform the task
-            let start_task = if clients.clone().len() == 0 { // TODO can simplify the start_task variable creations
-                Task {
-                    task_id,
-                    data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                        rate,
-                        active: true,
-                        task_type,
-                        source_address: src_addr.clone(), // TODO add client_addresses
-                        client_sources: client_sources.clone(),
-                    }))
-                }
+            let active = if clients.is_empty() {
+                // If no client list was specified, all clients will perform the task
+                true
             } else {
-                // If a client list is specified, only those in that list will perform the task
-                // TODO assumes the senders list are in the same order as client_list_u32 list
-                let start_task = if clients.contains(client_list_u32.get(i).unwrap()) {
-                    Task {
-                        task_id,
-                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                            rate,
-                            active: true,
-                            task_type,
-                            source_address: src_addr.clone(),
-                            client_sources: client_sources.clone(),
-                        }))
-                    }
-                } else {
-                    Task {
-                        task_id,
-                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                            rate,
-                            active: false,
-                            task_type,
-                            source_address: src_addr.clone(),
-                            client_sources: client_sources.clone(),
-                        }))
-                    }
-                };
+                // Make sure the current client is selected to perform the task
                 i = i + 1;
-                start_task
+                clients.contains(client_list_u32.get(i).unwrap())
+            };
+
+         let start_task = Task {
+                task_id,
+                data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                    rate,
+                    active,
+                    task_type,
+                    source_address: src_addr.clone(),
+                    client_sources: client_sources.clone(),
+                }))
             };
 
             match sender.try_send(Ok(start_task.clone())) {
@@ -585,7 +561,7 @@ impl Controller for ControllerService {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            2 => Task {
+                            2 | 4 => Task {
                                 task_id,
                                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                     destination_addresses: chunk.to_vec(),
@@ -612,10 +588,10 @@ impl Controller for ControllerService {
 
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
-                    match sender.send(Ok(verfploeter::Task {
+                    match sender.send(Ok(Task {
                         task_id,
                         data: None,
                     })).await {
