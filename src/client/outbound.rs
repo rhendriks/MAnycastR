@@ -125,8 +125,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
 
-                    println!("[Client outbound] Sending ICMP packet with source {} to socket", bind_addr_dest);
-
                     // Send out packet
                     if let Err(e) = socket.send_to(
                         &icmp,
@@ -202,7 +200,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         },
                     };
                 }
-                println!("Received task: {:?}", task);
 
                 let task_data = match task.data {
                     None => break, // A None task data means the measurement has finished
@@ -243,7 +240,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         if task_type == 2 {
                             UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
                         } else if task_type == 4 {
-                            println!("Sending chaos request");
                             UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
                         } else {
                             panic!("Invalid task type")

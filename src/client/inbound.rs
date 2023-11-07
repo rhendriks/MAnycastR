@@ -64,7 +64,6 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
                 // Put result in transmission queue
                 {
-                    println!("[Client inbound] Received ICMP packet");
                     let mut rq_opt = rq_receiver.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
@@ -133,7 +132,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
             while let Ok(p_size) = socket.recv(&mut buffer) {
-                println!("{:?}", p_size);
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
 
