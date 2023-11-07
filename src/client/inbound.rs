@@ -143,8 +143,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     parse_udpv4(&buffer[..p_size], task_type)
                 };
 
-                println!("result {:?}", result);
-
                 // Invalid UDP packets have value None
                 if result == None { continue }
 
@@ -553,7 +551,6 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = packet.payload {
-        println!("UDP packet {:?}", udp_packet);
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
             return None
@@ -605,7 +602,6 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // TODO update for ipv6 header
 
     let udp_packet = UDPPacket::from(packet_bytes);
-    println!("UDP packet with IP {:?}", udp_packet);
 
     // Obtain the payload
     // if let PacketPayload::UDP { value } = packet.payload {
@@ -701,7 +697,6 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A
 
 fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
-    println!("record {:?}", record);
 
     // 8 right most bits are the client_id
     let sender_client_id = ((record.transaction_id >> 8) & 0xFF) as u32;
@@ -716,10 +711,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     }
 
     let dns_answer = DNSAnswer::from(record.body.as_slice());
-    println!("dns_answer {:?}", dns_answer);
-
     let txt = TXTRecord::from(dns_answer.data.as_slice());
-    println!("txt {:?}", txt);
     let chaos_data = txt.txt;
 
     return Some(UdpPayload {

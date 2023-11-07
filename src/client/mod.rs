@@ -260,7 +260,6 @@ impl Client {
                             break;
                         }
 
-                        println!("Sending result to server");
                         self_clone.send_result_to_server(packet).await.unwrap();
                     };
                     rx.close();

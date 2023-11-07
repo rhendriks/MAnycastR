@@ -311,8 +311,6 @@ impl CliClient {
                 break;
             }
 
-            println!("Received result from client {:?}", task_result);
-
             if let Some(tx) = &tx {
                 tx.send(task_result.clone()).unwrap();
             }
@@ -368,16 +366,7 @@ impl CliClient {
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
 
-            let source_addr = match &metadata.source_address {
-                Some(Address { value: Some(V4(v4)) }) => {
-                    std::net::Ipv4Addr::from(*v4).to_string()
-                },
-                Some(Address { value: Some(V6(v6)) }) => {
-                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-                },
-                Some(Address { value: None }) => "Default".to_string(),
-                None => "Default".to_string(),
-            };
+            let source_addr = IP::from(metadata.source_address.clone().expect("Invalid source address")).to_string();
 
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
@@ -430,13 +419,16 @@ impl CliClient {
             if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
             wtr_file.write_record(all_rows)?;
         } else if task_type == 4 { // UDP/CHAOS
-            println!("UDP/CHAOS not implemented yet!");
-            // TODO
+            let chaos_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code", "sender_client_id", "chaos_data"];
+
+            let mut all_rows = [""; 10];
+            all_rows[..1].copy_from_slice(&rows);
+            all_rows[1..4].copy_from_slice(&ipv4_rows);
+            all_rows[4..].copy_from_slice(&chaos_rows);
         }
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            println!("Result : {:?}", result);
             let client: Client = result.client.unwrap();
             let receiver_client_id = client.client_id.to_string();
             let verfploeter_results: Vec<VerfploeterResult> = result.result_list;
@@ -446,7 +438,6 @@ impl CliClient {
 
             for verfploeter_result in verfploeter_results {
                 let value = verfploeter_result.value.unwrap();
-                println!("Value: {:?}", value);
                 match value {
                     ResultPing(ping) => {
                         let recv_time = ping.receive_time.to_string();
