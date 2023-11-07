@@ -485,7 +485,7 @@ impl CliClient {
                         let ttl = ip_result.ttl.to_string();
 
 
-                        let payload = udp.payload.unwrap();
+                        let payload = udp.payload.expect("No payload found for UDP result!");
 
                         match payload.value {
                             Some(DnsARecord(dns_a_record)) => {
