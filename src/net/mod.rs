@@ -1,7 +1,7 @@
 pub(crate) mod netv6;
 
 extern crate byteorder;
-use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
 use crate::custom_module::IP;
@@ -401,7 +401,7 @@ impl From<&[u8]> for TXTRecord {
         let mut data = Cursor::new(data);
         println!("data {:?}", data);
 
-        let txt_length = data.read_u16::<NetworkEndian>().unwrap();
+        let txt_length = data.read_u16::<BigEndian>().unwrap();
         println!("TXT length: {}", txt_length);
         TXTRecord {
             txt_length,
