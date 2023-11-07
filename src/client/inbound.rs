@@ -566,6 +566,14 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             .unwrap()
             .as_nanos() as u64;
 
+        let payload = if task_type == 2 {
+            parse_dns_a_record(udp_packet.body.as_slice())
+        } else if task_type == 4 {
+            parse_chaos(udp_packet.body.as_slice())
+        } else {
+            None
+        };
+
         // Create a VerfploeterResult for the received UDP reply
         return Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
@@ -580,7 +588,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
                     })),
                     ttl: packet.ttl as u32,
                 }),
-                payload: parse_dns_a_record(udp_packet.body.as_slice()), // TODO
+                payload,
             })),
         });
     } else {
@@ -613,6 +621,14 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
         .unwrap()
         .as_nanos() as u64;
 
+    let payload = if task_type == 2 {
+        parse_dns_a_record(udp_packet.body.as_slice())
+    } else if task_type == 4 {
+        parse_chaos(udp_packet.body.as_slice())
+    } else {
+        None
+    };
+
     // Create a VerfploeterResult for the received UDP reply
     return Some(VerfploeterResult {
         value: Some(Value::Udp(UdpResult {
@@ -633,7 +649,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
                 })),
                 ttl: 0,
             }),
-            payload: parse_dns_a_record(udp_packet.body.as_slice()), // TODO parse_chaos when chaos
+            payload,
         })),
     });
     // } else {
@@ -683,7 +699,7 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A
 }
 
 
-fn parse_chaos(packet_bytes: &[u8]) -> Option<DnsChaos> {
+fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     // 8 right most bits are the client_id
     let sender_client_id = record.transaction_id as u32; // TODO test
@@ -691,12 +707,12 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<DnsChaos> {
     let txt = TXTRecord::from(record.body.as_slice());
     let chaos_data = txt.txt;
 
-    return Some(DnsChaos {
-        sender_client_id,
-        chaos_data,
-    })
-
-
+    return Some(UdpPayload {
+        value: Some(custom_module::verfploeter::udp_payload::Value::DnsChaos(DnsChaos {
+            sender_client_id,
+            chaos_data,
+        })),
+    });
 }
 
 fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
