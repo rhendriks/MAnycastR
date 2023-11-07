@@ -407,31 +407,46 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
     }
 }
 
-fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
-    // IPv4 20 + ICMP ECHO 8 minimum
-    if packet_bytes.len() < 28 { return None }
+fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
+    // IPv4 20 minimum
+    if packet_bytes.len() < 20 { return None }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
 
-    // Obtain the payload
-    if let PacketPayload::ICMP { value } = packet.payload {
-        if *&value.body.len() < 4 { return None }
+    // Create a VerfploeterResult for the received ping reply
+    return Some((IpResult {
+        value: Some(ip_result::Value::Ipv4(IPv4Result {
+            source_address: u32::from(packet.source_address),
+            destination_address: u32::from(packet.destination_address),
+        })),
+        ttl: packet.ttl as u32,
+    }, packet.payload));
+}
 
-        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
+fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+    let (ip_result, payload) = match parse_ipv4(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
+    };
+    // Obtain the payload
+    if let PacketPayload::ICMP { value: icmp_packet } = payload {
+        if *&icmp_packet.body.len() < 4 { return None }
+
+        let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() { s } else { return None };
 
         let pkt_task_id = u32::from_be_bytes(s);
 
         // Make sure that this packet belongs to this task
-        if (pkt_task_id != task_id) | (value.body.len() < 24) {
+        if (pkt_task_id != task_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
             return None;
         }
 
-        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let sender_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-        let source_address = u32::from_be_bytes(*&value.body[16..20].try_into().unwrap());
-        let destination_address = u32::from_be_bytes(*&value.body[20..24].try_into().unwrap());
+        let transmit_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
+        let sender_client_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
+        let source_address = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
+        let destination_address = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
         let receive_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -442,13 +457,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         return Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {
                 receive_time,
-                ip_result: Some(IpResult {
-                    value: Some(ip_result::Value::Ipv4(IPv4Result {
-                        source_address: u32::from(packet.source_address),
-                        destination_address: u32::from(packet.destination_address),
-                    })),
-                    ttl: packet.ttl as u32,
-                }),
+                ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     transmit_time,
                     source_address: Some(Address {
@@ -541,14 +550,13 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
-    // IPv4 20 + UDP 8 minimum
-    if packet_bytes.len() < 28 { return None }
-
-    // Create IPv4Packet from the bytes in the buffer
-    let ip4_packet = IPv4Packet::from(packet_bytes);
+    let (ip_result, payload) = match parse_ipv4(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
+    };
 
     // Obtain the payload
-    if let PacketPayload::UDP { value: udp_packet } = ip4_packet.payload {
+    if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
             return None
@@ -576,13 +584,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
                 source_port: udp_packet.source_port as u32,
                 destination_port: udp_packet.destination_port as u32,
                 code: 16,
-                ip_result: Some(IpResult {
-                    value: Some(ip_result::Value::Ipv4(IPv4Result {
-                        source_address: u32::from(ip4_packet.source_address),
-                        destination_address: u32::from(ip4_packet.destination_address),
-                    })),
-                    ttl: ip4_packet.ttl as u32,
-                }),
+                ip_result: Some(ip_result),
                 payload,
             })),
         });
@@ -721,18 +723,17 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 }
 
 fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
-    // IPv4 20 + TCP 20 minimum
-    if packet_bytes.len() < 40 { return None }
-
-    // Create IPv4Packet from the bytes in the buffer
-    let packet = IPv4Packet::from(packet_bytes);
+    let (ip_result, payload) = match parse_ipv4(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
+    };
 
     // Obtain the payload
-    if let PacketPayload::TCP { value } = packet.payload {
+    if let PacketPayload::TCP { value: tcp_packet } = payload {
         // Responses to our probes have destination port > 4000 (as we use these as source)
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-        if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
+        if (tcp_packet.destination_port < 4000) | (tcp_packet.flags != 0b00000100) | (tcp_packet.ack != 0) {
             return None
         }
 
@@ -744,18 +745,12 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         // Create a VerfploeterResult for the received UDP reply
         return Some(VerfploeterResult {
             value: Some(Value::Tcp(TcpResult {
-                source_port: u32::from(value.source_port),
-                destination_port: value.destination_port as u32,
-                seq: value.seq,
-                ip_result: Some(IpResult {
-                    value: Some(ip_result::Value::Ipv4(IPv4Result {
-                        source_address: u32::from(packet.source_address),
-                        destination_address: u32::from(packet.destination_address),
-                    })),
-                    ttl: packet.ttl as u32,
-                }),
+                source_port: u32::from(tcp_packet.source_port),
+                destination_port: tcp_packet.destination_port as u32,
+                seq: tcp_packet.seq,
+                ip_result: Some(ip_result),
                 receive_time,
-                ack: value.ack,
+                ack: tcp_packet.ack,
             })),
         })
     } else {
