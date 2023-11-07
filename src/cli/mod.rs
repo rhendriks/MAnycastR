@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -21,9 +21,9 @@ use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
     VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
-    schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
-    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
-    verfploeter_result::Value::Tcp as ResultTcp, udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
+    schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
+    verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
+    udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
 };
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
@@ -43,22 +43,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     println!("[CLI] Connecting to Controller Server at address {}", addr);
     let grpc_client = ControllerClient::connect(addr).await?;
     println!("[CLI] Connected to Controller Server");
+    let mut cli_client = CliClient { grpc_client, };
 
-    let mut cli_client = CliClient {
-        grpc_client,
-    };
-
-    if args.subcommand_matches("client-list").is_some() {
-        // Perform the client-list command
+    if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
         cli_client.list_clients_to_server().await
-    } else if let Some(matches) = args.subcommand_matches("start") {
-        // Start a Verfploeter measurement
-
+    } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Check if iGreedy is present, and has a valid path if so
         let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
-            if let Ok(metadata) = std::fs::metadata(path.unwrap()) {
+            if let Ok(metadata) = std::fs::metadata(path.unwrap()) { // TODO
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
@@ -94,56 +88,26 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
 
-        // let first = buf_reader.lines().next().unwrap().unwrap(); // TODO will this cause the first address to be skipped?
-        // let v4 = if first.contains(':') { false } else { true };
-
-        // let addresses: Vec<Address> = if v4 {
-        //     let mut ips: Vec<_> = buf_reader // TODO create list of Addresses (make sure they are all ipv4 or ipv6)
-        //         .lines()
-        //         .map(|l| {
-        //             let address_str = &l.unwrap();
-        //             if v4 {
-        //                 match Ipv4Addr::from_str(address_str) {
-        //                     Ok(a) => u32::from(a),
-        //                     Err(_) => panic!("Unable to parse v4 address: {}", address_str),
-        //                 }
-        //             } else {
-        //                 match Ipv6Addr::from_str(address_str) {
-        //                     Ok(a) => u128::from(a),
-        //                     Err(_) => panic!("Unable to parse v6 address: {}", address_str),
-        //                 }
-        //             }
-        //         })
-        //         .collect::<Vec<_>>();
-        // } else {
-        //
-        // }
-
         // TODO make sure that all addresses are the same type (v4 or v6)
-
         let mut ips: Vec<Address> = buf_reader
             .lines()
             .map(|l| {
-                let address_str = l.unwrap();
-                Address::from(IP::from(address_str))
+                Address::from(IP::from(l.unwrap()))
             })
             .collect::<Vec<_>>();
 
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
-        // Shuffle the hitlist if desired
-        let shuffle = if matches.is_present("SHUFFLE") {
+        // Shuffle the hitlist, if desired
+        let shuffle = matches.is_present("SHUFFLE");
+        if shuffle {
             let mut rng = rand::thread_rng();
             ips.as_mut_slice().shuffle(&mut rng);
-            true
-        } else {
-            false
-        };
+        }
 
         // Get the clients that have to send out probes
         let client_ids = if matches.is_present("CLIENTS") {
-            let client_ids = matches.values_of("CLIENTS").unwrap();
-            let client_ids: Vec<u32> = client_ids
+            let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
                 .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
                 .collect();
 
@@ -157,17 +121,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
         // We only accept task types 1, 2, 3, 4
-        if (task_type < 1) | (task_type > 4) {
-            panic!("Invalid task type value! (can be either 1, 2, or 3)")
-        }
+        if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, or 3)") }
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
-
         // Get the rate for this task
         let rate = if matches.is_present("RATE") {
             u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
         } else {
-            1000
+            1000 // Default rate
         };
 
         let t_type = match task_type {
@@ -290,8 +251,7 @@ impl CliClient {
         println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", Local::now().format("%H:%M:%S"));
 
         let mut results: Vec<TaskResult> = Vec::new();
-
-        let mut graceful = false;
+        let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
 
@@ -357,7 +317,7 @@ impl CliClient {
             file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
         }
         file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
-        // file.write_all(format!("Task ID: {}\n", type_str).as_ref())?; // TODO
+        file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
         file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
@@ -365,9 +325,7 @@ impl CliClient {
 
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-
             let source_addr = IP::from(metadata.source_address.clone().expect("Invalid source address")).to_string();
-
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
         }
 
@@ -561,24 +519,10 @@ impl CliClient {
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
         for client in response.into_inner().clients {
-
-            let metadata = client.metadata.clone().unwrap();
-
-            let sa = match &metadata.source_address {
-                Some(Address { value: Some(V4(v4)) }) => {
-                    std::net::Ipv4Addr::from(*v4).to_string()
-                },
-                Some(Address { value: Some(V6(v6)) }) => {
-                    Ipv6Addr::from((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-                },
-                Some(Address { value: None }) => "Default".to_string(),
-                None => "Default".to_string(),
-            };
-
             table.add_row(prettytable::row!(
-                    metadata.hostname,
+                    client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    sa,
+                    IP::from(client.metadata.unwrap().source_address.unwrap()).to_string(), // Source address of this client
                 ));
         }
         table.printstd();
@@ -607,10 +551,8 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
 
             // Perform the cleanup
             let mut map = map_clone.lock().unwrap();
-            let current_time = Instant::now();
-
             map.retain(|_, &mut (_, timestamp)| {
-                current_time.duration_since(timestamp) <= cleanup_interval
+                Instant::now().duration_since(timestamp) <= cleanup_interval
             });
         }
     });
