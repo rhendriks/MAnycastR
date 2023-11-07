@@ -704,7 +704,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     println!("record {:?}", record);
 
     // 8 right most bits are the client_id
-    let sender_client_id = (record.transaction_id & 0xFF) as u32; // TODO test
+    let sender_client_id = ((record.transaction_id >> 8) & 0xFF) as u32; // TODO test
     println!("sender_client_id {:?}", sender_client_id);
 
     if record.answer == 0 {

@@ -386,7 +386,7 @@ impl From<&[u8]> for DNSAnswer {
         let mut data = Cursor::new(data);
 
         DNSAnswer {
-            domain: read_dns_name(&mut data),
+            domain: data.read_u16::<NetworkEndian>().unwrap().to_string(), //read_dns_name(&mut data), // Two bytes that are a pointer to the domain name of the request record
             record_type: data.read_u16::<NetworkEndian>().unwrap(),
             class: data.read_u16::<NetworkEndian>().unwrap(),
             ttl: data.read_u32::<NetworkEndian>().unwrap(),
