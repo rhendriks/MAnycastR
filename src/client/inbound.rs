@@ -757,9 +757,7 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
-
     return parse_tcp(payload, ip_result);
-
 }
 
 fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
