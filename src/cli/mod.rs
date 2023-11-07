@@ -464,7 +464,6 @@ impl CliClient {
                         wtr_file.write_record(all_records)?;
                     }
                     ResultUdp(udp) => {
-                        println!("UDP result: {:?}", udp);
                         let recv_time = udp.receive_time.to_string();
                         let reply_source_port = udp.source_port.to_string();
                         let reply_destination_port = udp.destination_port.to_string();

@@ -466,7 +466,7 @@ impl Controller for ControllerService {
         };
 
         // Establish a stream with the CLI to return the TaskResults through
-        let (tx, rx) = mpsc::channel::<Result<verfploeter::TaskResult, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
         {
             let mut sender = self.cli_sender.lock().unwrap();
             let _ = sender.insert(tx);
@@ -482,46 +482,24 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
-            // If no client list was specified, all clients will perform the task
-            let start_task = if clients.clone().len() == 0 { // TODO can simplify the start_task variable creations
-                Task {
-                    task_id,
-                    data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                        rate,
-                        active: true,
-                        task_type,
-                        source_address: src_addr.clone(), // TODO add client_addresses
-                        client_sources: client_sources.clone(),
-                    }))
-                }
+            let active = if clients.is_empty() {
+                // If no client list was specified, all clients will perform the task
+                true
             } else {
-                // If a client list is specified, only those in that list will perform the task
-                // TODO assumes the senders list are in the same order as client_list_u32 list
-                let start_task = if clients.contains(client_list_u32.get(i).unwrap()) {
-                    Task {
-                        task_id,
-                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                            rate,
-                            active: true,
-                            task_type,
-                            source_address: src_addr.clone(),
-                            client_sources: client_sources.clone(),
-                        }))
-                    }
-                } else {
-                    Task {
-                        task_id,
-                        data: Some(verfploeter::task::Data::Start(verfploeter::Start {
-                            rate,
-                            active: false,
-                            task_type,
-                            source_address: src_addr.clone(),
-                            client_sources: client_sources.clone(),
-                        }))
-                    }
-                };
+                // Make sure the current client is selected to perform the task
                 i = i + 1;
-                start_task
+                clients.contains(client_list_u32.get(i).unwrap())
+            };
+
+         let start_task = Task {
+                task_id,
+                data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                    rate,
+                    active,
+                    task_type,
+                    source_address: src_addr.clone(),
+                    client_sources: client_sources.clone(),
+                }))
             };
 
             match sender.try_send(Ok(start_task.clone())) {
@@ -583,7 +561,7 @@ impl Controller for ControllerService {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
-                            2 | 4 => Task { //TODO 4
+                            2 | 4 => Task {
                                 task_id,
                                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                     destination_addresses: chunk.to_vec(),
@@ -655,9 +633,6 @@ impl Controller for ControllerService {
         &self,
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
-
-        println!("forwarding result to CLI");
-
         // Send the result to the CLI through the established stream
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
