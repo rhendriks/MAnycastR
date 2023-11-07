@@ -181,9 +181,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                 let packet = IPv4Packet::from(&buffer[..result]);
 
                 // Obtain the payload
-                if let PacketPayload::ICMP { value } = packet.payload {
+                if let PacketPayload::ICMP { value: icmp_packet } = packet.payload {
                     // Make sure that this packet belongs to this task
-                    if value.icmp_type != 3 { // Code 3 => destination unreachable
+                    if icmp_packet.icmp_type != 3 { // Code 3 => destination unreachable
                         // If not, we discard it and await the next packet
                         continue;
                     }
@@ -193,110 +193,67 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     let mut sender_dest = 0;
                     let mut sender_client_id = 0;
                     let mut sender_src_port = 0;
-                    let code = value.code;
+                    let code = icmp_packet.code;
+                    let mut result = None;
 
                     let receive_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_nanos() as u64;
 
-                    // Some hosts will ICMP reply with port unreachable that contain the original DNS request
-                    if value.body.len() >= 20 { // IPv4 header is 20 bytes
-                        let packet_icmp = IPv4Packet::from(&*value.body);
+                    // Only ipv4 header TODO ipv6 header
+                    if (icmp_packet.body.len() >= 20) & (icmp_packet.body.len() < 28) {
+                        let ip_header = IPv4Packet::from(&*icmp_packet.body);
 
-                        if value.body.len() >= 28 { // UDP is an additional 8 bytes
-                            if let PacketPayload::UDP { value } = packet_icmp.payload {
-                                // Obtain the DNS A record, including the domain name, from the UDP packet
+                        sender_src = u32::from(ip_header.source_address);
+                        sender_dest = u32::from(ip_header.destination_address);
+                    // Only ipv4 header and UDP header
+                    } else if (icmp_packet.body.len() >= 28) & (icmp_packet.body.len() < 66) {
+                        let ip_header = IPv4Packet::from(&*icmp_packet.body);
 
-                                // IP, UDP, DNS => 66 or more
-                                if value.body.len() >= 66 {
-                                    let record = DNSRecord::from(value.body.as_slice());
+                        let PacketPayload::UDP { value: udp_header } = ip_header.payload else { panic!("Invalid UDP packet") };
 
-                                    if task_type == 2 { // DNS A record reply
-                                        let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
-
-                                        // Get the information from the domain, continue to the next packet if it does not follow the format
-                                        let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-                                        transmit_time = match parts[0].parse::<u64>() {
-                                            Ok(t) => t,
-                                            Err(_) => continue,
-                                        };
-                                        sender_src = match parts[1].parse::<u32>() {
-                                            Ok(s) => s,
-                                            Err(_) => continue,
-                                        };
-                                        sender_dest = match parts[2].parse::<u32>() {
-                                            Ok(s) => s,
-                                            Err(_) => continue,
-                                        };
-                                        sender_client_id = match parts[3].parse::<u8>() {
-                                            Ok(s) => s,
-                                            Err(_) => continue,
-                                        };
-                                        sender_src_port = match parts[4].parse::<u16>() {
-                                            Ok(s) => s,
-                                            Err(_) => continue,
-                                        };
-                                    } else if task_type == 4 { // DNS CHAOS TXT reply
-                                        if record.answer == 0 {
-                                            // TODO DNS response but no DNS CHAOS reply
-                                        } else {
-                                            let answer = DNSAnswer::from(record.body.as_slice());
-                                            println!("DNS ANSWER: {:?}", answer);
-                                            let txt_data = TXTRecord::from(answer.data.as_slice());
-                                            println!("TXT DATA: {:?}", txt_data);
-                                            let chaos_reply = txt_data.txt;
-                                            println!("CHAOS REPLY: {}", chaos_reply);
-                                            // TODO retrieve DNS CHAOS reply
-                                            // TODO return DNS chaos reply to server
-
-                                        }
-                                    } else {
-                                        panic!("Invalid task type for UDP listener: {}", task_type);
-                                    }
-                                } else {
-                                    // We received the IP/UDP headers but not the DNS payload
-                                    sender_src_port = value.destination_port;
-                                    sender_src = u32::from(packet_icmp.source_address);
-                                    sender_dest = u32::from(packet_icmp.destination_address);
-                                }
-                            }
-                        } else {
-                            // We just received the IP header
-                            sender_src = u32::from(packet_icmp.source_address);
-                            sender_dest = u32::from(packet_icmp.destination_address);
-                        }
+                        sender_src_port = udp_header.destination_port;
+                        sender_src = u32::from(ip_header.source_address);
+                        sender_dest = u32::from(ip_header.destination_address);
+                    // IPv4 header, UDP header, DNS body
+                    } else if icmp_packet.body.len() >= 66 {
+                        result = parse_udpv4(&*icmp_packet.body, task_type);
                     }
 
-                    // Create a VerfploeterResult for the received ping reply
-                    let result = VerfploeterResult {
-                        value: Some(Value::Udp(UdpResult {
-                            receive_time,
-                            source_port: 0,
-                            destination_port: 0,
-                            code: code as u32,
-                            ip_result: Some(IpResult {
-                                value: Some(ip_result::Value::Ipv4(IPv4Result {
-                                    source_address: u32::from(packet.source_address),
-                                    destination_address: u32::from(packet.destination_address),
-                                })),
-                                ttl: packet.ttl as u32,
-                            }),
-                            payload: Some(UdpPayload {
-                                transmit_time,
-                                source_address: sender_src,
-                                destination_address: sender_dest,
-                                sender_client_id: sender_client_id as u32,
-                                source_port: sender_src_port as u32,
-                            }),
-                        })),
-                    };
+                    if result == None {
+                        // Create a VerfploeterResult for the received ping reply
+                        let result = VerfploeterResult {
+                            value: Some(Value::Udp(UdpResult {
+                                receive_time,
+                                source_port: 0,
+                                destination_port: 0,
+                                code: code as u32,
+                                ip_result: Some(IpResult {
+                                    value: Some(ip_result::Value::Ipv4(IPv4Result {
+                                        source_address: u32::from(packet.source_address),
+                                        destination_address: u32::from(packet.destination_address),
+                                    })),
+                                    ttl: packet.ttl as u32,
+                                }),
+                                payload: Some(UdpPayload {
+                                    value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                                        transmit_time,
+                                        source_address: sender_src,
+                                        destination_address: sender_dest,
+                                        sender_client_id: sender_client_id as u32,
+                                        source_port: sender_src_port as u32,
+                                    })),
+                                }),
+                            })),
+                        };
+                    }
 
                     // Put result in transmission queue
                     {
                         let mut rq_opt = rq_receiver.lock().unwrap();
                         if let Some(ref mut x) = *rq_opt {
-                            x.push(result);
+                            x.push(result.unwrap());
                         }
                     }
                 }
@@ -587,7 +544,7 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     // }
 }
 
-fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
+fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
     // IPv4 20 + UDP 8 minimum
     if packet_bytes.len() < 28 { return None }
 
@@ -595,10 +552,12 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     let packet = IPv4Packet::from(packet_bytes);
 
     // Obtain the payload
-    if let PacketPayload::UDP { value } = packet.payload {
-        println!("UDP packet {:?}", value);
+    if let PacketPayload::UDP { value: udp_packet } = packet.payload {
+        println!("UDP packet {:?}", udp_packet);
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if (value.source_port != 53) | (value.destination_port < 62321) | (value.body.len() < 66) { // TODO body length doesnt match for TXT record replies
+        if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
+            return None
+        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 20)) { // TODO length CHAOS TXT
             return None
         }
 
@@ -611,8 +570,8 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
         return Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
                 receive_time,
-                source_port: value.source_port as u32,
-                destination_port: value.destination_port as u32,
+                source_port: udp_packet.source_port as u32,
+                destination_port: udp_packet.destination_port as u32,
                 code: 16,
                 ip_result: Some(IpResult {
                     value: Some(ip_result::Value::Ipv4(IPv4Result {
@@ -621,7 +580,7 @@ fn parse_udpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
                     })),
                     ttl: packet.ttl as u32,
                 }),
-                payload: parse_dns_a_record(value.body.as_slice()), // TODO
+                payload: parse_dns_a_record(udp_packet.body.as_slice()), // TODO
             })),
         });
     } else {
@@ -713,11 +672,13 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A
     };
 
     return Some(UdpPayload {
-        transmit_time,
-        source_address: sender_src,
-        destination_address: sender_dest,
-        sender_client_id: sender_client_id as u32,
-        source_port: sender_src_port as u32,
+        value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+            transmit_time,
+            source_address: sender_src,
+            destination_address: sender_dest,
+            sender_client_id: sender_client_id as u32,
+            source_port: sender_src_port as u32,
+        })),
     });
 }
 
@@ -725,14 +686,14 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO DNS_A
 fn parse_chaos(packet_bytes: &[u8]) -> Option<DnsChaos> {
     let record = DNSRecord::from(packet_bytes);
     // 8 right most bits are the client_id
-    let client_id: u8 = record.transaction_id as u8; // TODO test
+    let sender_client_id = record.transaction_id as u32; // TODO test
 
     let txt = TXTRecord::from(record.body.as_slice());
-    let chaos_record = txt.txt;
+    let chaos_data = txt.txt;
 
-    return some(DnsChaos {
-        client_id,
-        chaos_record,
+    return Some(DnsChaos {
+        sender_client_id,
+        chaos_data,
     })
 
 

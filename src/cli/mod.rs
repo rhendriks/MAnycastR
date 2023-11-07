@@ -23,7 +23,7 @@ use custom_module::verfploeter::{
     VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, address::Value::V4, address::Value::V6,
     verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Udp as ResultUdp,
-    verfploeter_result::Value::Tcp as ResultTcp
+    verfploeter_result::Value::Tcp as ResultTcp, udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
 };
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
@@ -486,19 +486,40 @@ impl CliClient {
 
 
                         let payload = udp.payload.unwrap();
-                        let transmit_time = payload.transmit_time.to_string(); // TODO get type of udp payload
-                        let request_src = Ipv4Addr::from(payload.source_address).to_string();
-                        let request_dest = Ipv4Addr::from(payload.destination_address).to_string();
-                        let sender_client_id = payload.sender_client_id.to_string();
-                        let request_src_port = payload.source_port.to_string();
 
-                        let record_udp: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, "53"];
-                        let mut all_records = [""; 14];
-                        all_records[..1].copy_from_slice(&record);
-                        all_records[1..].copy_from_slice(&record_udp);
+                        match payload.value {
+                            Some(DnsARecord(dns_a_record)) => {
+                                let transmit_time = dns_a_record.transmit_time.to_string();
+                                let request_src = Ipv4Addr::from(dns_a_record.source_address).to_string();
+                                let request_dest = Ipv4Addr::from(dns_a_record.destination_address).to_string();
+                                let sender_client_id = dns_a_record.sender_client_id.to_string();
+                                let request_src_port = dns_a_record.source_port.to_string();
+                                let request_dest_port = "53";
 
-                        if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                        wtr_file.write_record(&all_records)?;
+                                let record_dns: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
+                                let mut all_records = [""; 14];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            },
+                            Some(DnsChaos(dns_chaos)) => {
+                                let sender_client_id = dns_chaos.sender_client_id.to_string();
+                                let chaos = dns_chaos.chaos_data;
+
+                                let record_dns: [&str; 9] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &sender_client_id, &chaos];
+                                let mut all_records = [""; 10];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            },
+                            None => {
+                                panic!("No payload found for UDP result!");
+                            }
+                        }
                     },
                     ResultTcp(tcp) => {
                         let recv_time = tcp.receive_time.to_string();
