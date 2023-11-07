@@ -323,7 +323,7 @@ pub struct DNSAnswer {
 /// DNS TXT data record
 #[derive(Debug)]
 pub struct TXTRecord {
-    pub txt_length: u16,
+    pub txt_length: u8,
     pub txt: String,
 }
 
@@ -401,7 +401,7 @@ impl From<&[u8]> for TXTRecord {
         let mut data = Cursor::new(data);
         println!("data {:?}", data);
 
-        let txt_length = data.read_u16::<BigEndian>().unwrap();
+        let txt_length = data.read_u8().unwrap();
         println!("TXT length: {}", txt_length);
         TXTRecord {
             txt_length,
