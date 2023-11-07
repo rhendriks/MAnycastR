@@ -405,7 +405,7 @@ impl From<&[u8]> for TXTRecord {
         println!("TXT length: {}", txt_length);
         TXTRecord {
             txt_length,
-            txt: String::from_utf8_lossy(&data.clone().into_inner()[2..(2 + txt_length as u64) as usize]).to_string(),
+            txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
         }
     }
 }
