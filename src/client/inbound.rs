@@ -219,7 +219,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                         sender_src = match ip_result_probe.value.clone().unwrap() { // TODO save full u128 for ip_resultv6
                             ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                            ip_IPv6(ipv6) => (ipv6.source_address.unwrap().p2& 0xFFFFFFFF) as u32,
+                            ip_IPv6(ipv6) => (ipv6.source_address.unwrap().p2 & 0xFFFFFFFF) as u32,
                         };
 
 
@@ -240,28 +240,36 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     };
 
                     // Get the UDP header from the probe out of the ICMP body
-                    let udp_payload_probe = if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
+                    let mut dns_result = if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
                         sender_src_port = udp_header.source_port as u32;
-                        udp_header.body
+                        let mut a_record = parse_dns_a_record(udp_header.body.as_slice());
+
+                        // If we were unable to get a DNS result out of the UDP payload, fill in the DNS result to the best of our ability
+                        if a_record == None {
+                            a_record = Some(UdpPayload {
+                                value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                                    transmit_time: 0,
+                                    source_address: sender_src,
+                                    destination_address: sender_dest,
+                                    sender_client_id: 0,
+                                    source_port: sender_src_port,
+                                })),
+                            });
+                        }
+
+                        a_record
                     } else {
-                        continue // TODO store available results
-                    };
-
-                    // Try and parse a DNS answer from the UDP payload
-                    let mut dns_result = parse_dns_a_record(udp_payload_probe.as_slice());
-
-                    // If we were unable to get a DNS result out of the UDP payload, fill in the DNS result to the best of our ability
-                    if dns_result == None {
-                        dns_result = Some(UdpPayload {
+                        Some(UdpPayload {
                             value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
                                 transmit_time: 0,
                                 source_address: sender_src,
                                 destination_address: sender_dest,
                                 sender_client_id: 0,
-                                source_port: sender_src_port,
+                                source_port: 0,
                             })),
-                        });
-                    }
+                        })
+                    };
+
 
                     // Create a VerfploeterResult for the received ping reply
                     result = Some(VerfploeterResult {
