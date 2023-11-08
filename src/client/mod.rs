@@ -141,7 +141,7 @@ impl Client {
         let rate: u32 = start.rate;
         let task_id = task.task_id;
 
-        let client_sources: Vec<Address> = start.client_sources; // TODO use client_sources to create listening sockets for all those source addresses
+        let client_sources: Vec<Address> = start.client_sources;
         println!("[Client] Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
@@ -196,13 +196,19 @@ impl Client {
 
         // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
         // Create the socket to send and receive to/from
-        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
+        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+
+        // Create a socket for each client_address
+        let mut sockets = Vec::new();
+        for client_address in client_sources {
+            sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
+        } // TODO start listening threads for each socket
 
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
+                listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
@@ -389,4 +395,19 @@ impl Client {
 
         Ok(())
     }
+}
+
+/// Create a socket for a certain address, domain, protocol, and port
+fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Arc<Socket> {
+    let (bind_address, domain) = if v6 == true {
+        (format!("[{}]:{}", address, port), Domain::ipv6())
+    } else {
+        (format!("{}:{}", address, port), Domain::ipv4())
+    };
+
+    // Create the socket to send and receive to/from
+    let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
+    socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+
+    return socket
 }
