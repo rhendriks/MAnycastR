@@ -8,9 +8,10 @@ use crate::custom_module;
 use custom_module::verfploeter::{
     Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
-    address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord
+    address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
 };
 use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
+use crate::net::netv6::IPv6Packet;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -156,7 +157,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         }
     });
 
-    // ICMP port unreachable listening thread
+    // ICMP port unreachable listening thread // TODO only for task_type 2
     thread::spawn({
         let rq_receiver = result_queue.clone();
         let socket_icmp = socket_icmp.clone();
@@ -164,32 +165,43 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for ICMP packets for UDP task - {}", task_id);
-            // TODO ICMPv6 packets for udpv6
+
             while let Ok(result) = socket_icmp.recv(&mut buffer) {
+                if result == 0 { break } // Received when the socket closes on some OS
 
-                // Received when the socket closes on some OS
-                if result == 0 { break }
+                // Parse IP header
+                let (ip_result, payload) = if v6 { // TODO update to first parse the ipv6 header (when we fix the socket to receive full ipv6 packets)
+                    println!("[Client inbound] Listening for ICMPv6 packets for UDP task - {}", task_id);
 
-                // IPv4 20 + ICMP ECHO 8 minimum
-                if result < 28 { continue }
+                    let ip_result = None;
+                    let payload = PacketPayload::ICMP {
+                        value: ICMPPacket::from(&buffer[..result]),
+                    };
+                    (ip_result, payload)
+                } else {
+                    println!("[Client inbound] Listening for ICMPv4 packets for UDP task - {}", task_id);
 
-                // Create IPv4Packet from the bytes in the buffer
-                let packet = IPv4Packet::from(&buffer[..result]);
+                    match parse_ipv4(&buffer[..result]) {
+                        None => continue, // Unable to parse IPv4 header
+                        Some((ip_result, payload)) => (Some(ip_result), payload),
+                    }
+                };
 
-                // Obtain the payload
-                if let PacketPayload::ICMP { value: icmp_packet } = packet.payload {
+                // Parse ICMP body
+                if let PacketPayload::ICMP { value: icmp_packet } = payload {
                     // Make sure that this packet belongs to this task
-                    if icmp_packet.icmp_type != 3 { // Code 3 => destination unreachable
+                    if !v6 & (icmp_packet.icmp_type != 3) { // Code 3 (v4) => destination unreachable
+                        // If not, we discard it and await the next packet
+                        continue;
+                    } else if v6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
                         // If not, we discard it and await the next packet
                         continue;
                     }
 
-                    let transmit_time = 0;
+                    // Initialize variables
                     let mut sender_src = 0;
                     let mut sender_dest = 0;
-                    let sender_client_id = 0;
-                    let mut sender_src_port = 0;
-                    let code = icmp_packet.code;
+                    let mut sender_src_port: u32 = 0;
                     let mut result = None;
 
                     let receive_time = SystemTime::now()
@@ -197,53 +209,71 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         .unwrap()
                         .as_nanos() as u64;
 
-                    // Only ipv4 header TODO ipv6 header
-                    if (icmp_packet.body.len() >= 20) & (icmp_packet.body.len() < 28) {
-                        let ip_header = IPv4Packet::from(&*icmp_packet.body);
+                    // Get the IP header of the probe from the ICMP body
+                    let (ip_result_probe, ip_payload_probe) = if v6 {
+                        // Get the ipv6 header from the probe out of the ICMP body
+                        let (ip_result_probe, ip_payload_probe) = match parse_ipv6(icmp_packet.body.as_slice()) {
+                            None => continue, // Unable to parse IPv6 header TODO store available results
+                            Some((ip_result, payload)) => (ip_result, payload),
+                        };
 
-                        sender_src = u32::from(ip_header.source_address);
-                        sender_dest = u32::from(ip_header.destination_address);
-                    // Only ipv4 header and UDP header
-                    } else if (icmp_packet.body.len() >= 28) & (icmp_packet.body.len() < 66) {
-                        let ip_header = IPv4Packet::from(&*icmp_packet.body);
+                        sender_src = match ip_result_probe.value.clone().unwrap() { // TODO save full u128 for ip_resultv6
+                            ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
+                            ip_IPv6(ipv6) => (ipv6.source_address.unwrap().p2& 0xFFFFFFFF) as u32,
+                        };
 
-                        let PacketPayload::UDP { value: udp_header } = ip_header.payload else { panic!("Invalid UDP packet") };
 
-                        sender_src_port = udp_header.destination_port;
-                        sender_src = u32::from(ip_header.source_address);
-                        sender_dest = u32::from(ip_header.destination_address);
-                    // IPv4 header, UDP header, DNS body
-                    } else if icmp_packet.body.len() >= 66 {
-                        result = parse_udpv4(&*icmp_packet.body, task_type);
-                    }
+                        (ip_result_probe, ip_payload_probe)
+                    } else {
+                        // Get the ipv4 header from the probe out of the ICMP body
+                        let (ip_result_probe, ip_payload_probe) = match parse_ipv4(icmp_packet.body.as_slice()) {
+                            None => continue, // Unable to parse IPv4 header TODO store available results
+                            Some((ip_result, payload)) => (ip_result, payload),
+                        };
 
-                    if result == None {
-                        // Create a VerfploeterResult for the received ping reply
-                        result = Some(VerfploeterResult {
-                            value: Some(Value::Udp(UdpResult {
-                                receive_time,
-                                source_port: 0,
-                                destination_port: 0,
-                                code: code as u32,
-                                ip_result: Some(IpResult {
-                                    value: Some(ip_result::Value::Ipv4(IPv4Result { // TODO v6
-                                        source_address: u32::from(packet.source_address),
-                                        destination_address: u32::from(packet.destination_address),
-                                    })),
-                                    ttl: packet.ttl as u32,
-                                }),
-                                payload: Some(UdpPayload {
-                                    value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
-                                        transmit_time,
-                                        source_address: sender_src,
-                                        destination_address: sender_dest,
-                                        sender_client_id: sender_client_id as u32,
-                                        source_port: sender_src_port as u32,
-                                    })),
-                                }),
+                        sender_src = match ip_result_probe.value.clone().unwrap() {
+                            ip_IPv4(ipv4) => ipv4.source_address,
+                            ip_IPv6(ipv6) => panic!("IPv6 header in ICMPv4 packet"),
+                        };
+
+                        (ip_result_probe, ip_payload_probe)
+                    };
+
+                    // Get the UDP header from the probe out of the ICMP body
+                    let udp_payload_probe = if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
+                        sender_src_port = udp_header.source_port as u32;
+                        udp_header.body
+                    } else {
+                        continue // TODO store available results
+                    };
+
+                    // Try and parse a DNS answer from the UDP payload
+                    let mut dns_result = parse_dns_a_record(udp_payload_probe.as_slice());
+
+                    // If we were unable to get a DNS result out of the UDP payload, fill in the DNS result to the best of our ability
+                    if dns_result == None {
+                        dns_result = Some(UdpPayload {
+                            value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                                transmit_time: 0,
+                                source_address: sender_src,
+                                destination_address: sender_dest,
+                                sender_client_id: 0,
+                                source_port: sender_src_port,
                             })),
                         });
                     }
+
+                    // Create a VerfploeterResult for the received ping reply
+                    result = Some(VerfploeterResult {
+                        value: Some(Value::Udp(UdpResult {
+                            receive_time,
+                            source_port: 0,
+                            destination_port: 0,
+                            code: icmp_packet.code as u32,
+                            ip_result,
+                            payload: dns_result,
+                        })),
+                    });
 
                     // Put result in transmission queue
                     {
@@ -252,6 +282,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             x.push(result.unwrap());
                         }
                     }
+
+                } else {
+                    continue; // Not an ICMPv4 packet
                 }
             }
             println!("[Client inbound] Stopped listening on ICMP socket for the UDP task");
@@ -407,6 +440,7 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
     }
 }
 
+/// Parse packet bytes into an IPv4 header, returns the IP result for this header and the payload.
 fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // IPv4 20 minimum
     if packet_bytes.len() < 20 { return None }
@@ -421,6 +455,30 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
             destination_address: u32::from(packet.destination_address),
         })),
         ttl: packet.ttl as u32,
+    }, packet.payload));
+}
+
+/// Parse packet bytes into an IPv6 header, returns the IP result for this header and the payload.
+fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
+    // IPv6 40 minimum
+    if packet_bytes.len() < 40 { return None }
+
+    // Create IPv6Packet from the bytes in the buffer
+    let packet = IPv6Packet::from(packet_bytes);
+
+    // Create a VerfploeterResult for the received ping reply
+    return Some((IpResult {
+        value: Some(ip_result::Value::Ipv6(IPv6Result {
+            source_address: Some(IPv6 {
+                p1: (u128::from(packet.source_address) >> 64) as u64,
+                p2: u128::from(packet.source_address) as u64,
+            }),
+            destination_address: Some(IPv6 {
+                p1: (u128::from(packet.destination_address) >> 64) as u64,
+                p2: u128::from(packet.destination_address) as u64,
+            }),
+        })),
+        ttl: packet.hop_limit as u32,
     }, packet.payload));
 }
 
@@ -653,6 +711,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // }
 }
 
+/// Attempts to parse the DNS A record from a UDP payload body.
 fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'

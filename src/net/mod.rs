@@ -376,7 +376,7 @@ impl From<&[u8]> for DNSRecord {
             domain: read_dns_name(&mut data),
             record_type: data.read_u16::<NetworkEndian>().unwrap(),
             class: data.read_u16::<NetworkEndian>().unwrap(),
-            body: data.clone().into_inner()[data.position() as usize..].to_vec(), // TODO test
+            body: data.clone().into_inner()[data.position() as usize..].to_vec(),
         }
     }
 }
@@ -391,7 +391,7 @@ impl From<&[u8]> for DNSAnswer {
             class: data.read_u16::<NetworkEndian>().unwrap(),
             ttl: data.read_u32::<NetworkEndian>().unwrap(),
             data_length: data.read_u16::<NetworkEndian>().unwrap(),
-            data: data.clone().into_inner()[data.position() as usize..].to_vec(), // TODO test
+            data: data.clone().into_inner()[data.position() as usize..].to_vec(),
         }
     }
 }
