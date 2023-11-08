@@ -30,16 +30,7 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
 pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
-
-    thread::spawn({
-        let abort = abort.clone();
-
-        // Waits for a possible abort
-        move || {
-            finish_rx.wait().ok();
-            *abort.lock().unwrap() = true;
-        }
-    });
+    abort_handler(abort.clone(), finish_rx);
 
     thread::spawn({
         move || {
@@ -168,15 +159,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
-
-    thread::spawn({
-        let abort = abort.clone();
-
-        move || {
-            finish_rx.wait().ok();
-            *abort.lock().unwrap() = true;
-        }
-    });
+    abort_handler(abort.clone(), finish_rx);
 
     thread::spawn({
         move || {
@@ -289,15 +272,7 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
-
-    thread::spawn({
-        let abort = abort.clone();
-
-        move || {
-            finish_rx.wait().ok();
-            *abort.lock().unwrap() = true;
-        }
-    });
+    abort_handler(abort.clone(), finish_rx);
 
     thread::spawn({
         move || {
@@ -347,25 +322,13 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                     let ack = transmit_time; // ack information gets returned as seq
 
                     let tcp = if ipv6 {
-                        let source = match IP::from(source_address) {
-                            IP::V6(v6) => v6,
-                            _ => panic!("Destination address is not IPv6")
-                        };
-                        let dest = match IP::from(dest_addr) {
-                            IP::V6(v6) => v6,
-                            _ => panic!("Source address is not IPv6")
-                        };
+                        let source = source_address.get_v6();
+                        let dest = IP::from(dest_addr).get_v6();
 
                         TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
                     } else {
-                        let source = match IP::from(source_address) {
-                            IP::V4(v4) => v4,
-                            _ => panic!("Destination address is not IPv4")
-                        };
-                        let dest = match IP::from(dest_addr) {
-                            IP::V4(v4) => v4,
-                            _ => panic!("Source address is not IPv4")
-                        };
+                        let source = source_address.get_v4();
+                        let dest = IP::from(dest_addr).get_v4();
 
                         TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
                     };
@@ -386,6 +349,18 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
             debug!("finished TCP probing");
 
             println!("[Client outbound] TCP Outbound thread finished");
+        }
+    });
+}
+
+/// Spawns a thread that waits for a possible abort signal.
+fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Receiver<()>) {
+    thread::spawn({
+        let abort = abort.clone();
+
+        move || {
+            finish_rx.wait().ok();
+            *abort.lock().unwrap() = true;
         }
     });
 }
