@@ -208,7 +208,7 @@ impl Client {
                 continue
             }
 
-            println!("[Client] Listening on address: {}", address); // TODO
+            println!("[Client] Listening on custom address: {}", address);
             sockets.append(&mut vec![create_socket(address, ipv6, protocol, src_port)]);
         }
 
@@ -243,13 +243,18 @@ impl Client {
                 listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
 
                 // // Start listening thread for other source addresses used during this measurement
-                // for socket in sockets {
-                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                //
-                //     let socket_icmp = create_socket(socket.local_addr().unwrap().to_string(), ipv6, Protocol::icmpv6(), src_port); TODO
-                //     listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
-                // }
+                for socket in sockets {
+                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+
+                    let socket_icmp = if ipv6 {
+                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv6(), src_port)
+                    } else {
+                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv4(), src_port)
+                    };
+
+                    listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                }
 
                 // Start sending thread
                 if probing {
