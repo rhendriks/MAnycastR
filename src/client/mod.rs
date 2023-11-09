@@ -248,9 +248,9 @@ impl Client {
                     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
 
                     let socket_icmp = if ipv6 {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv6(), src_port)
+                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv6(), 0)
                     } else {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv4(), src_port)
+                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").to_string(), ipv6, Protocol::icmpv4(), 0)
                     };
 
                     listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
