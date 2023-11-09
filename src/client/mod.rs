@@ -141,7 +141,7 @@ impl Client {
         let rate: u32 = start.rate;
         let task_id = task.task_id;
 
-        let client_sources: Vec<Address> = start.client_sources;
+        let client_sources: Vec<Address> = start.client_sources; // TODO has value None when empty
         println!("[Client] Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
@@ -201,9 +201,9 @@ impl Client {
 
         // Create a socket for each client_address
         let mut sockets = Vec::new();
-        for client_address in client_sources {
-            sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
-        } // TODO start listening threads for each socket
+        // for client_address in client_sources {
+        //     sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
+        // } // TODO start listening threads for each socket
 
         // Start listening thread and sending thread
         match start.task_type {
