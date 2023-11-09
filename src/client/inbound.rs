@@ -233,7 +233,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                         sender_src = match ip_result_probe.value.clone().unwrap() {
                             ip_IPv4(ipv4) => ipv4.source_address,
-                            ip_IPv6(ipv6) => panic!("IPv6 header in ICMPv4 packet"),
+                            ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                         };
 
                         (ip_result_probe, ip_payload_probe)
