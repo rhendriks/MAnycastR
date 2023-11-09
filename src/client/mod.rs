@@ -130,12 +130,21 @@ impl Client {
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
-    fn init(&mut self, task: Task, client_id: u8, outbound_rx: Option<tokio::sync::mpsc::Receiver<Task>>, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
             return
         }
+
+        // Channel for forwarding tasks to outbound
+        let outbound_rx = if probing {
+            let (tx, rx) = tokio::sync::mpsc::channel(1000);
+            self.outbound_tx = Some(tx);
+            Some(rx)
+        } else {
+            None
+        };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
@@ -378,23 +387,16 @@ impl Client {
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
-                if task_active {
+                if task_active { // This client is probing
                     // Initialize signal finish channel
-                    // TODO can be created in init
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
-                    // Channel for forwarding tasks to outbound
-                    // TODO can be created in init
-                    let (tx, rx) = tokio::sync::mpsc::channel(1000);
-                    tx.send(task.clone()).await.unwrap(); // TODO do we need to forward the Start packet?
-                    self.outbound_tx = Some(tx);
-
-                    self.init(task, client_id, Some(rx), Some(outbound_rx_f), task_active);
-                } else {
+                    self.init(task, client_id, Some(outbound_rx_f), true);
+                } else { // This client is not probing
                     f_tx = None;
                     self.outbound_tx = None;
-                    self.init(task, client_id, None, None, task_active);
+                    self.init(task, client_id, None, false);
                 }
             }
         }
