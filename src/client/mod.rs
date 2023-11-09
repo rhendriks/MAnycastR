@@ -198,13 +198,17 @@ impl Client {
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-        println!("[Client] Sending and listening on address: {}", bind_address); // TODO default source address won't be listened to by clients with a custom source address
+        println!("[Client] Sending and listening on address: {}", bind_address);
 
         // Create a socket for each client_address
         let mut sockets = Vec::new();
         for client_address in client_sources {
             let address = IP::from(client_address).to_string();
-            println!("[Client] Listening on address: {}", address);
+            if source_addr.to_string() == address { // Skip our own address (we already have a socket for it)
+                continue
+            }
+
+            println!("[Client] Listening on address: {}", address); // TODO
             sockets.append(&mut vec![create_socket(address, ipv6, protocol, src_port)]);
         }
 
