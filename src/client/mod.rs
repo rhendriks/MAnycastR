@@ -413,6 +413,8 @@ fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Ar
         (format!("{}:{}", address, port), Domain::ipv4())
     };
 
+    println!("[Client] Creating socket for address: {}", bind_address);
+
     // Create the socket to send and receive to/from
     let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
     socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
