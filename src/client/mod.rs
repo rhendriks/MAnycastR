@@ -140,10 +140,7 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = task.task_id;
-
-        println!("start client sources {:?}", start.client_sources);
         let client_sources: Vec<Address> =  start.client_sources;
-        println!("[Client] Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
@@ -200,11 +197,15 @@ impl Client {
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
+        println!("[Client] Sending and listening on address: {}", bind_address);
+
         // Create a socket for each client_address
         let mut sockets = Vec::new();
         for client_address in client_sources {
-            sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
-        } // TODO start listening threads for each socket
+            let address = IP::from(client_address).to_string();
+            println!("[Client] Listening on address: {}", address);
+            sockets.append(&mut vec![create_socket(address, ipv6, protocol, src_port)]);
+        }
 
         // Start listening thread and sending thread
         match start.task_type {
@@ -215,7 +216,6 @@ impl Client {
                 for socket in sockets {
                     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
                     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                    // TODO save inbound_tx_f in a vector
                     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
                 }
 
@@ -311,8 +311,6 @@ impl Client {
                     for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                         inbound_tx_f.send(()).await.unwrap();
                     }
-                    // self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
-
                     // f_tx will be None if this client is not probing
                     if f_tx.is_some() {
                         // Close outbound threads
@@ -327,7 +325,6 @@ impl Client {
                         for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                             inbound_tx_f.send(()).await.unwrap();
                         }
-                        // self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
                         // Outbound threads gets exited by sending this None task to outbound
                     }
 
@@ -420,8 +417,6 @@ fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Ar
     } else {
         (format!("{}:{}", address, port), Domain::ipv4())
     };
-
-    println!("[Client] Creating socket for address: {}", bind_address);
 
     // Create the socket to send and receive to/from
     let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
