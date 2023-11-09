@@ -141,7 +141,8 @@ impl Client {
         let rate: u32 = start.rate;
         let task_id = task.task_id;
 
-        let client_sources: Vec<Address> = start.client_sources; // TODO has value None when empty
+        println!("start client sources {:?}", start.client_sources);
+        let client_sources: Vec<Address> =  start.client_sources;
         println!("[Client] Client sources {:?}", client_sources);
 
         // If this client has a specified source address use it, otherwise use the one from the task
@@ -200,10 +201,10 @@ impl Client {
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         // Create a socket for each client_address
-        // let mut sockets = Vec::new();
-        // for client_address in client_sources {
-        //     sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
-        // } // TODO start listening threads for each socket
+        let mut sockets = Vec::new();
+        for client_address in client_sources {
+            sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
+        } // TODO start listening threads for each socket
 
         // Start listening thread and sending thread
         match start.task_type {
@@ -211,11 +212,11 @@ impl Client {
                 listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
 
                 // Start listening thread for other source addresses used during this measurement
-                // for socket in sockets {
-                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                //     // TODO save inbound_tx_f in a vector
-                //     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-                // }
+                for socket in sockets {
+                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                    // TODO save inbound_tx_f in a vector
+                    listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                }
 
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
