@@ -438,7 +438,6 @@ impl Client {
 
 /// Create a socket for a certain address, domain, protocol, and port
 fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Arc<Socket> {
-    println!("[Client] Creating socket for address: {}", address);
     let (bind_address, domain) = if v6 == true {
         (format!("[{}]:{}", address, port), Domain::ipv6())
     } else {
