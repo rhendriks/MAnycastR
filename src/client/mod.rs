@@ -151,7 +151,7 @@ impl Client {
             self.source_address.clone()
         };
 
-        // Channel for sending from inbound to the server forwarder thread (at the end of the function)
+        // Channel for sending from inbound to the server forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when inbound is finished
@@ -209,6 +209,14 @@ impl Client {
         match start.task_type {
             1 => {
                 listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+
+                // Start listening thread for other source addresses used during this measurement
+                // for socket in sockets {
+                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                //     // TODO save inbound_tx_f in a vector
+                //     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                // }
+
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
