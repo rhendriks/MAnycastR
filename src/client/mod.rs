@@ -140,12 +140,13 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = task.task_id;
-        let client_sources: Vec<Address> =  start.client_sources;
+        let mut client_sources: Vec<Address> =  start.client_sources;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
             IP::from(start.source_address.unwrap())
         } else {
+            client_sources.append(&mut vec![start.source_address.unwrap()]); // Add default address to client_sources such that this client will listen on the default address as well
             self.source_address.clone()
         };
 
@@ -197,7 +198,7 @@ impl Client {
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
-        println!("[Client] Sending and listening on address: {}", bind_address);
+        println!("[Client] Sending and listening on address: {}", bind_address); // TODO default source address won't be listened to by clients with a custom source address
 
         // Create a socket for each client_address
         let mut sockets = Vec::new();
