@@ -39,7 +39,7 @@ pub struct Client {
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
-    inbound_tx_f: Option<tokio::sync::mpsc::Sender<()>>,
+    inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
 }
 
 impl Client {
@@ -157,7 +157,7 @@ impl Client {
 
         // Channel for signalling when inbound is finished
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-        self.inbound_tx_f = Some(inbound_tx_f);
+        self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
         let ipv6;
         let src_port: u16 = 62321;
@@ -214,6 +214,7 @@ impl Client {
                 // Start listening thread for other source addresses used during this measurement
                 for socket in sockets {
                     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
                     // TODO save inbound_tx_f in a vector
                     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
                 }
@@ -307,7 +308,10 @@ impl Client {
                     // Send finish signal
                     println!("[Client] CLI disconnected, aborting measurement");
                     // Close the inbound threads
-                    self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
+                    for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
+                        inbound_tx_f.send(()).await.unwrap();
+                    }
+                    // self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
 
                     // f_tx will be None if this client is not probing
                     if f_tx.is_some() {
@@ -320,7 +324,10 @@ impl Client {
                     if task.data == None {
                         println!("[Client] Received measurement finished from Server");
                         // Close the inbound threads
-                        self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
+                        for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
+                            inbound_tx_f.send(()).await.unwrap();
+                        }
+                        // self.inbound_tx_f.take().unwrap().send(()).await.unwrap();
                         // Outbound threads gets exited by sending this None task to outbound
                     }
 
