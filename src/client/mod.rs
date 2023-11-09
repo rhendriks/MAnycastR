@@ -200,7 +200,7 @@ impl Client {
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
 
         // Create a socket for each client_address
-        let mut sockets = Vec::new();
+        // let mut sockets = Vec::new();
         // for client_address in client_sources {
         //     sockets.append(&mut vec![create_socket(IP::from(client_address).to_string(), ipv6, protocol, src_port)]);
         // } // TODO start listening threads for each socket
