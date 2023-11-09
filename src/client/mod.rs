@@ -235,7 +235,16 @@ impl Client {
                 let task_type: u32 = start.task_type;
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+
+                // // Start listening thread for other source addresses used during this measurement
+                // for socket in sockets {
+                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+                //
+                //     let socket_icmp = create_socket(socket.local_addr().unwrap().to_string(), ipv6, Protocol::icmpv6(), src_port); TODO
+                //     listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                // }
 
                 // Start sending thread
                 if probing {
@@ -247,7 +256,14 @@ impl Client {
                 let dest_port = 63853 + client_id as u16;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx, inbound_rx_f, task_id, client_id, ipv6);
+                listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+
+                // Start listening thread for other source addresses used during this measurement
+                for socket in sockets {
+                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+                    listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                }
 
                 // Start sending thread
                 if probing {
