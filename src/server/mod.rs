@@ -475,7 +475,11 @@ impl Controller for ControllerService {
         // Create a list of source addresses used by clients
         let mut client_sources: Vec<Address> = vec![];
         for client in &self.clients.lock().unwrap().clients {
-            client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
+            let address = client.metadata.clone().unwrap().source_address.unwrap();
+            if address.value.is_some() {
+                client_sources.push(address);
+            }
+            // client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());

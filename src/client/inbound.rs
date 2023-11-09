@@ -427,7 +427,7 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
         // If we have an empty result queue
         if rq.len() == 0 {
             // Exit the thread if client sends us the signal it's finished
-            if tx.is_closed()  {
+            if let Ok(_) = rx_f.try_recv()  {
                 // We are finished
                 break;
             }
