@@ -317,7 +317,7 @@ impl CliClient {
             file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
         }
         file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
-        file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
+        // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
         file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
