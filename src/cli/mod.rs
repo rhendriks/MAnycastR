@@ -418,8 +418,8 @@ impl CliClient {
                         all_records[1..].copy_from_slice(&record_ping);
 
 
-                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
-                        wtr_file.write_record(all_records)?;
+                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records).expect("Failed to write ICMP payload to CLI") };
+                        wtr_file.write_record(all_records).expect("Failed to write ICMP payload");
                     }
                     ResultUdp(udp) => {
                         let recv_time = udp.receive_time.to_string();
@@ -446,8 +446,8 @@ impl CliClient {
                                 all_records[..1].copy_from_slice(&record);
                                 all_records[1..].copy_from_slice(&record_dns);
 
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                                wtr_file.write_record(&all_records)?;
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write A none payload CLI") };
+                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS none payload CLI");
                             } else if task_type == 4 {
                                 let sender_client_id = "-1";
                                 let chaos = "-1";
@@ -457,15 +457,15 @@ impl CliClient {
                                 all_records[..1].copy_from_slice(&record);
                                 all_records[1..].copy_from_slice(&record_dns);
 
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                                wtr_file.write_record(&all_records)?;
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write CHAOS none payload CLI") };
+                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS none payload");
                             } else {
                                 panic!("No payload found for unexpected UDP result!");
                             }
                             continue // Continue to next result
                         }
 
-                        let payload = udp.payload.expect("No payload found for UDP result!"); // TODO error
+                        let payload = udp.payload.expect("No payload found for UDP result!");
 
                         match payload.value {
                             Some(DnsARecord(dns_a_record)) => {
@@ -481,8 +481,8 @@ impl CliClient {
                                 all_records[..1].copy_from_slice(&record);
                                 all_records[1..].copy_from_slice(&record_dns);
 
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                                wtr_file.write_record(&all_records)?;
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write A payload CLI") };
+                                wtr_file.write_record(&all_records).expect("Failed to write A payload");
                             },
                             Some(DnsChaos(dns_chaos)) => {
                                 let sender_client_id = dns_chaos.sender_client_id.to_string();
@@ -493,8 +493,8 @@ impl CliClient {
                                 all_records[..1].copy_from_slice(&record);
                                 all_records[1..].copy_from_slice(&record_dns);
 
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
-                                wtr_file.write_record(&all_records)?;
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write CHAOS payload CLI") };
+                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS payload CLI");
                             },
                             None => {
                                 panic!("No payload found for UDP result!");
