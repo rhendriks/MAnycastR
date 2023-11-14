@@ -586,7 +586,7 @@ impl UDPPacket {
         cursor.into_inner()
     }
 
-    /// Creating a DNS TXT record request body for hostname.bind CHAOS request
+    /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(client_id: u8) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
@@ -600,8 +600,8 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question (hostname.bind)
-        let domain = "hostname.bind";
+        // DNS Question (id.server)
+        let domain = "id.server";
         for label in domain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
