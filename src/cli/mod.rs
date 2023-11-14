@@ -432,8 +432,40 @@ impl CliClient {
                         let reply_dest = ip_result.get_dest_address_str();
                         let ttl = ip_result.ttl.to_string();
 
+                        if udp.payload == None {
+                            if task_type == 2 {
+                                let transmit_time = "-1";
+                                let request_src = "-1";
+                                let request_dest = "-1";
+                                let sender_client_id = "-1";
+                                let request_src_port = "-1";
+                                let request_dest_port = "-1";
 
-                        let payload = udp.payload.expect("No payload found for UDP result!");
+                                let record_dns: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
+                                let mut all_records = [""; 14];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            } else if task_type == 4 {
+                                let sender_client_id = "-1";
+                                let chaos = "-1";
+
+                                let record_dns: [&str; 9] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &sender_client_id, &chaos];
+                                let mut all_records = [""; 10];
+                                all_records[..1].copy_from_slice(&record);
+                                all_records[1..].copy_from_slice(&record_dns);
+
+                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records)? };
+                                wtr_file.write_record(&all_records)?;
+                            } else {
+                                panic!("No payload found for unexpected UDP result!");
+                            }
+                            continue // Continue to next result
+                        }
+
+                        let payload = udp.payload.expect("No payload found for UDP result!"); // TODO error
 
                         match payload.value {
                             Some(DnsARecord(dns_a_record)) => {
