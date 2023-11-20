@@ -477,7 +477,10 @@ impl Controller for ControllerService {
         for client in &self.clients.lock().unwrap().clients {
             let address = client.metadata.clone().unwrap().source_address.unwrap();
             if address.value.is_some() {
-                client_sources.push(address);
+                // Avoid duplicate source addresses
+                if !client_sources.contains(&address) {
+                    client_sources.push(address);
+                }
             }
             // client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
         }
