@@ -89,6 +89,7 @@ impl Client {
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
             source_address: Some(Address::from(source_address.clone())),
+            source_port: source_port.into(),
         };
 
         // Initialize a client instance

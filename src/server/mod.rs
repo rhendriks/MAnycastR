@@ -191,6 +191,7 @@ impl Controller for ControllerService {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
         let source_address = metadata.source_address;
+        let source_port = metadata.source_port;
 
         let mut clients_list = self.clients.lock().unwrap();
 
@@ -215,6 +216,7 @@ impl Controller for ControllerService {
             metadata: Some(verfploeter::Metadata {
                 hostname: hostname.clone(),
                 source_address,
+                source_port,
             }),
         };
 

@@ -61,10 +61,11 @@ message Client {
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname and a source address (0 if client uses the default source)
+// Metadata (as used in Client), contains a hostname, a source address and port (0 if client uses the default source/port)
 message Metadata {
   string hostname = 1;
   Address source_address = 2;
+  fixed32 source_port = 3;
 }
 
 // Address message, can be either an IPv4 or IPv6 address
