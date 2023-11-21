@@ -625,9 +625,9 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
+        if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 66)) {
             return None
-        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 10)) {
+        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 10)) {
             return None
         }
 
@@ -673,9 +673,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     // if let PacketPayload::UDP { value } = packet.payload {
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 66)) {
+    if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 66)) {
         return None
-    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 62321) | (udp_packet.body.len() < 10)) {
+    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 10)) {
         return None
     }
 
@@ -795,7 +795,7 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
         // Responses to our probes have destination port > 4000 (as we use these as source)
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-        if (tcp_packet.destination_port != 62321) | (tcp_packet.flags != 0b00000100) {
+        if (tcp_packet.destination_port != 61440) | (tcp_packet.flags != 0b00000100) {
             return None
         }
 
