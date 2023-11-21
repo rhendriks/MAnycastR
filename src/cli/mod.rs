@@ -549,12 +549,16 @@ impl CliClient {
             Cell::new("Source address")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Source port")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
         for client in response.into_inner().clients {
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    IP::from(client.metadata.unwrap().source_address.unwrap()).to_string(), // Source address of this client
+                    IP::from(client.metadata.clone().unwrap().source_address.unwrap()).to_string(), // Source address of this client
+                    client.metadata.unwrap().source_port // Source port of this client
                 ));
         }
         table.printstd();
