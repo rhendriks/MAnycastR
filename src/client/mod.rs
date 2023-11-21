@@ -36,6 +36,7 @@ pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     source_address: IP,
+    source_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
@@ -70,11 +71,24 @@ impl Client {
             IP::None
         };
 
-        let source_address_m = Address::from(source_address.clone());
+        // Get the custom source port for this client (optional)
+        let source_port = if args.is_present("source_port") {
+            let source_port = args.value_of("source_port").unwrap();
+            let source_port = source_port.parse::<u16>().expect("Invalid source port");
+            if source_port < 61440 { // Minimum value for source port is 61440
+                panic!("Source port must be greater than 61440")
+            }
+            println!("[Client] Using custom source port: {}", source_port);
+
+            source_port
+        } else {
+            println!("[Client] Using default source port 62321");
+            62321
+        };
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address: Some(source_address_m),
+            source_address: Some(Address::from(source_address.clone())),
         };
 
         // Initialize a client instance
@@ -82,6 +96,7 @@ impl Client {
             grpc_client: Self::connect(server_addr).await?,
             metadata,
             source_address,
+            source_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -167,7 +182,6 @@ impl Client {
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
         let ipv6;
-        let src_port: u16 = 62321;
         let mut bind_address;
 
         let domain = if source_addr.to_string().contains(':') {
@@ -192,11 +206,11 @@ impl Client {
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
-                bind_address = format!("{}:{}", bind_address, src_port);
+                bind_address = format!("{}:{}", bind_address, self.source_port);
                 Protocol::udp()
             },
             3 => {
-                bind_address = format!("{}:{}", bind_address, src_port);
+                bind_address = format!("{}:{}", bind_address, self.source_port);
                 Protocol::tcp()
             },
             _ => panic!("Invalid task type"),
@@ -209,7 +223,7 @@ impl Client {
 
         println!("[Client] Sending and listening on address: {}", bind_address);
 
-        // Create a socket for each client_address
+        // Create a socket for each client_address // TODO do we need a socket for each client_address, source_port combination?
         let mut sockets = Vec::new();
         for client_address in client_sources {
             let address = IP::from(client_address).to_string();
@@ -218,7 +232,7 @@ impl Client {
             }
 
             println!("[Client] Listening on custom address: {}", address);
-            sockets.append(&mut vec![create_socket(address, ipv6, protocol, src_port)]);
+            sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]);
         }
 
         // Start listening thread and sending thread
@@ -267,7 +281,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
+                    perform_udp(socket, client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
             3 => {
@@ -286,7 +300,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, src_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_tcp(socket, source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             _ => { () }

@@ -209,6 +209,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Source address for this client's probes")
                         .required(false)
                 )
+                .arg(
+                    Arg::with_name("source_port")
+                        .short("p")
+                        .takes_value(true)
+                        .help("Source port for this client's probes (must be at least 61440)")
+                        .required(false)
+                )
         )
         .subcommand(
             SubCommand::with_name("cli").about("Verfploeter CLI")
