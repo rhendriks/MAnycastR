@@ -326,7 +326,7 @@ impl CliClient {
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
             let source_addr = IP::from(metadata.source_address.clone().expect("Invalid source address")).to_string();
-            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}\n", id, metadata.hostname, source_addr).as_ref())?;
+            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.source_port).as_ref()).expect("Failed to write client data");
         }
 
         file.write_all(b"# ----------\n")?; // Separator metadata, and data

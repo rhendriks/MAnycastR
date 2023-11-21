@@ -795,7 +795,7 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
         // Responses to our probes have destination port > 4000 (as we use these as source)
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-        if (tcp_packet.destination_port != 61440) | (tcp_packet.flags != 0b00000100) {
+        if (tcp_packet.destination_port < 61440) | (tcp_packet.flags != 0b00000100) { // TODO make this statement more specific to filter out non-measurement related packets (maybe look at payload?)
             return None
         }
 
