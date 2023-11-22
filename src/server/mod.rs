@@ -491,13 +491,13 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
+            i = i + 1;
             let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
                 true
             } else {
                 // Make sure the current client is selected to perform the task
-                i = i + 1;
-                clients.contains(client_list_u32.get(i).unwrap())
+                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
 
          let start_task = Task {
