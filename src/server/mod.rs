@@ -491,7 +491,6 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
-            i = i + 1;
             let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
                 true
@@ -499,8 +498,9 @@ impl Controller for ControllerService {
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
+            i = i + 1;
 
-         let start_task = Task {
+            let start_task = Task {
                 task_id,
                 data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                     rate,
