@@ -300,33 +300,35 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             sender_src_port = udp_header.source_port as u32;
 
                             // 3.3 DNS header
-                            let dns_record = DNSRecord::from(udp_header.body.as_slice()); // TODO what if we fail to parse this, check length first
-                            sender_client_id = dns_record.transaction_id as u32; // TODO
-                            // 3.4 DNS body
-                            let parts: Vec<&str> = dns_record.domain.split('.').next().unwrap().split('-').collect();
-                            // Our domains have 5 'parts' separated by 4 dashes
-                            if parts.len() != 5 { continue }
-
-                            transmit_time = match parts[0].parse::<u64>() {
-                                Ok(t) => t,
-                                Err(_) => continue,
-                            };
-                            sender_src = match parts[1].parse::<u32>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            sender_dest = match parts[2].parse::<u32>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            sender_client_id = match parts[3].parse::<u8>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            } as u32;
-                            sender_src_port = match parts[4].parse::<u16>() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            } as u32;
+                            if udp_header.body.len() >= 12 { // Minimum size for DNS A packet
+                                let dns_record = DNSRecord::from(udp_header.body.as_slice());
+                                sender_client_id = ((dns_record.transaction_id >> 8) & 0xFF) as u32;
+                                // 3.4 DNS body
+                                let parts: Vec<&str> = dns_record.domain.split('.').next().expect("DNS answer did not contain dots").split('-').collect();
+                                // Our domains have 5 'parts' separated by 4 dashes
+                                if parts.len() == 5 {
+                                    transmit_time = match parts[0].parse::<u64>() {
+                                        Ok(t) => t,
+                                        Err(_) => continue,
+                                    };
+                                    sender_src = match parts[1].parse::<u32>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                    sender_dest = match parts[2].parse::<u32>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    };
+                                    sender_client_id = match parts[3].parse::<u8>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    } as u32;
+                                    sender_src_port = match parts[4].parse::<u16>() {
+                                        Ok(s) => s,
+                                        Err(_) => continue,
+                                    } as u32;
+                                }
+                            }
                         }
 
                         // Create a VerfploeterResult for the received ping reply
@@ -356,7 +358,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                                 x.push(result.unwrap());
                             }
                         }
-
                     } else {
                         continue; // Not an ICMPv4 packet
                     };
