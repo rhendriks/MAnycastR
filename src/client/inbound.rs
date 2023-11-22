@@ -199,10 +199,10 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         }
                         let code = icmp_packet.code as u32;
                         // Initialize variables
-                        let mut sender_src = 0;
-                        let mut sender_dest = 0;
+                        let mut sender_src;
+                        let mut sender_dest;
                         let mut sender_src_port: u32 = 0;
-                        let mut result = None;
+                        let result;
                         let mut sender_client_id = 0 as u32;
                         let mut transmit_time = 0;
                         let receive_time = SystemTime::now()
@@ -212,7 +212,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
                         // 3. Parse ICMP body
                         // 3.1 IP header
-                        let (ip_result_probe, ip_payload_probe) = if v6 {
+                        let (_, ip_payload_probe) = if v6 {
                             // Get the ipv6 header from the probe out of the ICMP body
                             let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
 
