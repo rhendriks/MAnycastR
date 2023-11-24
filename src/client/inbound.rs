@@ -295,8 +295,6 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         // 3.2 UDP header
                         if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
                             sender_src_port = udp_header.source_port as u32;
-                            println!("UDP header: {:?}", udp_header);
-                            println!("UDP body: {:?}", udp_header.body.as_slice());
 
                             // 3.3 DNS header
                             if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
