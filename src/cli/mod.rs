@@ -329,7 +329,6 @@ impl CliClient {
             file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.source_port).as_ref()).expect("Failed to write client data");
         }
 
-        file.write_all(b"# ----------\n")?; // Separator metadata, and data
         file.flush()?;
 
         // Open file again in append mode

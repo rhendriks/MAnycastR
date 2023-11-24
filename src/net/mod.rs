@@ -350,7 +350,16 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
         }
         // Read the label
         let mut label_bytes = vec![0; label_len as usize];
-        data.read_exact(&mut label_bytes).unwrap();
+
+        match data.read_exact(&mut label_bytes) {
+            Ok(()) => {
+            }
+            Err(_) => {
+                return "Invalid domain name".to_string();
+            }
+        }
+
+        // data.read_exact(&mut label_bytes).expect(&*format!("Unable to read label bytes {}", label_len));
         let label = String::from_utf8_lossy(&label_bytes).to_string();
         result.push_str(&label);
         result.push('.');
