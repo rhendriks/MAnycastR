@@ -299,7 +299,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             println!("UDP body: {:?}", udp_header.body.as_slice());
 
                             // 3.3 DNS header
-                            if udp_header.body.len() >= 30 { // Minimum size for DNS A packet (16 bytes packet, 12 bytes domain, 2 bytes label length)
+                            if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
                                 let dns_record = DNSRecord::from(udp_header.body.as_slice()); // TODO failed to fill whole buffer
                                 sender_client_id = ((dns_record.transaction_id >> 8) & 0xFF) as u32;
                                 // 3.4 DNS body
