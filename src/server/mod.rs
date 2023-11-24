@@ -496,7 +496,7 @@ impl Controller for ControllerService {
                 true
             } else {
                 // Make sure the current client is selected to perform the task
-                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
+                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i))) // TODO client ids are not in order
             };
             i = i + 1;
 
