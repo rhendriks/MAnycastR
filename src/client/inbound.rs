@@ -173,16 +173,12 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     // 1. Parse IP header
                     // Parse IP header
                     let (ip_result, payload) = if v6 { // TODO update to first parse the ipv6 header (when we fix the socket to receive full ipv6 packets)
-                        println!("[Client inbound] Listening for ICMPv6 packets for UDP task - {}", task_id);
-
                         let ip_result = None;
                         let payload = PacketPayload::ICMP {
                             value: ICMPPacket::from(&buffer[..result]),
                         };
                         (ip_result, payload)
-                    } else {
-                        println!("[Client inbound] Listening for ICMPv4 packets for UDP task - {}", task_id);
-
+                    } else { // v4
                         match parse_ipv4(&buffer[..result]) {
                             None => continue, // Unable to parse IPv4 header
                             Some((ip_result, payload)) => (Some(ip_result), payload),
@@ -300,8 +296,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                             sender_src_port = udp_header.source_port as u32;
 
                             // 3.3 DNS header
-                            if udp_header.body.len() >= 12 { // Minimum size for DNS A packet
-                                let dns_record = DNSRecord::from(udp_header.body.as_slice());
+                            if udp_header.body.len() >= 30 { // Minimum size for DNS A packet (16 bytes packet, 12 bytes domain, 2 bytes label length)
+                                let dns_record = DNSRecord::from(udp_header.body.as_slice()); // TODO failed to fill whole buffer
                                 sender_client_id = ((dns_record.transaction_id >> 8) & 0xFF) as u32;
                                 // 3.4 DNS body
                                 let parts: Vec<&str> = dns_record.domain.split('.').next().expect("DNS answer did not contain dots").split('-').collect();
