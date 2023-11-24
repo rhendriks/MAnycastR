@@ -185,6 +185,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         }
                     };
 
+
                     // 2. Parse ICMP header
                     if let PacketPayload::ICMP { value: icmp_packet } = payload {
                         // Make sure that this packet belongs to this task (if not we discard and continue)
@@ -294,6 +295,8 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                         // 3.2 UDP header
                         if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
                             sender_src_port = udp_header.source_port as u32;
+                            println!("UDP header: {:?}", udp_header);
+                            println!("UDP body: {:?}", udp_header.body.as_slice());
 
                             // 3.3 DNS header
                             if udp_header.body.len() >= 30 { // Minimum size for DNS A packet (16 bytes packet, 12 bytes domain, 2 bytes label length)
