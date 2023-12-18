@@ -326,7 +326,7 @@ impl Client {
                             break;
                         }
 
-                        self_clone.send_result_to_server(packet).await.unwrap();
+                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to server");
                     };
                     rx.close();
                 });
@@ -339,7 +339,7 @@ impl Client {
     /// Obtains a unique client ID from the server, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         // Get the client_id from the server
-        let client_id: u8 = self.get_client_id_to_server().await.unwrap().client_id as u8;
+        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a client ID from the server").client_id as u8;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the server
@@ -359,12 +359,12 @@ impl Client {
                     println!("[Client] CLI disconnected, aborting measurement");
                     // Close the inbound threads
                     for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                        inbound_tx_f.send(()).await.unwrap();
+                        inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                     }
                     // f_tx will be None if this client is not probing
                     if f_tx.is_some() {
                         // Close outbound threads
-                        f_tx.take().unwrap().send(()).unwrap();
+                        f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
                     }
                 // If the received task is part of the active task
                 } else if *self.current_task.lock().unwrap() == task_id {
@@ -373,7 +373,7 @@ impl Client {
                         println!("[Client] Received measurement finished from Server");
                         // Close the inbound threads
                         for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                            inbound_tx_f.send(()).await.unwrap();
+                            inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                         }
                         // Outbound threads gets exited by sending this None task to outbound
                     }
@@ -381,10 +381,7 @@ impl Client {
                     // outbound_tx will be None if this client is not probing
                     if self.outbound_tx.is_some() {
                         // Send the task to the prober
-                        match self.outbound_tx.clone().unwrap().send(task).await {
-                            Ok(_) => (),
-                            Err(_) => (),
-                        }
+                        self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
                     }
                 } else {
                     // If we received a new task during a measurement

@@ -122,7 +122,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         &bind_addr_dest
                             .to_string()
                             .parse::<SocketAddr>()
-                            .unwrap()
+                            .expect("Failed to parse outbound socket address")
                             .into(),
                     ) {
                         error!("Failed to send ICMP packet with source {} to socket: {:?}", bind_addr_dest, e);
@@ -235,7 +235,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         &bind_addr_dest
                             .to_string()
                             .parse::<SocketAddr>()
-                            .unwrap()
+                            .expect("Failed to parse outbound socket address")
                             .into(),
                     ) {
                         error!("Failed to send UDP packet with source {} to socket: {:?}", bind_addr_dest, e);
@@ -339,7 +339,7 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                         &bind_addr_dest
                             .to_string()
                             .parse::<SocketAddr>()
-                            .unwrap()
+                            .expect("Failed to parse outbound socket address")
                             .into(),
                     ) {
                         error!("Failed to send TCP packet with source {} to socket: {:?}", bind_addr_dest, e);

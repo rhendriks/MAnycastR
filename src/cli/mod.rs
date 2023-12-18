@@ -235,7 +235,7 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         }
 
-        let request = Request::new(task);
+        let request = Request::new(task.clone());
         println!("[CLI] Sending do_task to server");
         let response = self.grpc_client.do_task(request).await;
         if let Err(e) = response {
@@ -322,6 +322,7 @@ impl CliClient {
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
+        file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
 
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {

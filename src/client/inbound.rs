@@ -82,7 +82,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
 
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).unwrap();
+            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             match socket.shutdown(Shutdown::Read) {
                 Err(_) => println!("[Client inbound] Shut down socket erroneously"),
                 _ => println!("[Client inbound] Shut down socket"),
@@ -372,7 +372,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
 
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).unwrap();
+            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             match socket.shutdown(Shutdown::Read) {
                 Err(_) => println!("[Client inbound] Shut down socket erroneously"),
                 _ => println!("[Client inbound] Shut down socket"),
@@ -452,7 +452,7 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         move || {
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).unwrap();
+            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             match socket.shutdown(Shutdown::Read) {
                 Err(_) => println!("[Client inbound] Shut down socket erroneously"),
                 _ => println!("[Client inbound] Shut down socket"),
@@ -509,7 +509,7 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
         };
 
         // Send the result to the client handler
-        tx.send(tr).unwrap();
+        tx.send(tr).expect("Failed to send TaskResult to client handler");
     }
 }
 
