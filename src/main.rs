@@ -151,7 +151,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { client::Client::new(client_matches).await.unwrap() });
+        let _ = rt.block_on(async { client::Client::new(client_matches).await.expect("Unable to create a client (make sure the Server address is correct, and that the Server is running)") });
 
         return;
     }
