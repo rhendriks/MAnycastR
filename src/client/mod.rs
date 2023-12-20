@@ -1,4 +1,5 @@
 use crate::custom_module;
+use libc;
 use custom_module::IP;
 use custom_module::verfploeter::{
     TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
@@ -9,6 +10,7 @@ use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::Add;
+use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -219,9 +221,29 @@ impl Client {
 
         // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
         // Create the socket to send and receive to/from
-        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
+        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket")); // TODO try Domain::unix()
 
+        if ipv6 {
+            println!("Enabling IP_HDRINCL option for IPv6");
+            let raw_fd = socket.as_raw_fd();
+            // Enable IP_HDRINCL option using libc
+            unsafe {
+                let value: libc::c_int = 1;
+                let result = libc::setsockopt(
+                    raw_fd,
+                    libc::IPPROTO_ICMPV6,
+                    libc::IP_HDRINCL,
+                    &value as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                );
+                if result != 0 {
+                    eprintln!("Error setting IP_HDRINCL option: {}", std::io::Error::last_os_error());
+                    return;
+                }
+            }
+        }
+
+        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         println!("[Client] Sending and listening on address: {}", bind_address);
 
         // Create a socket for each client_address // TODO do we need a socket for each client_address, source_port combination?

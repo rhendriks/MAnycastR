@@ -51,6 +51,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
 
             while let Ok(p_size) = socket.recv_with_flags(&mut buffer, 56) {
+                println!("buffer: {:?}", buffer);
                 // Received when the socket closes on some OS
                 if p_size == 0 { break }
 
