@@ -125,7 +125,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                             .expect("Failed to parse outbound socket address")
                             .into(),
                     ) {
-                        error!("Failed to send ICMP packet with source {} to socket: {:?}", bind_addr_dest, e);
+                        error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
                     }
                 }
             }

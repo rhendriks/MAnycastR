@@ -286,7 +286,7 @@ impl super::UDPPacket {
         client_id: u8,
         source_port: u16,
     ) -> Vec<u8> {
-        // Max length of DNS domain name is 253 character
+        // Max length of DNS domain name is 253 characters
 
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain

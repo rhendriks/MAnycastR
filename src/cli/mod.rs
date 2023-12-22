@@ -111,7 +111,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
                 .collect();
 
-            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
+            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids); // TODO write 'all' when the list is empty
             client_ids
         } else {
             println!("[CLI] Probes will be sent out from all clients");
@@ -274,7 +274,9 @@ impl CliClient {
             if let Some(tx) = &tx {
                 tx.send(task_result.clone()).unwrap();
             }
-            results.push(task_result);
+            results.push(task_result); // TODO large memory usage (can lead to process being killed for large measurements)
+            // TODO save in a different format
+            // TODO store ip addresses as IP numbers (u32/u128) instead of strings
         }
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)
