@@ -223,22 +223,45 @@ impl Client {
         // Create the socket to send and receive to/from
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket")); // TODO try Domain::unix()
 
+        println!("Socket: {:?}", socket);
+
+
         if ipv6 {
             println!("Enabling IP_HDRINCL option for IPv6");
             let raw_fd = socket.as_raw_fd();
             // Enable IP_HDRINCL option using libc
             unsafe {
+                println!("raw_fd: {}", raw_fd);
+                // println!("sock opt {}", libc::getsockopt(raw_fd, libc::IPPROTO_IPV6, libc::IP_HDRINCL, &0 as *const libc::c_int as *mut libc::c_int, std::mem::size_of::<libc::c_int>() as *mut libc::socklen_t));
                 let value: libc::c_int = 1;
+                // let result = libc::setsockopt(
+                //     raw_fd,
+                //     // libc::AF_INET6,
+                //     libc::IPPROTO_IPV6,
+                //     libc::IP_HDRINCL,
+                //     &value as *const libc::c_int as *const libc::c_void,
+                //     std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                // );
+                let enable = 1u32;
                 let result = libc::setsockopt(
-                    raw_fd,
-                    libc::IPPROTO_ICMPV6,
-                    libc::IP_HDRINCL,
-                    &value as *const libc::c_int as *const libc::c_void,
-                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                    socket.as_raw_fd(),
+                    libc::IPPROTO_IPV6,
+                    libc::IPV6_V6ONLY,
+                    &enable as *const _ as *const libc::c_void,
+                    std::mem::size_of_val(&enable) as libc::socklen_t,
                 );
+
+                // unsafe {
+                //     setsockopt(
+                //         self.as_raw(),
+                //         sys::IPPROTO_IP,
+                //         sys::IP_HDRINCL,
+                //         included as c_int,
+                //     )
+                // }
                 if result != 0 {
                     eprintln!("Error setting IP_HDRINCL option: {}", std::io::Error::last_os_error());
-                    return;
+                    // return;
                 }
             }
         }
