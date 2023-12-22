@@ -59,11 +59,12 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 .promisc(true)
                 .snaplen(5000)
                 .open().unwrap();
+            cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
 
             println!("listening on device: {:?}", main_device);
 
             while let Ok(packet) = cap.next_packet() {
-                println!("received packet! {:?}", packet);
+                println!("received packet! {:?}", packet.header);
             }
 
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
