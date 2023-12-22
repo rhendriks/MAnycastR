@@ -59,7 +59,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 .immediate_mode(true)
                 .open().unwrap();
             // cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
-
+            cap.filter("ip6", true).unwrap();
             // println!("listening on device: {:?}", main_device);
 
             while let Ok(packet) = cap.next_packet() {
