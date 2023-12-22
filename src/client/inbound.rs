@@ -12,6 +12,8 @@ use custom_module::verfploeter::{
 };
 use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
 use crate::net::netv6::IPv6Packet;
+use pcap::{Capture, Device};
+use std::io;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -50,6 +52,12 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // https://docs.rs/socket2/latest/socket2/struct.Socket.html
             //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
 
+            let mut cap = Device::lookup().unwrap().unwrap().open().unwrap();
+
+            while let Ok(packet) = cap.next_packet() {
+                println!("received packet! {:?}", packet);
+            }
+            
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
                 println!("buffer: {:?}", buffer);
                 println!("p_size: {:?}", p_size);
