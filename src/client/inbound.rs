@@ -56,8 +56,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             let main_device = Device::lookup().unwrap().unwrap();
             let mut cap = Capture::from_device(main_device).unwrap()
-                .promisc(true)
-                .snaplen(5000)
+                .immediate_mode(true)
                 .open().unwrap();
             cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
 
