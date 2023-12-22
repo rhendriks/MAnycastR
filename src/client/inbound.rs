@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use socket2::{Socket};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
-use crate::custom_module;
+use crate::{custom_module, main};
 use custom_module::verfploeter::{
     Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
@@ -52,12 +52,20 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // https://docs.rs/socket2/latest/socket2/struct.Socket.html
             //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
 
-            let mut cap = Device::lookup().unwrap().unwrap().open().unwrap();
+            // let mut cap = Device::lookup().unwrap().unwrap().open().unwrap();
+
+            let main_device = Device::lookup().unwrap().unwrap();
+            let mut cap = Capture::from_device(main_device.clone()).unwrap()
+                .promisc(true)
+                .snaplen(5000)
+                .open().unwrap();
+
+            println!("listening on device: {:?}", main_device);
 
             while let Ok(packet) = cap.next_packet() {
                 println!("received packet! {:?}", packet);
             }
-            
+
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
                 println!("buffer: {:?}", buffer);
                 println!("p_size: {:?}", p_size);
