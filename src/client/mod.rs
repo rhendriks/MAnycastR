@@ -186,22 +186,26 @@ impl Client {
 
         let ipv6;
         let mut bind_address;
+        let mut filter = String::new();;
 
         let domain = if source_addr.to_string().contains(':') {
             println!("[Client] Using IPv6");
             ipv6 = true;
+            filter.push_str("ip6");
             bind_address = format!("[{}]", source_addr.to_string());
             Domain::ipv6()
         } else {
             println!("[Client] Using IPv4");
             bind_address = format!("{}", source_addr.to_string());
             ipv6 = false;
+            filter.push_str("ip");
             Domain::ipv4()
         };
 
         let protocol = match start.task_type {
             1 => {
                 bind_address = format!("{}:{}", bind_address, "0");
+                filter.push_str(" and icmp");
                 if ipv6 {
                     Protocol::icmpv6()
                 } else {
@@ -210,10 +214,12 @@ impl Client {
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
+                filter.push_str(" and udp and icmp");
                 Protocol::udp()
             },
             3 => {
                 bind_address = format!("{}:{}", bind_address, self.source_port);
+                filter.push_str(" and tcp");
                 Protocol::tcp()
             },
             _ => panic!("Invalid task type"),
@@ -225,53 +231,14 @@ impl Client {
 
         println!("Socket: {:?}", socket);
 
-
-        if ipv6 {
-            println!("Enabling IP_HDRINCL option for IPv6");
-            let raw_fd = socket.as_raw_fd();
-            // Enable IP_HDRINCL option using libc
-            unsafe {
-                println!("raw_fd: {}", raw_fd);
-                // println!("sock opt {}", libc::getsockopt(raw_fd, libc::IPPROTO_IPV6, libc::IP_HDRINCL, &0 as *const libc::c_int as *mut libc::c_int, std::mem::size_of::<libc::c_int>() as *mut libc::socklen_t));
-                let value: libc::c_int = 1;
-                // let result = libc::setsockopt(
-                //     raw_fd,
-                //     // libc::AF_INET6,
-                //     libc::IPPROTO_IPV6,
-                //     libc::IP_HDRINCL,
-                //     &value as *const libc::c_int as *const libc::c_void,
-                //     std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-                // );
-                let enable = 1u32;
-                let result = libc::setsockopt(
-                    socket.as_raw_fd(),
-                    libc::IPPROTO_IPV6,
-                    libc::IPV6_V6ONLY,
-                    &enable as *const _ as *const libc::c_void,
-                    std::mem::size_of_val(&enable) as libc::socklen_t,
-                );
-
-                // unsafe {
-                //     setsockopt(
-                //         self.as_raw(),
-                //         sys::IPPROTO_IP,
-                //         sys::IP_HDRINCL,
-                //         included as c_int,
-                //     )
-                // }
-                if result != 0 {
-                    eprintln!("Error setting IP_HDRINCL option: {}", std::io::Error::last_os_error());
-                    // return;
-                }
-            }
-        }
-
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         println!("[Client] Sending and listening on address: {}", bind_address);
+        filter.push_str(&*format!(" and dst host {}", source_addr.to_string()));
 
-        // Create a socket for each client_address // TODO do we need a socket for each client_address, source_port combination?
+
+        // Create a socket for each client_address
         let mut sockets = Vec::new();
-        for client_address in client_sources {
+        for client_address in client_sources { // TODO add hosts to filter (and port combinations)
             let address = IP::from(client_address).to_string();
             if source_addr.to_string() == address { // Skip our own address (we already have a socket for it)
                 continue
@@ -281,17 +248,19 @@ impl Client {
             sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]);
         }
 
+        println!("Filter: {}", filter);
+
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
 
                 // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                    listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-                }
+                // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
+                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+                //     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                // }
 
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
@@ -309,21 +278,21 @@ impl Client {
                 let task_type: u32 = start.task_type;
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter); // TODO sockets not needed
 
                 // // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-
-                    let socket_icmp = if ipv6 {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv6(), 0)
-                    } else {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv4(), 0)
-                    };
-
-                    listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
-                }
+                // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
+                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+                //
+                //     let socket_icmp = if ipv6 {
+                //         create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv6(), 0)
+                //     } else {
+                //         create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv4(), 0)
+                //     };
+                //
+                //     listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                // }
 
                 // Start sending thread
                 if probing {
@@ -335,14 +304,14 @@ impl Client {
                 let dest_port = 63853 + client_id as u16;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
 
                 // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                    listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-                }
+                // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
+                //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+                //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
+                //     listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
+                // }
 
                 // Start sending thread
                 if probing {
