@@ -36,7 +36,7 @@ use std::io;
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool) {
+pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started ICMP listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
@@ -60,12 +60,13 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                 .open().unwrap();
             // cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
             cap.filter("ip6", true).unwrap();
+            // TODO filter on outgoing only
             // println!("listening on device: {:?}", main_device);
 
             while let Ok(packet) = cap.next_packet() {
                 println!("received packet! {:?}", packet.header);
                 // println!("received packet data! {:?}", packet.data);
-                for byte in packet.data {
+                for byte in packet.data { // TODO 13 first bytes are ethernet header
                     print!("{:02X} ", byte);
                 }
             }
@@ -142,7 +143,7 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32) {
+pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
     println!("[Client inbound] Started UDP listener");
 
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
@@ -430,7 +431,7 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool) {
+pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started TCP prober");
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
