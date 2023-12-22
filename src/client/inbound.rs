@@ -55,16 +55,17 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
             // let mut cap = Device::lookup().unwrap().unwrap().open().unwrap();
 
             let main_device = Device::lookup().unwrap().unwrap();
-            let mut cap = Capture::from_device(main_device.clone()).unwrap()
+            let mut cap = Capture::from_device(main_device).unwrap()
                 .promisc(true)
                 .snaplen(5000)
                 .open().unwrap();
             cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
 
-            println!("listening on device: {:?}", main_device);
+            // println!("listening on device: {:?}", main_device);
 
             while let Ok(packet) = cap.next_packet() {
                 println!("received packet! {:?}", packet.header);
+                println!("received packet data! {:?}", packet.data);
             }
 
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
