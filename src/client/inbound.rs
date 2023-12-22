@@ -64,7 +64,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
 
             while let Ok(packet) = cap.next_packet() {
                 println!("received packet! {:?}", packet.header);
-                println!("received packet data! {:?}", packet.data);
+                // println!("received packet data! {:?}", packet.data);
+                for byte in packet.data {
+                    print!("{:02X} ", byte);
+                }
             }
 
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
