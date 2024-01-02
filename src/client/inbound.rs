@@ -374,11 +374,9 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
                                 payload: Some(UdpPayload {
                                     value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
                                         transmit_time,
-                                        // source_address: sender_src,
                                         source_address: Some(Address {
                                             value: Some(V4(sender_src)),
                                         }),
-                                        // destination_address: sender_dest,
                                         destination_address: Some(Address {
                                             value: Some(V4(sender_dest)),
                                         }),
@@ -809,7 +807,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
-fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO v6
+fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org' // TODO will requesting such domains cause issues?
 
@@ -842,21 +840,12 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO v6
     return Some(UdpPayload {
         value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
             transmit_time,
-            // source_address: sender_src as u32,
-            // source_address: Some(Address {
-            //     value: Some(V6(sender_src)),
-            // }),
             source_address: Some(Address {
                 value: Some(V6(IPv6 {
                     p1: (sender_src >> 64) as u64,
                     p2: sender_src as u64,
                 })),
             }),
-
-            // destination_address: sender_dest,
-            // destination_address: Some(Address {
-            //     value: Some(V6(sender_dest)),
-            // }),
             destination_address: Some(Address {
                 value: Some(V6(IPv6 {
                     p1: (sender_dest >> 64) as u64,
