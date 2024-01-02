@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use socket2::{Socket};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
-use crate::{custom_module, main};
+use crate::custom_module;
 use custom_module::verfploeter::{
     Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
@@ -13,7 +13,6 @@ use custom_module::verfploeter::{
 use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
 use crate::net::netv6::IPv6Packet;
 use pcap::{Capture, Device};
-use std::io;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -75,8 +74,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                 // Invalid ICMP packets have value None
                 if result == None {
                     // Check the exit flag
-                    println!("Checking exit flag");
-                    if *exit_flag.lock().unwrap() {
+                    if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
                         break
                     } else {
                         continue
@@ -93,8 +91,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
             }
 
             let stats = cap.stats().expect("Failed to get pcap stats");
-            cap.stats().unwrap().dropped;
-            println!("[Client inbound] Stopped pcap listener (received {} packets, {} packets dropped because there was no room in the operating system’s buffer when they arrived, because packets weren’t being read fast enough, {} packets dropped by the network interface or its driver)", stats.received, stats.dropped, stats.if_dropped);
+            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -141,31 +138,45 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
-pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
+pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
     println!("[Client inbound] Started UDP listener");
 
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
+    // Exit flag for pcap listener
+    let exit_flag = Arc::new(Mutex::new(false));
 
     thread::spawn({
         let rq_receiver = result_queue.clone();
+        let exit_flag = Arc::clone(&exit_flag);
 
-        let socket = socket.clone();
         move || {
-            let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
-            while let Ok(p_size) = socket.recv(&mut buffer) {
-                // Received when the socket closes on some OS
-                if p_size == 0 { break }
 
+            // Capture packets with pcap on the main interface
+            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
+            let mut cap = Capture::from_device(main_interface).unwrap()
+                .immediate_mode(true)
+                .open().unwrap();
+            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
+            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
+
+            while let Ok(packet) = cap.next_packet() {
                 let result = if v6 {
-                    parse_udpv6(&buffer[..p_size], task_type)
+                    parse_udpv6(&packet.data[14..], task_type)
                 } else {
-                    parse_udpv4(&buffer[..p_size], task_type)
+                    parse_udpv4(&packet.data[14..], task_type)
                 };
 
                 // Invalid UDP packets have value None
-                if result == None { continue }
+                if result == None {
+                    // Check the exit flag
+                    if *exit_flag.lock().unwrap() {
+                        break
+                    } else {
+                        continue
+                    }
+                }
 
                 // Put result in transmission queue
                 {
@@ -175,7 +186,9 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     }
                 }
             }
-            println!("[Client inbound] Stopped listening on socket");
+
+            let stats = cap.stats().expect("Failed to get pcap stats");
+            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -393,12 +406,12 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
         move || {
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
 
+            // Close the pcap listener
+            *exit_flag.lock().unwrap() = true;
+
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            match socket.shutdown(Shutdown::Read) {
-                Err(_) => println!("[Client inbound] Shut down socket erroneously"),
-                _ => println!("[Client inbound] Shut down socket"),
-            }
+
             match socket_icmp.shutdown(Shutdown::Read) {
                 Err(_) => println!("[Client inbound] Shut down ICMP socket erroneously"),
                 _ => println!("[Client inbound] Shut down ICMP socket"),
@@ -429,31 +442,45 @@ pub fn listen_udp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started TCP prober");
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
+    // Exit flag for pcap listener
+    let exit_flag = Arc::new(Mutex::new(false));
 
     thread::spawn({
         let result_queue_receiver = result_queue.clone();
-        let socket = socket.clone();
+        let exit_flag = Arc::clone(&exit_flag);
 
         move || {
-            let mut buffer: Vec<u8> = vec![0; 1500];
-
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
-            while let Ok(p_size) = socket.recv(&mut buffer) {
-                // Received when the socket closes on some OS
-                if p_size == 0 { break }
 
+            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
+            let mut cap = Capture::from_device(main_interface).unwrap()
+              .immediate_mode(true)
+              // .buffer_size()
+              // .snaplen()
+              .open().unwrap();
+            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
+            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
+
+            while let Ok(packet) = cap.next_packet() {
                 let result = if v6 {
-                    parse_tcpv6(&buffer[..p_size])
+                    parse_tcpv6(&packet.data[14..])
                 } else {
-                    parse_tcpv4(&buffer[..p_size])
+                    parse_tcpv4(&packet.data[14..])
                 };
 
                 // Invalid TCP packets have value None
-                if result == None { continue }
+                if result == None {
+                  // Check the exit flag
+                  if *exit_flag.lock().unwrap() {
+                      break
+                  } else {
+                      continue
+                  }
+                }
 
                 // Put result in transmission queue
                 {
@@ -463,7 +490,8 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
                     }
                 }
             }
-            println!("[Client inbound] Stopped listening on socket");
+            let stats = cap.stats().expect("Failed to get pcap stats");
+            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -473,12 +501,12 @@ pub fn listen_tcp(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<T
 
         move || {
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
+
+            // Close the pcap listener
+            *exit_flag.lock().unwrap() = true;
+
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            match socket.shutdown(Shutdown::Read) {
-                Err(_) => println!("[Client inbound] Shut down socket erroneously"),
-                _ => println!("[Client inbound] Shut down socket"),
-            }
             println!("[Client inbound] Stopped listening for TCP packets");
         }
     });
