@@ -226,11 +226,8 @@ impl Client {
             _ => panic!("Invalid task type"),
         };
 
-        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
         // Create the socket to send and receive to/from
-        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket")); // TODO try Domain::unix()
-
-        println!("Socket: {:?}", socket);
+        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket"));
 
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         println!("[Client] Sending and listening on address: {}", bind_address);

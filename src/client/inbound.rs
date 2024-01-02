@@ -51,6 +51,9 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
             let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
             let mut cap = Capture::from_device(main_interface).unwrap()
                 .immediate_mode(true)
+                .timeout(10000) // 10 seconds timeout
+                // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
+                // .snaplen() // TODO set snaplen
                 .open().unwrap();
             cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
             cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
@@ -79,7 +82,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                     }
                 }
             }
-            println!("[Client inbound] Stopped listening on socket");
+            println!("[Client inbound] Stopped pcap listener");
         }
     });
 
