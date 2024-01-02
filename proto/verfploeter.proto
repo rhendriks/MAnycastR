@@ -188,8 +188,8 @@ message UDPPayload {
 // UDP payload, which is extracted from the domain of the DNS A Record reply, containing information about the probe
 message DNS_A_Record {
   uint64 transmit_time = 1;
-  fixed32 source_address = 2; // we can't fit 128 bit addresses into the domain (so for ipv6 we store the 32 right-most bits)
-  fixed32 destination_address = 3;
+  Address source_address = 2; // we can't fit 128 bit addresses into the domain (so for ipv6 we store the 32 right-most bits)
+  Address destination_address = 3;
   fixed32 sender_client_id = 4;
   fixed32 source_port = 5;
 }
