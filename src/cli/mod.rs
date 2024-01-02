@@ -472,8 +472,9 @@ impl CliClient {
                         match payload.value {
                             Some(DnsARecord(dns_a_record)) => {
                                 let transmit_time = dns_a_record.transmit_time.to_string();
-                                let request_src = Ipv4Addr::from(dns_a_record.source_address).to_string();
-                                let request_dest = Ipv4Addr::from(dns_a_record.destination_address).to_string();
+                                // IP::from(payload.source_address.unwrap()).to_string()
+                                let request_src = IP::from(dns_a_record.source_address.unwrap()).to_string();
+                                let request_dest = IP::from(dns_a_record.destination_address.unwrap()).to_string();
                                 let sender_client_id = dns_a_record.sender_client_id.to_string();
                                 let request_src_port = dns_a_record.source_port.to_string();
                                 let request_dest_port = "53";
