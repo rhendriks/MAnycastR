@@ -75,6 +75,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                 // Invalid ICMP packets have value None
                 if result == None {
                     // Check the exit flag
+                    println!("Checking exit flag");
                     if *exit_flag.lock().unwrap() {
                         break
                     } else {
