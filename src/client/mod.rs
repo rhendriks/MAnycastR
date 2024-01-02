@@ -1,5 +1,4 @@
 use crate::custom_module;
-use libc;
 use custom_module::IP;
 use custom_module::verfploeter::{
     TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
@@ -10,7 +9,6 @@ use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
 use std::ops::Add;
-use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -186,7 +184,7 @@ impl Client {
 
         let ipv6;
         let mut bind_address;
-        let mut filter = String::new();;
+        let mut filter = String::new();
 
         let domain = if source_addr.to_string().contains(':') {
             println!("[Client] Using IPv6");
@@ -246,8 +244,6 @@ impl Client {
             sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]);
         }
 
-        println!("Filter: {}", filter);
-
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
@@ -276,7 +272,7 @@ impl Client {
                 let task_type: u32 = start.task_type;
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter); // TODO sockets not needed
+                listen_udp(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter); // TODO sockets not needed
 
                 // // Start listening thread for other source addresses used during this measurement
                 // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
@@ -302,7 +298,7 @@ impl Client {
                 let dest_port = 63853 + client_id as u16;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
+                listen_tcp(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
 
                 // Start listening thread for other source addresses used during this measurement
                 // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
