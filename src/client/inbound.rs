@@ -10,7 +10,7 @@ use custom_module::verfploeter::{
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
 };
-use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TCPPacket, TXTRecord, UDPPacket};
+use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TXTRecord};
 use crate::net::netv6::IPv6Packet;
 use pcap::{Capture, Device};
 
@@ -661,14 +661,6 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         None => return None,
     };
 
-    // IPv6 40 + ICMP ECHO 8 minimum
-    if packet_bytes.len() < 8 { return None }
-
-    // TODO update for ipv6 header
-
-    // Create IPv6Packet from the bytes in the buffer
-    // let packet = ICMPPacket::from(packet_bytes);
-
     // Obtain the payload
     if let PacketPayload::ICMP { value } = payload {
         // let value = packet;
@@ -698,19 +690,6 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         return Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {
                 receive_time,
-                // ip_result: Some(IpResult {
-                //     value: Some(ip_result::Value::Ipv6(IPv6Result {
-                //         source_address: Some(IPv6 {
-                //             p1: 0,
-                //             p2: 0,
-                //         }),
-                //         destination_address: Some(custom_module::verfploeter::IPv6 {
-                //             p1: 0,
-                //             p2: 0,
-                //         }),
-                //     })),
-                //     ttl: 0,
-                // }),
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     transmit_time,
@@ -780,63 +759,47 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 }
 
 fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
-    // IPv6 40 + UDP 8 minimum
-    if packet_bytes.len() < 8 { return None }
-
-    // Create IPv4Packet from the bytes in the buffer
-    // let packet = IPv6Packet::from(packet_bytes);
-    // TODO update for ipv6 header
-
-    let udp_packet = UDPPacket::from(packet_bytes);
-
-    // Obtain the payload
-    // if let PacketPayload::UDP { value } = packet.payload {
-    // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 66)) {
-        return None
-    } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 10)) {
-        return None
-    }
-
-    let receive_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-
-    let payload = if task_type == 2 {
-        parse_dns_a_record(udp_packet.body.as_slice())
-    } else if task_type == 4 {
-        parse_chaos(udp_packet.body.as_slice())
-    } else {
-        None
+    let (ip_result, payload) = match parse_ipv6(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
     };
 
-    // Create a VerfploeterResult for the received UDP reply
-    return Some(VerfploeterResult {
-        value: Some(Value::Udp(UdpResult {
-            receive_time,
-            source_port: udp_packet.source_port as u32,
-            destination_port: udp_packet.destination_port as u32,
-            code: 16,
-            ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result {
-                    source_address: Some(IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                    destination_address: Some(custom_module::verfploeter::IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                })),
-                ttl: 0,
-            }),
-            payload,
-        })),
-    });
-    // } else {
-    //     return None
-    // }
+    // Obtain the payload
+    if let PacketPayload::UDP { value } = payload {
+        // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+        if (task_type == 2) & ((value.source_port != 53) | (value.destination_port < 61440) | (value.body.len() < 66)) {
+            return None
+        } else if (task_type == 4) & ((value.source_port != 53) | (value.destination_port < 61440) | (value.body.len() < 10)) {
+            return None
+        }
+
+        let receive_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let payload = if task_type == 2 {
+            parse_dns_a_record(value.body.as_slice())
+        } else if task_type == 4 {
+            parse_chaos(value.body.as_slice())
+        } else {
+            None
+        };
+
+        // Create a VerfploeterResult for the received UDP reply
+        return Some(VerfploeterResult {
+            value: Some(Value::Udp(UdpResult {
+                receive_time,
+                source_port: value.source_port as u32,
+                destination_port: value.destination_port as u32,
+                code: 16,
+                ip_result: Some(ip_result),
+                payload,
+            })),
+        });
+    } else {
+        return None
+    }
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
@@ -948,55 +911,10 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
 }
 
 fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
-    // TCP 20 minimum
-    if packet_bytes.len() < 20 { return None }
+    let (ip_result, payload) = match parse_ipv6(packet_bytes) {
+        Some((ip_result, payload)) => (ip_result, payload),
+        None => return None,
+    };
 
-    // Create IPv4Packet from the bytes in the buffer
-    // let packet = IPv6Packet::from(packet_bytes);
-    // TODO update for ipv6 header
-    // TODO use parse_tcp with the ip_result and packetpayload
-
-    let value = TCPPacket::from(packet_bytes);
-
-    // let value = packet;
-    // Obtain the payload
-    // if let PacketPayload::TCP { value } = packet.payload {
-        // Responses to our probes have destination port > 4000 (as we use these as source)
-        // Use the RST flag, and have ACK 0
-        // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-    if (value.destination_port < 4000) | (value.flags != 0b00000100) | (value.ack != 0) {
-        return None
-    }
-
-    let receive_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-
-    // Create a VerfploeterResult for the received UDP reply
-    return Some(VerfploeterResult {
-        value: Some(Value::Tcp(TcpResult {
-            source_port: u32::from(value.source_port),
-            destination_port: value.destination_port as u32,
-            seq: value.seq,
-            ip_result: Some(IpResult {
-                value: Some(ip_result::Value::Ipv6(IPv6Result {
-                    source_address: Some(IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                    destination_address: Some(custom_module::verfploeter::IPv6 {
-                        p1: 0,
-                        p2: 0,
-                    }),
-                })),
-                ttl: 0,
-            }),
-            receive_time,
-            ack: value.ack,
-        })),
-    })
-    // } else {
-    //     return None
-    // }
+    return parse_tcp(payload, ip_result);
 }
