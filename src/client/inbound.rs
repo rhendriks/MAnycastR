@@ -40,9 +40,12 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
     println!("[Client inbound] Started ICMP listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
+    // Exit flag for pcap listener
+    let exit_flag = Arc::new(Mutex::new(false));
 
     thread::spawn({
         let rq_receiver = rq.clone();
+        let exit_flag = Arc::clone(&exit_flag);
 
         move || {
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
@@ -51,7 +54,6 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
             let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
             let mut cap = Capture::from_device(main_interface).unwrap()
                 .immediate_mode(true)
-                .timeout(10000) // 10 seconds timeout
                 // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
                 // .snaplen() // TODO set snaplen
                 .open().unwrap();
@@ -63,7 +65,6 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                 // TODO next_packet will drop packets when the buffer is full
                 // TODO evaluate performance difference between pcap and socket
                 // TODO figure out how to avoid receiving the ethernet header in the buffer
-                // TODO close this thread when the client is finished
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
@@ -72,7 +73,14 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                 };
 
                 // Invalid ICMP packets have value None
-                if result == None { continue }
+                if result == None {
+                    // Check the exit flag
+                    if *exit_flag.lock().unwrap() {
+                        break
+                    } else {
+                        continue
+                    }
+                }
 
                 // Put result in transmission queue
                 {
@@ -82,7 +90,10 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
                     }
                 }
             }
-            println!("[Client inbound] Stopped pcap listener");
+
+            let stats = cap.stats().expect("Failed to get pcap stats");
+            cap.stats().unwrap().dropped;
+            println!("[Client inbound] Stopped pcap listener (received {} packets, {} packets dropped because there was no room in the operating system’s buffer when they arrived, because packets weren’t being read fast enough, {} packets dropped by the network interface or its driver)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -92,7 +103,8 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
         move || {
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
 
-            // TODO Close the pcap listener
+            // Close the pcap listener
+            *exit_flag.lock().unwrap() = true;
 
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
