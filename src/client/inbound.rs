@@ -858,7 +858,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
             })),
         });
     } else {
-        let parts: Vec<&str> = domain.split('.').collect();
+        let parts: Vec<&str> = domain.split('-').collect();
         // Our domains have 5 'parts' separated by 4 dashes
         if parts.len() != 5 { return None }
 
