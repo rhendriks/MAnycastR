@@ -810,7 +810,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org' // TODO will requesting such domains cause issues?
-    println!("DNS domain: {}", domain)
+    println!("DNS domain: {}", domain);
     // Get the information from the domain, continue to the next packet if it does not follow the format
     if ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();
