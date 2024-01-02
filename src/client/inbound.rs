@@ -36,7 +36,7 @@ use std::io;
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started ICMP listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
@@ -44,47 +44,28 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
     thread::spawn({
         let rq_receiver = rq.clone();
 
-        let socket = socket.clone();
         move || {
-            let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
 
             // Capture packets with pcap on the main interface
-            let main_device = Device::lookup().unwrap().unwrap();
-            let mut cap = Capture::from_device(main_device).unwrap()
+            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
+            let mut cap = Capture::from_device(main_interface).unwrap()
                 .immediate_mode(true)
                 .open().unwrap();
+            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
+            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
 
-            cap.filter(&*filter, true).unwrap();
-
+            // Listen for incoming ICMP packets
             while let Ok(packet) = cap.next_packet() {
-                // println!("received packet! {:?}", packet.header);
-
-                for byte in packet.data { // TODO 13 first bytes are ethernet header
-                    print!("{:02X} ", byte);
-                }
-
+                // TODO next_packet will drop packets when the buffer is full
+                // TODO evaluate performance difference between pcap and socket
+                // TODO figure out how to avoid receiving the ethernet header in the buffer
+                // TODO close this thread when the client is finished
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
                 } else {
                     parse_icmpv4(&packet.data[14..], task_id)
-                };
-
-                println!("result: {:?}", result);
-            }
-
-            while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
-                println!("buffer: {:?}", buffer);
-                println!("p_size: {:?}", p_size);
-                println!("addr: {:?}", addr);
-                // Received when the socket closes on some OS
-                if p_size == 0 { break }
-
-                let result = if v6 {
-                    parse_icmpv6(&buffer[..p_size], task_id)
-                } else {
-                    parse_icmpv4(&buffer[..p_size], task_id)
                 };
 
                 // Invalid ICMP packets have value None
@@ -108,12 +89,10 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
         move || {
             handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
 
+            // TODO Close the pcap listener
+
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            match socket.shutdown(Shutdown::Read) {
-                Err(_) => println!("[Client inbound] Shut down socket erroneously"),
-                _ => println!("[Client inbound] Shut down socket"),
-            }
             println!("[Client inbound] Stopped listening for ICMP packets");
         }
     });
@@ -633,13 +612,10 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
-    println!("parse_icmpv6 bytes {:?}", packet_bytes);
-
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
-    println!("v6 header src {}", ip_result.get_source_address_str());
 
     // IPv6 40 + ICMP ECHO 8 minimum
     if packet_bytes.len() < 8 { return None }

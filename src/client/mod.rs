@@ -254,10 +254,10 @@ impl Client {
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
+                listen_ping(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 // Start listening thread for other source addresses used during this measurement
-                // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
+                // for socket in sockets { // TODO pcap should be able to listen on multiple addresses
                 //     let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
                 //     self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
                 //     listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
