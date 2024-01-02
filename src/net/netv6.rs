@@ -22,7 +22,7 @@ pub struct IPv6Packet {
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
-        let version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap(); // TODO not added to icmpv6 payload
+        let _version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
         let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
