@@ -739,7 +739,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             .as_nanos() as u64;
 
         let payload = if task_type == 2 {
-            parse_dns_a_record(udp_packet.body.as_slice())
+            parse_dns_a_record(udp_packet.body.as_slice(), false)
         } else if task_type == 4 {
             parse_chaos(udp_packet.body.as_slice())
         } else {
@@ -783,7 +783,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             .as_nanos() as u64;
 
         let payload = if task_type == 2 {
-            parse_dns_a_record(value.body.as_slice())
+            parse_dns_a_record(value.body.as_slice(), true)
         } else if task_type == 4 {
             parse_chaos(value.body.as_slice())
         } else {
@@ -807,55 +807,96 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
-fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
+fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org' // TODO will requesting such domains cause issues?
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
-    let parts: Vec<&str> = domain.split('.').collect();
-    // Our domains have 8 'parts' separated by 7 dashes
-    if parts.len() != 8 { return None }
+    if ipv6 {
+        let parts: Vec<&str> = domain.split('.').collect();
+        // Our domains have 8 'parts' separated by 7 dots
+        if parts.len() != 8 { return None }
 
-    let transmit_time = match parts[0].parse::<u64>() {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let sender_src = match parts[1].parse::<u128>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_dest = match parts[2].parse::<u128>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_client_id = match parts[3].parse::<u8>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let sender_src_port = match parts[4].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
+        let transmit_time = match parts[0].parse::<u64>() {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+        let sender_src = match parts[1].parse::<u128>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_dest = match parts[2].parse::<u128>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_client_id = match parts[3].parse::<u8>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_src_port = match parts[4].parse::<u16>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
 
-    return Some(UdpPayload {
-        value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
-            transmit_time,
-            source_address: Some(Address {
-                value: Some(V6(IPv6 {
-                    p1: (sender_src >> 64) as u64,
-                    p2: sender_src as u64,
-                })),
-            }),
-            destination_address: Some(Address {
-                value: Some(V6(IPv6 {
-                    p1: (sender_dest >> 64) as u64,
-                    p2: sender_dest as u64,
-                })),
-            }),
-            sender_client_id: sender_client_id as u32,
-            source_port: sender_src_port as u32,
-        })),
-    });
+        return Some(UdpPayload {
+            value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                transmit_time,
+                source_address: Some(Address {
+                    value: Some(V6(IPv6 {
+                        p1: (sender_src >> 64) as u64,
+                        p2: sender_src as u64,
+                    })),
+                }),
+                destination_address: Some(Address {
+                    value: Some(V6(IPv6 {
+                        p1: (sender_dest >> 64) as u64,
+                        p2: sender_dest as u64,
+                    })),
+                }),
+                sender_client_id: sender_client_id as u32,
+                source_port: sender_src_port as u32,
+            })),
+        });
+    } else {
+        let parts: Vec<&str> = domain.split('.').collect();
+        // Our domains have 5 'parts' separated by 4 dashes
+        if parts.len() != 5 { return None }
+
+        let transmit_time = match parts[0].parse::<u64>() {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+        let sender_src = match parts[1].parse::<u32>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_dest = match parts[2].parse::<u32>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_client_id = match parts[3].parse::<u8>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let sender_src_port = match parts[4].parse::<u16>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        return Some(UdpPayload {
+            value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                transmit_time,
+                source_address: Some(Address {
+                    value: Some(V4(sender_src)),
+                }),
+                destination_address: Some(Address {
+                    value: Some(V4(sender_dest)),
+                }),
+                sender_client_id: sender_client_id as u32,
+                source_port: sender_src_port as u32,
+            })),
+        });
+    }
 }
 
 fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
