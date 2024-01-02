@@ -48,27 +48,30 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
         move || {
             let mut buffer: Vec<u8> = vec![0; 1500];
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-            // https://web.stanford.edu/class/cs242/materials/assignments/rust_doc/libc/constant.IPV6_RECVRTHDR.html
-            // https://docs.rs/socket2/latest/socket2/struct.Socket.html
-            //https://www.ibm.com/docs/en/zos/2.3.0?topic=soadsiiil-options-that-provide-information-about-packets-that-have-been-received
 
-            // let mut cap = Device::lookup().unwrap().unwrap().open().unwrap();
-
+            // Capture packets with pcap on the main interface
             let main_device = Device::lookup().unwrap().unwrap();
             let mut cap = Capture::from_device(main_device).unwrap()
                 .immediate_mode(true)
                 .open().unwrap();
-            // cap.filter("host 2001:610:1908:ff01:1234::1", true).unwrap();
-            cap.filter("ip6", true).unwrap();
-            // TODO filter on outgoing only
-            // println!("listening on device: {:?}", main_device);
+
+            cap.filter(&*filter, true).unwrap();
 
             while let Ok(packet) = cap.next_packet() {
-                println!("received packet! {:?}", packet.header);
-                // println!("received packet data! {:?}", packet.data);
+                // println!("received packet! {:?}", packet.header);
+
                 for byte in packet.data { // TODO 13 first bytes are ethernet header
                     print!("{:02X} ", byte);
                 }
+
+                // Convert the bytes into an ICMP packet
+                let result = if v6 {
+                    parse_icmpv6(&packet.data[13..], task_id)
+                } else {
+                    parse_icmpv4(&packet.data[13..], task_id)
+                };
+
+                println!("result: {:?}", result);
             }
 
             while let Ok((p_size, addr)) = socket.recv_from(&mut buffer) {
