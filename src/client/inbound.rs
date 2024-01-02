@@ -91,7 +91,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
             }
 
             let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+            println!("[Client inbound] Stopped ICMP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -139,7 +139,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
 pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
-    println!("[Client inbound] Started UDP listener");
+    println!("[Client inbound] Started UDP listener with filter {}", filter);
 
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -188,7 +188,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
             }
 
             let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+            println!("[Client inbound] Stopped UDP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
@@ -443,7 +443,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
 ///
 /// * 'client_id' - the unique client ID of this client
 pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
-    println!("[Client inbound] Started TCP prober");
+    println!("[Client inbound] Started TCP listener with filter {}", filter);
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
@@ -491,7 +491,7 @@ pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
                 }
             }
             let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+            println!("[Client inbound] Stopped TCP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
         }
     });
 
