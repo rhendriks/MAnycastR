@@ -205,21 +205,22 @@ impl Client {
         let protocol = match start.task_type {
             1 => {
                 bind_address = format!("{}:{}", bind_address, "0");
-                filter.push_str(" and icmp");
                 if ipv6 {
+                    filter.push_str(" and icmp6");
                     Protocol::icmpv6()
                 } else {
+                    filter.push_str(" and icmp");
                     Protocol::icmpv4()
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and udp and icmp");
+                filter.push_str(" and udp and icmp"); // TODO won't work for v6 (use ip6 header next protocol field in the filter)
                 Protocol::udp()
             },
             3 => {
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and tcp");
+                filter.push_str(" and tcp"); // TODO won't work for v6 (try ip6[6] == 6 -> next header is TCP)
                 Protocol::tcp()
             },
             _ => panic!("Invalid task type"),
