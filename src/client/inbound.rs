@@ -163,7 +163,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
 
             while let Ok(packet) = cap.next_packet() {
                 let result = if v6 {
-                    parse_udpv6(&packet.data[14..], task_type)
+                    parse_udpv6(&packet.data[14..], task_type) // TODO weird results for dns body addresses
                 } else {
                     parse_udpv4(&packet.data[14..], task_type)
                 };
@@ -803,24 +803,24 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
-fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
+fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> { // TODO v6
     let record = DNSRecord::from(packet_bytes);
-    let domain = record.domain; // example: '1679305276037913215-3226971181-16843009-0-4000.google.com'
+    let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
 
     // Get the information from the domain, continue to the next packet if it does not follow the format
-    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-    // Our domains have 5 'parts' separated by 4 dashes
-    if parts.len() != 5 { return None }
+    let parts: Vec<&str> = domain.split('.').collect();
+    // Our domains have 8 'parts' separated by 7 dashes
+    if parts.len() != 8 { return None }
 
     let transmit_time = match parts[0].parse::<u64>() {
         Ok(t) => t,
         Err(_) => return None,
     };
-    let sender_src = match parts[1].parse::<u32>() {
+    let sender_src = match parts[1].parse::<u128>() {
         Ok(s) => s,
         Err(_) => return None,
     };
-    let sender_dest = match parts[2].parse::<u32>() {
+    let sender_dest = match parts[2].parse::<u128>() {
         Ok(s) => s,
         Err(_) => return None,
     };
@@ -836,8 +836,8 @@ fn parse_dns_a_record(packet_bytes: &[u8]) -> Option<UdpPayload> {
     return Some(UdpPayload {
         value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
             transmit_time,
-            source_address: sender_src,
-            destination_address: sender_dest,
+            source_address: sender_src as u32,
+            destination_address: sender_dest as u32,
             sender_client_id: sender_client_id as u32,
             source_port: sender_src_port as u32,
         })),

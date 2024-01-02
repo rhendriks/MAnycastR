@@ -213,12 +213,20 @@ impl Client {
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and (ip6[6] == 17 or icmp6)");
+                if ipv6 {
+                    filter.push_str(" and (ip6[6] == 17 or icmp6)");
+                } else {
+                    filter.push_str(" and (udp or icmp)");
+                }
                 Protocol::udp()
             },
             3 => {
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and ip6[6] == 6");
+                if ipv6 {
+                    filter.push_str(" and ip6[6] == 6");
+                } else {
+                    filter.push_str(" and tcp");
+                }
                 Protocol::tcp()
             },
             _ => panic!("Invalid task type"),
