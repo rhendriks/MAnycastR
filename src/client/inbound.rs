@@ -64,11 +64,11 @@ pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<
                     print!("{:02X} ", byte);
                 }
 
-                // Convert the bytes into an ICMP packet
+                // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
-                    parse_icmpv6(&packet.data[13..], task_id)
+                    parse_icmpv6(&packet.data[14..], task_id)
                 } else {
-                    parse_icmpv4(&packet.data[13..], task_id)
+                    parse_icmpv4(&packet.data[14..], task_id)
                 };
 
                 println!("result: {:?}", result);
