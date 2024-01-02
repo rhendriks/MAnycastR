@@ -213,12 +213,12 @@ impl Client {
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and udp and icmp"); // TODO won't work for v6 (use ip6 header next protocol field in the filter)
+                filter.push_str(" and (ip6[6] == 17 or icmp6)");
                 Protocol::udp()
             },
             3 => {
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                filter.push_str(" and tcp"); // TODO won't work for v6 (try ip6[6] == 6 -> next header is TCP)
+                filter.push_str(" and ip6[6] == 6");
                 Protocol::tcp()
             },
             _ => panic!("Invalid task type"),
