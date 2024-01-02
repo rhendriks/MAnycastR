@@ -37,7 +37,7 @@ use std::io;
 ///
 /// * 'client_id' - the unique client ID of this client
 pub fn listen_ping(metadata: Metadata, socket: Arc<Socket>, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
-    println!("[Client inbound] Started ICMP listener");
+    println!("[Client inbound] Started ICMP listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
 
