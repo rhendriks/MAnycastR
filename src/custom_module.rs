@@ -121,17 +121,7 @@ impl From<String> for IP {
 
 impl Display for IPv6 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = format!(
-            "{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}",
-            self.p1 >> 48,
-            self.p1 >> 32,
-            self.p1 >> 16,
-            self.p1,
-            self.p2 >> 48,
-            self.p2 >> 32,
-            self.p2 >> 16,
-            self.p2
-        );
+        let str = ((self.p1 as u128) << 64 | self.p2 as u128).to_string();
         write!(f, "{}", str)
     }
 }
