@@ -49,7 +49,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
         move || {
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
 
-            // Capture packets with pcap on the main interface
+            // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
             let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
             let mut cap = Capture::from_device(main_interface).unwrap()
                 .immediate_mode(true)
@@ -193,7 +193,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
     });
 
     // ICMP port unreachable listening thread (only for A record DNS replies)
-    if task_type == 2 {
+    if task_type == 2 { // TODO remove this socket and use the pcap listener instead
         thread::spawn({
             let rq_receiver = result_queue.clone();
             let socket_icmp = socket_icmp.clone();
