@@ -255,7 +255,7 @@ impl Client {
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
+                listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 // Start listening thread for other source addresses used during this measurement
                 // for socket in sockets { // TODO pcap should be able to listen on multiple addresses
@@ -280,7 +280,7 @@ impl Client {
                 let task_type: u32 = start.task_type;
 
                 // Start listening thread
-                listen_udp(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter); // TODO sockets not needed
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter); // TODO sockets not needed
 
                 // // Start listening thread for other source addresses used during this measurement
                 // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
@@ -306,7 +306,7 @@ impl Client {
                 let dest_port = 63853 + client_id as u16;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
+                listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter); // TODO socket not needed
 
                 // Start listening thread for other source addresses used during this measurement
                 // for socket in sockets { // TODO pcap should be able to listen on multiple sockets
