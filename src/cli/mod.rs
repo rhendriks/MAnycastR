@@ -276,7 +276,6 @@ impl CliClient {
             }
             results.push(task_result); // TODO large memory usage (can lead to process being killed for large measurements)
             // TODO save in a different format
-            // TODO store ip addresses as IP numbers (u32/u128) instead of strings
         }
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)

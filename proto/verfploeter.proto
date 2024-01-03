@@ -100,7 +100,7 @@ message Start {
   bool active = 2;
   uint32 task_type = 3;
   Address source_address = 4;
-  repeated Address client_sources = 5;
+  repeated Address client_sources = 5; // TODO add port number / address combinations
 }
 
 // A Ping, which has a list of destination addresses
@@ -121,7 +121,7 @@ message TCP {
 // A TaskResult, contains the task ID, the Client that executed the task, and a list of results
 message TaskResult {
   uint32 task_id = 1;
-  Client client = 2;
+  Client client = 2; // TODO replace with client ID
   repeated VerfploeterResult result_list = 3;
 }
 
