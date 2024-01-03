@@ -531,7 +531,7 @@ impl Controller for ControllerService {
 
             spawn(async move {
                 let mut abort = false;
-                let chunk_size: usize = 10;
+                let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Sleep the desired time
                 tokio::time::sleep(Duration::from_secs(t)).await;
