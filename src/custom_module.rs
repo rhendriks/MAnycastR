@@ -3,6 +3,17 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
+impl Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match &self.value {
+            Some(V4(v4)) => v4.to_string(),
+            Some(V6(v6)) => v6.to_string(),
+            None => String::from("None"),
+        };
+        write!(f, "{}", str)
+    }
+}
+
 #[derive(Clone, Copy)]
 #[derive(PartialEq)]
 pub enum IP {

@@ -410,8 +410,8 @@ impl CliClient {
                         // Ping payload
                         let payload = ping.payload.unwrap();
                         let transmit_time = payload.transmit_time.to_string();
-                        let request_src = IP::from(payload.source_address.unwrap()).to_string();
-                        let request_dest = IP::from(payload.destination_address.unwrap()).to_string();
+                        let request_src = payload.source_address.unwrap().to_string();
+                        let request_dest = payload.destination_address.unwrap().to_string();
                         let sender_client_id = payload.sender_client_id.to_string();
 
                         let record_ping: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &transmit_time, &request_src, &request_dest, &sender_client_id];
@@ -473,8 +473,8 @@ impl CliClient {
                             Some(DnsARecord(dns_a_record)) => {
                                 let transmit_time = dns_a_record.transmit_time.to_string();
                                 // IP::from(payload.source_address.unwrap()).to_string()
-                                let request_src = IP::from(dns_a_record.source_address.unwrap()).to_string();
-                                let request_dest = IP::from(dns_a_record.destination_address.unwrap()).to_string();
+                                let request_src = dns_a_record.source_address.unwrap().to_string();
+                                let request_dest = dns_a_record.destination_address.unwrap().to_string();
                                 let sender_client_id = dns_a_record.sender_client_id.to_string();
                                 let request_src_port = dns_a_record.source_port.to_string();
                                 let request_dest_port = "53";
