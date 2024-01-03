@@ -20,7 +20,7 @@ use std::process::{Command, Stdio};
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
+    VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
@@ -389,8 +389,8 @@ impl CliClient {
 
         // Loop over the results and write them to CLI/file
         for result in results {
-            let client: Client = result.client.unwrap();
-            let receiver_client_id = client.client_id.to_string();
+            // let client: Client = result.client.unwrap();
+            let receiver_client_id = result.client_id.to_string();
             let verfploeter_results: Vec<VerfploeterResult> = result.result_list;
 
             // TaskResult information TODO TaskResult still contains hostname and task_id which does not need to be repeated
@@ -600,7 +600,7 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
         // Receive tasks from the outbound channel
         while let Some(task_result) = rx.recv().await {
             // Get the client ID
-            let client_id: u8 = task_result.client.unwrap().client_id.try_into().unwrap();
+            let client_id: u8 = task_result.client_id.try_into().unwrap();
 
             // Loop over all results
             for result in task_result.result_list {

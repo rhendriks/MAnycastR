@@ -6,7 +6,7 @@ use socket2::{Socket};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
 use crate::custom_module;
 use custom_module::verfploeter::{
-    Address, ip_result, Client, IPv4Result, IPv6Result, IpResult, Metadata, PingPayload, PingResult, TaskResult,
+    Address, ip_result, IPv4Result, IPv6Result, IpResult, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
 };
@@ -35,7 +35,7 @@ use pcap::{Capture, Device};
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started ICMP listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
@@ -99,7 +99,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
     thread::spawn({
         let result_queue_sender = rq.clone();
         move || {
-            handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -138,7 +138,7 @@ pub fn listen_ping(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Re
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
-pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
+pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, socket_icmp: Arc<Socket>, v6: bool, task_type: u32, filter: String) {
     println!("[Client inbound] Started UDP listener with filter {}", filter);
 
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
@@ -408,7 +408,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
         let result_queue_sender = result_queue.clone();
 
         move || {
-            handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -446,7 +446,7 @@ pub fn listen_udp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
     println!("[Client inbound] Started TCP listener with filter {}", filter);
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -504,7 +504,7 @@ pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
         let result_queue_sender = result_queue.clone();
 
         move || {
-            handle_results(metadata, &tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -531,7 +531,7 @@ pub fn listen_tcp(metadata: Metadata, tx: UnboundedSender<TaskResult>, rx_f: Rec
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'result_queue_sender' - contains a vector of all received replies as VerfploeterResult
-fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
+fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
     loop {
         // Every 5 seconds, forward the ping results to the server
         thread::sleep(Duration::from_secs(5));
@@ -555,10 +555,11 @@ fn handle_results(metadata: Metadata, tx: &UnboundedSender<TaskResult>, mut rx_f
 
         let tr = TaskResult {
             task_id,
-            client: Some(Client {
-                client_id: client_id as u32,
-                metadata: Some(metadata.clone()),
-            }),
+            client_id: client_id as u32,
+            // client: Some(Client {
+            //     client_id: client_id as u32,
+            //     metadata: Some(metadata.clone()),
+            // }),
             result_list: rq,
         };
 
