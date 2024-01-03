@@ -139,7 +139,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), source_ip.to_string(), rate);
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), source_ip.to_string(), rate); // TODO separate values with commas
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
@@ -283,6 +283,7 @@ impl CliClient {
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
         println!("[CLI] Waited {:.6} seconds for results.", length);
+        println!("[CLI] Time of end measurement {}", Local::now().format("%H:%M:%S"));
 
         // If the stream closed during a measurement
         if !graceful { println!("[CLI] Measurement ended prematurely!"); }
