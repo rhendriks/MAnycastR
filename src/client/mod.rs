@@ -184,7 +184,7 @@ impl Client {
 
         let ipv6;
         let mut bind_address;
-        let mut filter = String::new();
+        let mut filter = String::new(); // TODO improve filter to only accept probe replies from this program and remove verification elsewhere
 
         let domain = if source_addr.to_string().contains(':') {
             println!("[Client] Using IPv6");
