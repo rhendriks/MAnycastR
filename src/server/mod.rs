@@ -482,7 +482,6 @@ impl Controller for ControllerService {
         for client in &self.clients.lock().unwrap().clients {
             let mut origin = client.metadata.clone().unwrap().origin.unwrap();
             if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
-                println!("None");
                 origin = Origin {
                     source_address: default_src_addr.clone(),
                     source_port: origin.source_port,

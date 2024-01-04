@@ -249,10 +249,18 @@ impl Client {
         println!("Client sources: {:?}", client_sources);
         // Add filter for each address/port combination
         filter.push_str(" and");
-        let filter_parts: Vec<String> = client_sources
-            .iter()
-            .map(|origin| format!(" (host {} and port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port))
-            .collect();
+        let filter_parts: Vec<String> = match start.task_type {
+            1 => { // ICMP has no port numbers
+                client_sources.iter()
+                    .map(|origin| format!(" (host {})", IP::from(origin.clone().source_address.unwrap()).to_string()))
+                    .collect()
+            },
+            _ => {
+                client_sources.iter()
+                    .map(|origin| format!(" (host {} and port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port))
+                    .collect()
+            }
+        };
 
         filter.push_str(&*filter_parts.join(" or"));
 
