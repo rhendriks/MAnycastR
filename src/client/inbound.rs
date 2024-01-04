@@ -12,7 +12,7 @@ use custom_module::verfploeter::{
 };
 use crate::net::{DNSAnswer, DNSRecord, ICMPPacket, IPv4Packet, PacketPayload, TXTRecord};
 use crate::net::netv6::IPv6Packet;
-use pcap::{Capture, Device};
+use pcap::{Active, Capture, Device};
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -48,17 +48,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
         move || {
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-
-            // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
-            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
-            let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
-                .immediate_mode(true)
-                .timeout(10000) // TODO set timeout based on probing rate (slower probing rate -> higher timeout)
-                // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
-                // .snaplen() // TODO set snaplen
-                .open().expect("Failed to open capture device");
-            cap.direction(pcap::Direction::In).expect("Failed to set direction"); // We only want to receive incoming packets
-            cap.filter(&*filter, true).expect("Failed to set filter"); // Set the appropriate filter
+            let mut cap = get_cap(filter);
 
             // Listen for incoming ICMP packets
             while let packet = cap.next_packet() {
@@ -165,13 +155,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         move || {
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
 
-            // Capture packets with pcap on the main interface
-            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
-            let mut cap = Capture::from_device(main_interface).unwrap()
-                .immediate_mode(true)
-                .open().unwrap();
-            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
-            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
+            let mut cap = get_cap(filter);
 
             while let Ok(packet) = cap.next_packet() {
                 let result = if v6 {
@@ -472,14 +456,7 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         move || {
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
 
-            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
-            let mut cap = Capture::from_device(main_interface).unwrap()
-              .immediate_mode(true)
-              // .buffer_size()
-              // .snaplen()
-              .open().unwrap();
-            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
-            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
+            let mut cap = get_cap(filter);
 
             while let Ok(packet) = cap.next_packet() {
                 let result = if v6 {
@@ -578,6 +555,20 @@ fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task
         // Send the result to the client handler
         tx.send(tr).expect("Failed to send TaskResult to client handler");
     }
+}
+
+fn get_cap(filter: String) -> Capture<Active> {
+    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
+    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
+    let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
+        // .immediate_mode(true) // TODO immediate mode, yes or no?
+        // .timeout(10000) // TODO set timeout based on probing rate (slower probing rate -> higher timeout)
+        // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
+        // .snaplen() // TODO set snaplen
+        .open().expect("Failed to open capture device");
+    cap.direction(pcap::Direction::In).expect("Failed to set direction"); // We only want to receive incoming packets
+    cap.filter(&*filter, true).expect("Failed to set filter"); // Set the appropriate filter
+    cap
 }
 
 /// Parse packet bytes into an IPv4 header, returns the IP result for this header and the payload.
