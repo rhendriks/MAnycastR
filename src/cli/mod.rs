@@ -328,8 +328,8 @@ impl CliClient {
 
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            let source_addr = IP::from(metadata.source_address.clone().expect("Invalid source address")).to_string();
-            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.source_port).as_ref()).expect("Failed to write client data");
+            let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
         }
 
         file.flush()?;
@@ -560,8 +560,8 @@ impl CliClient {
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    IP::from(client.metadata.clone().unwrap().source_address.unwrap()).to_string(), // Source address of this client
-                    client.metadata.unwrap().source_port // Source port of this client
+                    IP::from(client.metadata.clone().unwrap().origin.clone().unwrap().source_address.unwrap()).to_string(), // Source address of this client
+                    client.metadata.unwrap().origin.unwrap().source_port // Source port of this client
                 ));
         }
         table.printstd();

@@ -14,7 +14,7 @@ use crate::server::mpsc::Sender;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
-    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Address
+    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
 };
 
 /// Struct for the Server service
@@ -190,8 +190,8 @@ impl Controller for ControllerService {
 
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
-        let source_address = metadata.source_address;
-        let source_port = metadata.source_port;
+        let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
+        let source_port = metadata.origin.unwrap().source_port;
 
         let mut clients_list = self.clients.lock().unwrap();
 
@@ -215,8 +215,12 @@ impl Controller for ControllerService {
             client_id,
             metadata: Some(verfploeter::Metadata {
                 hostname: hostname.clone(),
-                source_address,
-                source_port,
+                // source_address,
+                // source_port,
+                origin: Some(Origin {
+                    source_address: Some(source_address),
+                    source_port,
+                })
             }),
         };
 
@@ -474,15 +478,13 @@ impl Controller for ControllerService {
             let _ = sender.insert(tx);
         }
 
-        // Create a list of source addresses used by clients
-        let mut client_sources: Vec<Address> = vec![];
+        // Create a list of origins used by clients
+        let mut client_sources: Vec<Origin> = vec![];
         for client in &self.clients.lock().unwrap().clients {
-            let address = client.metadata.clone().unwrap().source_address.unwrap();
-            if address.value.is_some() {
-                // Avoid duplicate source addresses
-                if !client_sources.contains(&address) {
-                    client_sources.push(address);
-                }
+            let origin = client.metadata.clone().unwrap().origin.unwrap();
+            // Avoid duplicate source addresses
+            if !client_sources.contains(&origin) {
+                client_sources.push(origin);
             }
             // client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
         }
@@ -507,7 +509,7 @@ impl Controller for ControllerService {
                     active,
                     task_type,
                     source_address: src_addr.clone(),
-                    client_sources: client_sources.clone(),
+                    origins: client_sources.clone(),
                 }))
             };
 
