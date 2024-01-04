@@ -1,7 +1,7 @@
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -88,8 +88,12 @@ impl Client {
 
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address: Some(Address::from(source_address.clone())),
-            source_port: source_port.into(),
+            // source_address: Some(Address::from(source_address.clone())),
+            // source_port: source_port.into(),
+            origin: Some(Origin {
+                source_address: Some(Address::from(source_address.clone())),
+                source_port: source_port.into(),
+                })
         };
 
         // Initialize a client instance
@@ -165,13 +169,18 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = task.task_id;
-        let mut client_sources: Vec<Address> =  start.client_sources;
+        let mut client_sources: Vec<Origin> =  start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
             IP::from(start.source_address.unwrap())
         } else {
-            client_sources.append(&mut vec![start.source_address.unwrap()]); // Add default address to client_sources such that this client will listen on the default address as well
+            client_sources.append(&mut vec![
+                Origin {
+                    source_address: Some(start.source_address.unwrap()),
+                    source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
+                }
+            ]); // Add default address to client_sources such that this client will listen on the default address as well
             self.source_address.clone()
         };
 
@@ -243,13 +252,13 @@ impl Client {
         // Create a socket for each client_address
         let mut sockets = Vec::new();
         for client_address in client_sources { // TODO add hosts to filter (and port combinations)
-            let address = IP::from(client_address).to_string();
-            if source_addr.to_string() == address { // Skip our own address (we already have a socket for it)
+            let address = IP::from(client_address.source_address.unwrap()).to_string();
+            if source_addr.to_string() == address { // Skip our own address (we already have a socket for it) TODO add our own address here and remove code for this above
                 continue
             }
 
             println!("[Client] Listening on custom address: {}", address);
-            sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]);
+            sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]); // TODO use client's port
         }
 
         // Start listening thread and sending thread

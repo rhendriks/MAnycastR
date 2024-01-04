@@ -64,8 +64,7 @@ message Client {
 // Metadata (as used in Client), contains a hostname, a source address and port (0 if client uses the default source/port)
 message Metadata {
   string hostname = 1;
-  Address source_address = 2;
-  fixed32 source_port = 3;
+  Origin origin = 2;
 }
 
 // Address message, can be either an IPv4 or IPv6 address
@@ -99,8 +98,15 @@ message Start {
   uint32 rate = 1;
   bool active = 2;
   uint32 task_type = 3;
-  Address source_address = 4;
-  repeated Address client_sources = 5; // TODO add port number / address combinations
+  Address source_address = 4; // TODO remove this and add the CLI's source address to origins
+//  repeated Address client_sources = 5; // TODO add port number / address combinations
+  repeated Origin origins = 5;
+}
+
+// Origin: the source address and port combinations used by clients in a task
+message Origin {
+  Address source_address = 1;
+  fixed32 source_port = 2;
 }
 
 // A Ping, which has a list of destination addresses
@@ -122,7 +128,6 @@ message TCP {
 message TaskResult {
   uint32 task_id = 1;
   fixed32 client_id = 2;
-//  Client client = 2; // TODO replace with client ID
   repeated VerfploeterResult result_list = 3;
 }
 
