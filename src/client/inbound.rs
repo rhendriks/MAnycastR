@@ -581,6 +581,8 @@ fn get_pcap(filter: String) -> Capture<Active> {
     cap
 }
 
+// TODO re-evaluate the parse functions -> BPF filter does most of the work already
+
 /// Parse packet bytes into an IPv4 header, returns the IP result for this header and the payload.
 fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // IPv4 20 minimum
@@ -646,7 +648,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         let source_address = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
         let destination_address = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
-        let receive_time = SystemTime::now()
+        let receive_time = SystemTime::now() // TODO can get receive time from the pcap packet header
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;

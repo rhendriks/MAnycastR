@@ -39,7 +39,7 @@ pub struct Client {
     source_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
-    outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
+    outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
 }
 
@@ -351,56 +351,63 @@ impl Client {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
                 // If the CLI disconnected we will receive this message
-                if *self.current_task.lock().unwrap() + 1000 == task_id {
-                    // Send finish signal
-                    println!("[Client] CLI disconnected, aborting measurement");
-                    // Close the inbound threads
-                    for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                        inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                match task.clone().data {
+                    None => {
+                        // A task with data None identifies the end of a measurement
+                        if task.data == None { // TODO use the end message with an abort/finished flag
+                            println!("[Client] Received measurement finished from Server"); // TODO what if we receive this whilst we still have buffered messages to send / parse (due to CPU usage or network congestion)
+                            // Close the inbound threads
+                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
+                                inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                            }
+                            // Outbound threads gets exited by sending this None task to outbound
+                        }
                     }
-                    // f_tx will be None if this client is not probing
-                    if f_tx.is_some() {
-                        // Close outbound threads
-                        f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
-                    }
-                // If the received task is part of the active task
-                } else if *self.current_task.lock().unwrap() == task_id {
-                    // A task with data None identifies the end of a measurement
-                    if task.data == None {
-                        println!("[Client] Received measurement finished from Server"); // TODO what if we receive this whilst we still have buffered messages to send / parse (due to CPU usage or network congestion)
+                    Some(Data::Start(_)) => {
+                        println!("[Client] Received new measurement during an active measurement, skipping");
+                        continue
+                    },
+                    Some(Data::End(_)) => {
+                        // Send finish signal
+                        println!("[Client] CLI disconnected, aborting measurement");
                         // Close the inbound threads
                         for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                             inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                         }
-                        // Outbound threads gets exited by sending this None task to outbound
+                        // f_tx will be None if this client is not probing
+                        if f_tx.is_some() {
+                            // Close outbound threads
+                            f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
+                        }
                     }
+                    Some(task) => {
+                        // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
+                        if self.outbound_tx.is_some() {
+                            // Send the task to the prober
+                            self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
+                        }
+                    },
+                };
 
-                    // outbound_tx will be None if this client is not probing
-                    if self.outbound_tx.is_some() {
-                        // Send the task to the prober
-                        self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
-                    }
-                } else {
-                    // If we received a new task during a measurement
-                    println!("[Client] Received new measurement during an active measurement, skipping")
-                }
             // If we don't have an active measurement
             } else {
                 println!("[Client] Starting new measurement");
 
-                let task_active = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
-                    Data::Start(start) => start.active,
-                    _ => continue, // First task must be a Start task
+                let (is_probing, task_id) = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
+                    Data::Start(start) => (start.active, start.task_id),
+                    _ => { // First task is not a start task
+                        println!("[Client] Received non-start packet for init");
+                        continue
+                    },
                 };
 
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
-                if task_active { // This client is probing
+                if is_probing { // This client is probing
                     // Initialize signal finish channel
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);

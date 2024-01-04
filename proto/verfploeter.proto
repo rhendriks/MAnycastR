@@ -41,7 +41,7 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Address source_address = 3;
+  Address source_address = 3; // TODO let CLI set the port number
   uint32 task_type = 4;
   oneof data {
     Ping ping = 5;
@@ -81,10 +81,10 @@ message IPv6 {
   fixed64 p2 = 2;
 }
 
-// A task for a Client, with a task ID, the probing rate (probes / second) can be either a Start, Ping, UDP, TCP, or an Empty task
+// A task for a Client, can be either a Start, Ping, UDP, TCP, or an Empty task
 message Task {
-  uint32 task_id = 1;
   oneof data {
+    End end = 1;
     Start start = 2;
     Ping ping = 3;
     UDP udp = 4;
@@ -97,10 +97,14 @@ message Task {
 message Start {
   uint32 rate = 1;
   bool active = 2;
-  uint32 task_type = 3;
-  Address source_address = 4; // TODO remove this and add the CLI's source address to origins
-//  repeated Address client_sources = 5; // TODO add port number / address combinations
-  repeated Origin origins = 5;
+  uint32 task_id = 3;
+  uint32 task_type = 4;
+  Address source_address = 5; // TODO remove this and add the CLI's source address to origins
+  repeated Origin origins = 6;
+}
+
+// An end message, indicates the client should stop sending out probes
+message End {
 }
 
 // Origin: the source address and port combinations used by clients in a task
@@ -114,7 +118,7 @@ message Ping {
   repeated Address destination_addresses = 1;
 }
 
-// UDP, which has a list of destination addresses and the type of UDP (A or CHAOS)
+// UDP, which has a list of destination addresses
 message UDP {
   repeated Address destination_addresses = 1;
 }
@@ -124,11 +128,10 @@ message TCP {
   repeated Address destination_addresses = 1;
 }
 
-// A TaskResult, contains the task ID, the Client that executed the task, and a list of results
+// A TaskResult, contains the Client that executed the task, and a list of results
 message TaskResult {
-  uint32 task_id = 1;
-  fixed32 client_id = 2;
-  repeated VerfploeterResult result_list = 3;
+  uint32 client_id = 1;
+  repeated VerfploeterResult result_list = 2;
 }
 
 // A result, either a PingResult, UDPResult, or TCPResult
