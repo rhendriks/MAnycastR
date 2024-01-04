@@ -165,7 +165,6 @@ impl Client {
         };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        println!("Received start task with source address: {:?}", start.source_address);
         let rate: u32 = start.rate;
         let task_id = task.task_id;
         let mut client_sources: Vec<Origin> = start.origins;
@@ -246,7 +245,6 @@ impl Client {
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         println!("[Client] Sending on address: {}", bind_address);
 
-        println!("Client sources: {:?}", client_sources);
         // Add filter for each address/port combination
         filter.push_str(" and");
         let filter_parts: Vec<String> = match start.task_type {

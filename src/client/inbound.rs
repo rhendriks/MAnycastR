@@ -61,6 +61,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
             // Listen for incoming ICMP packets
             while let Ok(packet) = cap.next_packet() {
+                println!("Received ICMP packet");
                 // TODO next_packet will drop packets when the buffer is full
                 // TODO evaluate performance difference between pcap and socket
                 // TODO figure out how to avoid receiving the ethernet header in the buffer
@@ -73,6 +74,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
                 // Invalid ICMP packets have value None
                 if result == None {
+                    println!("Invalid ICMP packet");
                     // Check the exit flag
                     if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
                         break
@@ -81,6 +83,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                     }
                 }
 
+                println!("Valid ICMP packet");
                 // Put result in transmission queue
                 {
                     let mut rq_opt = rq_receiver.lock().unwrap();
