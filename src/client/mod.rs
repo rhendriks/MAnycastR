@@ -16,6 +16,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use crate::server::verfploeter;
 
 mod inbound;
 mod outbound;
@@ -166,7 +167,7 @@ impl Client {
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
-        let task_id = task.task_id;
+        let task_id = start.task_id;
         let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
@@ -271,7 +272,7 @@ impl Client {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
                 }
             }
             2 | 4 => {
@@ -364,6 +365,11 @@ impl Client {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                             }
                             // Outbound threads gets exited by sending this None task to outbound
+                            // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
+                            if self.outbound_tx.is_some() {
+                                // Send the task to the prober
+                                self.outbound_tx.clone().unwrap().send(Data::End(Data::End {})).await.expect("Unable to send task_finished to outbound thread");
+                            } // TODO simplify above expression
                         }
                     }
                     Some(Data::Start(_)) => {

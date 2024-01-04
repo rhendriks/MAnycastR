@@ -554,12 +554,7 @@ fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task
         }
 
         let tr = TaskResult {
-            task_id,
             client_id: client_id as u32,
-            // client: Some(Client {
-            //     client_id: client_id as u32,
-            //     metadata: Some(metadata.clone()),
-            // }),
             result_list: rq,
         };
 
