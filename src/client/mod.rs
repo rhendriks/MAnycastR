@@ -246,7 +246,7 @@ impl Client {
         println!("[Client] Sending on address: {}", bind_address);
 
         // Add filter for each address/port combination
-        filter.push_str(" and");
+        // filter.push_str(" and");
         let filter_parts: Vec<String> = match start.task_type {
             1 => { // ICMP has no port numbers
                 client_sources.iter()
@@ -260,7 +260,7 @@ impl Client {
             }
         };
 
-        filter.push_str(&*filter_parts.join(" or"));
+        // filter.push_str(&*filter_parts.join(" or"));
 
         println!("[Client] Listening with filter: {}", filter);
 
