@@ -53,6 +53,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
             let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
                 .immediate_mode(true)
+                .timeout(10000) // TODO set timeout based on probing rate (slower probing rate -> higher timeout)
                 // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
                 // .snaplen() // TODO set snaplen
                 .open().expect("Failed to open capture device");
