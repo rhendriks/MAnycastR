@@ -250,7 +250,7 @@ impl Client {
         let filter_parts: Vec<String> = match start.task_type {
             1 => { // ICMP has no port numbers
                 client_sources.iter()
-                    .map(|origin| format!(" (host {})", IP::from(origin.clone().source_address.unwrap()).to_string()))
+                    .map(|origin| format!(" host {}", IP::from(origin.clone().source_address.unwrap()).to_string()))
                     .collect()
             },
             _ => {
