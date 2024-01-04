@@ -60,7 +60,15 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
             cap.filter(&*filter, true).expect("Failed to set filter"); // Set the appropriate filter
 
             // Listen for incoming ICMP packets
-            while let Ok(packet) = cap.next_packet() {
+            while let packet = cap.next_packet() {
+                let packet = match packet {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        println!("Failed to get next packet: {}", e);
+                        continue
+                    },
+                };
+
                 println!("Received ICMP packet");
                 // TODO next_packet will drop packets when the buffer is full
                 // TODO evaluate performance difference between pcap and socket
