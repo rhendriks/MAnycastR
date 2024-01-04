@@ -566,7 +566,7 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
-        // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
+        .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
         // .snaplen() // TODO set snaplen
         .open().expect("Failed to open capture device");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
