@@ -9,6 +9,7 @@ use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{PingPayload, Task, address::Value::V4, address::Value::V6};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
+use crate::server::verfploeter;
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
@@ -27,7 +28,7 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<verfploeter::task::Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -54,8 +55,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
                 }
 
-                let task_data = match task.data {
-                    None => {
+                let task_data = match task {
+                    End => {
                         break
                     }, // A None task data means the measurement has finished
                     Some(t) => t,
@@ -80,7 +81,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
-                    bytes.extend_from_slice(&task.task_id.to_be_bytes()); // Bytes 0 - 3
+                    bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
                     bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
                     bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15
                     if let Some(source_address) = payload.source_address {
@@ -318,7 +319,7 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                         format!("{}:0", IP::from(dest_addr.clone()).to_string())
                     };
 
-                    let seq = task.task_id; // information in seq gets lost
+                    let seq = 0; // information in seq gets lost
                     let ack = transmit_time; // ack information gets returned as seq
 
                     let tcp = if ipv6 {

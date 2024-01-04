@@ -16,7 +16,6 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
 };
-
 /// Struct for the Server service
 ///
 /// # Fields
@@ -139,7 +138,8 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Create termination 'task'
             let task = Task {
-                data: End,
+                data: Some(verfploeter::task::Data::End(verfploeter::End {
+            })),
             };
 
             let senders = self.senders.clone();
@@ -505,9 +505,9 @@ impl Controller for ControllerService {
             i = i + 1;
 
             let start_task = Task {
-                task_id,
                 data: Some(verfploeter::task::Data::Start(verfploeter::Start {
                     rate,
+                    task_id,
                     active,
                     task_type,
                     source_address: default_src_addr.clone(),
@@ -569,19 +569,16 @@ impl Controller for ControllerService {
                     if probing {
                         let task = match task_type {
                             1 => Task {
-                                task_id,
                                 data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
                             2 | 4 => Task {
-                                task_id,
                                 data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
                             3 => Task {
-                                task_id,
                                 data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
@@ -605,7 +602,6 @@ impl Controller for ControllerService {
                     println!("[Server] Sending 'task finished' to client");
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
-                        task_id,
                         data: None,
                     })).await {
                         Ok(_) => (),
