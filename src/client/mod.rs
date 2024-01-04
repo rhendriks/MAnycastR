@@ -174,10 +174,8 @@ impl Client {
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
-            print!("Using source address from task: ");
             IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
         } else {
-            println!("Using custom source address: {}", self.source_address);
             client_sources.append(&mut vec![
                 Origin {
                     source_address: Some(start.source_address.unwrap()),
