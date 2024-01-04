@@ -50,14 +50,14 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
 
             // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
-            let main_interface = Device::lookup().unwrap().unwrap(); // Get the main interface
-            let mut cap = Capture::from_device(main_interface).unwrap()
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
+            let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
                 .immediate_mode(true)
                 // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
                 // .snaplen() // TODO set snaplen
-                .open().unwrap();
-            cap.direction(pcap::Direction::In).unwrap(); // We only want to receive incoming packets
-            cap.filter(&*filter, true).unwrap(); // Set the appropriate filter
+                .open().expect("Failed to open capture device");
+            cap.direction(pcap::Direction::In).expect("Failed to set direction"); // We only want to receive incoming packets
+            cap.filter(&*filter, true).expect("Failed to set filter"); // Set the appropriate filter
 
             // Listen for incoming ICMP packets
             while let Ok(packet) = cap.next_packet() {
