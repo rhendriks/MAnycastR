@@ -213,8 +213,6 @@ impl Controller for ControllerService {
             client_id,
             metadata: Some(verfploeter::Metadata {
                 hostname: hostname.clone(),
-                // source_address,
-                // source_port,
                 origin: Some(Origin {
                     source_address: Some(source_address),
                     source_port,

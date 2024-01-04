@@ -1,7 +1,7 @@
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin
+    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -368,7 +368,8 @@ impl Client {
                             // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
                             if self.outbound_tx.is_some() {
                                 // Send the task to the prober
-                                self.outbound_tx.clone().unwrap().send(Data::End(Data::End {})).await.expect("Unable to send task_finished to outbound thread");
+                                self.outbound_tx.clone().unwrap().send(Data::End(End {
+                                })).await.expect("Unable to send task_finished to outbound thread");
                             } // TODO simplify above expression
                         }
                     }
