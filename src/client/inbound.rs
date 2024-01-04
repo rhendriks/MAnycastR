@@ -48,21 +48,18 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
         move || {
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-            let mut cap = get_cap(filter);
+            let mut cap = get_pcap(filter);
 
             // Listen for incoming ICMP packets
-            while let packet = cap.next_packet() {
-                let packet = match packet {
+            loop {
+                let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(e) => {
                         println!("Failed to get next packet: {}", e);
                         continue
                     },
                 };
-
-                println!("Received ICMP packet");
                 // TODO next_packet will drop packets when the buffer is full
-                // TODO evaluate performance difference between pcap and socket
                 // TODO figure out how to avoid receiving the ethernet header in the buffer
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
@@ -73,7 +70,6 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
                 // Invalid ICMP packets have value None
                 if result == None {
-                    println!("Invalid ICMP packet");
                     // Check the exit flag
                     if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
                         break
@@ -82,7 +78,6 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                     }
                 }
 
-                println!("Valid ICMP packet");
                 // Put result in transmission queue
                 {
                     let mut rq_opt = rq_receiver.lock().unwrap();
@@ -155,9 +150,17 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         move || {
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
 
-            let mut cap = get_cap(filter);
+            let mut cap = get_pcap(filter);
 
-            while let Ok(packet) = cap.next_packet() {
+            loop {
+                let packet = match cap.next_packet() {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        println!("Failed to get next packet: {}", e);
+                        continue
+                    },
+                };
+
                 let result = if v6 {
                     parse_udpv6(&packet.data[14..], task_type)
                 } else {
@@ -456,9 +459,17 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         move || {
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
 
-            let mut cap = get_cap(filter);
+            let mut cap = get_pcap(filter);
 
-            while let Ok(packet) = cap.next_packet() {
+            loop {
+                let packet = match cap.next_packet() {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        println!("Failed to get next packet: {}", e);
+                        continue
+                    },
+                };
+
                 let result = if v6 {
                     parse_tcpv6(&packet.data[14..])
                 } else {
@@ -557,17 +568,16 @@ fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task
     }
 }
 
-fn get_cap(filter: String) -> Capture<Active> {
+fn get_pcap(filter: String) -> Capture<Active> {
     // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
-        // .timeout(10000) // TODO set timeout based on probing rate (slower probing rate -> higher timeout)
         // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
         // .snaplen() // TODO set snaplen
         .open().expect("Failed to open capture device");
-    cap.direction(pcap::Direction::In).expect("Failed to set direction"); // We only want to receive incoming packets
-    cap.filter(&*filter, true).expect("Failed to set filter"); // Set the appropriate filter
+    cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
+    cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
     cap
 }
 
