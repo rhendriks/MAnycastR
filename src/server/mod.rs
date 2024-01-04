@@ -481,7 +481,8 @@ impl Controller for ControllerService {
         let mut client_sources: Vec<Origin> = vec![];
         for client in &self.clients.lock().unwrap().clients {
             let mut origin = client.metadata.clone().unwrap().origin.unwrap();
-            if origin.source_address.is_none() { // If this client has no source address specified, give it the CLI default one
+            if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
+                println!("None");
                 origin = Origin {
                     source_address: default_src_addr.clone(),
                     source_port: origin.source_port,
@@ -491,7 +492,6 @@ impl Controller for ControllerService {
             if !client_sources.contains(&origin) { // TODO will this work?
                 client_sources.push(origin);
             }
-            // client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
