@@ -455,7 +455,7 @@ impl Controller for ControllerService {
         // Create a Task from the ScheduleTask
         // Get the destination addresses, the source address, the rate, and the task type from the CLI task
         let dest_addresses;
-        let src_addr = task.source_address;
+        let default_src_addr = task.source_address;
         let rate = task.rate;
         let task_type = task.task_type;
         match task.data.unwrap() {
@@ -480,9 +480,15 @@ impl Controller for ControllerService {
         // Create a list of origins used by clients
         let mut client_sources: Vec<Origin> = vec![];
         for client in &self.clients.lock().unwrap().clients {
-            let origin = client.metadata.clone().unwrap().origin.unwrap();
-            // Avoid duplicate source addresses
-            if !client_sources.contains(&origin) {
+            let mut origin = client.metadata.clone().unwrap().origin.unwrap();
+            if origin.source_address.is_none() { // If this client has no source address specified, give it the CLI default one
+                origin = Origin {
+                    source_address: default_src_addr.clone(),
+                    source_port: origin.source_port,
+                }
+            }
+            // Avoid duplicate origins
+            if !client_sources.contains(&origin) { // TODO will this work?
                 client_sources.push(origin);
             }
             // client_sources.push(client.metadata.clone().unwrap().source_address.unwrap());
@@ -507,7 +513,7 @@ impl Controller for ControllerService {
                     rate,
                     active,
                     task_type,
-                    source_address: src_addr.clone(),
+                    source_address: default_src_addr.clone(),
                     origins: client_sources.clone(),
                 }))
             };
