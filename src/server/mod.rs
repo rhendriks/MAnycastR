@@ -114,7 +114,6 @@ impl<T> Drop for ClientReceiver<T> {
 /// Furthermore, if a measurement is active, we send a termination message to all clients to quit the current measurement.
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
-    task_id: u32,
     active: Arc<Mutex<bool>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
 }
@@ -611,7 +610,6 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            task_id,
             active: self.active.clone(),
             senders: self.senders.clone(),
         };

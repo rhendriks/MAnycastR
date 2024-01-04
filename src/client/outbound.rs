@@ -7,7 +7,7 @@ use futures::Future;
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
-use custom_module::verfploeter::{PingPayload, Task, address::Value::V4, address::Value::V6, task::Data};
+use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.

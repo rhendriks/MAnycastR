@@ -16,7 +16,6 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use crate::server::verfploeter;
 
 mod inbound;
 mod outbound;
