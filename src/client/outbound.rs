@@ -42,7 +42,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                 let task;
                 // Receive tasks from the outbound channel
                 loop {
-                    match outbound_channel_rx.try_recv() {
+                    match outbound_channel_rx.try_recv() { // TODO make sure this does not cause lingering threads, check for all threads
                         Ok(t) => {
                             task = t;
                             break;
