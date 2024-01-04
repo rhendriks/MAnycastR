@@ -120,6 +120,11 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     count.lock().unwrap().add_assign(1);
+
+                    // Print when count reaches 1_000_000
+                    if *count.lock().unwrap() % 1_000_000 == 0 {
+                        println!("[Client outbound] DONE SENDING");
+                    }
                     // Send out packet
                     if let Err(e) = socket.send_to( // TODO count number of packets sent
                         &icmp,
