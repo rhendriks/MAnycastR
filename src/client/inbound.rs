@@ -561,7 +561,7 @@ fn get_cap(filter: String) -> Capture<Active> {
     // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
-        // .immediate_mode(true) // TODO immediate mode, yes or no?
+        .immediate_mode(true)
         // .timeout(10000) // TODO set timeout based on probing rate (slower probing rate -> higher timeout)
         // .buffer_size() // TODO set buffer size based on probing rate (default 1,000,000)
         // .snaplen() // TODO set snaplen
