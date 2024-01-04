@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::net::{Ipv4Addr, Ipv6Addr};
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6, task::Data::End};
+use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

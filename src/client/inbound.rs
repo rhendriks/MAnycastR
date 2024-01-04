@@ -96,7 +96,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
     thread::spawn({
         let result_queue_sender = rq.clone();
         move || {
-            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -407,7 +407,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         let result_queue_sender = result_queue.clone();
 
         move || {
-            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -504,7 +504,7 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
         let result_queue_sender = result_queue.clone();
 
         move || {
-            handle_results(&tx, rx_f, task_id, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, client_id, result_queue_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -526,12 +526,10 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
-/// * 'task_id' - the task_id of the current measurement
-///
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'result_queue_sender' - contains a vector of all received replies as VerfploeterResult
-fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, task_id: u32, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
+fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
     loop {
         // Every 5 seconds, forward the ping results to the server
         thread::sleep(Duration::from_secs(5));
