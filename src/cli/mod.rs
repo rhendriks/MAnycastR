@@ -393,7 +393,7 @@ impl CliClient {
             let receiver_client_id = result.client_id.to_string();
             let verfploeter_results: Vec<VerfploeterResult> = result.result_list;
 
-            // TaskResult information TODO TaskResult still contains hostname and task_id which does not need to be repeated
+            // TaskResult information
             let record: [&str; 1] = [&receiver_client_id];
 
             for verfploeter_result in verfploeter_results {
