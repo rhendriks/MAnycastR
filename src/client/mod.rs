@@ -170,12 +170,14 @@ impl Client {
         println!("Received start task with source address: {:?}", start.source_address);
         let rate: u32 = start.rate;
         let task_id = task.task_id;
-        let mut client_sources: Vec<Origin> =  start.origins;
+        let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
+            print!("Using source address from task: ");
             IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
         } else {
+            println!("Using custom source address: {}", self.source_address);
             client_sources.append(&mut vec![
                 Origin {
                     source_address: Some(start.source_address.unwrap()),
@@ -248,6 +250,7 @@ impl Client {
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         println!("[Client] Sending on address: {}", bind_address);
 
+        println!("Client sources: {:?}", client_sources);
         // Add filter for each address/port combination
         filter.push_str(" and");
         let filter_parts: Vec<String> = client_sources
