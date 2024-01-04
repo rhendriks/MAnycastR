@@ -7,9 +7,8 @@ use futures::Future;
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
-use custom_module::verfploeter::{PingPayload, Task, address::Value::V4, address::Value::V6};
-use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp};
-use crate::server::verfploeter;
+use custom_module::verfploeter::{PingPayload, Task, address::Value::V4, address::Value::V6, task::Data};
+use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
@@ -28,7 +27,7 @@ use crate::server::verfploeter;
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<verfploeter::task::Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -55,15 +54,15 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
                 }
 
-                let task_data = match task {
-                    End => {
+                let ping_task = match task { // TODO
+                    End(_) => {
                         break
-                    }, // A None task data means the measurement has finished
-                    Some(t) => t,
+                    }, // An End task means the measurement has finished
+                    Ping(ping) => ping,
+                    _ => continue, // Invalid task
                 };
 
-                let ping = if let Ping(ping) = task_data { ping } else { continue };
-                let dest_addresses = ping.destination_addresses;
+                let dest_addresses = ping_task.destination_addresses;
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
@@ -156,7 +155,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -185,13 +184,15 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                     };
                 }
 
-                let task_data = match task.data {
-                    None => break, // A None task data means the measurement has finished
-                    Some(t) => t,
+                let udp_task = match task { // TODO
+                    End(_) => {
+                        break
+                    }, // An End task means the measurement has finished
+                    Udp(udp) => udp,
+                    _ => continue, // Invalid task
                 };
 
-                let udp = if let Udp(udp) = task_data { udp } else { continue };
-                let dest_addresses = udp.destination_addresses;
+                let dest_addresses = udp_task.destination_addresses;
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
@@ -269,7 +270,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Task>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
@@ -298,13 +299,15 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                     };
                 }
 
-                let task_data = match task.data {
-                    None => break, // A None task data means the measurement has finished
-                    Some(t) => t,
+                let tcp_task = match task { // TODO
+                    End(_) => {
+                        break
+                    }, // An End task means the measurement has finished
+                    Tcp(tcp) => tcp,
+                    _ => continue, // Invalid task
                 };
 
-                let tcp = if let Tcp(tcp) = task_data { tcp } else { continue };
-                let dest_addresses = tcp.destination_addresses;
+                let dest_addresses = tcp_task.destination_addresses;
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
