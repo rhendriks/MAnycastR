@@ -167,13 +167,14 @@ impl Client {
         };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
+        println!("Received start task with source address: {:?}", start.source_address);
         let rate: u32 = start.rate;
         let task_id = task.task_id;
         let mut client_sources: Vec<Origin> =  start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if self.source_address == IP::None {
-            IP::from(start.source_address.unwrap())
+            IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
         } else {
             client_sources.append(&mut vec![
                 Origin {

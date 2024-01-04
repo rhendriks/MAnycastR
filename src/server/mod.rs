@@ -428,6 +428,7 @@ impl Controller for ControllerService {
         }
 
         let task = request.into_inner();
+        print!("Received task with source address: {:?}", task.source_address);
 
         // Create a list of the connected clients' IDs
         let mut client_list_u32: Vec<u32> = vec![];
