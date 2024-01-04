@@ -2,6 +2,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::net::SocketAddr;
+use std::ops::AddAssign;
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use socket2::Socket;
@@ -31,6 +32,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
+
+    let count = Arc::new(Mutex::new(0));
 
     thread::spawn({
         move || {
@@ -116,8 +119,9 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
 
+                    count.lock().unwrap().add_assign(1);
                     // Send out packet
-                    if let Err(e) = socket.send_to(
+                    if let Err(e) = socket.send_to( // TODO count number of packets sent
                         &icmp,
                         &bind_addr_dest
                             .to_string()
@@ -131,7 +135,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
             }
             debug!("finished ping");
 
-            println!("[Client outbound] Outbound thread finished");
+            println!("[Client outbound] Outbound thread finished, sent {} packets", count.lock().unwrap());
         }
     });
 }
