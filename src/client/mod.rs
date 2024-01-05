@@ -12,6 +12,7 @@ use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::sleep;
 use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
@@ -360,6 +361,7 @@ impl Client {
                         // A task with data None identifies the end of a measurement
                         if task.data == None { // TODO use the end message with an abort/finished flag
                             println!("[Client] Received measurement finished from Server"); // TODO what if we receive this whilst we still have buffered messages to send / parse (due to CPU usage or network congestion)
+                            tokio::time::sleep(std::time::Duration::from_millis(20000)).await; // wait 20 seconds TODO remove
                             // Close the inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
