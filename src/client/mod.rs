@@ -1,7 +1,7 @@
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
+    Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -320,8 +320,9 @@ impl Client {
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
-                            self_clone.task_finished_to_server(TaskId {
-                                task_id
+                            self_clone.task_finished_to_server(Finished {
+                                task_id,
+                                client_id: client_id.into(),
                             }).await.unwrap();
 
                             break;
@@ -454,10 +455,10 @@ impl Client {
     /// # Arguments
     ///
     /// * 'task_id' - the task ID of the current measurement
-    async fn task_finished_to_server(&mut self, task_id: TaskId) -> Result<(), Box<dyn Error>> {
+    async fn task_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         *self.active.lock().unwrap() = false;
-        let request = Request::new(task_id);
+        let request = Request::new(finished);
         self.grpc_client.task_finished(request).await?;
 
         Ok(())

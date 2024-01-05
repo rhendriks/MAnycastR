@@ -14,7 +14,7 @@ use crate::server::mpsc::Sender;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
-    Ack, TaskId, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
+    Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
 };
 /// Struct for the Server service
 ///
@@ -239,11 +239,11 @@ impl Controller for ControllerService {
     /// Returns an error if the task ID of task finished does not match an active task, or if the CLI has disconnected.
     async fn task_finished(
         &self,
-        request: Request<TaskId>,
+        request: Request<Finished>,
     ) -> Result<Response<Ack>, Status> {
-        println!("[Server] Received task_finished");
-
-        let task_id: u32 = request.into_inner().clone().task_id;
+        let request = request.into_inner();
+        let task_id: u32 = request.task_id;
+        println!("[Server] Client with ID {} is finished", request.client_id);
 
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -596,7 +596,7 @@ impl Controller for ControllerService {
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     tokio::time::sleep(Duration::from_secs(10)).await;
-                    println!("[Server] Sending 'task finished' to client");
+                    println!("[Server] Sending 'task finished' to client"); // TODO add client ID
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
                         data: None,

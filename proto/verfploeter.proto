@@ -9,7 +9,7 @@ package verfploeter;
 // The controller which controls and is responsible for most communication
 service Controller {
   // Client lets the server know the task is finished
-  rpc TaskFinished(TaskId) returns (Ack) {}
+  rpc TaskFinished(Finished) returns (Ack) {}
   // Client announces itself, and starts connection with the Server. The server sends a stream of Task
   rpc ClientConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a task
@@ -31,8 +31,11 @@ message Ack {
   string error_message = 2;
 }
 
-// A task ID
-message TaskId { uint32 task_id = 1; }
+// TaskFinished message, sent by a client to the server when a task is finished
+message Finished {
+  uint32 task_id = 1;
+  uint32 client_id = 2;
+}
 
 // A client ID
 message ClientId {uint32 client_id = 1;}
