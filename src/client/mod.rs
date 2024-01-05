@@ -243,6 +243,8 @@ impl Client {
         let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket"));
 
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
+        // socket.set_send_buffer_size().expect("Unable to set send buffer size"); TODO
+
         println!("[Client] Sending on address: {}", bind_address);
 
         // Add filter for each address/port combination
@@ -269,11 +271,6 @@ impl Client {
         match start.task_type {
             1 => {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
-
-                println!("Socket send buffer size: {}", socket.send_buffer_size().expect("Unable to get send buffer size"));
-                socket.set_send_buffer_size(1000).expect("Unable to set send buffer size");
-                println!("Socket send buffer size after change: {}", socket.send_buffer_size().expect("Unable to set send buffer size"));
-                println!("Socket write timeout size: {:?}", socket.write_timeout().expect("Unable to get write timeout"));
 
                 if probing {
                     perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
