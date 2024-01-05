@@ -55,12 +55,13 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
             loop {
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
-                    Err(e) => {
+                    Err(_) => {
                         if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
                             println!("Stopped ICMP pcap listener");
                             break
                         }
-                        println!("Failed to get next packet: {}", e); // TODO may spam console now with non-block set to true
+                        // TODO CPU intensive to keep looping, add sleep
+                        // println!("Failed to get next packet: {}", e);
                         continue
                     },
                 };
@@ -572,7 +573,7 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
-        .promisc(true)
+        // .promisc(true)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
     cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
