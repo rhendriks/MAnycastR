@@ -42,7 +42,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
 
-    for _ in 1..2 {
+    for _ in 1..3 {
         thread::spawn({ // TODO spawn multiple listening/sending threads?
             let rq_receiver = rq.clone();
             let exit_flag = Arc::clone(&exit_flag);
