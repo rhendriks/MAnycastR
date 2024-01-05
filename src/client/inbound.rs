@@ -65,9 +65,10 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                         continue
                     },
                 };
-                // TODO figure out how to avoid receiving the ethernet header in the buffer
-                // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
+                let recv_time = packet.header.ts.tv_usec; // microseconds
+                println!("Received packet at {}", recv_time);
 
+                // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
                 } else {
@@ -573,7 +574,8 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
-        // .promisc(true)
+        .tstamp_type(pcap::TimestampType::Adapter) // TODO which timestamptype is best?
+        .precision(pcap::Precision::Micro)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
     cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
@@ -651,6 +653,8 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
+
+        println!("time since epoch: {}", receive_time);
 
         // Create a VerfploeterResult for the received ping reply
         return Some(VerfploeterResult {
