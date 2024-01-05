@@ -595,8 +595,8 @@ impl Controller for ControllerService {
 
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    println!("[Server] Sending 'task finished' to client"); // TODO add client ID
+                    tokio::time::sleep(Duration::from_secs(10)).await; // TODO is this sleep necessary?
+                    println!("[Server] Letting client with ID {} know it has received all tasks", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
                         data: None,
