@@ -574,7 +574,7 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
-        .tstamp_type(pcap::TimestampType::Adapter) // TODO which timestamptype is best?
+        .tstamp_type(pcap::TimestampType::Host) // TODO which timestamptype is best?
         .precision(pcap::Precision::Micro)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
