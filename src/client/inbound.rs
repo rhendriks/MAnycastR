@@ -42,58 +42,60 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
 
-    for _ in 1..3 {
-        thread::spawn({ // TODO spawn multiple listening/sending threads?
-            let rq_receiver = rq.clone();
-            let exit_flag = Arc::clone(&exit_flag);
-            let filter = filter.clone();
+    // TODO listening thread cannot keep up with high probing rates, multi-thread this (currently pcaps will listen to the same packets)
+    thread::spawn({
+        let rq_receiver = rq.clone();
+        let exit_flag = Arc::clone(&exit_flag);
 
-            move || {
-                println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
-                let mut cap = get_pcap(filter);
+        move || {
+            println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
+            let mut cap = get_pcap(filter);
 
-                // Listen for incoming ICMP packets
-                loop {
-                    let packet = match cap.next_packet() {
-                        Ok(packet) => packet,
-                        Err(e) => {
-                            println!("Failed to get next packet: {}", e);
-                            continue
-                        },
-                    };
-                    // TODO figure out how to avoid receiving the ethernet header in the buffer
-                    // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-
-                    let result = if v6 {
-                        parse_icmpv6(&packet.data[14..], task_id)
-                    } else {
-                        parse_icmpv4(&packet.data[14..], task_id)
-                    };
-
-                    // Invalid ICMP packets have value None
-                    if result == None {
-                        // Check the exit flag
+            // Listen for incoming ICMP packets
+            loop {
+                let packet = match cap.next_packet() {
+                    Ok(packet) => packet,
+                    Err(e) => {
                         if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
+                            println!("Stopped ICMP pcap listener");
                             break
-                        } else {
-                            continue
                         }
-                    }
+                        println!("Failed to get next packet: {}", e); // TODO may spam console now with non-block set to true
+                        continue
+                    },
+                };
+                // TODO figure out how to avoid receiving the ethernet header in the buffer
+                // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
 
-                    // Put result in transmission queue
-                    {
-                        let mut rq_opt = rq_receiver.lock().unwrap();
-                        if let Some(ref mut x) = *rq_opt {
-                            x.push(result.unwrap())
-                        }
+                let result = if v6 {
+                    parse_icmpv6(&packet.data[14..], task_id)
+                } else {
+                    parse_icmpv4(&packet.data[14..], task_id)
+                };
+
+                // Invalid ICMP packets have value None
+                if result == None {
+                    // Check the exit flag
+                    if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
+                        break
+                    } else {
+                        continue
                     }
                 }
 
-                let stats = cap.stats().expect("Failed to get pcap stats");
-                println!("[Client inbound] Stopped ICMP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+                // Put result in transmission queue
+                {
+                    let mut rq_opt = rq_receiver.lock().unwrap();
+                    if let Some(ref mut x) = *rq_opt {
+                        x.push(result.unwrap())
+                    }
+                }
             }
-        });
-    }
+
+            let stats = cap.stats().expect("Failed to get pcap stats");
+            println!("[Client inbound] Stopped ICMP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+        }
+    });
 
     // Thread for sending the received replies to the server as TaskResult
     thread::spawn({
@@ -570,8 +572,8 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
-        // .snaplen() // TODO set snaplen
-        .open().expect("Failed to open capture device");
+        .promisc(true)
+        .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
     cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
     cap
