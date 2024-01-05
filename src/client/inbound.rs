@@ -58,7 +58,6 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                     Ok(packet) => packet,
                     Err(_) => {
                         if *exit_flag.lock().unwrap() {
-                            println!("Stopped ICMP pcap listener");
                             break
                         }
                         sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
@@ -75,12 +74,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
                 // Invalid ICMP packets have value None
                 if result == None {
-                    // Check the exit flag
-                    if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
-                        break
-                    } else {
-                        continue
-                    }
+                    continue
                 }
 
                 // Put result in transmission queue
@@ -649,9 +643,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-
-        println!("time since epoch: {}", receive_time);
-
+        
         // Create a VerfploeterResult for the received ping reply
         return Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {
