@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::sync::{Arc, Mutex};
 use futures::Future;
+use pcap::{Capture, Device};
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
@@ -57,7 +58,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
                 }
 
-                let ping_task = match task { // TODO
+                let ping_task = match task {
                     End(_) => {
                         break
                     }, // An End task means the measurement has finished
@@ -140,6 +141,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
             }
             debug!("finished ping");
 
+            // TODO close socket
             println!("[Client outbound] Outbound thread finished, sent {} packets", count.lock().unwrap());
         }
     });
