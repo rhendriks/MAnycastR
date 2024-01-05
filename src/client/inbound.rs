@@ -1,6 +1,7 @@
 use std::net::{Shutdown};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use socket2::{Socket};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
@@ -42,7 +43,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
 
-    // TODO listening thread cannot keep up with high probing rates, multi-thread this (currently pcaps will listen to the same packets)
+    // TODO listening thread cannot keep up with high probing rates, multi-thread this (currently pcaps will listen to the same packets (perhaps use modulo with a counter to split the work))
     thread::spawn({
         let rq_receiver = rq.clone();
         let exit_flag = Arc::clone(&exit_flag);
@@ -56,17 +57,14 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(_) => {
-                        if *exit_flag.lock().unwrap() { // TODO improve, currently we wait for a random packet to arrive before we check the exit flag
+                        if *exit_flag.lock().unwrap() {
                             println!("Stopped ICMP pcap listener");
                             break
                         }
-                        // TODO CPU intensive to keep looping, add sleep
-                        // println!("Failed to get next packet: {}", e);
+                        sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
                         continue
                     },
                 };
-                let recv_time = packet.header.ts.tv_usec; // microseconds
-                println!("Received packet at {}", recv_time);
 
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 let result = if v6 {
@@ -574,8 +572,6 @@ fn get_pcap(filter: String) -> Capture<Active> {
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000)
-        .tstamp_type(pcap::TimestampType::Host) // TODO which timestamptype is best?
-        .precision(pcap::Precision::Micro)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
     cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
