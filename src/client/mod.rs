@@ -271,6 +271,8 @@ impl Client {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 println!("Socket send buffer size: {}", socket.send_buffer_size().expect("Unable to get send buffer size"));
+                socket.set_send_buffer_size(1).expect("Unable to set send buffer size");
+                println!("Socket send buffer size after change: {}", socket.send_buffer_size().expect("Unable to set send buffer size"));
                 println!("Socket write timeout size: {:?}", socket.write_timeout().expect("Unable to get write timeout"));
 
                 if probing {
