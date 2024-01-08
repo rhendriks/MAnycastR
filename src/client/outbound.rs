@@ -7,6 +7,7 @@ use futures::Future;
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
+use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 
@@ -27,7 +28,7 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -157,7 +158,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -272,7 +273,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: tokio::sync::mpsc::Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));

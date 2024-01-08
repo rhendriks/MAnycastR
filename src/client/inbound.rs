@@ -643,7 +643,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        
+
         // Create a VerfploeterResult for the received ping reply
         return Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {

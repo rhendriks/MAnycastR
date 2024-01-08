@@ -3,7 +3,7 @@ use std::error::Error;
 use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Stdout, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
@@ -16,6 +16,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::process::{Command, Stdio};
+use csv::Writer;
 
 use crate::custom_module;
 use custom_module::IP;
@@ -247,10 +248,12 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
+        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+                                          timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
+                                          timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
         println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", Local::now().format("%H:%M:%S"));
 
-        let mut results: Vec<TaskResult> = Vec::new();
         let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
         let mut stream = response?.into_inner();
@@ -264,6 +267,18 @@ impl CliClient {
             None
         };
 
+        // Channel for writing results to file
+        let (tx_r, rx_r) = unbounded_channel();
+
+        // Get task type
+        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
+
+        // Output file
+        let file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_start_str).add(".csv")).expect("Unable to create file");
+
+        // Start thread that writes results to file
+        write_results(rx_r, cli, file, task_type);
+
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
@@ -271,11 +286,14 @@ impl CliClient {
                 break;
             }
 
-            if let Some(tx) = &tx {
+            if let Some(tx) = &tx { // Send the results to the igreedy channel
                 tx.send(task_result.clone()).unwrap();
             }
-            results.push(task_result); // TODO large memory usage (can lead to process being killed for large measurements)
-            // TODO save in a different format
+
+            // Send the results to the file channel
+            tx_r.send(task_result).unwrap();
+
+            // TODO add header to the top of the file when all results are written
         }
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -288,247 +306,48 @@ impl CliClient {
         // If the stream closed during a measurement
         if !graceful { println!("[CLI] Measurement ended prematurely!"); }
 
-        // CSV writer to command-line interface
-        let mut wtr_cli = if cli { Some(csv::Writer::from_writer(io::stdout())) } else { None };
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
         let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
-                                        timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
-                                        timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
-        // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
+        // TODO make sure we are finished writing results
 
-        // Output file
-        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
-
-        // Write metadata of measurement
-        if !graceful {
-            file.write_all(b"# Incomplete measurement\n")?;
-        } else {
-            file.write_all(b"# Completed measurement\n")?;
-        }
-        file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
-        if shuffle {
-            file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
-        } else {
-            file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
-        }
-        file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
-        // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
-        file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
-        file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
-        file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
-        file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
-
-        file.write_all(b"# Connected clients:\n")?;
-        for (id, metadata) in &clients {
-            let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
-            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
-        }
-
-        file.flush()?;
-
-        // Open file again in append mode
-        let file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))
-            .unwrap();
-        // CSV writer for output file
-        let mut wtr_file = csv::Writer::from_writer(file);
-
-        // Information contained in TaskResult
-        let rows = ["recv_client_id"];
-        // Information contained in IPv4 header
-        let ipv4_rows = ["reply_src_addr", "reply_dest_addr", "ttl"];
-        if task_type == 1 { // ICMP
-            let icmp_rows = ["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"];
-
-            let mut all_rows = [""; 9];
-            all_rows[..1].copy_from_slice(&rows);
-            all_rows[1..4].copy_from_slice(&ipv4_rows);
-            all_rows[4..].copy_from_slice(&icmp_rows);
-
-            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
-            wtr_file.write_record(all_rows)?;
-        } else if task_type == 2 { // UDP/DNS
-            let udp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code",
-            "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"];
-
-            let mut all_rows = [""; 14];
-            all_rows[..1].copy_from_slice(&rows);
-            all_rows[1..4].copy_from_slice(&ipv4_rows);
-            all_rows[4..].copy_from_slice(&udp_rows);
-
-            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
-            wtr_file.write_record(all_rows)?;
-        } else if task_type == 3 { // TCP
-            let tcp_rows = ["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"];
-
-            let mut all_rows = [""; 9];
-            all_rows[..1].copy_from_slice(&rows);
-            all_rows[1..4].copy_from_slice(&ipv4_rows);
-            all_rows[4..].copy_from_slice(&tcp_rows);
-
-            if cli { wtr_cli.as_mut().unwrap().write_record(all_rows)? };
-            wtr_file.write_record(all_rows)?;
-        } else if task_type == 4 { // UDP/CHAOS
-            let chaos_rows = ["receive_time", "reply_src_port", "reply_dest_port", "code", "sender_client_id", "chaos_data"];
-
-            let mut all_rows = [""; 10];
-            all_rows[..1].copy_from_slice(&rows);
-            all_rows[1..4].copy_from_slice(&ipv4_rows);
-            all_rows[4..].copy_from_slice(&chaos_rows);
-        }
-
-        // Loop over the results and write them to CLI/file
-        for result in results {
-            // let client: Client = result.client.unwrap();
-            let receiver_client_id = result.client_id.to_string();
-            let verfploeter_results: Vec<VerfploeterResult> = result.result_list;
-
-            // TaskResult information
-            let record: [&str; 1] = [&receiver_client_id];
-
-            for verfploeter_result in verfploeter_results {
-                let value = verfploeter_result.value.unwrap();
-                match value {
-                    ResultPing(ping) => {
-                        let recv_time = ping.receive_time.to_string();
-
-                        let ip_result = ping.ip_result.unwrap();
-                        let reply_src = ip_result.get_source_address_str();
-                        let reply_dest = ip_result.get_dest_address_str();
-                        let ttl = ip_result.ttl.to_string();
-
-                        // Ping payload
-                        let payload = ping.payload.unwrap();
-                        let transmit_time = payload.transmit_time.to_string();
-                        let request_src = payload.source_address.unwrap().to_string();
-                        let request_dest = payload.destination_address.unwrap().to_string();
-                        let sender_client_id = payload.sender_client_id.to_string();
-
-                        let record_ping: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &transmit_time, &request_src, &request_dest, &sender_client_id];
-                        let mut all_records = [""; 9];
-                        all_records[..1].copy_from_slice(&record);
-                        all_records[1..].copy_from_slice(&record_ping);
-
-
-                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records).expect("Failed to write ICMP payload to CLI") };
-                        wtr_file.write_record(all_records).expect("Failed to write ICMP payload");
-                    }
-                    ResultUdp(udp) => {
-                        let recv_time = udp.receive_time.to_string();
-                        let reply_source_port = udp.source_port.to_string();
-                        let reply_destination_port = udp.destination_port.to_string();
-                        let reply_code = udp.code.to_string();
-
-                        let ip_result = udp.ip_result.unwrap();
-                        let reply_src = ip_result.get_source_address_str();
-                        let reply_dest = ip_result.get_dest_address_str();
-                        let ttl = ip_result.ttl.to_string();
-
-                        if udp.payload == None {
-                            if task_type == 2 {
-                                let transmit_time = "-1";
-                                let request_src = "-1";
-                                let request_dest = "-1";
-                                let sender_client_id = "-1";
-                                let request_src_port = "-1";
-                                let request_dest_port = "-1";
-
-                                let record_dns: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
-                                let mut all_records = [""; 14];
-                                all_records[..1].copy_from_slice(&record);
-                                all_records[1..].copy_from_slice(&record_dns);
-
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write A none payload CLI") };
-                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS none payload CLI");
-                            } else if task_type == 4 {
-                                let sender_client_id = "-1";
-                                let chaos = "-1";
-
-                                let record_dns: [&str; 9] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &sender_client_id, &chaos];
-                                let mut all_records = [""; 10];
-                                all_records[..1].copy_from_slice(&record);
-                                all_records[1..].copy_from_slice(&record_dns);
-
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write CHAOS none payload CLI") };
-                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS none payload");
-                            } else {
-                                panic!("No payload found for unexpected UDP result!");
-                            }
-                            continue // Continue to next result
-                        }
-
-                        let payload = udp.payload.expect("No payload found for UDP result!");
-
-                        match payload.value {
-                            Some(DnsARecord(dns_a_record)) => {
-                                let transmit_time = dns_a_record.transmit_time.to_string();
-                                // IP::from(payload.source_address.unwrap()).to_string()
-                                let request_src = dns_a_record.source_address.unwrap().to_string();
-                                let request_dest = dns_a_record.destination_address.unwrap().to_string();
-                                let sender_client_id = dns_a_record.sender_client_id.to_string();
-                                let request_src_port = dns_a_record.source_port.to_string();
-                                let request_dest_port = "53";
-
-                                let record_dns: [&str; 13] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &transmit_time, &request_src, &request_dest, &sender_client_id, &request_src_port, &request_dest_port];
-                                let mut all_records = [""; 14];
-                                all_records[..1].copy_from_slice(&record);
-                                all_records[1..].copy_from_slice(&record_dns);
-
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write A payload CLI") };
-                                wtr_file.write_record(&all_records).expect("Failed to write A payload");
-                            },
-                            Some(DnsChaos(dns_chaos)) => {
-                                let sender_client_id = dns_chaos.sender_client_id.to_string();
-                                let chaos = dns_chaos.chaos_data;
-
-                                let record_dns: [&str; 9] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &reply_code, &sender_client_id, &chaos];
-                                let mut all_records = [""; 10];
-                                all_records[..1].copy_from_slice(&record);
-                                all_records[1..].copy_from_slice(&record_dns);
-
-                                if cli { wtr_cli.as_mut().unwrap().write_record(&all_records).expect("Failed to write CHAOS payload CLI") };
-                                wtr_file.write_record(&all_records).expect("Failed to write CHAOS payload CLI");
-                            },
-                            None => {
-                                panic!("No payload found for UDP result!");
-                            }
-                        }
-                    },
-                    ResultTcp(tcp) => {
-                        let recv_time = tcp.receive_time.to_string();
-
-                        let ip_result = tcp.ip_result.unwrap();
-                        let reply_src = ip_result.get_source_address_str();
-                        let reply_dest = ip_result.get_dest_address_str();
-                        let ttl = ip_result.ttl.to_string();
-
-                        let reply_source_port = tcp.source_port.to_string();
-                        let reply_destination_port = tcp.destination_port.to_string();
-
-                        let seq = tcp.seq.to_string();
-                        let ack = tcp.ack.to_string();
-
-                        let record_tcp: [&str; 8] = [&reply_src, &reply_dest, &ttl, &recv_time, &reply_source_port, &reply_destination_port, &seq, &ack];
-                        let mut all_records = [""; 9];
-                        all_records[..1].copy_from_slice(&record);
-                        all_records[1..].copy_from_slice(&record_tcp);
-
-                        if cli { wtr_cli.as_mut().unwrap().write_record(all_records)? };
-                        wtr_file.write_record(all_records)?;
-                    }
-                }
-            }
-        }
+        // // Open file again in append mode TODO write to top of the file
+        // let mut file = OpenOptions::new()
+        //     .write(true)
+        //     .append(true)
+        //     .open("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))
+        //     .unwrap();
+        // // Write metadata of measurement
+        // if !graceful {
+        //     file.write_all(b"# Incomplete measurement\n")?;
+        // } else {
+        //     file.write_all(b"# Completed measurement\n")?;
+        // }
+        // file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
+        // if shuffle {
+        //     file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
+        // } else {
+        //     file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
+        // }
+        // file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
+        // // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
+        // file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
+        // file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
+        // file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
+        // file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
+        // file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
+        //
+        // file.write_all(b"# Connected clients:\n")?;
+        // for (id, metadata) in &clients {
+        //     let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+        //     file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
+        // }
+        //
+        // file.flush()?;
 
         Ok(())
     }
@@ -649,4 +468,149 @@ fn igreedy(path: String, target: &str) {
         .arg("-o")
         .arg(&output)
         .spawn().expect("iGreedy failed!");
+}
+
+fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, task_type: u32) {
+    // CSV writer to command-line interface
+    let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
+    // Results file
+    let mut wtr_file = Writer::from_writer(file);
+
+    // Write header
+    let header = get_header(task_type);
+    if cli { wtr_cli.as_mut().unwrap().write_record(header.clone()).expect("Failed to write header to stdout") };
+    wtr_file.write_record(header).expect("Failed to write header to file");
+
+    tokio::spawn(async move {
+        // Receive tasks from the outbound channel
+        while let Some(task_result) = rx.recv().await {
+            let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
+            for result in verfploeter_results {
+                let result = get_result(result, task_result.client_id, task_type);
+                if cli { wtr_cli.as_mut().unwrap().write_record(result.clone()).expect("Failed to write payload to CLI") };
+                wtr_file.write_record(result).expect("Failed to write payload to CLI");
+            }
+            wtr_file.flush().expect("Failed to flush file"); // TODO how often should this flush?
+        }
+    });
+}
+
+fn get_header(task_type: u32) -> Vec<&'static str> {
+    // Information contained in TaskResult
+    let mut header = vec!["recv_client_id"];
+    // Information contained in IPv4 header
+    header.append(&mut vec!["reply_src_addr", "reply_dest_addr", "ttl"]);
+    header.append(&mut match task_type {
+        1 => vec!["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"], // ICMP
+        2 => vec!["receive_time", "reply_src_port", "reply_dest_port", "code", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"], // UDP/DNS
+        3 => vec!["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"], // TCP
+        4 => vec!["receive_time", "reply_src_port", "reply_dest_port", "code", "sender_client_id", "chaos_data"], // UDP/CHAOS
+        _ => panic!("Undefined type.")
+    });
+
+    header
+}
+
+fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32) -> Vec<String> {
+    // TaskResult information
+    let mut record = vec![receiver_client_id.to_string()];
+    let value = result.value.unwrap();
+
+    match value {
+        ResultPing(ping) => {
+            let recv_time = ping.receive_time.to_string();
+
+            let ip_result = ping.ip_result.unwrap();
+            let reply_src = ip_result.get_source_address_str();
+            let reply_dest = ip_result.get_dest_address_str();
+            let ttl = ip_result.ttl.to_string();
+
+            // Ping payload
+            let payload = ping.payload.unwrap();
+            let transmit_time = payload.transmit_time.to_string();
+            let request_src = payload.source_address.unwrap().to_string();
+            let request_dest = payload.destination_address.unwrap().to_string();
+            let sender_client_id = payload.sender_client_id.to_string();
+
+            record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, transmit_time, request_src, request_dest, sender_client_id]);
+            return record;
+        }
+        ResultUdp(udp) => {
+            let recv_time = udp.receive_time.to_string();
+            let reply_source_port = udp.source_port.to_string();
+            let reply_destination_port = udp.destination_port.to_string();
+            let reply_code = udp.code.to_string();
+
+            let ip_result = udp.ip_result.unwrap();
+            let reply_src = ip_result.get_source_address_str();
+            let reply_dest = ip_result.get_dest_address_str();
+            let ttl = ip_result.ttl.to_string();
+
+            if udp.payload == None { // ICMP reply
+                if task_type == 2 {
+                    let transmit_time = "-1".to_string();
+                    let request_src = "-1".to_string();
+                    let request_dest = "-1".to_string();
+                    let sender_client_id = "-1".to_string();
+                    let request_src_port = "-1".to_string();
+                    let request_dest_port = "-1".to_string();
+
+                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port]);
+                    return record;
+                } else if task_type == 4 {
+                    let sender_client_id = "-1".to_string();
+                    let chaos = "-1".to_string();
+
+                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos]);
+                    return record;
+                } else {
+                    panic!("No payload found for unexpected UDP result!");
+                }
+            }
+
+            let payload = udp.payload.expect("No payload found for UDP result!");
+
+            match payload.value {
+                Some(DnsARecord(dns_a_record)) => {
+                    let transmit_time = dns_a_record.transmit_time.to_string();
+                    // IP::from(payload.source_address.unwrap()).to_string()
+                    let request_src = dns_a_record.source_address.unwrap().to_string();
+                    let request_dest = dns_a_record.destination_address.unwrap().to_string();
+                    let sender_client_id = dns_a_record.sender_client_id.to_string();
+                    let request_src_port = dns_a_record.source_port.to_string();
+                    let request_dest_port = "53".to_string();
+
+                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port]);
+                    return record;
+                },
+                Some(DnsChaos(dns_chaos)) => {
+                    let sender_client_id = dns_chaos.sender_client_id.to_string();
+                    let chaos = dns_chaos.chaos_data;
+
+                    record.append( &mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos]);
+                    return record;
+                },
+                None => {
+                    panic!("No payload found for UDP result!");
+                }
+            }
+        },
+        ResultTcp(tcp) => {
+            let recv_time = tcp.receive_time.to_string();
+
+            let ip_result = tcp.ip_result.unwrap();
+            let reply_src = ip_result.get_source_address_str();
+            let reply_dest = ip_result.get_dest_address_str();
+            let ttl = ip_result.ttl.to_string();
+
+            let reply_source_port = tcp.source_port.to_string();
+            let reply_destination_port = tcp.destination_port.to_string();
+
+            let seq = tcp.seq.to_string();
+            let ack = tcp.ack.to_string();
+
+            record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack]);
+            return record;
+        }
+    }
 }
