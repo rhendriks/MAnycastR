@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use rand::seq::SliceRandom;
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::{fs, io};
 use std::io::{BufRead, BufReader, Stdout, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
@@ -252,11 +252,11 @@ impl CliClient {
                                           timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
                                           timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
-        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", Local::now().format("%H:%M:%S"));
+        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", timestamp_start.format("%H:%M:%S"));
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
-        let mut stream = response?.into_inner();
+        let mut stream = response.expect("Unable to obtain the server stream").into_inner();
 
         let tx = if igreedy != None {
             // Channel for address_feed
@@ -273,11 +273,11 @@ impl CliClient {
         // Get task type
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
 
-        // Output file
-        let file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_start_str).add(".csv")).expect("Unable to create file");
+        // Temporary output file (for writing live results to)
+        let mut temp_file = File::create("temp").expect("Unable to create file");
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, file, task_type);
+        write_results(rx_r, cli, temp_file, task_type);
 
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
@@ -315,40 +315,42 @@ impl CliClient {
 
         // TODO make sure we are finished writing results
 
-        // // Open file again in append mode TODO write to top of the file
-        // let mut file = OpenOptions::new()
-        //     .write(true)
-        //     .append(true)
-        //     .open("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv"))
-        //     .unwrap();
-        // // Write metadata of measurement
-        // if !graceful {
-        //     file.write_all(b"# Incomplete measurement\n")?;
-        // } else {
-        //     file.write_all(b"# Completed measurement\n")?;
-        // }
-        // file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
-        // if shuffle {
-        //     file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
-        // } else {
-        //     file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
-        // }
-        // file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
-        // // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
-        // file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
-        // file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
-        // file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
-        // file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        // file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
-        //
-        // file.write_all(b"# Connected clients:\n")?;
-        // for (id, metadata) in &clients {
-        //     let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
-        //     file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
-        // }
-        //
-        // file.flush()?;
+        // Output file
+        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
 
+        // Write metadata of measurement
+        if !graceful {
+            file.write_all(b"# Incomplete measurement\n")?;
+        } else {
+            file.write_all(b"# Completed measurement\n")?;
+        }
+        file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
+        if shuffle {
+            file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
+        } else {
+            file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
+        }
+        file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
+        // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
+        file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
+        file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
+        file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
+        file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
+        file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
+
+        file.write_all(b"# Connected clients:\n")?;
+        for (id, metadata) in &clients {
+            let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
+        }
+
+        file.flush()?;
+
+        // Output file
+        let mut temp_file = File::open("temp").expect("Unable to create file");
+
+        io::copy(&mut temp_file, &mut file).expect("Unable to copy from temp to final"); // Copy live results to the output file
+        fs::remove_file("temp").expect("Unable to remove temp file");
         Ok(())
     }
 
