@@ -512,7 +512,12 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
             for result in verfploeter_results {
                 let result = get_result(result, task_result.client_id, task_type);
-                if cli { wtr_cli.as_mut().unwrap().write_record(result.clone()).expect("Failed to write payload to CLI") };
+                if cli {
+                    if let Some(ref mut writer) = wtr_cli {
+                        writer.write_record(result.clone()).expect("Failed to write payload to CLI");
+                        writer.flush().expect("Failed to flush stdout");
+                    }
+                };
                 wtr_file.write_record(result).expect("Failed to write payload to CLI");
             }
             wtr_file.flush().expect("Failed to flush file");
