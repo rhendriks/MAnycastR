@@ -152,8 +152,11 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
             loop {
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
-                    Err(e) => {
-                        println!("Failed to get next packet: {}", e);
+                    Err(_) => {
+                        if *exit_flag.lock().unwrap() {
+                            break
+                        }
+                        sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
                         continue
                     },
                 };
@@ -183,12 +186,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 
                 // Invalid packets have value None
                 if result == None {
-                    // Check the exit flag
-                    if *exit_flag.lock().unwrap() {
-                        break
-                    } else {
-                        continue
-                    }
+                    continue
                 }
 
                 // Put result in transmission queue
@@ -262,8 +260,11 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
             loop {
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
-                    Err(e) => {
-                        println!("Failed to get next packet: {}", e);
+                    Err(_) => {
+                        if *exit_flag.lock().unwrap() {
+                            break
+                        }
+                        sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
                         continue
                     },
                 };
@@ -276,12 +277,7 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 
                 // Invalid TCP packets have value None
                 if result == None {
-                  // Check the exit flag
-                  if *exit_flag.lock().unwrap() {
-                      break
-                  } else {
-                      continue
-                  }
+                    continue
                 }
 
                 // Put result in transmission queue
