@@ -53,7 +53,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
-            if let Ok(metadata) = std::fs::metadata(path.unwrap()) { // TODO
+            if let Ok(metadata) = fs::metadata(path.unwrap()) { // TODO
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
@@ -112,7 +112,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
                 .collect();
 
-            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids); // TODO write 'all' when the list is empty
+            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
             client_ids
         } else {
             println!("[CLI] Probes will be sent out from all clients");
@@ -140,7 +140,24 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type, ips.len(), source_ip.to_string(), rate); // TODO separate values with commas
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type,
+            ips.len().to_string()
+                .as_bytes()
+                .rchunks(3)
+                .rev()
+                .map(std::str::from_utf8)
+                .collect::<Result<Vec<&str>, _>>()
+                .unwrap()
+                .join(","),
+             source_ip.to_string(),
+             rate.to_string().as_bytes()
+                 .rchunks(3)
+                 .rev()
+                 .map(std::str::from_utf8)
+                 .collect::<Result<Vec<&str>, _>>()
+                 .unwrap()
+                 .join(","),
+        );
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
@@ -334,8 +351,11 @@ impl CliClient {
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
-
+        if task.clients.is_empty() {
+            file.write_all(b"# Clients that are probing: all\n")?;
+        } else {
+            file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
+        }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
             let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
