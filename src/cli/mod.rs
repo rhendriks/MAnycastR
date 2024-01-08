@@ -164,8 +164,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids);
         cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy).await
     } else {
-        println!("[CLI] Unrecognized command");
-        unimplemented!();
+        panic!("Unrecognized command");
     }
 }
 
@@ -516,7 +515,7 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
                 if cli { wtr_cli.as_mut().unwrap().write_record(result.clone()).expect("Failed to write payload to CLI") };
                 wtr_file.write_record(result).expect("Failed to write payload to CLI");
             }
-            wtr_file.flush().expect("Failed to flush file"); // TODO how often should this flush?
+            wtr_file.flush().expect("Failed to flush file");
         }
         rx.close();
     });

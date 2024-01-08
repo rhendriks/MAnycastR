@@ -221,7 +221,7 @@ impl Client {
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
                 if ipv6 {
-                    filter.push_str(" and (ip6[6] == 17 or icmp6)");
+                    filter.push_str(" and (icmp6 or ip6[6] == 17)");
                 } else {
                     filter.push_str(" and (udp or icmp)");
                 }
@@ -232,7 +232,7 @@ impl Client {
                 if ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
-                    filter.push_str(" and tcp");
+                    filter.push_str(" and tcp and src port > 63852");
                 }
                 Protocol::tcp()
             },
@@ -277,18 +277,9 @@ impl Client {
                 }
             }
             2 | 4 => {
-                // Create ICMP socket
-                let socket_icmp = if ipv6 {
-                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
-                } else {
-                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv4())).unwrap())
-                };
-                socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap(); // TODO replace icmp socket with pcap
-
                 let task_type: u32 = start.task_type;
-
                 // Start listening thread
-                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type, filter);
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter);
 
                 // Start sending thread
                 if probing {
