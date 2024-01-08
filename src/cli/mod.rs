@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::error::Error;
 use rand::seq::SliceRandom;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::{fs, io};
-use std::io::{BufRead, BufReader, Stdout, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
@@ -274,7 +274,7 @@ impl CliClient {
         let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
 
         // Temporary output file (for writing live results to)
-        let mut temp_file = File::create("temp").expect("Unable to create file");
+        let temp_file = File::create("temp").expect("Unable to create file");
 
         // Start thread that writes results to file
         write_results(rx_r, cli, temp_file, task_type);
@@ -282,6 +282,7 @@ impl CliClient {
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
+                tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
                 graceful = true;
                 break;
             }
@@ -292,9 +293,8 @@ impl CliClient {
 
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
-
-            // TODO add header to the top of the file when all results are written
         }
+
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -312,8 +312,6 @@ impl CliClient {
         let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
-
-        // TODO make sure we are finished writing results
 
         // Output file
         let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
@@ -345,6 +343,8 @@ impl CliClient {
         }
 
         file.flush()?;
+
+        tx_r.closed().await; // Wait for all results to be written to file
 
         // Output file
         let mut temp_file = File::open("temp").expect("Unable to create file");
@@ -486,6 +486,10 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
     tokio::spawn(async move {
         // Receive tasks from the outbound channel
         while let Some(task_result) = rx.recv().await {
+            if task_result == TaskResult::default() {
+                break;
+            }
+
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
             for result in verfploeter_results {
                 let result = get_result(result, task_result.client_id, task_type);
@@ -494,6 +498,7 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
             }
             wtr_file.flush().expect("Failed to flush file"); // TODO how often should this flush?
         }
+        rx.close();
     });
 }
 
