@@ -285,7 +285,7 @@ impl ICMPPacket {
         let mut v4_bytes: Vec<u8> = (&v4_packet).into();
         v4_bytes.extend(INFO_URL.bytes());
 
-        let mut cursor = Cursor::new(v4_bytes);
+        let mut cursor = Cursor::new(v4_bytes.clone());
 
         cursor.set_position(22); // Skip v4header, icmp_type (1 byte) and code (1 byte)
         cursor.write_u16::<LittleEndian>(icmp_checksum).unwrap();
