@@ -232,7 +232,7 @@ impl Client {
                 if ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
-                    filter.push_str(" and tcp and (src port >= 63853)");
+                    filter.push_str(" and tcp");
                 }
                 Protocol::TCP
             },
@@ -274,9 +274,6 @@ impl Client {
         };
 
         filter.push_str(&*filter_parts.join(" or"));
-
-        println!("[Client] Listening with filter: {}", filter);
-
 
         // Start listening thread and sending thread
         match start.task_type {
