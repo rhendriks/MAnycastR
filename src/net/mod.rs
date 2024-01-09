@@ -268,31 +268,12 @@ impl ICMPPacket {
         // Turn everything into a vec of bytes and calculate checksum
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
-        let icmp_checksum = ICMPPacket::calc_checksum(&bytes);
+        packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
-        // // Put the checksum at the right position in the packet
-        // let mut cursor = Cursor::new(bytes);
-        // cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-
-        let v4_packet = IPv4Packet {
-            ttl: 64,
-            source_address: Ipv4Addr::new(0, 0, 0, 0),
-            destination_address: Ipv4Addr::new(0, 0, 0, 0),
-            payload: PacketPayload::ICMP { value: packet },
-        };
-
-        let mut v4_bytes: Vec<u8> = (&v4_packet).into();
-        v4_bytes.extend(INFO_URL.bytes());
-
-        let mut cursor = Cursor::new(v4_bytes.clone());
-
-        cursor.set_position(22); // Skip v4header, icmp_type (1 byte) and code (1 byte)
-        cursor.write_u16::<LittleEndian>(icmp_checksum).unwrap();
-
-        let v4_checksum = IPv4Packet::calc_checksum(&v4_bytes);
-        cursor.set_position(10); // Skip source address (4 bytes), destination address (4 bytes), ttl (1 byte), protocol (1 byte)
-        cursor.write_u16::<NetworkEndian>(v4_checksum).unwrap();
+        // Put the checksum at the right position in the packet
+        let mut cursor = Cursor::new(bytes);
+        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
+        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
 
         // Return the vec
         cursor.into_inner()
