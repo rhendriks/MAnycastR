@@ -232,7 +232,7 @@ impl Client {
                 if ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
-                    filter.push_str(" and tcp and src port > 63852");
+                    filter.push_str(" and tcp and (src port >= 63853)");
                 }
                 Protocol::TCP
             },
