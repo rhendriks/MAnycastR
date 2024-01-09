@@ -207,6 +207,24 @@ impl From<&[u8]> for ICMPPacket {
     }
 }
 
+impl IPv4Packet {
+    // Calculate the ICMP Checksum. TODO ICMP and v4 use the same checksum, share this function
+    fn calc_checksum(buffer: &[u8]) -> u16 {
+        let mut cursor = Cursor::new(buffer);
+        let mut sum: u32 = 0;
+        while let Ok(word) = cursor.read_u16::<LittleEndian>() {
+            sum += u32::from(word);
+        }
+        if let Ok(byte) = cursor.read_u8() {
+            sum += u32::from(byte);
+        }
+        while sum >> 16 > 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        !sum as u16
+    }
+}
+
 /// Convert ICMp4Packet into a vector of bytes
 impl Into<Vec<u8>> for &ICMPPacket {
     fn into(self) -> Vec<u8> {
@@ -253,24 +271,26 @@ impl ICMPPacket {
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
         // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        // let mut cursor = Cursor::new(bytes);
+        // cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
+        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
 
-        // let v4_packet = IPv4Packet {
-        //     ttl: 64,
-        //     source_address: Ipv4Addr::new(0, 0, 0, 0),
-        //     destination_address: Ipv4Addr::new(0, 0, 0, 0),
-        //     payload: PacketPayload::ICMP { value: packet },
-        // };
-        //
-        // let mut v4_bytes: Vec<u8> = (&v4_packet).into();
-        // v4_bytes.extend(INFO_URL.bytes());
-        // TODO v4 checksum
+        let v4_packet = IPv4Packet {
+            ttl: 64,
+            source_address: Ipv4Addr::new(0, 0, 0, 0),
+            destination_address: Ipv4Addr::new(0, 0, 0, 0),
+            payload: PacketPayload::ICMP { value: packet },
+        };
+
+        let mut v4_bytes: Vec<u8> = (&v4_packet).into();
+        v4_bytes.extend(INFO_URL.bytes());
+        let v4_checksum = IPv4Packet::calc_checksum(&v4_bytes);
+        let mut cursor = Cursor::new(v4_bytes);
+        cursor.set_position(10); // Skip source address (4 bytes), destination address (4 bytes), ttl (1 byte), protocol (1 byte)
+        cursor.write_u16::<NetworkEndian>(v4_checksum).unwrap();
 
         // Return the vec
         cursor.into_inner()
-        // v4_bytes
     }
 
     /// Calculate the ICMP Checksum.
