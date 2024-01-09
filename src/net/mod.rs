@@ -83,6 +83,36 @@ impl From<&[u8]> for IPv4Packet {
     }
 }
 
+/// Convert IPv4Packet into a vector of bytes
+impl Into<Vec<u8>> for &IPv4Packet {
+    fn into(self) -> Vec<u8> {
+        let (payload_type, payload) = match &self.payload {
+            PacketPayload::ICMP { value } => (1, value.into()),
+            PacketPayload::UDP { value } => (17, value.into()),
+            PacketPayload::TCP { value } => (6, value.into()),
+            PacketPayload::Unimplemented => (0, vec![]),
+        };
+
+        let mut wtr = vec![];
+        wtr.write_u8(0x45).expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
+        wtr.write_u8(0x00).expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Identification
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
+        wtr.write_u8(self.ttl).expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
+        wtr.write_u8(payload_type).expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum TODO
+        wtr.write_u32::<NetworkEndian>(self.source_address.into())
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
+        wtr.write_u32::<NetworkEndian>(self.destination_address.into())
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
+
+        wtr.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+
+        wtr
+    }
+}
+
 /// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeader {
@@ -222,8 +252,7 @@ impl ICMPPacket {
         bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
+        // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
         cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
         cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
