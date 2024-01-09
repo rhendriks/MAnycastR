@@ -118,19 +118,17 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     // TODO try to send packets using pcap
-                    // TODO try sending entire packets (including ip header)
                     // Send out packet
-                    socket.send(&icmp).expect("Failed to send ICMP packet");
-                    // if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
-                    //     &icmp,
-                    //     &bind_addr_dest
-                    //         .to_string()
-                    //         .parse::<SocketAddr>()
-                    //         .expect("Failed to parse outbound socket address")
-                    //         .into(),
-                    // ) {
-                    //     error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
-                    // }
+                    if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
+                        &icmp,
+                        &bind_addr_dest
+                            .to_string()
+                            .parse::<SocketAddr>()
+                            .expect("Failed to parse outbound socket address")
+                            .into(),
+                    ) {
+                        error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
+                    }
                 }
             }
             debug!("finished ping");
