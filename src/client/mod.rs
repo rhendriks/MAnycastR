@@ -220,11 +220,11 @@ impl Client {
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
                 bind_address = format!("{}:{}", bind_address, self.source_port);
-                if ipv6 {
-                    filter.push_str(" and (icmp6 or ip6[6] == 17)");
-                } else {
-                    filter.push_str(" and (udp or icmp)");
-                }
+                // if ipv6 {
+                //     filter.push_str(" and (icmp6 or ip6[6] == 17)");
+                // } else {
+                //     filter.push_str(" and (udp or icmp)");
+                // }
                 Protocol::UDP
             },
             3 => {
@@ -254,6 +254,17 @@ impl Client {
                 client_sources.iter()
                     .map(|origin| format!(" dst host {}", IP::from(origin.clone().source_address.unwrap()).to_string()))
                     .collect()
+            },
+            2 => {
+                if ipv6 {
+                    client_sources.iter()
+                        .map(|origin| format!(" (ip6[6] == 6 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.clone().source_address.unwrap()).to_string())
+                        .collect()
+                } else {
+                    client_sources.iter()
+                        .map(|origin| format!(" (udp and dst host {} and src port 53) or (icmp and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.clone().source_address.unwrap()).to_string())
+                        .collect()
+                }
             },
             _ => {
                 client_sources.iter()
