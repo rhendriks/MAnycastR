@@ -198,13 +198,13 @@ impl Client {
             ipv6 = true;
             filter.push_str("ip6");
             bind_address = format!("[{}]", source_addr.to_string());
-            Domain::ipv6()
+            Domain::IPV6
         } else {
             println!("[Client] Using IPv4");
             bind_address = format!("{}", source_addr.to_string());
             ipv6 = false;
             filter.push_str("ip");
-            Domain::ipv4()
+            Domain::IPV4
         };
 
         let protocol = match start.task_type {
@@ -212,10 +212,10 @@ impl Client {
                 bind_address = format!("{}:{}", bind_address, "0");
                 if ipv6 {
                     filter.push_str(" and icmp6");
-                    Protocol::icmpv6()
+                    Protocol::ICMPV6
                 } else {
                     filter.push_str(" and icmp");
-                    Protocol::icmpv4()
+                    Protocol::ICMPV4
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
@@ -225,7 +225,7 @@ impl Client {
                 } else {
                     filter.push_str(" and (udp or icmp)");
                 }
-                Protocol::udp()
+                Protocol::UDP
             },
             3 => {
                 bind_address = format!("{}:{}", bind_address, self.source_port);
@@ -234,13 +234,13 @@ impl Client {
                 } else {
                     filter.push_str(" and tcp and src port > 63852");
                 }
-                Protocol::tcp()
+                Protocol::TCP
             },
             _ => panic!("Invalid task type"),
         };
 
         // Create the socket to send from
-        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).expect("Unable to create a socket"));
+        let socket = Arc::new(Socket::new(domain, Type::RAW, Some(protocol)).expect("Unable to create a socket"));
 
         socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
         // socket.set_send_buffer_size().expect("Unable to set send buffer size"); TODO
