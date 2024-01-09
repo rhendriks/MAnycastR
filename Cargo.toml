@@ -15,7 +15,7 @@ log = "0.4.17"
 prettytable-rs = "0.10.0"
 prost = "0.11.6"
 ratelimit_meter = "5.0.0"
-socket2 = "~0.3"
+socket2 = { version = "0.5.5", features = ["all"] }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = "0.8.3"
 rand = "0.8"
