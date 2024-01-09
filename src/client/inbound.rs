@@ -160,6 +160,9 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                         continue
                     },
                 };
+                println!("Received packet: {:?}", packet);
+                println!("Packet data: {:?}", packet.data);
+                println!("Packet protocol type: {:?}", packet.data[23]);
 
                 // UDP
                 let result = if v6 {
@@ -173,7 +176,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                         }
                     }
                 } else {
-                    if packet.data[9] == 17 {
+                    if packet.data[23] == 17 {
                         parse_udpv4(&packet.data[14..], task_type)
                     } else {
                         if task_type == 2 {

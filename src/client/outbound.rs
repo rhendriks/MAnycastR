@@ -118,6 +118,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     // TODO try to send packets using pcap
+                    // TODO try sending entire packets (including ip header)
                     // Send out packet
                     if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
                         &icmp,
@@ -132,8 +133,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                 }
             }
             debug!("finished ping");
-
-            // TODO close socket
             println!("[Client outbound] Outbound thread finished");
         }
     });
