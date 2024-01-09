@@ -1,6 +1,6 @@
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
+use crate::net::{ICMPPacket, IPv4Packet, TCPPacket, UDPPacket};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;

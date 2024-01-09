@@ -160,19 +160,17 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                         continue
                     },
                 };
-                println!("Received packet: {:?}", packet);
-                println!("Packet data: {:?}", packet.data);
-                println!("Packet protocol type: {:?}", packet.data[23]);
+
 
                 // UDP
                 let result = if v6 {
                     if packet.data[20] == 17 {
                         parse_udpv6(&packet.data[14..], task_type)
                     } else {
-                        if task_type == 2 {
+                        if task_type == 2 { // We only parse icmp responses to DNS requests for A records
                             parse_icmp_dest_unreachable(&packet.data[14..], true)
                         } else {
-                            None // We only parse icmp responses to DNS requests for A records
+                            None
                         }
                     }
                 } else {
@@ -182,7 +180,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                         if task_type == 2 {
                             parse_icmp_dest_unreachable(&packet.data[14..], false)
                         } else {
-                            None // We only parse icmp responses to DNS requests for A records
+                            None
                         }
                     }
                 };
