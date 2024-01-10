@@ -5,7 +5,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("Failed to compile protos: {:?}", e));
 
     println!("cargo:rerun-if-env-changed=LIBPCAP_DIR");
-    println!("cargo:rustc-link-search=native={}", "/lib/x86_64-linux-gnu/libpcap.so.0.8");
+    println!("cargo:rustc-link-search=native={}", "/lib/x86_64-linux-gnu/libpcap.a");
     // println!("cargo:rustc-link-lib=pcap");
     println!("cargo:rustc-link-lib=static=pcap")
 
