@@ -16,6 +16,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use local_ip_address::local_ip;
 
 mod inbound;
 mod outbound;
@@ -148,7 +149,7 @@ impl Client {
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
-    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool, igreedy: bool) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -170,7 +171,17 @@ impl Client {
         let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if self.source_address == IP::None {
+        let source_addr: IP = if igreedy {
+            let unicast_ip = IP::from(local_ip().expect("Unable to get local unicast IP address").to_string());
+
+            client_sources = vec![Origin {
+                source_address: Some(Address::from(unicast_ip.clone())),
+                source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
+            }]; // We only listen on our own unicast address
+
+            println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
+            unicast_ip
+        } else if self.source_address == IP::None {
             IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
         } else {
             client_sources.append(&mut vec![
@@ -404,8 +415,8 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id) = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
-                    Data::Start(start) => (start.active, start.task_id),
+                let (is_probing, task_id, unicast) = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
+                    Data::Start(start) => (start.active, start.task_id, start.unicast),
                     _ => { // First task is not a start task
                         println!("[Client] Received non-start packet for init");
                         continue
@@ -420,11 +431,11 @@ impl Client {
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
-                    self.init(task, client_id, Some(outbound_rx_f), true);
+                    self.init(task, client_id, Some(outbound_rx_f), true, unicast);
                 } else { // This client is not probing
                     f_tx = None;
                     self.outbound_tx = None;
-                    self.init(task, client_id, None, false);
+                    self.init(task, client_id, None, false, unicast);
                 }
             }
         }

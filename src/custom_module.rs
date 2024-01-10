@@ -14,7 +14,7 @@ impl Display for Address {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[derive(PartialEq)]
 pub enum IP {
     V4(Ipv4Addr),
