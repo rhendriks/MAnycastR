@@ -7,7 +7,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LIBPCAP_DIR");
     println!("cargo:rustc-link-search=native={}", "/usr/lib/x86_64-linux-gnu/libpcap.so");
     // println!("cargo:rustc-link-lib=pcap");
-    println!("cargo:rustc-link-lib=static=lpcap")
+    println!("cargo:rustc-link-lib=static=pcap")
 
 
     // // Link against libpcap if LIBPCAP_DIR is set
