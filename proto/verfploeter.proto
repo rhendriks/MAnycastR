@@ -46,10 +46,11 @@ message ScheduleTask {
   repeated uint32 clients = 2;
   Address source_address = 3; // TODO let CLI set the port number
   uint32 task_type = 4;
+  bool unicast = 5;
   oneof data {
-    Ping ping = 5;
-    UDP udp = 6;
-    TCP tcp = 7;
+    Ping ping = 6;
+    UDP udp = 7;
+    TCP tcp = 8;
   }
 }
 
@@ -103,7 +104,8 @@ message Start {
   uint32 task_id = 3;
   uint32 task_type = 4;
   Address source_address = 5; // TODO remove this and add the CLI's source address to origins
-  repeated Origin origins = 6;
+  bool unicast = 6;
+  repeated Origin origins = 7;
 }
 
 // An end message, indicates the client should stop sending out probes
