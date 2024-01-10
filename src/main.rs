@@ -259,7 +259,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false))
                     .arg(Arg::with_name("UNICAST").help("Probe the targets using the unicast address of each client")
                         .takes_value(false)
-                        .long("live")
+                        .long("unicast")
                         .required(false))
 
                     // TODO option to perform manycast for all 3 protocols on a hitlist
