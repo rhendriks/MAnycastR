@@ -163,7 +163,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast).await
     } else {
         panic!("Unrecognized command");
     }
@@ -244,7 +244,7 @@ impl CliClient {
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     ///
     /// * 'live' - if true results will be checked for anycast targets as they come in.
-    async fn do_task_to_server(&mut self, task: ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(&mut self, task: ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>, unicast: bool) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
 
@@ -342,7 +342,11 @@ impl CliClient {
         } else {
             file.write_all(b"# Completed measurement\n")?;
         }
-        file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
+        if unicast {
+            file.write_all("# Default source address: Unicast\n".as_ref())?;
+        } else {
+            file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
+        }
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
         } else {
