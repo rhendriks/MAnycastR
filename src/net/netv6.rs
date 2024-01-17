@@ -184,14 +184,17 @@ impl ICMPPacket {
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
             payload: PacketPayload::ICMP {
-                value: packet,
+                value: packet.into(),
             },
         };
+
+        let result_bytes: Vec<u8> = v6_packet.into();
+        println!("Result bytes: {:?}", result_bytes);
 
         // v6 has no checksum, so we don't need to calculate it
 
         // Return the bytes
-        v6_packet.into()
+        result_bytes
     }
 }
 
