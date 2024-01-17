@@ -173,6 +173,7 @@ impl ICMPPacket {
         bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
+        println!("Checksum: {:?}", ICMPPacket::calc_checksum(&bytes));
         println!("Packet bytes: {:?}", bytes);
         println!("Packet: {:?}", packet);
 
