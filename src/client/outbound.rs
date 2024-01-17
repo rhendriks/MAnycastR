@@ -185,7 +185,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                     };
                 }
 
-                let udp_task = match task { // TODO
+                let udp_task = match task {
                     End(_) => {
                         break
                     }, // An End task means the measurement has finished
@@ -300,7 +300,7 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                     };
                 }
 
-                let tcp_task = match task { // TODO
+                let tcp_task = match task {
                     End(_) => {
                         break
                     }, // An End task means the measurement has finished

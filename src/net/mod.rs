@@ -209,7 +209,7 @@ impl From<&[u8]> for ICMPPacket {
 
 impl IPv4Packet {
     // Calculate the ICMP Checksum. TODO ICMP and v4 use the same checksum, share this function
-    fn calc_checksum(buffer: &[u8]) -> u16 {
+    fn calc_checksum(buffer: &[u8]) -> u16 { // TODO make sure to only call this on the header, v4 does not calculate the checksum over the payload (including protocol header below it)
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
         while let Ok(word) = cursor.read_u16::<LittleEndian>() {
@@ -592,7 +592,7 @@ impl UDPPacket {
 
     /// Create a UDP packet with a CHAOS TXT record request.
     pub fn chaos_request(source_address: IP, destination_address: IP,
-                         source_port: u16, body: Vec<u8>, client_id: u8) -> Vec<u8> { // TODO test
+                         source_port: u16, body: Vec<u8>, client_id: u8) -> Vec<u8> {
         let destination_port = 53u16;
 
         let dns_body = Self::create_chaos_request(client_id);
@@ -662,9 +662,9 @@ impl UDPPacket {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
         }
-        dns_body.push(0); // Terminate the QNAME //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record) //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS) //TODO
+        dns_body.push(0); // Terminate the QNAME
+        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS)
 
 
         dns_body
