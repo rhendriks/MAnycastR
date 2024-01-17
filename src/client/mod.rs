@@ -171,7 +171,7 @@ impl Client {
         let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if igreedy {
+        let source_addr: IP = if igreedy { // TODO add v6 options to get local_ipv6 instead (for this measurement we'll first need to improve the hitlist to contain a single address per /48)
             let unicast_ip = IP::from(local_ip().expect("Unable to get local unicast IP address").to_string());
 
             client_sources = vec![Origin {
