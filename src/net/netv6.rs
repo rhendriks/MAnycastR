@@ -13,7 +13,7 @@ pub struct IPv6Packet {
     pub payload_length: u16,      // 16-bit Payload Length
     pub next_header: u8,         // 8-bit Next Header
     pub hop_limit: u8,           // 8-bit Hop Limit
-    pub source_address: Ipv6Addr,
+    pub source_address: Ipv6Addr, // TODO why not u128 for these addresses?
     pub destination_address: Ipv6Addr,
     pub payload: PacketPayload,
 }
@@ -89,15 +89,65 @@ impl From<&[u8]> for IPv6Packet {
     }
 }
 
+impl Into<Vec<u8>> for IPv6Packet {
+    fn into(self) -> Vec<u8> {
+        let mut wtr = vec![];
+        // Write traffic class 0x60 and flow label 0x000000
+        wtr.write_u32::<NetworkEndian>(0x60000000)
+            .expect("Unable to write to byte buffer for IPv6Packet");
+
+        wtr.write_u16::<NetworkEndian>(self.payload_length)
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u8(self.next_header)
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u8(self.hop_limit)
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[0])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[1])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[2])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[3])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[4])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[5])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[6])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[7])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[0])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[1])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[2])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[3])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[4])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[5])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[6])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[7])
+            .expect("Unable to write to byte buffer for IPv6Packet");
+
+        wtr
+    }
+}
+
 impl ICMPPacket {
-    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
+    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u128, destination_address: u128) -> Vec<u8> { // TODO add ipv6 header ourselves
         let mut packet = ICMPPacket {
             icmp_type: 128,
             code: 0,
             checksum: 0,
             identifier,
             sequence_number,
-            body,
+            body: body.clone(),
         };
 
         // Turn everything into a vec of bytes and calculate checksum
@@ -105,14 +155,21 @@ impl ICMPPacket {
         bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
+        let v6_packet = IPv6Packet {
+            payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
+            next_header: 58, // ICMPv6
+            hop_limit: 64,
+            source_address: Ipv6Addr::from(source_address),
+            destination_address: Ipv6Addr::from(destination_address),
+            payload: PacketPayload::ICMP {
+                value: packet,
+            },
+        };
 
-        // Return the vec
-        cursor.into_inner()
+        // v6 has no checksum, so we don't need to calculate it
+
+        // Return the bytes
+        v6_packet.into()
     }
 }
 

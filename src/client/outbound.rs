@@ -112,7 +112,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     let icmp = if ipv6 {
-                        ICMPPacket::echo_request_v6(1, 2, bytes)
+                        ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into())
                     } else {
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
