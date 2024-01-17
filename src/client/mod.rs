@@ -149,7 +149,7 @@ impl Client {
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
-    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool, igreedy: bool) {
+    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool, igreedy: bool) { // TODO we should keep all flow-fields static to avoid per-flow load-balancing from creating false positives
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -371,7 +371,7 @@ impl Client {
                     None => {
                         // A task with data None identifies the end of a measurement
                         if task.data == None { // TODO use the end message with an abort/finished flag
-                            println!("[Client] Received measurement finished from Server"); // TODO what if we receive this whilst we still have buffered messages to send / parse (due to CPU usage or network congestion)
+                            println!("[Client] Received measurement finished from Server");
                             // Close the inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
@@ -382,7 +382,7 @@ impl Client {
                                 // Send the task to the prober
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
                                 })).await.expect("Unable to send task_finished to outbound thread");
-                            } // TODO simplify above expression
+                            }
                         }
                     }
                     Some(Data::Start(_)) => {
@@ -403,7 +403,7 @@ impl Client {
                         }
                     }
                     Some(task) => {
-                        // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
+                        // outbound_tx will be None if this client is not probing
                         if self.outbound_tx.is_some() {
                             // Send the task to the prober
                             self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");

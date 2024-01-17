@@ -146,10 +146,10 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
 ///
 /// # Arguments
 ///
-/// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
+/// * 'buffer' - the UDP/TCP packet as bytes (without the IPv6 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 {
+pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 { // TODO wrong checksum since a recent change
     let packet_len = buffer.len();
     let mut sum = 0u32;
 

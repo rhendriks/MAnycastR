@@ -41,7 +41,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
 
-    // TODO listening thread cannot keep up with high probing rates, multi-thread this (currently pcaps will listen to the same packets (perhaps use modulo with a counter to split the work))
+    // TODO listening thread cannot keep up with high probing rates (CPU utilization is 100%)
     thread::spawn({
         let rq_receiver = rq.clone();
         let exit_flag = Arc::clone(&exit_flag);
@@ -357,7 +357,7 @@ fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, clie
 }
 
 fn get_pcap(filter: String) -> Capture<Active> {
-    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock)
+    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
@@ -435,7 +435,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         let source_address = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
         let destination_address = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
-        let receive_time = SystemTime::now() // TODO can get receive time from the pcap packet header
+        let receive_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -627,7 +627,7 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
 
             // 3.3 DNS header
             if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
-                let dns_record = DNSRecord::from(udp_header.body.as_slice()); // TODO failed to fill whole buffer
+                let dns_record = DNSRecord::from(udp_header.body.as_slice());
                 sender_client_id = ((dns_record.transaction_id >> 8) & 0xFF) as u32;
                 // 3.4 DNS body
                 let parts: Vec<&str> = dns_record.domain.split('.').next().expect("DNS answer did not contain dots").split('-').collect();

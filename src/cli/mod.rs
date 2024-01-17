@@ -53,7 +53,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let igreedy: Option<String> = if matches.is_present("LIVE") {
             let path = matches.value_of("LIVE");
 
-            if let Ok(metadata) = fs::metadata(path.unwrap()) { // TODO
+            if let Ok(metadata) = fs::metadata(path.unwrap()) { // TODO igreedy
                 println!("metadata: {:?}", metadata);
 
                 println!("Path: {}", path.unwrap());
@@ -299,6 +299,7 @@ impl CliClient {
         // Start thread that writes results to file
         write_results(rx_r, cli, temp_file, task_type);
 
+        let mut replies_count = 0;
         while let Ok(Some(task_result)) = stream.message().await {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
@@ -311,6 +312,7 @@ impl CliClient {
                 tx.send(task_result.clone()).unwrap();
             }
 
+            replies_count += 1;
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
         }
@@ -322,6 +324,7 @@ impl CliClient {
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
         println!("[CLI] Waited {:.6} seconds for results.", length);
         println!("[CLI] Time of end measurement {}", Local::now().format("%H:%M:%S"));
+        println!("[CLI] Number of replies captured: {}", replies_count);
 
         // If the stream closed during a measurement
         if !graceful { println!("[CLI] Measurement ended prematurely!"); }
@@ -333,7 +336,7 @@ impl CliClient {
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
 
-        // Output file
+        // Output file // TODO add option to write as a compressed file
         let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
 
         // Write metadata of measurement
