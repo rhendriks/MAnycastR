@@ -18,6 +18,17 @@ pub struct IPv6Packet {
     pub payload: PacketPayload,
 }
 
+impl Into<Vec<u8>> for PacketPayload {
+    fn into(self) -> Vec<u8> {
+        match self {
+            PacketPayload::ICMP { value } => (&value).into(),
+            PacketPayload::UDP { value } => (&value).into(),
+            PacketPayload::TCP { value } => (&value).into(),
+            PacketPayload::Unimplemented => vec![],
+        }
+    }
+}
+
 /// Convert list of u8 (i.e. received bytes) into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
@@ -135,6 +146,13 @@ impl Into<Vec<u8>> for IPv6Packet {
         wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[7])
             .expect("Unable to write to byte buffer for IPv6Packet");
 
+        let payload_bytes: Vec<u8> = self.payload.into();
+        wtr.write_all(&*payload_bytes).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+
+        // wtr.write(self.payload.into())
+        //     .expect("Unable to write to byte buffer for IPv6Packet");
+        // wtr.extend(self.payload.into());
+
         wtr
     }
 }
@@ -154,6 +172,9 @@ impl ICMPPacket {
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
+
+        println!("Packet bytes: {:?}", bytes);
+        println!("Packet: {:?}", packet);
 
         let v6_packet = IPv6Packet {
             payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
