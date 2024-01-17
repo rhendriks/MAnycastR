@@ -194,7 +194,7 @@ impl ICMPPacket {
         // v6 has no checksum, so we don't need to calculate it
 
         // Return the bytes
-        result_bytes
+        result_bytes // TODO socket is writing another ipv6 header ontop this result
     }
 }
 

@@ -119,6 +119,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
                     // TODO try to send packets using pcap
                     // Send out packet
+                    socket.set_header_included(true).expect("Failed to set header included");
                     if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
                         &icmp,
                         &bind_addr_dest
