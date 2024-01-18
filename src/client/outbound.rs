@@ -4,7 +4,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
-use pcap::{Capture, Device};
+use pcap::{Capture, Device, Linktype};
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
@@ -37,7 +37,9 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
     thread::spawn({
         move || {
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            println!("Using interface: {}", main_interface.name);
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            cap.set_datalink(Linktype::RAW).expect("Failed to set datalink");
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -120,10 +122,14 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
 
-                    // TODO try to send packets using pcap
+                    // TODO ethernet header
+                    println!("Link type: {:?}", cap.get_datalink());
+                    for byte in icmp.clone() {
+                        print!("{:02x}", byte);
+                    }
                     // Send out packet
-
                     cap.sendpacket(icmp).expect("Failed to send ICMP packet");
+                    println!("Sent ICMP packet");
 
                     // let (socket, _) = socket.accept_raw().expect("Failed to accept raw socket");
                     // socket.set_header_included(true).expect("Failed to set header included");
