@@ -180,19 +180,24 @@ impl ICMPPacket {
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header.write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        psuedo_header.write_u32::<NetworkEndian>(8 as u32)
+        psuedo_header.write_u32::<NetworkEndian>(8)// ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
-        psuedo_header.write_u8(58).expect("Unable to write to buffer"); // ICMPv6
-        psuedo_header.extend(bytes.clone());
+        // Write 24 zeroes followed with next header (58)
+        psuedo_header.write_u8(0).unwrap();
+        psuedo_header.write_u8(0).unwrap();
+        psuedo_header.write_u8(0).unwrap();
+        psuedo_header.write_u8(58).unwrap();
+        psuedo_header.extend(bytes.clone()); // Add the ICMP packet bytes
         // bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
 
         println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
-        println!("Packet bytes: {:?}", bytes);
-        println!("Packet: {:?}", packet);
 
-        println!("Body: {:?}", body);
-        println!("Body lenth: {:?}", body.len());
+        println!("Checksum bytes: ");
+        for byte in psuedo_header.iter() {
+            print!("{:02X} ", byte);
+        }
+
 
         let v6_packet = IPv6Packet {
             // payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
