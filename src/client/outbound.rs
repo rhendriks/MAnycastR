@@ -122,25 +122,26 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     };
 
 
-                    match get_mac_address() {
+                    let ma_bytes = match get_mac_address() {
                         Ok(Some(ma)) => {
                             println!("MAC addr = {}", ma);
                             println!("bytes = {:?}", ma.bytes());
+                            ma.bytes()
                         }
-                        Ok(None) => println!("No MAC address found."),
-                        Err(e) => println!("{:?}", e),
-                    }
+                        Ok(None) => panic!("No MAC address found."),
+                        Err(e) => panic!("{:?}", e),
+                    };
 
 
                     // TODO ethernet header
-                    let eth_source: Vec<u8> = vec![0x88, 0x90, 0x09, 0x81, 0x0c, 0x0d];
-                    let eth_dest: Vec<u8> = vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f]; // Found in /sys/class/net/ens192/address
+                    // let eth_source: Vec<u8> = vec![0x88, 0x90, 0x09, 0x81, 0x0c, 0x0d];
+                    // let eth_dest: Vec<u8> = vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f]; // Found in /sys/class/net/ens192/address
                     let ethertype_ipv6: u16 = 0x86DD; // EtherType value for IPv6
                     let ethertype_ipv4: u16 = 0x0800; // EtherType value for IPv4
 
                     let mut ethernet_header: Vec<u8> = Vec::new();
-                    ethernet_header.extend_from_slice(&eth_source);
-                    ethernet_header.extend_from_slice(&eth_dest);
+                    ethernet_header.extend_from_slice(&ma_bytes);
+                    ethernet_header.extend_from_slice(&ma_bytes);
                     if ipv6 {
                         ethernet_header.extend_from_slice(&ethertype_ipv6.to_be_bytes());
                     } else {
@@ -151,9 +152,6 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     packet.extend_from_slice(&ethernet_header);
                     packet.extend_from_slice(&icmp); // ip header included
 
-                    for byte in packet.clone() {
-                        print!("{:02x}", byte);
-                    }
                     // Send out packet
                     cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
