@@ -165,7 +165,8 @@ impl ICMPPacket {
             checksum: 0,
             identifier,
             sequence_number,
-            body: body.clone(),
+            // body: body.clone(),
+            body: vec![],
         };
 
         // Turn everything into a vec of bytes and calculate checksum
