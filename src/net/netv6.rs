@@ -188,7 +188,8 @@ impl ICMPPacket {
             },
         };
 
-        let result_bytes: Vec<u8> = v6_packet.into();
+        let mut result_bytes: Vec<u8> = v6_packet.into();
+        result_bytes.extend(INFO_URL.bytes());
         println!("Result bytes: {:?}", result_bytes);
 
         // v6 has no checksum, so we don't need to calculate it
