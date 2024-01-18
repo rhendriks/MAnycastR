@@ -4,6 +4,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
+use pcap::{Capture, Device};
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
@@ -35,6 +36,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
     thread::spawn({
         move || {
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -119,18 +122,21 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
                     // TODO try to send packets using pcap
                     // Send out packet
-                    let (socket, _) = socket.accept_raw().expect("Failed to accept raw socket");
-                    socket.set_header_included(true).expect("Failed to set header included");
-                    if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
-                        &icmp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
-                    }
+
+                    cap.sendpacket(icmp).expect("Failed to send ICMP packet");
+
+                    // let (socket, _) = socket.accept_raw().expect("Failed to accept raw socket");
+                    // socket.set_header_included(true).expect("Failed to set header included");
+                    // if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
+                    //     &icmp,
+                    //     &bind_addr_dest
+                    //         .to_string()
+                    //         .parse::<SocketAddr>()
+                    //         .expect("Failed to parse outbound socket address")
+                    //         .into(),
+                    // ) {
+                    //     error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
+                    // }
                 }
             }
             debug!("finished ping");
