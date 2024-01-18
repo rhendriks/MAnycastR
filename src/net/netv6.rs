@@ -165,8 +165,7 @@ impl ICMPPacket {
             checksum: 0,
             identifier,
             sequence_number,
-            // body: body.clone(),
-            body: vec![],
+            body: body.clone(),
         };
 
         println!("Identifier: {:?}", identifier);
@@ -188,7 +187,7 @@ impl ICMPPacket {
         psuedo_header.write_u8(0).unwrap();
         psuedo_header.write_u8(58).unwrap();
         psuedo_header.extend(bytes.clone()); // Add the ICMP packet bytes
-        // bytes.extend(INFO_URL.bytes());
+        psuedo_header.extend(INFO_URL.bytes()); // Add the INFO_URL bytes
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
 
         println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
@@ -200,8 +199,8 @@ impl ICMPPacket {
 
 
         let v6_packet = IPv6Packet {
-            // payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
-            payload_length: 8,
+            payload_length: 8 + body.len() as u16 + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
+            // payload_length: 8,
             next_header: 58, // ICMPv6
             hop_limit: 64,
             source_address: Ipv6Addr::from(source_address),
@@ -212,10 +211,8 @@ impl ICMPPacket {
         };
 
         let mut result_bytes: Vec<u8> = v6_packet.into();
-        // result_bytes.extend(INFO_URL.bytes());
+        result_bytes.extend(INFO_URL.bytes());
         println!("Result bytes: {:?}", result_bytes);
-
-        // v6 has no checksum, so we don't need to calculate it
 
         // Return the bytes
         result_bytes
