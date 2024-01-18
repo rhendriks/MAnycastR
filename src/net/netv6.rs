@@ -191,7 +191,7 @@ impl ICMPPacket {
         // bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum_v6(psuedo_header.as_slice());
 
-        println!("Checksum: {:?}", ICMPPacket::calc_checksum_v6(psuedo_header.as_slice()));
+        println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
 
         println!("Checksum bytes: ");
         for byte in psuedo_header.iter() {
