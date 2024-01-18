@@ -1,7 +1,6 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
-use byteorder::LittleEndian;
 use super::{ICMPPacket, INFO_URL, PacketPayload};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -168,9 +167,6 @@ impl ICMPPacket {
             body: body.clone(),
         };
 
-        println!("Identifier: {:?}", identifier);
-        println!("Sequence number: {:?}", sequence_number);
-
         // Turn everything into a vec of bytes and calculate checksum
         let bytes: Vec<u8> = (&packet).into();
 
@@ -190,17 +186,12 @@ impl ICMPPacket {
         psuedo_header.extend(INFO_URL.bytes()); // Add the INFO_URL bytes
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
 
-        println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
-
-        println!("Checksum bytes: ");
         for byte in psuedo_header.iter() {
             print!("{:02X} ", byte);
         }
 
-
         let v6_packet = IPv6Packet {
             payload_length: 8 + body.len() as u16 + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
-            // payload_length: 8,
             next_header: 58, // ICMPv6
             hop_limit: 64,
             source_address: Ipv6Addr::from(source_address),
@@ -212,7 +203,6 @@ impl ICMPPacket {
 
         let mut result_bytes: Vec<u8> = v6_packet.into();
         result_bytes.extend(INFO_URL.bytes());
-        println!("Result bytes: {:?}", result_bytes);
 
         // Return the bytes
         result_bytes

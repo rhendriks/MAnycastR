@@ -292,7 +292,7 @@ impl Client {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
+                    perform_ping(client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
                 }
             }
             2 | 4 => {
