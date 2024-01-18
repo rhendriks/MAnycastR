@@ -312,7 +312,7 @@ impl CliClient {
                 tx.send(task_result.clone()).unwrap();
             }
 
-            replies_count += 1;
+            replies_count += task_result.result_list.len();
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
         }
