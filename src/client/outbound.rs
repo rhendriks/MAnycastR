@@ -13,9 +13,7 @@ use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 use std::process::{Command, Stdio};
-
 extern crate mac_address;
-
 use mac_address::get_mac_address;
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
@@ -42,6 +40,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
 
     thread::spawn({
         move || {
+            let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             println!("Using interface: {}", main_interface.name);
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
@@ -123,62 +122,8 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                         ICMPPacket::echo_request(1, 2, bytes)
                     };
 
-                    // Source MAC address
-                    let mac_src = match get_mac_address() {
-                        Ok(Some(ma)) => {
-                            println!("MAC addr = {}", ma);
-                            println!("bytes = {:?}", ma.bytes());
-                            ma.bytes()
-                        }
-                        Ok(None) => panic!("No MAC address found."),
-                        Err(e) => panic!("{:?}", e),
-                    };
-
-                    // Run the sudo arp command (for the destination MAC address)
-                    let output = Command::new("cat")
-                        .arg("/proc/net/arp")
-                        .stdout(Stdio::piped())
-                        .spawn()
-                        .expect("Failed to run command")
-                        .stdout
-                        .expect("Failed to capture stdout");
-
-                    let mut mac_dest = vec![];
-                    // Read the output line by line
-                    let reader = io::BufReader::new(output);
-                    let mut lines = reader.lines();
-                    println!("lines: {:?}", lines);
-                    println!("First line: {:?}", lines.next()); // Skip the first line (header)
-                    for line in lines { // Skip the first line (header)
-                        println!("line: {:?}", line);
-                        // Skip the first line
-                        if let Ok(line) = line {
-                            let parts: Vec<&str> = line.split_whitespace().collect();
-                            println!("parts: {:?}", parts);
-                            if parts.len() > 3 {
-                                println!("Found MAC address: {}", parts[2]);
-                                mac_dest = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
-                                break;
-                            }
-
-                        }
-                    }
-
-
-                    // TODO ethernet header
                     // let eth_dest: [u8> = mac_dest; //vec![0x88, 0x90, 0x09, 0x81, 0x0c, 0x0d];
                     // let eth_source: Vec<u8> = mac_src; //vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f]; // Found in /sys/class/net/ens192/address
-                    let ethertype_ipv6: u16 = 0x86DD; // EtherType value for IPv6
-                    let ethertype_ipv4: u16 = 0x0800; // EtherType value for IPv4
-
-                    let mut ethernet_header: Vec<u8> = Vec::new();
-                    ethernet_header.extend_from_slice(&mac_dest);
-                    ethernet_header.extend_from_slice(&mac_src);
-                    if ipv6 {
-                        ethernet_header.extend_from_slice(&ethertype_ipv6.to_be_bytes());
-                    } else {
-                        ethernet_header.extend_from_slice(&ethertype_ipv4.to_be_bytes());
-                    }
 
                     let mut packet: Vec<u8> = Vec::new();
                     packet.extend_from_slice(&ethernet_header);
@@ -425,4 +370,55 @@ fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Rec
             *abort.lock().unwrap() = true;
         }
     });
+}
+
+fn get_ethernet_header(v6: bool) -> Vec<u8> {
+    // Source MAC address
+    let mac_src = match get_mac_address() {
+        Ok(Some(ma)) => {
+            println!("MAC addr = {}", ma);
+            println!("bytes = {:?}", ma.bytes());
+            ma.bytes()
+        }
+        Ok(None) => panic!("No MAC address found."),
+        Err(e) => panic!("{:?}", e),
+    };
+
+    // Run the sudo arp command (for the destination MAC address)
+    let output = Command::new("cat")
+        .arg("/proc/net/arp")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to run command")
+        .stdout
+        .expect("Failed to capture stdout");
+
+    let mut mac_dest = vec![];
+    // Read the output line by line
+    let reader = io::BufReader::new(output);
+    let mut lines = reader.lines();
+    lines.next(); // Skip the first line (header)
+    for line in lines {
+        // Skip the first line
+        if let Ok(line) = line {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() > 3 {
+                mac_dest = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                break;
+            }
+        }
+    }
+
+    let ether_type = if v6 {
+        0x86DDu16
+    } else {
+        0x0800u16
+    };
+
+    let mut ethernet_header: Vec<u8> = Vec::new();
+    ethernet_header.extend_from_slice(&mac_dest);
+    ethernet_header.extend_from_slice(&mac_src);
+    ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
+
+    ethernet_header
 }
