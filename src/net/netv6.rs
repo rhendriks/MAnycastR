@@ -158,7 +158,7 @@ impl Into<Vec<u8>> for IPv6Packet {
 }
 
 impl ICMPPacket {
-    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u128, destination_address: u128) -> Vec<u8> { // TODO add ipv6 header ourselves
+    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u128, destination_address: u128) -> Vec<u8> {
         let mut packet = ICMPPacket {
             icmp_type: 128,
             code: 0,
@@ -169,8 +169,8 @@ impl ICMPPacket {
         };
 
         // Turn everything into a vec of bytes and calculate checksum
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes());
+        let bytes: Vec<u8> = (&packet).into();
+        // bytes.extend(INFO_URL.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
         println!("Checksum: {:?}", ICMPPacket::calc_checksum(&bytes));
@@ -189,13 +189,13 @@ impl ICMPPacket {
         };
 
         let mut result_bytes: Vec<u8> = v6_packet.into();
-        result_bytes.extend(INFO_URL.bytes());
+        // result_bytes.extend(INFO_URL.bytes());
         println!("Result bytes: {:?}", result_bytes);
 
         // v6 has no checksum, so we don't need to calculate it
 
         // Return the bytes
-        result_bytes // TODO socket is writing another ipv6 header ontop this result
+        result_bytes
     }
 }
 
