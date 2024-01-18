@@ -39,7 +39,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             println!("Using interface: {}", main_interface.name);
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            cap.set_datalink(Linktype::IPV6).expect("Failed to set datalink"); // TODO which datalink type
+            println!("datalinks supported {:?}", cap.list_datalinks().expect("Failed to list datalinks"));
+            cap.set_datalink(Linktype::IPV4).expect("Failed to set datalink"); // TODO which datalink type to use?
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
