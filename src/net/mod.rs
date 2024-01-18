@@ -297,21 +297,6 @@ impl ICMPPacket {
         }
         !sum as u16
     }
-
-    fn calc_checksum_v6(buffer: &[u8]) -> u16 {
-        let mut cursor = Cursor::new(buffer);
-        let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words
-            sum += u32::from(word);
-        }
-        if let Ok(byte) = cursor.read_u8() { // If there is a byte left, sum it
-            sum += u32::from(byte);
-        }
-        while sum >> 16 > 0 { // One's complement
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-        !sum as u16
-    }
 }
 
 /// An UDPPacket (UDP packet) <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
