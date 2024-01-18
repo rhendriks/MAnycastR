@@ -178,8 +178,12 @@ impl ICMPPacket {
         println!("Packet bytes: {:?}", bytes);
         println!("Packet: {:?}", packet);
 
+        println!("Body: {:?}", body);
+        println!("Body lenth: {:?}", body.len());
+
         let v6_packet = IPv6Packet {
-            payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
+            // payload_length: 8 + body.len() as u16, // ICMP header (8 bytes) + body length
+            payload_length: 8,
             next_header: 58, // ICMPv6
             hop_limit: 64,
             source_address: Ipv6Addr::from(source_address),
