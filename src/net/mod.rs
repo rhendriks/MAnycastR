@@ -286,7 +286,7 @@ impl ICMPPacket {
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<LittleEndian>() { // Sum all 16-bit words
+        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words TODO should it be NetworkEndian for ICMPv4?
             sum += u32::from(word);
         }
         if let Ok(byte) = cursor.read_u8() { // If there is a byte left, sum it
