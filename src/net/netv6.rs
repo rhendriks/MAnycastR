@@ -189,7 +189,7 @@ impl ICMPPacket {
         psuedo_header.write_u8(58).unwrap();
         psuedo_header.extend(bytes.clone()); // Add the ICMP packet bytes
         // bytes.extend(INFO_URL.bytes());
-        packet.checksum = ICMPPacket::calc_checksum_v6(psuedo_header.as_slice());
+        packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
 
         println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
 
