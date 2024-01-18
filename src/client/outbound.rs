@@ -124,8 +124,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     };
 
                     // TODO ethernet header
-                    let eth_source: Vec<u8> = vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f];
-                    let eth_dest: Vec<u8> = vec![0x00, 0x00, 0x5e, 0x00, 0x01, 0xad];
+                    let eth_source: Vec<u8> = vec![0x88, 0x90, 0x09, 0x81, 0x0c, 0x0d];
+                    let eth_dest: Vec<u8> = vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f];
                     let ethertype_ipv6: u16 = 0x86DD; // EtherType value for IPv6
                     let ethertype_ipv4: u16 = 0x0800; // EtherType value for IPv4
 
