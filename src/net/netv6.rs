@@ -179,7 +179,7 @@ impl ICMPPacket {
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header.write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        psuedo_header.write_u32::<NetworkEndian>(8)// ICMP length
+        psuedo_header.write_u32::<NetworkEndian>((8 + body.len() + INFO_URL.bytes().len()) as u32)// ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
         // Write 24 zeroes followed with next header (58)
         psuedo_header.write_u8(0).unwrap();
