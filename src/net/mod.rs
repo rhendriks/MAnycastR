@@ -308,7 +308,7 @@ impl ICMPPacket {
             sum += u32::from(byte);
         }
         while sum >> 16 > 0 { // One's complement
-            sum = (sum & 0xffff);// + (sum >> 16);
+            sum = (sum & 0xffff) + (sum >> 16);
         }
         !sum as u16
     }
