@@ -169,12 +169,25 @@ impl ICMPPacket {
             body: vec![],
         };
 
+        println!("Identifier: {:?}", identifier);
+        println!("Sequence number: {:?}", sequence_number);
+
         // Turn everything into a vec of bytes and calculate checksum
         let bytes: Vec<u8> = (&packet).into();
-        // bytes.extend(INFO_URL.bytes());
-        packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
-        println!("Checksum: {:?}", ICMPPacket::calc_checksum(&bytes));
+        let mut psuedo_header: Vec<u8> = Vec::new();
+        psuedo_header.write_u128::<NetworkEndian>(source_address)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        psuedo_header.write_u128::<NetworkEndian>(destination_address)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        psuedo_header.write_u32::<NetworkEndian>(8 as u32)
+            .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
+        psuedo_header.write_u8(58).expect("Unable to write to buffer"); // ICMPv6
+        psuedo_header.extend(bytes.clone());
+        // bytes.extend(INFO_URL.bytes());
+        packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
+
+        println!("Checksum: {:?}", ICMPPacket::calc_checksum(psuedo_header.as_slice()));
         println!("Packet bytes: {:?}", bytes);
         println!("Packet: {:?}", packet);
 
