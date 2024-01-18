@@ -186,10 +186,6 @@ impl ICMPPacket {
         psuedo_header.extend(INFO_URL.bytes()); // Add the INFO_URL bytes
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
 
-        for byte in psuedo_header.iter() {
-            print!("{:02X} ", byte);
-        }
-
         let v6_packet = IPv6Packet {
             payload_length: 8 + body.len() as u16 + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58, // ICMPv6
