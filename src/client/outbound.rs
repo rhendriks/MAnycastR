@@ -135,8 +135,8 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     };
 
                     // Run the sudo arp command (for the destination MAC address)
-                    let output = Command::new("sudo")
-                        .arg("arp")
+                    let output = Command::new("cat")
+                        .arg("/proc/net/arp")
                         .stdout(Stdio::piped())
                         .spawn()
                         .expect("Failed to run command")
@@ -147,7 +147,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     // Read the output line by line
                     let reader = io::BufReader::new(output);
                     let mut lines = reader.lines();
-                    lines.next(); // Skip the first line (header)
+                    println!("First line: {:?}", lines.next()); // Skip the first line (header)
                     for line in lines { // Skip the first line (header)
                         // Skip the first line
                         if let Ok(line) = line {
