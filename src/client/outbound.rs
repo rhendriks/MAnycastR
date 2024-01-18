@@ -147,8 +147,10 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     // Read the output line by line
                     let reader = io::BufReader::new(output);
                     let mut lines = reader.lines();
+                    println!("lines: {:?}", lines);
                     println!("First line: {:?}", lines.next()); // Skip the first line (header)
                     for line in lines { // Skip the first line (header)
+                        println!("line: {:?}", line);
                         // Skip the first line
                         if let Ok(line) = line {
                             let parts: Vec<&str> = line.split_whitespace().collect();
