@@ -155,9 +155,9 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                         if let Ok(line) = line {
                             let parts: Vec<&str> = line.split_whitespace().collect();
                             println!("parts: {:?}", parts);
-                            if parts.len() >= 3 {
+                            if parts.len() > 3 {
                                 println!("Found MAC address: {}", parts[2]);
-                                mac_dest = parts[2].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                                mac_dest = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
                                 break;
                             }
 
