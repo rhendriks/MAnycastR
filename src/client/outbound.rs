@@ -4,7 +4,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
-use pcap::{Capture, Device, Linktype};
+use pcap::{Capture, Device};
 use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
@@ -29,7 +29,7 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -111,12 +111,6 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         }
                     }
 
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
-
                     let icmp = if ipv6 {
                         ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into())
                     } else {
@@ -142,26 +136,11 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                     packet.extend_from_slice(&ethernet_header);
                     packet.extend_from_slice(&icmp); // ip header included
 
-                    println!("Link type: {:?}", cap.get_datalink());
                     for byte in packet.clone() {
                         print!("{:02x}", byte);
                     }
                     // Send out packet
                     cap.sendpacket(packet).expect("Failed to send ICMP packet");
-                    println!("Sent ICMP packet");
-
-                    // let (socket, _) = socket.accept_raw().expect("Failed to accept raw socket");
-                    // socket.set_header_included(true).expect("Failed to set header included");
-                    // if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
-                    //     &icmp,
-                    //     &bind_addr_dest
-                    //         .to_string()
-                    //         .parse::<SocketAddr>()
-                    //         .expect("Failed to parse outbound socket address")
-                    //         .into(),
-                    // ) {
-                    //     error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
-                    // }
                 }
             }
             debug!("finished ping");
