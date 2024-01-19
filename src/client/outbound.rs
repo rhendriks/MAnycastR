@@ -42,9 +42,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
         move || {
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            println!("Using interface: {}", main_interface.name);
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            println!("datalinks supported {:?}", cap.list_datalinks().expect("Failed to list datalinks"));
             // cap.set_datalink(Linktype::IPV4).expect("Failed to set datalink"); // TODO which datalink type to use?
             loop {
                 if *abort.lock().unwrap() == true {
@@ -376,8 +374,6 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
     // Source MAC address
     let mac_src = match get_mac_address() {
         Ok(Some(ma)) => {
-            println!("MAC addr = {}", ma);
-            println!("bytes = {:?}", ma.bytes());
             ma.bytes()
         }
         Ok(None) => panic!("No MAC address found."),
