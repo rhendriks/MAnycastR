@@ -76,19 +76,17 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    // let transmit_time = SystemTime::now()
-                    //     .duration_since(UNIX_EPOCH)
-                    //     .unwrap()
-                    //     .as_nanos() as u64;
-                    let transmit_time = 0u64; // TODO change back
+                    let transmit_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
 
                     // Create ping payload
                     let payload = PingPayload {
                         transmit_time,
                         source_address: Some(source_addr.clone().into()),
                         destination_address: Some(dest_addr.clone()),
-                        // sender_client_id: client_id as u32,
-                        sender_client_id: 0, // TODO change back
+                        sender_client_id: client_id as u32,
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
