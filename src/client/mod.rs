@@ -391,6 +391,11 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
+                // Faulty task
+                if task.clone().data == None {
+                    continue // First task must be a Start task
+                }
+
                 let task_active = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
                     Data::Start(start) => start.active,
                     _ => continue, // First task must be a Start task
