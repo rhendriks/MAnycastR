@@ -76,23 +76,25 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    let transmit_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
+                    // let transmit_time = SystemTime::now()
+                    //     .duration_since(UNIX_EPOCH)
+                    //     .unwrap()
+                    //     .as_nanos() as u64;
+                    let transmit_time = 0u64; // TODO change back
 
                     // Create ping payload
                     let payload = PingPayload {
                         transmit_time,
                         source_address: Some(source_addr.clone().into()),
                         destination_address: Some(dest_addr.clone()),
-                        sender_client_id: client_id as u32,
+                        // sender_client_id: client_id as u32,
+                        sender_client_id: 0, // TODO change back
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
                     bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
-                    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
-                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15
+                    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
+                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
                     if let Some(source_address) = payload.source_address {
                         match source_address.value {
                             Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
