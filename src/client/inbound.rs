@@ -327,7 +327,7 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
     loop {
         // Every 5 seconds, forward the ping results to the server
-        thread::sleep(Duration::from_secs(5));
+        sleep(Duration::from_secs(5));
 
         // Get the current result queue, and replace it with an empty one
         let rq;

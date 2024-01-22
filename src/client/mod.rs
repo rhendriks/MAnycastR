@@ -287,14 +287,14 @@ impl Client {
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853 + client_id as u16;
+                let dest_port = 63853;// + client_id as u16; Static port to avoid flow-based load balancing creating false positives
 
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_tcp(source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
                 }
             }
             _ => { () }

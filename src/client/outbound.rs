@@ -258,7 +258,7 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, client_id: u8) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
@@ -302,13 +302,16 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    let transmit_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u32; // The least significant bits are kept
+                    // let transmit_time = SystemTime::now()
+                    //     .duration_since(UNIX_EPOCH)
+                    //     .unwrap()
+                    //     .as_millis() as u32; // The least significant bits are kept
 
                     let seq = 0; // information in seq gets lost
-                    let ack = transmit_time; // ack information gets returned as seq
+                    // let ack = transmit_time; // ack information gets returned as seq
+                    let ack = client_id as u32; // TODO does the ACK value trigger ECMP?
+                    // TODO make it variable to encode either transmit_time or client_id into the seq/ack value
+                    // TODO perhaps we can encode information into another header field?
 
                     let tcp = if ipv6 {
                         let source = source_address.get_v6();
