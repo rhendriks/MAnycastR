@@ -334,7 +334,6 @@ impl super::UDPPacket {
             next_header: 17,
             length: udp_length,
         };
-        println!("Calculating checksum");
         udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
 
         // Create the IPv6 packet

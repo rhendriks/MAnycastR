@@ -249,7 +249,7 @@ impl Client {
             2 => {
                 if ipv6 {
                     client_sources.iter()
-                        .map(|origin| format!(" (ip6[6] == 6 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
                         .collect()
                 } else {
                     client_sources.iter()
