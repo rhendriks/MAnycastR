@@ -269,7 +269,7 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
     // Sum the packet
     let mut i = 0;
     while i < packet_len - 1 { // TODO different than ipv4
-        let mut rdr = Cursor::new(&buffer[i..]);
+        let mut rdr = Cursor::new(&packet[i..]);
         sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
         i += 2;
         // let word = u16::from_be_bytes([packet[i], packet[i + 1]]);
