@@ -2,11 +2,9 @@ use std::{io, thread};
 use std::io::BufRead;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
 use pcap::{Capture, Device};
-use socket2::Socket;
 use crate::custom_module;
 use custom_module::IP;
 use tokio::sync::mpsc::Receiver;
@@ -43,7 +41,6 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            // cap.set_datalink(Linktype::IPV4).expect("Failed to set datalink"); // TODO which datalink type to use?
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -156,7 +153,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -164,6 +161,9 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 
     thread::spawn({
         move || {
+            let ethernet_header = get_ethernet_header(ipv6);
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
@@ -202,12 +202,6 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         .unwrap()
                         .as_nanos() as u64;
 
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
-
                     let udp = if ipv6 {
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr.clone()).get_v6();
@@ -232,17 +226,12 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         }
                     };
 
+                    let mut packet: Vec<u8> = Vec::new();
+                    packet.extend_from_slice(&ethernet_header);
+                    packet.extend_from_slice(&udp); // ip header included
+
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &udp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send UDP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    }
+                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
             }
             debug!("finished udp probing");
@@ -271,7 +260,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
@@ -279,6 +268,9 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
 
     thread::spawn({
         move || {
+            let ethernet_header = get_ethernet_header(ipv6);
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
             loop {
                 if *abort.lock().unwrap() == true {
                     println!("ABORTING");
@@ -317,12 +309,6 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                         .unwrap()
                         .as_millis() as u32; // The least significant bits are kept
 
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
-
                     let seq = 0; // information in seq gets lost
                     let ack = transmit_time; // ack information gets returned as seq
 
@@ -338,17 +324,12 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                         TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
                     };
 
+                    let mut packet: Vec<u8> = Vec::new();
+                    packet.extend_from_slice(&ethernet_header);
+                    packet.extend_from_slice(&tcp); // ip header included
+
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &tcp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send TCP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    }
+                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
             }
             debug!("finished TCP probing");
