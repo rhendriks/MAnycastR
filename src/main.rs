@@ -144,7 +144,7 @@ fn main() {
     let matches = parse_cmd();
 
     if let Some(client_matches) = matches.subcommand_matches("client") {
-        println!("[Main] Executing client");
+        println!("[Main] Executing client version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -157,14 +157,14 @@ fn main() {
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
-        println!("[Main] Executing CLI");
+        println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
         let _ = cli::execute(cli_matches);
         return;
     }
 
     else if let Some(server_matches) = matches.subcommand_matches("server") {
-        println!("[Main] Executing server");
+        println!("[Main] Executing server version {}", env!("GIT_HASH"));
         debug!("Selected SERVER_MODE!");
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -179,7 +179,7 @@ fn main() {
 /// Parse $ verfploeter to start server, client, CLI or help (--help)
 fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("Verfploeter")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(env!("GIT_HASH"))
         //.author(" Wouter B. de Vries <w.b.devries@utwente.nl> and Leandro Bertholdo <l.m.bertholdo@utwente.nl>")
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Performs measurements")
