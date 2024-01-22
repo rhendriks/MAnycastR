@@ -268,9 +268,9 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
 
     // Sum the packet
     let mut i = 0;
-    while i < packet_len - 1 {
+    while i < packet_len - 1 { // TODO different than ipv4
         let word = u16::from_be_bytes([packet[i], packet[i + 1]]);
-        sum = sum.wrapping_add(u32::from(word));
+        sum += u32::from(word);
         i += 2;
     }
 
@@ -278,7 +278,7 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
 
     // If the packet length is odd, add the last byte as a half-word
     if packet_len % 2 != 0 {
-        sum = sum.wrapping_add(u32::from(packet[packet_len - 1]) << 8);
+        sum += u32::from(packet[packet_len - 1]) << 8;
     }
 
     println!("Sum: {}", sum);
