@@ -236,18 +236,11 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
 /// * 'buffer' - the UDP/TCP packet as bytes (without the IPv6 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6) -> u16 { // TODO wrong checksum since a recent change
+pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6) -> u16 {
     let mut packet: Vec<u8> = pseudo_header.into();
     packet.append(&mut buffer);
     let packet_len = packet.len();
     let mut sum = 0u32;
-
-    println!("Packet length: {}", packet_len);
-    for byte in packet.clone() {
-        print!("{:02x} ", byte);
-    }
-
-    println!("Sum: {}", sum);
 
     // Sum the packet
     let mut i = 0;
@@ -257,23 +250,15 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
         i += 2;
     }
 
-    println!("Sum: {}", sum);
-
     // If the packet length is odd, add the last byte as a half-word
     if packet_len % 2 != 0 {
         sum += u32::from(packet[packet_len - 1]) << 8;
     }
 
-    println!("Sum: {}", sum);
-
     // Fold the sum to 16 bits by adding the carry
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
-    println!("Sum: {}", sum);
-
-    println!("Sum final : {}", !(sum as u16));
-
 
     !(sum as u16)
 }
