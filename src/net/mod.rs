@@ -101,15 +101,23 @@ impl Into<Vec<u8>> for &IPv4Packet {
         wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
         wtr.write_u8(self.ttl).expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
         wtr.write_u8(payload_type).expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
-        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum TODO
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
         wtr.write_u32::<NetworkEndian>(self.source_address.into())
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
         wtr.write_u32::<NetworkEndian>(self.destination_address.into())
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
-        wtr.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+        // Calculate and write the checksum
+        let checksum = IPv4Packet::calc_checksum(&wtr); // Calculate checksum
+        let mut cursor = Cursor::new(wtr);
+        cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
+        cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
-        wtr
+        // Add the payload
+        cursor.set_position(20); // Skip the header
+        cursor.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+
+        cursor.into_inner()
     }
 }
 
@@ -255,7 +263,7 @@ impl ICMPPacket {
     /// * 'sequence_number' - the sequence number for the ICMP header
     ///
     /// * 'body' - the ICMP payload
-    pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
+    pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u32, destination_address: u32) -> Vec<u8> {
         let mut packet = ICMPPacket {
             icmp_type: 8,
             code: 0,
@@ -266,17 +274,27 @@ impl ICMPPacket {
         };
 
         // Turn everything into a vec of bytes and calculate checksum
-        let mut bytes: Vec<u8> = (&packet).into();
+        let mut icmp_bytes: Vec<u8> = (&packet).into();
+        icmp_bytes.extend(INFO_URL.bytes());
+        packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
+
+        let v4_packet = IPv4Packet {
+            ttl: 64,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::ICMP { value: packet.into() },
+        };
+
+        // TODO v4 checksum
+
+        let mut bytes: Vec<u8> = (&v4_packet).into();
         bytes.extend(INFO_URL.bytes());
-        packet.checksum = ICMPPacket::calc_checksum(&bytes);
+        // // Put the checksum at the right position in the packet
+        // let mut cursor = Cursor::new(bytes);
+        // cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
+        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
+        bytes
     }
 
     /// Calculate the ICMP Checksum.

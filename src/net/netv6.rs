@@ -158,50 +158,46 @@ impl Into<Vec<u8>> for IPv6Packet {
 
 impl ICMPPacket {
     pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u128, destination_address: u128) -> Vec<u8> {
+        let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 128,
             code: 0,
             checksum: 0,
             identifier,
             sequence_number,
-            body: body.clone(),
+            body,
         };
+        let icmp_bytes: Vec<u8> = (&packet).into();
 
-        // Turn everything into a vec of bytes and calculate checksum
-        let bytes: Vec<u8> = (&packet).into();
-
+        // Append a pseudo header to the ICMP packet bytes
         let mut psuedo_header: Vec<u8> = Vec::new();
         psuedo_header.write_u128::<NetworkEndian>(source_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header.write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        psuedo_header.write_u32::<NetworkEndian>((8 + body.len() + INFO_URL.bytes().len()) as u32)// ICMP length
+        psuedo_header.write_u32::<NetworkEndian>((8 + body_len + INFO_URL.bytes().len() as u16) as u32)// ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
-        // Write 24 zeroes followed with next header (58)
-        psuedo_header.write_u8(0).unwrap();
-        psuedo_header.write_u8(0).unwrap();
-        psuedo_header.write_u8(0).unwrap();
-        psuedo_header.write_u8(58).unwrap();
-        psuedo_header.extend(bytes.clone()); // Add the ICMP packet bytes
+        psuedo_header.write_u8(0).unwrap(); // zeroes
+        psuedo_header.write_u8(0).unwrap(); // zeroes
+        psuedo_header.write_u8(0).unwrap(); // zeroes
+        psuedo_header.write_u8(58).unwrap(); // next header (58 => ICMPv6)
+        psuedo_header.extend(icmp_bytes); // Add the ICMP packet bytes
         psuedo_header.extend(INFO_URL.bytes()); // Add the INFO_URL bytes
-        packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice());
+        packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice()); // Calculate the checksum
 
         let v6_packet = IPv6Packet {
-            payload_length: 8 + body.len() as u16 + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
+            payload_length: 8 + body_len + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58, // ICMPv6
             hop_limit: 64,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
-            payload: PacketPayload::ICMP {
-                value: packet.into(),
-            },
+            payload: PacketPayload::ICMP { value: packet.into(), },
         };
 
-        let mut result_bytes: Vec<u8> = v6_packet.into();
-        result_bytes.extend(INFO_URL.bytes());
+        let mut bytes: Vec<u8> = v6_packet.into();
+        bytes.extend(INFO_URL.bytes());
 
-        // Return the bytes
-        result_bytes
+        bytes
     }
 }
 
