@@ -1,5 +1,5 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::net::Ipv6Addr;
 use super::{ICMPPacket, INFO_URL, PacketPayload};
 
@@ -234,33 +234,35 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
 /// * 'buffer' - the UDP/TCP packet as bytes (without the IPv6 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u16 { // TODO wrong checksum since a recent change
-    let packet_len = buffer.len();
+pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6) -> u16 { // TODO wrong checksum since a recent change
+    let mut packet: Vec<u8> = pseudo_header.into();
+    packet.append(&mut buffer);
+    let packet_len = packet.len();
     let mut sum = 0u32;
 
-    println!("Sum: {}", sum);
-
-    // Sum the pseudo header source address (128 bits split into 8x 16 bits)
-    sum += (pseudo_header.source_address >> 112) as u32;
-    sum += ((pseudo_header.source_address >> 96) & 0xFFFF) as u32;
-    sum += ((pseudo_header.source_address >> 80) & 0xFFFF) as u32;
-    sum += ((pseudo_header.source_address >> 64) & 0xFFFF) as u32;
-    sum += ((pseudo_header.source_address >> 48) & 0xFFFF) as u32;
-    sum += ((pseudo_header.source_address >> 32) & 0xFFFF) as u32;
-    sum += ((pseudo_header.source_address >> 16) & 0xFFFF) as u32;
-    sum += (pseudo_header.source_address & 0xFFFF) as u32;
-
-    println!("Sum: {}", sum);
-
-    // Sum the pseudo header destination address (128 bits split into 8x 16 bits)
-    sum += (pseudo_header.destination_address >> 112) as u32;
-    sum += ((pseudo_header.destination_address >> 96) & 0xFFFF) as u32;
-    sum += ((pseudo_header.destination_address >> 80) & 0xFFFF) as u32;
-    sum += ((pseudo_header.destination_address >> 64) & 0xFFFF) as u32;
-    sum += ((pseudo_header.destination_address >> 48) & 0xFFFF) as u32;
-    sum += ((pseudo_header.destination_address >> 32) & 0xFFFF) as u32;
-    sum += ((pseudo_header.destination_address >> 16) & 0xFFFF) as u32;
-    sum += (pseudo_header.destination_address & 0xFFFF) as u32;
+    // println!("Sum: {}", sum);
+    //
+    // // Sum the pseudo header source address (128 bits split into 8x 16 bits)
+    // sum += (pseudo_header.source_address >> 112) as u32;
+    // sum += ((pseudo_header.source_address >> 96) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.source_address >> 80) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.source_address >> 64) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.source_address >> 48) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.source_address >> 32) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.source_address >> 16) & 0xFFFF) as u32;
+    // sum += (pseudo_header.source_address & 0xFFFF) as u32;
+    //
+    // println!("Sum: {}", sum);
+    //
+    // // Sum the pseudo header destination address (128 bits split into 8x 16 bits)
+    // sum += (pseudo_header.destination_address >> 112) as u32;
+    // sum += ((pseudo_header.destination_address >> 96) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.destination_address >> 80) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.destination_address >> 64) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.destination_address >> 48) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.destination_address >> 32) & 0xFFFF) as u32;
+    // sum += ((pseudo_header.destination_address >> 16) & 0xFFFF) as u32;
+    // sum += (pseudo_header.destination_address & 0xFFFF) as u32;
 
     println!("Sum: {}", sum);
 
@@ -320,7 +322,7 @@ impl super::UDPPacket {
             length: udp_length,
         };
 
-        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+        packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
 
         // Put the checksum at the right position in the packet (calling into() again is also
         // possible but is likely slower).
@@ -364,7 +366,7 @@ impl super::UDPPacket {
             next_header: 17,
             length: udp_length,
         };
-        udp_packet.checksum = calculate_checksum_v6(&udp_bytes, &pseudo_header);
+        udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
 
         // Create the IPv6 packet
         let v6_packet = IPv6Packet {
@@ -448,7 +450,7 @@ impl super::TCPPacket {
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
         };
 
-        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+        packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);

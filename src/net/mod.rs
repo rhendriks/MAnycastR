@@ -637,7 +637,7 @@ impl UDPPacket {
                 next_header: 17,
             };
 
-            calculate_checksum_v6(&bytes, &pseudo_header)
+            calculate_checksum_v6(bytes.clone(), pseudo_header)
         };
 
         // Put the checksum at the right position in the packet
