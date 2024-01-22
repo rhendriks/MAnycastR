@@ -1,5 +1,5 @@
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
 use super::{ICMPPacket, INFO_URL, PacketPayload};
 
@@ -264,7 +264,7 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
 }
 
 
-impl super::UDPPacket {
+impl super::UDPPacket { // TODO add ip header
     /// Create a basic UDP packet with checksum.
     pub fn udp_request_v6(source_address: u128, destination_address: u128,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
@@ -393,7 +393,7 @@ impl super::UDPPacket {
 impl super::TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
     pub fn tcp_syn_ack_v6(source_address: u128, destination_address: u128,
-                       source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
+                       source_port: u16, destination_port: u16, seq: u32, ack:u32) -> Vec<u8> {
         let mut packet = Self {
             source_port,
             destination_port,
@@ -403,13 +403,11 @@ impl super::TCPPacket {
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body,
+            body: INFO_URL.bytes().collect(),
             window_size: 0
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
-
+        let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
@@ -417,15 +415,17 @@ impl super::TCPPacket {
             next_header: 6, // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
         };
-
         packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(16); // Skip source port (2 bytes), destination port (2 bytes), seq (4 bytes), ack (4 bytes), offset/reserved (1 byte), flags (1 bytes), window (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+        let v6_packet = IPv6Packet {
+            payload_length: bytes.len() as u16,
+            next_header: 6, // TCP
+            hop_limit: 64,
+            source_address: Ipv6Addr::from(source_address),
+            destination_address: Ipv6Addr::from(destination_address),
+            payload: PacketPayload::TCP { value: packet.into(), },
+        };
 
-        // Return the vec
-        cursor.into_inner()
+        v6_packet.into()
     }
 }
