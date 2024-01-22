@@ -745,7 +745,7 @@ impl Into<Vec<u8>> for &TCPPacket {
 impl TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
     pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
-                       source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
+                       source_port: u16, destination_port: u16, seq: u32, ack:u32) -> Vec<u8> {
         let mut packet = Self {
             source_port,
             destination_port,
@@ -755,13 +755,12 @@ impl TCPPacket {
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body,
+            body: INFO_URL.bytes().collect(),
             window_size: 0
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
-
+        // Turn everything into a vec of bytes and calculate checksum
+        let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -769,15 +768,16 @@ impl TCPPacket {
             protocol: 6, // TCP
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
         };
-
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(16); // Skip source port (2 bytes), destination port (2 bytes), seq (4 bytes), ack (4 bytes), offset/reserved (1 byte), flags (1 bytes), window (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+        let v4_packet = IPv4Packet {
+            length: 20 + bytes.len() as u16,
+            ttl: 64,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::TCP { value: packet.into() },
+        };
 
-        // Return the vec
-        cursor.into_inner()
+        (&v4_packet).into()
     }
 }

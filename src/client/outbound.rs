@@ -314,12 +314,12 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr).get_v6();
 
-                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack)
                     } else {
                         let source = source_address.get_v4();
                         let dest = IP::from(dest_addr).get_v4();
 
-                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack)
                     };
 
                     let mut packet: Vec<u8> = Vec::new();
