@@ -633,6 +633,7 @@ impl UDPPacket {
             let pseudo_header = PseudoHeaderv6 {
                 source_address: source_address.get_v6().into(),
                 destination_address: destination_address.get_v6().into(),
+                zeros: 0,
                 length: udp_length as u32,
                 next_header: 17,
             };
