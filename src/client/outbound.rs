@@ -228,6 +228,9 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                     packet.extend_from_slice(&ethernet_header);
                     packet.extend_from_slice(&udp); // ip header included
 
+                    for byte in &packet {
+                        print!("{:02x}", byte);
+                    }
                     // Send out packet
                     cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
