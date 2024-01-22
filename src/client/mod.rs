@@ -3,8 +3,7 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use socket2::{Domain, Protocol, Socket, Type};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
@@ -200,63 +199,44 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        let ipv6;
-        let mut bind_address;
         let mut filter = String::new(); // TODO improve filter to only accept probe replies from this program and remove verification elsewhere
 
-        let domain = if source_addr.to_string().contains(':') {
+        let ipv6 = if source_addr.to_string().contains(':') {
             println!("[Client] Using IPv6");
-            ipv6 = true;
             filter.push_str("ip6");
-            bind_address = format!("[{}]", source_addr.to_string());
-            Domain::IPV6
+            true
         } else {
             println!("[Client] Using IPv4");
-            bind_address = format!("{}", source_addr.to_string());
-            ipv6 = false;
             filter.push_str("ip");
-            Domain::IPV4
+            false
         };
 
-        let protocol = match start.task_type {
+        match start.task_type {
             1 => {
-                bind_address = format!("{}:{}", bind_address, "0");
                 if ipv6 {
                     filter.push_str(" and icmp6");
-                    Protocol::ICMPV6
                 } else {
                     filter.push_str(" and icmp");
-                    Protocol::ICMPV4
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
-                bind_address = format!("{}:{}", bind_address, self.source_port);
                 // if ipv6 {
                 //     filter.push_str(" and (icmp6 or ip6[6] == 17)");
                 // } else {
                 //     filter.push_str(" and (udp or icmp)");
                 // }
-                Protocol::UDP
             },
             3 => {
-                bind_address = format!("{}:{}", bind_address, self.source_port);
                 if ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
                     filter.push_str(" and tcp");
                 }
-                Protocol::TCP
             },
             _ => panic!("Invalid task type"),
         };
 
-        // Create the socket to send from
-        let socket = Arc::new(Socket::new(domain, Type::RAW, Some(protocol)).expect("Unable to create a socket"));
-
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
-        // socket.set_send_buffer_size().expect("Unable to set send buffer size"); TODO
-
-        println!("[Client] Sending on address: {}", bind_address);
+        println!("[Client] Sending on address: {}", source_addr.to_string());
 
         // Add filter for each address/port combination
         filter.push_str(" and");
@@ -302,7 +282,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
+                    perform_udp(client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
             3 => {
@@ -314,7 +294,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_tcp(source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
                 }
             }
             _ => { () }

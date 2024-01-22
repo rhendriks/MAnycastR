@@ -777,7 +777,6 @@ dependencies = [
  "prost",
  "rand",
  "ratelimit_meter",
- "socket2",
  "tokio",
  "tonic",
  "tonic-build",
