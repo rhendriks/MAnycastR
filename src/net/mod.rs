@@ -1,7 +1,7 @@
 pub(crate) mod netv6;
 
 extern crate byteorder;
-use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
 use crate::custom_module::IP;
@@ -113,7 +113,7 @@ impl Into<Vec<u8>> for &IPv4Packet {
         let checksum = IPv4Packet::calc_checksum(&wtr); // Calculate checksum
         let mut cursor = Cursor::new(wtr);
         cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
-        cursor.write_u16::<LittleEndian>(checksum).unwrap();
+        cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
         // Add the payload
         cursor.set_position(20); // Skip the header
@@ -219,10 +219,10 @@ impl From<&[u8]> for ICMPPacket {
 
 impl IPv4Packet {
     // Calculate the ICMP Checksum. TODO ICMP and v4 use the same checksum, share this function
-    fn calc_checksum(buffer: &[u8]) -> u16 { // TODO make sure to only call this on the header, v4 does not calculate the checksum over the payload (including protocol header below it)
+    fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<LittleEndian>() {
+        while let Ok(word) = cursor.read_u16::<NetworkEndian>() {
             sum += u32::from(word);
         }
         if let Ok(byte) = cursor.read_u8() {
@@ -289,8 +289,6 @@ impl ICMPPacket {
             payload: PacketPayload::ICMP { value: packet.into() },
         };
 
-        // TODO v4 checksum
-
         let mut bytes: Vec<u8> = (&v4_packet).into();
         bytes.extend(INFO_URL.bytes());
         // // Put the checksum at the right position in the packet
@@ -308,7 +306,7 @@ impl ICMPPacket {
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words TODO should it be NetworkEndian for ICMPv4?
+        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words
             sum += u32::from(word);
         }
         if let Ok(byte) = cursor.read_u8() { // If there is a byte left, sum it
