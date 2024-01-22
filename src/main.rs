@@ -179,7 +179,7 @@ fn main() {
 /// Parse $ verfploeter to start server, client, CLI or help (--help)
 fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("Verfploeter")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(env!("GIT_HASH"))
         //.author(" Wouter B. de Vries <w.b.devries@utwente.nl> and Leandro Bertholdo <l.m.bertholdo@utwente.nl>")
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Performs measurements")
