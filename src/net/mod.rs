@@ -291,10 +291,6 @@ impl ICMPPacket {
 
         let mut bytes: Vec<u8> = (&v4_packet).into();
         bytes.extend(INFO_URL.bytes());
-        // // Put the checksum at the right position in the packet
-        // let mut cursor = Cursor::new(bytes);
-        // cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        // cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
 
         bytes
     }
@@ -533,12 +529,10 @@ impl UDPPacket {
         transmit_time: u64,
         client_id: u8
     ) -> Vec<u8> {
-        let destination_port = 53u16;
-
-        let dns_body = Self::create_a_record_request(domain_name, transmit_time,
-                                                     source_address, destination_address, client_id, source_port);
-
-        let udp_length = (8 + body.len() + dns_body.len()) as u16;
+        let destination_port = 53u16; // DNS port
+        let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
+                                                       source_address, destination_address, client_id, source_port);
+        let udp_length = (8 + body.len() + dns_packet.len()) as u16;
 
         let mut packet = Self {
             source_port,
@@ -548,10 +542,9 @@ impl UDPPacket {
             body,
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-
-        bytes.extend(dns_body);
-
+        // Calculate the UDP checksum (using a pseudo header)
+        let mut udp_bytes: Vec<u8> = (&packet).into();
+        udp_bytes.extend(dns_packet);
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -559,16 +552,17 @@ impl UDPPacket {
             protocol: 17,
             length: udp_length,
         };
+        packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
-
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
+        // Create the IPv4 packet
+        let v4_packet = IPv4Packet {
+            length: 20 + udp_length,
+            ttl: 64,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: packet.into() },
+        };
+        (&v4_packet).into()
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>

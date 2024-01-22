@@ -111,6 +111,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                         }
                     }
 
+                    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header?
                     let icmp = if ipv6 {
                         ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into())
                     } else {
