@@ -113,7 +113,7 @@ impl Into<Vec<u8>> for &IPv4Packet {
         let checksum = IPv4Packet::calc_checksum(&wtr); // Calculate checksum
         let mut cursor = Cursor::new(wtr);
         cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
-        cursor.write_u16::<NetworkEndian>(checksum).unwrap();
+        cursor.write_u16::<LittleEndian>(checksum).unwrap();
 
         // Add the payload
         cursor.set_position(20); // Skip the header
