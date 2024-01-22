@@ -205,9 +205,9 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                         let dest = IP::from(dest_addr.clone()).get_v6();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id)
                         } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
                             panic!("Invalid task type")
                         }
@@ -216,9 +216,9 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                         let dest = IP::from(dest_addr.clone()).get_v4();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id)
                         } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
                             panic!("Invalid task type")
                         }
@@ -228,11 +228,12 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                     packet.extend_from_slice(&ethernet_header);
                     packet.extend_from_slice(&udp); // ip header included
 
+                    println!("UDP packet: ");
                     for byte in &packet {
-                        print!("{:02x}", byte);
+                        print!("{:02x} ", byte);
                     }
                     // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                    cap.sendpacket(packet).expect("Failed to send UDP packet");
                 }
             }
             debug!("finished udp probing");
@@ -330,7 +331,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                     packet.extend_from_slice(&tcp); // ip header included
 
                     // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                    cap.sendpacket(packet).expect("Failed to send TCP packet");
                 }
             }
             debug!("finished TCP probing");

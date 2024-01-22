@@ -524,7 +524,6 @@ impl UDPPacket {
         source_address: u32,
         destination_address: u32,
         source_port: u16,
-        body: Vec<u8>,
         domain_name: &str,
         transmit_time: u64,
         client_id: u8
@@ -532,19 +531,18 @@ impl UDPPacket {
         let destination_port = 53u16; // DNS port
         let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
                                                        source_address, destination_address, client_id, source_port);
-        let udp_length = (8 + body.len() + dns_packet.len()) as u16;
+        let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut packet = Self {
             source_port,
             destination_port,
             length: udp_length,
             checksum: 0,
-            body,
+            body: dns_packet,
         };
 
         // Calculate the UDP checksum (using a pseudo header)
-        let mut udp_bytes: Vec<u8> = (&packet).into();
-        udp_bytes.extend(dns_packet);
+        let udp_bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -606,26 +604,21 @@ impl UDPPacket {
 
     /// Create a UDP packet with a CHAOS TXT record request.
     pub fn chaos_request(source_address: IP, destination_address: IP,
-                         source_port: u16, body: Vec<u8>, client_id: u8) -> Vec<u8> {
+                         source_port: u16, client_id: u8) -> Vec<u8> {
         let destination_port = 53u16;
 
-        let dns_body = Self::create_chaos_request(client_id);
-
-        let udp_length = 8 + body.len() + dns_body.len();
+        let dns_packet = Self::create_chaos_request(client_id);
+        let udp_length = 8 + dns_packet.len();
 
         let mut packet = Self {
             source_port,
             destination_port,
             length: udp_length as u16,
             checksum: 0,
-            body,
+            body: dns_packet,
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-
-        bytes.extend(dns_body);
-
-
+        let bytes: Vec<u8> = (&packet).into();
         packet.checksum = if source_address.is_v4() {
             let pseudo_header = PseudoHeader {
                 source_address: source_address.get_v4().into(),
