@@ -324,12 +324,10 @@ impl super::UDPPacket {
         transmit_time: u64,
         client_id: u8
     ) -> Vec<u8> {
-        let destination_port = 53u16;
-
-        let dns_body = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
-                                                         source_address, destination_address, client_id, source_port);
-
-        let udp_length = (8 + body.len() + dns_body.len()) as u32;
+        let destination_port = 53u16; // DNS port
+        let dns_packet = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
+                                                              source_address, destination_address, client_id, source_port);
+        let udp_length = (8 + body.len() + dns_packet.len()) as u32;
 
         let mut packet = Self {
             source_port,
@@ -339,10 +337,9 @@ impl super::UDPPacket {
             body,
         };
 
+        // Calculate the UDP checksum (using a pseudo header)
         let mut bytes: Vec<u8> = (&packet).into();
-
-        bytes.extend(dns_body);
-
+        bytes.extend(dns_packet);
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
@@ -350,16 +347,19 @@ impl super::UDPPacket {
             next_header: 17,
             length: udp_length,
         };
-
         packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+        // Create the IPv6 packet
+        let v6_packet = IPv6Packet {
+            payload_length: udp_length as u16,
+            next_header: 17, // UDP
+            hop_limit: 64,
+            source_address: Ipv6Addr::from(source_address),
+            destination_address: Ipv6Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: packet.into(), },
+        };
 
-        // Return the vec
-        cursor.into_inner()
+        v6_packet.into()
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
