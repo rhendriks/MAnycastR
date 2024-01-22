@@ -241,7 +241,7 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
     let mut sum = 0u32;
 
     println!("Packet length: {}", packet_len);
-    for byte in packet {
+    for byte in packet.clone() {
         print!("{:02x} ", byte);
     }
 
@@ -347,6 +347,7 @@ impl super::UDPPacket {
             next_header: 17,
             length: udp_length,
         };
+        println!("Calculating checksum");
         udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
 
         // Create the IPv6 packet
