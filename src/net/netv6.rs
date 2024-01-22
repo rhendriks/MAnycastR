@@ -240,41 +240,19 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
     let packet_len = packet.len();
     let mut sum = 0u32;
 
-    // println!("Sum: {}", sum);
-    //
-    // // Sum the pseudo header source address (128 bits split into 8x 16 bits)
-    // sum += (pseudo_header.source_address >> 112) as u32;
-    // sum += ((pseudo_header.source_address >> 96) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.source_address >> 80) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.source_address >> 64) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.source_address >> 48) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.source_address >> 32) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.source_address >> 16) & 0xFFFF) as u32;
-    // sum += (pseudo_header.source_address & 0xFFFF) as u32;
-    //
-    // println!("Sum: {}", sum);
-    //
-    // // Sum the pseudo header destination address (128 bits split into 8x 16 bits)
-    // sum += (pseudo_header.destination_address >> 112) as u32;
-    // sum += ((pseudo_header.destination_address >> 96) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.destination_address >> 80) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.destination_address >> 64) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.destination_address >> 48) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.destination_address >> 32) & 0xFFFF) as u32;
-    // sum += ((pseudo_header.destination_address >> 16) & 0xFFFF) as u32;
-    // sum += (pseudo_header.destination_address & 0xFFFF) as u32;
+    println!("Packet length: {}", packet_len);
+    for byte in packet {
+        print!("{:02x} ", byte);
+    }
 
     println!("Sum: {}", sum);
 
     // Sum the packet
     let mut i = 0;
-    while i < packet_len - 1 { // TODO different than ipv4
+    while i < packet_len - 1 {
         let mut rdr = Cursor::new(&packet[i..]);
         sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
         i += 2;
-        // let word = u16::from_be_bytes([packet[i], packet[i + 1]]);
-        // sum += u32::from(word);
-        // i += 2;
     }
 
     println!("Sum: {}", sum);
