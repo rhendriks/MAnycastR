@@ -207,7 +207,7 @@ pub struct PseudoHeaderv6 {
     pub source_address: u128,
     pub destination_address: u128,
     pub length: u32,  // TCP/UDP header + data length
-    // pub zeros: u24, // 24 0's
+    pub zeros: u32, // 24 0's
     pub next_header: u8  // 6 for TCP, 17 for UDP
 }
 
@@ -220,6 +220,8 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
         wtr.write_u128::<NetworkEndian>(self.destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u32::<NetworkEndian>(self.length)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u24::<NetworkEndian>(self.zeros)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u8(self.next_header)
             .expect("Unable to write to byte buffer for PseudoHeader");
@@ -298,7 +300,7 @@ impl super::UDPPacket {
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
-            // zeroes: 0,
+            zeros: 0,
             next_header: 17,
             length: udp_length,
         };
@@ -343,7 +345,7 @@ impl super::UDPPacket {
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
-            // zeroes: 0,
+            zeros: 0,
             next_header: 17,
             length: udp_length,
         };
@@ -427,7 +429,7 @@ impl super::TCPPacket {
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
-            // zeroes: 0,
+            zeros: 0,
             next_header: 6, // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
         };
