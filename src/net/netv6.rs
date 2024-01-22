@@ -238,39 +238,31 @@ pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u
     let packet_len = buffer.len();
     let mut sum = 0u32;
 
+    println!("Sum: {}", sum);
+
     // Sum the pseudo header source address (128 bits split into 8x 16 bits)
-    sum = sum.wrapping_add((pseudo_header.source_address >> 112) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 96) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 80) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 64) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 48) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 32) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.source_address >> 16) & 0xFFFF) as u32);
-    sum = sum.wrapping_add((pseudo_header.source_address & 0xFFFF) as u32);
+    sum += (pseudo_header.source_address >> 112) as u32;
+    sum += ((pseudo_header.source_address >> 96) & 0xFFFF) as u32;
+    sum += ((pseudo_header.source_address >> 80) & 0xFFFF) as u32;
+    sum += ((pseudo_header.source_address >> 64) & 0xFFFF) as u32;
+    sum += ((pseudo_header.source_address >> 48) & 0xFFFF) as u32;
+    sum += ((pseudo_header.source_address >> 32) & 0xFFFF) as u32;
+    sum += ((pseudo_header.source_address >> 16) & 0xFFFF) as u32;
+    sum += (pseudo_header.source_address & 0xFFFF) as u32;
+
+    println!("Sum: {}", sum);
 
     // Sum the pseudo header destination address (128 bits split into 8x 16 bits)
-    sum = sum.wrapping_add((pseudo_header.destination_address >> 112) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 96) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 80) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 64) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 48) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 32) & 0xFFFF) as u32);
-    sum = sum.wrapping_add(((pseudo_header.destination_address >> 16) & 0xFFFF) as u32);
-    sum = sum.wrapping_add((pseudo_header.destination_address & 0xFFFF) as u32);
+    sum += (pseudo_header.destination_address >> 112) as u32;
+    sum += ((pseudo_header.destination_address >> 96) & 0xFFFF) as u32;
+    sum += ((pseudo_header.destination_address >> 80) & 0xFFFF) as u32;
+    sum += ((pseudo_header.destination_address >> 64) & 0xFFFF) as u32;
+    sum += ((pseudo_header.destination_address >> 48) & 0xFFFF) as u32;
+    sum += ((pseudo_header.destination_address >> 32) & 0xFFFF) as u32;
+    sum += ((pseudo_header.destination_address >> 16) & 0xFFFF) as u32;
+    sum += (pseudo_header.destination_address & 0xFFFF) as u32;
 
-    // sum = sum.wrapping_add((pseudo_header.source_address >> 96) as u32);
-    // sum = sum.wrapping_add(((pseudo_header.source_address >> 64) & 0xFFFF_FFFF) as u32);
-    // sum = sum.wrapping_add(((pseudo_header.source_address >> 32) & 0xFFFF_FFFF) as u32);
-    // sum = sum.wrapping_add((pseudo_header.source_address & 0xFFFF_FFFF) as u32);
-    //
-    // // Sum the pseudo header destination address (128 bits split into 4x 32 bits)
-    // sum = sum.wrapping_add((pseudo_header.destination_address >> 96) as u32);
-    // sum = sum.wrapping_add(((pseudo_header.destination_address >> 64) & 0xFFFF_FFFF) as u32);
-    // sum = sum.wrapping_add(((pseudo_header.destination_address >> 32) & 0xFFFF_FFFF) as u32);
-    // sum = sum.wrapping_add((pseudo_header.destination_address & 0xFFFF_FFFF) as u32);
-    //
-    // sum = sum.wrapping_add(u32::from(pseudo_header.length));
-    // sum = sum.wrapping_add(u32::from(pseudo_header.next_header));
+    println!("Sum: {}", sum);
 
     // Sum the packet
     let mut i = 0;
@@ -280,15 +272,23 @@ pub fn calculate_checksum_v6(buffer: &[u8], pseudo_header: &PseudoHeaderv6) -> u
         i += 2;
     }
 
+    println!("Sum: {}", sum);
+
     // If the packet length is odd, add the last byte as a half-word
     if packet_len % 2 != 0 {
         sum = sum.wrapping_add(u32::from(buffer[packet_len - 1]) << 8);
     }
 
+    println!("Sum: {}", sum);
+
     // Fold the sum to 16 bits by adding the carry
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
+    println!("Sum: {}", sum);
+
+    println!("Sum final : {}", !(sum as u16));
+
 
     !(sum as u16)
 }
