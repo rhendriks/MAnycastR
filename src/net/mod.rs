@@ -13,6 +13,7 @@ const INFO_URL: &str = "edu.nl/9qt8h";
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
+    pub length: u16,
     pub ttl: u8,
     pub source_address: Ipv4Addr,
     pub destination_address: Ipv4Addr,
@@ -75,6 +76,7 @@ impl From<&[u8]> for IPv4Packet {
         };
 
         IPv4Packet {
+            length: header_length as u16,
             ttl,
             source_address,
             destination_address,
@@ -96,7 +98,7 @@ impl Into<Vec<u8>> for &IPv4Packet {
         let mut wtr = vec![];
         wtr.write_u8(0x45).expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
         wtr.write_u8(0x00).expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
-        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
+        wtr.write_u16::<NetworkEndian>(self.length).expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
         wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Identification
         wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
         wtr.write_u8(self.ttl).expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
@@ -264,6 +266,7 @@ impl ICMPPacket {
     ///
     /// * 'body' - the ICMP payload
     pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u32, destination_address: u32) -> Vec<u8> {
+        let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 8,
             code: 0,
@@ -279,6 +282,7 @@ impl ICMPPacket {
         packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
         let v4_packet = IPv4Packet {
+            length: 20 + 8 + body_len + INFO_URL.bytes().len() as u16,
             ttl: 64,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
