@@ -319,7 +319,6 @@ impl super::UDPPacket {
         source_address: u128,
         destination_address: u128,
         source_port: u16,
-        body: Vec<u8>,
         domain_name: &str,
         transmit_time: u64,
         client_id: u8
@@ -327,19 +326,18 @@ impl super::UDPPacket {
         let destination_port = 53u16; // DNS port
         let dns_packet = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
                                                               source_address, destination_address, client_id, source_port);
-        let udp_length = (8 + body.len() + dns_packet.len()) as u32;
+        let udp_length = (8 + dns_packet.len()) as u32;
 
         let mut packet = Self {
             source_port,
             destination_port,
             length: udp_length as u16,
             checksum: 0,
-            body,
+            body: dns_packet,
         };
 
         // Calculate the UDP checksum (using a pseudo header)
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(dns_packet);
+        let udp_bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeaderv6 {
             source_address,
             destination_address,
@@ -347,7 +345,7 @@ impl super::UDPPacket {
             next_header: 17,
             length: udp_length,
         };
-        packet.checksum = calculate_checksum_v6(&bytes, &pseudo_header);
+        packet.checksum = calculate_checksum_v6(&udp_bytes, &pseudo_header);
 
         // Create the IPv6 packet
         let v6_packet = IPv6Packet {
