@@ -533,7 +533,7 @@ impl UDPPacket {
                                                        source_address, destination_address, client_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u16;
 
-        let mut packet = Self {
+        let mut udp_packet = Self {
             source_port,
             destination_port,
             length: udp_length,
@@ -542,7 +542,7 @@ impl UDPPacket {
         };
 
         // Calculate the UDP checksum (using a pseudo header)
-        let udp_bytes: Vec<u8> = (&packet).into();
+        let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -550,7 +550,7 @@ impl UDPPacket {
             protocol: 17,
             length: udp_length,
         };
-        packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
         // Create the IPv4 packet
         let v4_packet = IPv4Packet {
@@ -558,7 +558,7 @@ impl UDPPacket {
             ttl: 64,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
-            payload: PacketPayload::UDP { value: packet.into() },
+            payload: PacketPayload::UDP { value: udp_packet.into() },
         };
         (&v4_packet).into()
     }
