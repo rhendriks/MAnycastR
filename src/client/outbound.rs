@@ -114,11 +114,8 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     let icmp = if ipv6 {
                         ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into())
                     } else {
-                        ICMPPacket::echo_request(1, 2, bytes)
+                        ICMPPacket::echo_request(1, 2, bytes, source_addr.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into())
                     };
-
-                    // let eth_dest: [u8> = mac_dest; //vec![0x88, 0x90, 0x09, 0x81, 0x0c, 0x0d];
-                    // let eth_source: Vec<u8> = mac_src; //vec![0x00, 0x50, 0x56, 0x85, 0xae, 0x9f]; // Found in /sys/class/net/ens192/address
 
                     let mut packet: Vec<u8> = Vec::new();
                     packet.extend_from_slice(&ethernet_header);
