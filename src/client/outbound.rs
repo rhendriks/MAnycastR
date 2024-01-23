@@ -309,15 +309,13 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 
                     let seq = 0; // information in seq gets lost
                     // let ack = transmit_time; // ack information gets returned as seq
-                    let ack = 54132 as u32; // TODO does the ACK value trigger ECMP?
-                    // TODO make it variable to encode either transmit_time or client_id into the seq/ack value
-                    // TODO perhaps we can encode information into another header field?
+                    let ack = client_id as u32; // Does not trigger ECMP
 
                     let tcp = if ipv6 {
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr).get_v6();
 
-                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack)
+                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port + client_id as u16, destination_port, seq, ack)
                     } else {
                         let source = source_address.get_v4();
                         let dest = IP::from(dest_addr).get_v4();
