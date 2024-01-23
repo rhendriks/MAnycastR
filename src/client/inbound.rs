@@ -883,7 +883,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<VerfploeterResult> {
     // Obtain the payload
     return if let PacketPayload::TCP { value: tcp_packet } = ip_payload {
-        if (tcp_packet.flags != 0b00000100) | (tcp_packet.flags != 0b00010100) { // We assume all packets with RST or RST+ACK flags are replies
+        if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) { // We assume all packets with RST or RST+ACK flags are replies
             return None
         }
 
