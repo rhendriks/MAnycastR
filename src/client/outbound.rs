@@ -309,7 +309,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 
                     let seq = 0; // information in seq gets lost
                     // let ack = transmit_time; // ack information gets returned as seq
-                    let ack = client_id as u32; // TODO does the ACK value trigger ECMP?
+                    let ack = 54132 as u32; // TODO does the ACK value trigger ECMP?
                     // TODO make it variable to encode either transmit_time or client_id into the seq/ack value
                     // TODO perhaps we can encode information into another header field?
 
