@@ -368,8 +368,6 @@ fn get_pcap(filter: String) -> Capture<Active> {
     cap
 }
 
-// TODO re-evaluate the parse functions -> BPF filter does most of the work already
-
 /// Parse packet bytes into an IPv4 header, returns the IP result for this header and the payload.
 fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // IPv4 20 minimum
@@ -420,10 +418,8 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
         if *&icmp_packet.body.len() < 4 { return None }
-
         let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() { s } else { return None };
         let pkt_task_id = u32::from_be_bytes(s);
-
         // Make sure that this packet belongs to this task
         if (pkt_task_id != task_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
@@ -470,13 +466,9 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 
     // Obtain the payload
     if let PacketPayload::ICMP { value } = payload {
-        // let value = packet;
         if *&value.body.len() < 4 { return None }
-
         let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
-
         let pkt_task_id = u32::from_be_bytes(s);
-
         // Make sure that this packet belongs to this task
         if (pkt_task_id != task_id) | (value.body.len() < 48) {
             // If not, we discard it and await the next packet
@@ -694,9 +686,9 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if (task_type == 2) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 66)) {
+        if (task_type == 2) & (udp_packet.body.len() < 66) {
             return None
-        } else if (task_type == 4) & ((udp_packet.source_port != 53) | (udp_packet.destination_port < 61440) | (udp_packet.body.len() < 10)) {
+        } else if (task_type == 4) & (udp_packet.body.len() < 10) {
             return None
         }
 
@@ -738,9 +730,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if (task_type == 2) & ((value.source_port != 53) | (value.destination_port < 61440) | (value.body.len() < 66)) {
+        if (task_type == 2) & (value.body.len() < 66) {
             return None
-        } else if (task_type == 4) & ((value.source_port != 53) | (value.destination_port < 61440) | (value.body.len() < 10)) {
+        } else if (task_type == 4) & (value.body.len() < 10) {
             return None
         }
 
@@ -898,7 +890,7 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
         // Responses to our probes have destination port > 4000 (as we use these as source)
         // Use the RST flag, and have ACK 0
         // TODO may want to ignore the ACK value due to: https://dl.acm.org/doi/pdf/10.1145/3517745.3561461
-        if (tcp_packet.destination_port < 61440) | (tcp_packet.flags != 0b00000100) { // TODO make this statement more specific to filter out non-measurement related packets (maybe look at payload?)
+        if (tcp_packet.flags != 0b00000100) { // We assume all packets with the RST flag set are replies
             return None
         }
 
