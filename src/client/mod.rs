@@ -259,7 +259,7 @@ impl Client {
             },
             _ => {
                 client_sources.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port))
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, 63853))
                     .collect()
             }
         };
@@ -287,7 +287,7 @@ impl Client {
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853 + client_id as u16;
+                let dest_port = 63853;
 
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
