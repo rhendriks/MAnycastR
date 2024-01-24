@@ -119,9 +119,9 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
 
                     // TODO can we re-use the same v4/v6 headers like we do for the ethernet header?
                     let icmp = if ipv6 {
-                        ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into())
+                        ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
                     } else {
-                        ICMPPacket::echo_request(1, 2, bytes, source_addr.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into())
+                        ICMPPacket::echo_request(1, 2, bytes, source_addr.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
                     };
 
                     let mut packet: Vec<u8> = Vec::new();
@@ -215,7 +215,7 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                         let dest = IP::from(dest_addr.clone()).get_v6();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                         } else if task_type == 4 {
                             UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
@@ -226,7 +226,7 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                         let dest = IP::from(dest_addr.clone()).get_v4();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                         } else if task_type == 4 {
                             UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
@@ -329,12 +329,12 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr).get_v6();
 
-                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack)
+                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
                     } else {
                         let source = source_address.get_v4();
                         let dest = IP::from(dest_addr).get_v4();
 
-                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack)
+                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
                     };
 
                     let mut packet: Vec<u8> = Vec::new();
