@@ -11,6 +11,8 @@ use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 use std::process::{Command, Stdio};
+use tokio::sync::mpsc::error::TryRecvError;
+
 extern crate mac_address;
 use mac_address::get_mac_address;
 
@@ -41,7 +43,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            loop {
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
                     break
@@ -49,12 +51,16 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                 let task;
                 // Receive tasks from the outbound channel
                 loop {
-                    match outbound_channel_rx.try_recv() { // TODO make sure this does not cause lingering threads, check for all threads
+                    match outbound_channel_rx.try_recv() {
                         Ok(t) => {
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -162,7 +168,7 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            loop {
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
                     break
@@ -176,7 +182,11 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -269,7 +279,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            loop {
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("ABORTING");
                     break
@@ -283,7 +293,11 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
