@@ -211,6 +211,11 @@ impl Client {
             false
         };
 
+        // TODO add traceroute option
+        // With these traceroute probes we need to encode the TTL used in the probe in the payload
+        // TODO listener needs to capture ICMP TTL expired messages
+        // TODO this listener needs to capture ICMP TTL expired for all protocols
+
         match start.task_type {
             1 => {
                 if ipv6 {
