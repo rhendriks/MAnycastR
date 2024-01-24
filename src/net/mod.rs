@@ -265,7 +265,14 @@ impl ICMPPacket {
     /// * 'sequence_number' - the sequence number for the ICMP header
     ///
     /// * 'body' - the ICMP payload
-    pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u32, destination_address: u32) -> Vec<u8> {
+    pub fn echo_request(
+        identifier: u16,
+        sequence_number: u16,
+        body: Vec<u8>,
+        source_address: u32,
+        destination_address: u32,
+        ttl: u8
+    ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 8,
@@ -283,7 +290,7 @@ impl ICMPPacket {
 
         let v4_packet = IPv4Packet {
             length: 20 + 8 + body_len + INFO_URL.bytes().len() as u16,
-            ttl: 64,
+            ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
             payload: PacketPayload::ICMP { value: packet.into() },
@@ -526,7 +533,8 @@ impl UDPPacket {
         source_port: u16,
         domain_name: &str,
         transmit_time: u64,
-        client_id: u8
+        client_id: u8,
+        ttl: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
         let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
@@ -555,7 +563,7 @@ impl UDPPacket {
         // Create the IPv4 packet
         let v4_packet = IPv4Packet {
             length: 20 + udp_length,
-            ttl: 64,
+            ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
             payload: PacketPayload::UDP { value: udp_packet.into() },
@@ -603,8 +611,12 @@ impl UDPPacket {
     }
 
     /// Create a UDP packet with a CHAOS TXT record request.
-    pub fn chaos_request(source_address: IP, destination_address: IP,
-                         source_port: u16, client_id: u8) -> Vec<u8> {
+    pub fn chaos_request(
+        source_address: IP,
+        destination_address: IP,
+        source_port: u16,
+        client_id: u8
+    ) -> Vec<u8> {
         let destination_port = 53u16;
 
         let dns_packet = Self::create_chaos_request(client_id);
@@ -744,8 +756,15 @@ impl Into<Vec<u8>> for &TCPPacket {
 
 impl TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
-    pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
-                       source_port: u16, destination_port: u16, seq: u32, ack:u32) -> Vec<u8> {
+    pub fn tcp_syn_ack(
+        source_address: u32,
+        destination_address: u32,
+        source_port: u16,
+        destination_port: u16,
+        seq: u32,
+        ack:u32,
+        ttl: u8
+    ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
             destination_port,
@@ -772,7 +791,7 @@ impl TCPPacket {
 
         let v4_packet = IPv4Packet {
             length: 20 + bytes.len() as u16,
-            ttl: 64,
+            ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
             payload: PacketPayload::TCP { value: packet.into() },

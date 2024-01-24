@@ -148,16 +148,19 @@ impl Into<Vec<u8>> for IPv6Packet {
         let payload_bytes: Vec<u8> = self.payload.into();
         wtr.write_all(&*payload_bytes).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
 
-        // wtr.write(self.payload.into())
-        //     .expect("Unable to write to byte buffer for IPv6Packet");
-        // wtr.extend(self.payload.into());
-
         wtr
     }
 }
 
 impl ICMPPacket {
-    pub fn echo_request_v6(identifier: u16, sequence_number: u16, body: Vec<u8>, source_address: u128, destination_address: u128) -> Vec<u8> {
+    pub fn echo_request_v6(
+        identifier: u16,
+        sequence_number: u16,
+        body: Vec<u8>,
+        source_address: u128,
+        destination_address: u128,
+        hop_limit: u8
+    ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 128,
@@ -188,7 +191,7 @@ impl ICMPPacket {
         let v6_packet = IPv6Packet {
             payload_length: 8 + body_len + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58, // ICMPv6
-            hop_limit: 64,
+            hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
             payload: PacketPayload::ICMP { value: packet.into(), },
@@ -264,11 +267,15 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
 }
 
 
-impl super::UDPPacket { // TODO add ip header
+impl super::UDPPacket {
     /// Create a basic UDP packet with checksum.
-    pub fn udp_request_v6(source_address: u128, destination_address: u128,
-                       source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
-
+    pub fn udp_request_v6( // TODO add IP header
+        source_address: u128,
+        destination_address: u128,
+        source_port: u16,
+        destination_port: u16,
+        body: Vec<u8>
+    ) -> Vec<u8> {
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32;
 
         let mut packet = Self {
@@ -292,8 +299,7 @@ impl super::UDPPacket { // TODO add ip header
 
         packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
 
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
+        // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
         cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
         cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
@@ -310,7 +316,8 @@ impl super::UDPPacket { // TODO add ip header
         source_port: u16,
         domain_name: &str,
         transmit_time: u64,
-        client_id: u8
+        client_id: u8,
+        hop_limit: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
         let dns_packet = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
@@ -340,7 +347,7 @@ impl super::UDPPacket { // TODO add ip header
         let v6_packet = IPv6Packet {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
-            hop_limit: 64,
+            hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
             payload: PacketPayload::UDP { value: udp_packet.into(), },
@@ -392,8 +399,15 @@ impl super::UDPPacket { // TODO add ip header
 
 impl super::TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
-    pub fn tcp_syn_ack_v6(source_address: u128, destination_address: u128,
-                       source_port: u16, destination_port: u16, seq: u32, ack:u32) -> Vec<u8> {
+    pub fn tcp_syn_ack_v6(
+        source_address: u128,
+        destination_address: u128,
+        source_port: u16,
+        destination_port: u16,
+        seq: u32,
+        ack:u32,
+        hop_limit: u8
+    ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
             destination_port,
@@ -420,7 +434,7 @@ impl super::TCPPacket {
         let v6_packet = IPv6Packet {
             payload_length: bytes.len() as u16,
             next_header: 6, // TCP
-            hop_limit: 64,
+            hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
             payload: PacketPayload::TCP { value: packet.into(), },
