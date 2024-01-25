@@ -15,8 +15,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::{local_ip, local_ipv6};
-use local_ip_address::list_afinet_netifas;
+use local_ip_address::{local_ip, list_afinet_netifas};
 
 mod inbound;
 mod outbound;
@@ -174,6 +173,7 @@ impl Client {
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if igreedy {
             let unicast_ip = if ipv6 {
+                // Get the local unicast v6 address
                 let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
                 if let Some((_, ipaddr)) = ifas
                     .iter()
