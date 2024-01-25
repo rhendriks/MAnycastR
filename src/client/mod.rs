@@ -15,7 +15,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::local_ip;
+use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
 mod outbound;
@@ -167,11 +167,16 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = start.task_id;
+        let ipv6 = start.ipv6;
         let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if igreedy {
-            let unicast_ip = IP::from(local_ip().expect("Unable to get local unicast IP address").to_string());
+            let unicast_ip = if ipv6 {
+                IP::from(local_ipv6().expect("Unable to get local unicast IP address").to_string())
+            } else {
+                IP::from(local_ip().expect("Unable to get local unicast IP address").to_string())
+            };
 
             client_sources = vec![Origin {
                 source_address: Some(Address::from(unicast_ip.clone())),
@@ -201,14 +206,12 @@ impl Client {
 
         let mut filter = String::new(); // TODO improve filter to only accept probe replies from this program and remove verification elsewhere
 
-        let ipv6 = if source_addr.to_string().contains(':') {
+        if ipv6 {
             println!("[Client] Using IPv6");
             filter.push_str("ip6");
-            true
         } else {
             println!("[Client] Using IPv4");
             filter.push_str("ip");
-            false
         };
 
         // TODO add traceroute option
