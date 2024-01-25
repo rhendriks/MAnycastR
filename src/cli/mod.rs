@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use rand::seq::SliceRandom;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Ipv4Addr;
@@ -20,7 +20,7 @@ use std::process::{Command, Stdio};
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    VerfploeterResult, Client, controller_client::ControllerClient, TaskResult, ScheduleTask,
+    VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
