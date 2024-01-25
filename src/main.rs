@@ -180,7 +180,6 @@ fn main() {
 fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("Verfploeter")
         .version(env!("CARGO_PKG_VERSION"))
-        //.author(" Wouter B. de Vries <w.b.devries@utwente.nl> and Leandro Bertholdo <l.m.bertholdo@utwente.nl>")
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Performs measurements")
         .subcommand(SubCommand::with_name("server").about("Launches the verfploeter server")

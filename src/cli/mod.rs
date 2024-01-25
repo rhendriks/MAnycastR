@@ -97,6 +97,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             })
             .collect::<Vec<_>>();
 
+        let ipv6 = ips.first().unwrap().is_v6();
+
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist, if desired
@@ -162,7 +164,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast);
+        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6);
         cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast).await
     } else {
         panic!("Unrecognized command");
@@ -188,7 +190,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// ```
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
-fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>, task_type: u32, rate: u32, client_ids: Vec<u32>, unicast: bool) -> ScheduleTask {
+fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>, task_type: u32, rate: u32, client_ids: Vec<u32>, unicast: bool, ipv6: bool) -> ScheduleTask {
     match task_type {
         1 => { // ICMP
             return ScheduleTask {
@@ -197,6 +199,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 source_address: Some(Address::from(source_address)),
                 task_type,
                 unicast,
+                ipv6,
                 data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
@@ -209,6 +212,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 source_address: Some(Address::from(source_address)),
                 task_type,
                 unicast,
+                ipv6,
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -221,6 +225,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 source_address: Some(Address::from(source_address)),
                 task_type,
                 unicast,
+                ipv6,
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
