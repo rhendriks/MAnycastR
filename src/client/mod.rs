@@ -16,6 +16,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use gethostname::gethostname;
 
 mod inbound;
 mod outbound;
@@ -53,7 +54,12 @@ impl Client {
     /// * 'args' - contains the parsed command-line arguments
     pub async fn new(args: &ArgMatches<'_>) -> Result<Client, Box<dyn Error>> {
         // Get values from args
-        let hostname = args.value_of("hostname").unwrap();
+        let hostname = if args.is_present("hostname") {
+            args.value_of("hostname").unwrap().parse().unwrap()
+        } else {
+            gethostname().into_string().unwrap()
+        }.to_string();
+
         let server_addr = args.value_of("server").unwrap();
 
         // Get the custom source address for this client (optional)
