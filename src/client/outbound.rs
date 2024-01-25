@@ -1,15 +1,20 @@
-use std::thread;
+use std::{io, thread};
+use std::io::BufRead;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use futures::Future;
-use socket2::Socket;
+use pcap::{Capture, Device};
 use crate::custom_module;
 use custom_module::IP;
 use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
 use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
+use std::process::{Command, Stdio};
+use tokio::sync::mpsc::error::TryRecvError;
+
+extern crate mac_address;
+use mac_address::get_mac_address;
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
@@ -28,14 +33,17 @@ use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
     thread::spawn({
         move || {
-            loop {
+            let ethernet_header = get_ethernet_header(ipv6);
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
                     break
@@ -43,12 +51,16 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                 let task;
                 // Receive tasks from the outbound channel
                 loop {
-                    match outbound_channel_rx.try_recv() { // TODO make sure this does not cause lingering threads, check for all threads
+                    match outbound_channel_rx.try_recv() {
                         Ok(t) => {
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -82,8 +94,8 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 
                     let mut bytes: Vec<u8> = Vec::new();
                     bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
-                    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11
-                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15
+                    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
+                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
                     if let Some(source_address) = payload.source_address {
                         match source_address.value {
                             Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
@@ -105,30 +117,19 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
                         }
                     }
 
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
-
+                    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header?
                     let icmp = if ipv6 {
-                        ICMPPacket::echo_request_v6(1, 2, bytes)
+                        ICMPPacket::echo_request_v6(1, 2, bytes, source_addr.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
                     } else {
-                        ICMPPacket::echo_request(1, 2, bytes)
+                        ICMPPacket::echo_request(1, 2, bytes, source_addr.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
                     };
 
-                    // TODO try to send packets using pcap
+                    let mut packet: Vec<u8> = Vec::new();
+                    packet.extend_from_slice(&ethernet_header);
+                    packet.extend_from_slice(&icmp); // ip header included
+
                     // Send out packet
-                    if let Err(e) = socket.send_to( // TODO packets are dropped when probing with high rates (without receiving errors from the kernel) (visible in netstat -s)
-                        &icmp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send ICMP packet with destination address {} to socket: {:?}", bind_addr_dest, e);
-                    }
+                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
             }
             debug!("finished ping");
@@ -156,7 +157,7 @@ pub fn perform_ping(socket: Arc<Socket>, client_id: u8, source_addr: IP, mut out
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -164,7 +165,10 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 
     thread::spawn({
         move || {
-            loop {
+            let ethernet_header = get_ethernet_header(ipv6);
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("[Client outbound] ABORTING");
                     break
@@ -178,7 +182,11 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -202,20 +210,14 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         .unwrap()
                         .as_nanos() as u64;
 
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
-
                     let udp = if ipv6 {
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr.clone()).get_v6();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                         } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
                             panic!("Invalid task type")
                         }
@@ -224,25 +226,20 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
                         let dest = IP::from(dest_addr.clone()).get_v4();
 
                         if task_type == 2 {
-                            UDPPacket::dns_request(source.into(), dest.into(), source_port, Vec::new(), "any.dnsjedi.org", transmit_time, client_id)
+                            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                         } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, Vec::new(), client_id)
+                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
                         } else {
                             panic!("Invalid task type")
                         }
                     };
 
+                    let mut packet: Vec<u8> = Vec::new();
+                    packet.extend_from_slice(&ethernet_header);
+                    packet.extend_from_slice(&udp); // ip header included
+
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &udp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send UDP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    }
+                    cap.sendpacket(packet).expect("Failed to send UDP packet");
                 }
             }
             debug!("finished udp probing");
@@ -271,7 +268,7 @@ pub fn perform_udp(socket: Arc<Socket>, client_id: u8, source_address: IP, sourc
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool) {
+pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, client_id: u8) {
     println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
 
     let abort = Arc::new(Mutex::new(false));
@@ -279,7 +276,10 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
 
     thread::spawn({
         move || {
-            loop {
+            let ethernet_header = get_ethernet_header(ipv6);
+            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("ABORTING");
                     break
@@ -293,7 +293,11 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
                             task = t;
                             break;
                         },
-                        Err(_e) => {
+                        Err(e) => {
+                            if e == TryRecvError::Disconnected {
+                                println!("[Client outbound] Channel disconnected");
+                                break 'outer
+                            }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
                         },
@@ -312,43 +316,33 @@ pub fn perform_tcp(socket: Arc<Socket>, source_address: IP, destination_port: u1
 
                 // Loop over the destination addresses
                 for dest_addr in dest_addresses {
-                    let transmit_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u32; // The least significant bits are kept
-
-                    let bind_addr_dest = if ipv6 {
-                        format!("[{}]:0", IP::from(dest_addr.clone()).to_string())
-                    } else {
-                        format!("{}:0", IP::from(dest_addr.clone()).to_string())
-                    };
+                    // let transmit_time = SystemTime::now()
+                    //     .duration_since(UNIX_EPOCH)
+                    //     .unwrap()
+                    //     .as_millis() as u32; // The least significant bits are kept
 
                     let seq = 0; // information in seq gets lost
-                    let ack = transmit_time; // ack information gets returned as seq
+                    // let ack = transmit_time; // ack information gets returned as seq
+                    let ack = client_id as u32; // Does not trigger ECMP
 
                     let tcp = if ipv6 {
                         let source = source_address.get_v6();
                         let dest = IP::from(dest_addr).get_v6();
 
-                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
                     } else {
                         let source = source_address.get_v4();
                         let dest = IP::from(dest_addr).get_v4();
 
-                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, Vec::new())
+                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
                     };
 
+                    let mut packet: Vec<u8> = Vec::new();
+                    packet.extend_from_slice(&ethernet_header);
+                    packet.extend_from_slice(&tcp); // ip header included
+
                     // Send out packet
-                    if let Err(e) = socket.send_to(
-                        &tcp,
-                        &bind_addr_dest
-                            .to_string()
-                            .parse::<SocketAddr>()
-                            .expect("Failed to parse outbound socket address")
-                            .into(),
-                    ) {
-                        error!("Failed to send TCP packet with source {} to socket: {:?}", bind_addr_dest, e);
-                    }
+                    cap.sendpacket(packet).expect("Failed to send TCP packet");
                 }
             }
             debug!("finished TCP probing");
@@ -368,4 +362,53 @@ fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Rec
             *abort.lock().unwrap() = true;
         }
     });
+}
+
+fn get_ethernet_header(v6: bool) -> Vec<u8> {
+    // Source MAC address
+    let mac_src = match get_mac_address() {
+        Ok(Some(ma)) => {
+            ma.bytes()
+        }
+        Ok(None) => panic!("No MAC address found."),
+        Err(e) => panic!("{:?}", e),
+    };
+
+    // Run the sudo arp command (for the destination MAC address)
+    let output = Command::new("cat")
+        .arg("/proc/net/arp")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to run command")
+        .stdout
+        .expect("Failed to capture stdout");
+
+    let mut mac_dest = vec![];
+    // Read the output line by line
+    let reader = io::BufReader::new(output);
+    let mut lines = reader.lines();
+    lines.next(); // Skip the first line (header)
+    for line in lines {
+        // Skip the first line
+        if let Ok(line) = line {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() > 3 {
+                mac_dest = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                break;
+            }
+        }
+    }
+
+    let ether_type = if v6 {
+        0x86DDu16
+    } else {
+        0x0800u16
+    };
+
+    let mut ethernet_header: Vec<u8> = Vec::new();
+    ethernet_header.extend_from_slice(&mac_dest);
+    ethernet_header.extend_from_slice(&mac_src);
+    ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
+
+    ethernet_header
 }

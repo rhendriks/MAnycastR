@@ -454,6 +454,7 @@ impl Controller for ControllerService {
         let rate = task.rate;
         let task_type = task.task_type;
         let unicast = task.unicast;
+        let ipv6 = task.ipv6;
         match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
@@ -509,6 +510,7 @@ impl Controller for ControllerService {
                     active,
                     task_type,
                     unicast,
+                    ipv6,
                     source_address: default_src_addr.clone(),
                     origins: client_sources.clone(),
                 }))
@@ -552,9 +554,9 @@ impl Controller for ControllerService {
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
                 if probing {
-                    println!("[Server] streaming tasks to client with ID {}", client_id);
+                    println!("[Server] Streaming tasks to client with ID {}", client_id);
                 } else {
-                    println!("[Server] not streaming tasks to client with ID {}", client_id);
+                    println!("[Server] Not streaming tasks to client with ID {}", client_id);
                 }
 
                 for chunk in dest_addresses.chunks(chunk_size) {
