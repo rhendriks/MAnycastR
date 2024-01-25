@@ -3,8 +3,7 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use socket2::{Domain, Protocol, Socket, Type};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
@@ -16,7 +15,8 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::local_ip;
+use local_ip_address::{local_ip, local_ipv6};
+use local_ip_address::list_afinet_netifas;
 
 mod inbound;
 mod outbound;
@@ -168,11 +168,23 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         let rate: u32 = start.rate;
         let task_id = start.task_id;
+        let ipv6 = start.ipv6;
         let mut client_sources: Vec<Origin> = start.origins;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if igreedy { // TODO add v6 options to get local_ipv6 instead (for this measurement we'll first need to improve the hitlist to contain a single address per /48)
-            let unicast_ip = IP::from(local_ip().expect("Unable to get local unicast IP address").to_string());
+        let source_addr: IP = if igreedy {
+            let unicast_ip = if ipv6 {
+                let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
+                if let Some((_, ipaddr)) = ifas
+                    .iter()
+                    .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (ipaddr.to_string() != "2001:610:9000::1")) {
+                    IP::from(ipaddr.to_string())
+                } else {
+                    panic!("Unable to find local unicast IPv6 address");
+                }
+            } else {
+                IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
+            };
 
             client_sources = vec![Origin {
                 source_address: Some(Address::from(unicast_ip.clone())),
@@ -200,63 +212,47 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        let ipv6;
-        let mut bind_address;
         let mut filter = String::new(); // TODO improve filter to only accept probe replies from this program and remove verification elsewhere
 
-        let domain = if source_addr.to_string().contains(':') {
+        if ipv6 {
             println!("[Client] Using IPv6");
-            ipv6 = true;
             filter.push_str("ip6");
-            bind_address = format!("[{}]", source_addr.to_string());
-            Domain::IPV6
         } else {
             println!("[Client] Using IPv4");
-            bind_address = format!("{}", source_addr.to_string());
-            ipv6 = false;
             filter.push_str("ip");
-            Domain::IPV4
         };
 
-        let protocol = match start.task_type {
+        // TODO add traceroute option
+        // With these traceroute probes we need to encode the TTL used in the probe in the payload
+        // TODO listener needs to capture ICMP TTL expired messages
+        // TODO this listener needs to capture ICMP TTL expired for all protocols
+
+        match start.task_type {
             1 => {
-                bind_address = format!("{}:{}", bind_address, "0");
                 if ipv6 {
                     filter.push_str(" and icmp6");
-                    Protocol::ICMPV6
                 } else {
                     filter.push_str(" and icmp");
-                    Protocol::ICMPV4
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
-                bind_address = format!("{}:{}", bind_address, self.source_port);
                 // if ipv6 {
                 //     filter.push_str(" and (icmp6 or ip6[6] == 17)");
                 // } else {
                 //     filter.push_str(" and (udp or icmp)");
                 // }
-                Protocol::UDP
             },
             3 => {
-                bind_address = format!("{}:{}", bind_address, self.source_port);
                 if ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
                     filter.push_str(" and tcp");
                 }
-                Protocol::TCP
             },
             _ => panic!("Invalid task type"),
         };
 
-        // Create the socket to send from
-        let socket = Arc::new(Socket::new(domain, Type::RAW, Some(protocol)).expect("Unable to create a socket"));
-
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).expect(format!("Unable to bind socket with source address: {}", bind_address).as_str());
-        // socket.set_send_buffer_size().expect("Unable to set send buffer size"); TODO
-
-        println!("[Client] Sending on address: {}", bind_address);
+        println!("[Client] Sending on address: {}", source_addr.to_string());
 
         // Add filter for each address/port combination
         filter.push_str(" and");
@@ -269,7 +265,7 @@ impl Client {
             2 => {
                 if ipv6 {
                     client_sources.iter()
-                        .map(|origin| format!(" (ip6[6] == 6 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
                         .collect()
                 } else {
                     client_sources.iter()
@@ -279,7 +275,7 @@ impl Client {
             },
             _ => {
                 client_sources.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port))
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, 63853))
                     .collect()
             }
         };
@@ -292,7 +288,7 @@ impl Client {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
+                    perform_ping(client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
                 }
             }
             2 | 4 => {
@@ -302,19 +298,19 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_udp(socket, client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
+                    perform_udp(client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853 + client_id as u16;
+                let dest_port = 63853;
 
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(socket, source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
+                    perform_tcp(source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
                 }
             }
             _ => { () }

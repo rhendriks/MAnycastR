@@ -14,6 +14,15 @@ impl Display for Address {
     }
 }
 
+impl Address {
+    pub fn is_v6(&self) -> bool {
+        match &self.value {
+            Some(V6(_)) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 #[derive(PartialEq)]
 pub enum IP {
