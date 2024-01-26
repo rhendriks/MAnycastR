@@ -125,7 +125,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
         // We only accept task types 1, 2, 3, 4
-        if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, or 3)") }
+        if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
         let unicast = matches.is_present("UNICAST");
@@ -475,7 +475,7 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
             // Loop over all results
             for result in task_result.result_list {
                 // Get the source address of this result
-                let address: u32 = match result.value.unwrap() {
+                let address: u32 = match result.value.unwrap() { // TODO not v6 compatible
                     ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                     ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                     ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
