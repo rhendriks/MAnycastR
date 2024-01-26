@@ -260,6 +260,10 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .takes_value(false)
                         .long("unicast")
                         .required(false))
+                    .arg(Arg::with_name("TRACEROUTE").help("Probe the targets using traceroute")
+                        .takes_value(false)
+                        .long("traceroute")
+                        .required(false))
 
                     // TODO option to perform manycast for all 3 protocols on a hitlist
                     // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)

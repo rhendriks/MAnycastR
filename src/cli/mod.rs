@@ -128,6 +128,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
         let unicast = matches.is_present("UNICAST");
+        let traceroute = matches.is_present("TRACEROUTE");
         // Get the rate for this task
         let rate = if matches.is_present("RATE") {
             u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
@@ -164,7 +165,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
 
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6);
+        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, traceroute);
         cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast).await
     } else {
         panic!("Unrecognized command");
@@ -190,7 +191,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// ```
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
-fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>, task_type: u32, rate: u32, client_ids: Vec<u32>, unicast: bool, ipv6: bool) -> ScheduleTask {
+fn create_schedule_task(
+    source_address: IP,
+    destination_addresses: Vec<Address>,
+    task_type: u32,
+    rate: u32,
+    client_ids: Vec<u32>,
+    unicast: bool,
+    ipv6: bool,
+    traceroute: bool
+) -> ScheduleTask {
     match task_type {
         1 => { // ICMP
             return ScheduleTask {
@@ -200,6 +210,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 task_type,
                 unicast,
                 ipv6,
+                traceroute,
                 data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
@@ -213,6 +224,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 task_type,
                 unicast,
                 ipv6,
+                traceroute,
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -226,6 +238,7 @@ fn create_schedule_task(source_address: IP, destination_addresses: Vec<Address>,
                 task_type,
                 unicast,
                 ipv6,
+                traceroute,
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
