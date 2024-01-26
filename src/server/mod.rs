@@ -653,6 +653,9 @@ impl Controller for ControllerService {
         // TODO map pushes out the oldest entry when it is full
         // TODO this means that we keep track of a target IP for 10 seconds
 
+        // TODO perhaps keep track of target IP till we see it equal to the number of clients times
+        // TODO this would mean that when a target IP did not respond a number of times equal to the amount of clients we keep it forever
+
         // TODO if traceroute, coordinate traceroutes when multiple clients receive a response from the same target
         // TODO those clients must send traceroutes to that target
 
