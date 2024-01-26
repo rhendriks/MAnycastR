@@ -16,6 +16,8 @@ use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
     Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
 };
+use crate::custom_module::IP;
+
 /// Struct for the Server service
 ///
 /// # Fields
@@ -645,6 +647,15 @@ impl Controller for ControllerService {
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
+
+        // TODO keep map of {target IP, [client_ID]}
+        // TODO this map should have fixed size of probing rate * 10
+        // TODO map pushes out the oldest entry when it is full
+        // TODO this means that we keep track of a target IP for 10 seconds
+
+        // TODO if traceroute, coordinate traceroutes when multiple clients receive a response from the same target
+        // TODO those clients must send traceroutes to that target
+
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()
