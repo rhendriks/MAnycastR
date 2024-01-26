@@ -455,6 +455,7 @@ impl Controller for ControllerService {
         let task_type = task.task_type;
         let unicast = task.unicast;
         let ipv6 = task.ipv6;
+        let traceroute = task.traceroute;
         match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
@@ -511,6 +512,7 @@ impl Controller for ControllerService {
                     task_type,
                     unicast,
                     ipv6,
+                    traceroute,
                     source_address: default_src_addr.clone(),
                     origins: client_sources.clone(),
                 }))
