@@ -149,6 +149,7 @@ message VerfploeterResult {
     PingResult ping = 1;
     UDPResult udp = 2;
     TCPResult tcp = 3;
+    TraceResult trace = 4;
   }
 }
 
@@ -169,6 +170,15 @@ message IPv4Result {
 message IPv6Result {
   IPv6 source_address = 1;
   IPv6 destination_address = 2;
+}
+
+message TraceResult {
+  uint32 ttl = 1; // TTL of the traceroute probe that resulted in this trace result
+  oneof value { // Depending on the protocol used, the trace result contains a ping, udp, or tcp result
+    PingResult ping = 2;
+    UDPResult udp = 3;
+    TCPResult tcp = 4;
+  }
 }
 
 // Result of a ping which has a receive time, an ipv4 result, and the ping payload information

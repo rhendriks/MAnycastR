@@ -24,6 +24,7 @@ use custom_module::verfploeter::{
     VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
     schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
+    verfploeter_result::Value::Trace as ResultTrace,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
 };
 
@@ -478,6 +479,7 @@ fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duratio
                     ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                     ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
                     ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
+                    ResultTrace(_) => continue, // We do not care about traceroute results when checking for anycast
                 };
 
                 let mut map = map.lock().unwrap();
@@ -577,6 +579,9 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
     let value = result.value.unwrap();
 
     match value {
+        ResultTrace(_) => { // TODO traceroute results should be written to a different file (as they have a different format)
+            todo!("Traceroute results are not yet supported")
+        }
         ResultPing(ping) => {
             let recv_time = ping.receive_time.to_string();
 
