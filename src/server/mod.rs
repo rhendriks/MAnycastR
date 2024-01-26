@@ -6,7 +6,7 @@ use tonic::{Request, Response, Status, transport::Server};
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use clap::ArgMatches;
 use futures_core::Stream;
 use tokio::spawn;
@@ -38,6 +38,8 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
+    targets: Arc<Mutex<HashMap<u32, (Vec<u8>, Instant)>>>,
+    traceroute: Arc<Mutex<bool>>,
 }
 
 //https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
@@ -458,6 +460,7 @@ impl Controller for ControllerService {
         let unicast = task.unicast;
         let ipv6 = task.ipv6;
         let traceroute = task.traceroute;
+        *self.traceroute.lock().unwrap() = traceroute;
         match task.data.unwrap() {
             Data::Ping(ping) => {
                 dest_addresses = ping.destination_addresses;
@@ -491,6 +494,31 @@ impl Controller for ControllerService {
             if !client_sources.contains(&origin) { // TODO will this work?
                 client_sources.push(origin);
             }
+        }
+
+        if traceroute {
+            // Thread that cleans up the targets map and instrucst traceroute
+            tokio::spawn(async move {
+                loop {
+                    let cleanup_interval = Duration::from_secs(10);
+                    // Sleep for the cleanup interval
+                    tokio::time::sleep(cleanup_interval).await;
+
+                    // Perform the cleanup
+                    let mut map = self.targets.lock().unwrap();
+
+                    for (target, (clients, timestamp)) in map.clone().iter() {
+                        if Instant::now().duration_since(*timestamp) > cleanup_interval {
+                            map.remove(target);
+                            if clients.len() > 1 {
+                                for client_id in clients {
+                                    // TODO instruct client to perform traceroute
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
@@ -648,16 +676,19 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
 
-        // TODO keep map of {target IP, [client_ID]}
-        // TODO this map should have fixed size of probing rate * 10
-        // TODO map pushes out the oldest entry when it is full
-        // TODO this means that we keep track of a target IP for 10 seconds
-
-        // TODO perhaps keep track of target IP till we see it equal to the number of clients times
-        // TODO this would mean that when a target IP did not respond a number of times equal to the amount of clients we keep it forever
-
-        // TODO if traceroute, coordinate traceroutes when multiple clients receive a response from the same target
-        // TODO those clients must send traceroutes to that target
+        if *self.traceroute.lock().unwrap() {
+            let client_id = request.into_inner().client_id;
+            let mut map = self.targets.lock().unwrap();
+            for result in request.into_inner().result_list {
+                 // let address = IP::from(result.value.unwrap().clone());
+                 if map.contains_key(&address) {
+                     let (clients, _) = map.get_mut(&address).unwrap();
+                     clients.push(client_id);
+                 } else {
+                     map.insert(address, (vec![client_id], Instant::now()));
+                 }
+            }
+        }
 
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -698,6 +729,8 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
+        targets: Arc::new(Mutex::new(HashMap::new())),
+        traceroute: Arc::new(Mutex::new(false)),
     };
 
     let svc = ControllerServer::new(controller);
