@@ -511,7 +511,7 @@ impl Controller for ControllerService {
                     let mut map = targets.lock().unwrap();
 
                     for (target, (clients, timestamp)) in map.clone().iter() {
-                        if Instant::now().duration_since(*timestamp) > cleanup_interval { // TODO gets triggered before all clients have probed this address
+                        if Instant::now().duration_since(*timestamp) > cleanup_interval { // TODO gets triggered after measurement ends
                             map.remove(target);
                             if clients.len() > 1 {
                                 println!("Tracerouting to {} from clients {:?}", target, clients);
@@ -523,6 +523,9 @@ impl Controller for ControllerService {
                                 };
 
                                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                                    // TODO senders locked ?
+                                    println!("senders is locked: {}", senders.is_poisoned());
+                                    println!("senders {:?}", senders.try_lock());
                                     senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }
                             }
@@ -641,10 +644,9 @@ impl Controller for ControllerService {
                 }
 
                 if !abort {
-                    println!("Trace route: {}", traceroute);
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(60 + clients.len() as u64 - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(120 + clients.len() as u64 - client_id as u64)).await;
                     } else {
                         tokio::time::sleep(Duration::from_secs(10 + clients.len() as u64 - client_id as u64)).await;
                     }
