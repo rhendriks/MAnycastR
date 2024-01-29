@@ -11,14 +11,16 @@ use clap::ArgMatches;
 use futures_core::Stream;
 use tokio::spawn;
 use crate::server::mpsc::Sender;
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
-use verfploeter::controller_server::{Controller, ControllerServer};
-use verfploeter::{
+use crate::custom_module;
+use custom_module::IP;
+use custom_module::verfploeter::{
     Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin,
     verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Udp as UdpResult, verfploeter_result::Value::Tcp as TcpResult,
+    controller_server::Controller, controller_server::ControllerServer, Address, task::Data::End as TaskEnd, End,
+    task::Data::Trace as TaskTrace, Trace, task::Data::Start as TaskStart, Start, task::Data::Ping as TaskPing, Ping,
+    task::Data::Udp as TaskUdp, Udp, task::Data::Tcp as TaskTcp, Tcp,
+    Metadata, Client, Empty, ip_result::Value::Ipv6, ip_result::Value::Ipv4
 };
-use crate::custom_module::IP;
-
 /// Struct for the Server service
 ///
 /// # Fields
@@ -142,7 +144,7 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Create termination 'task'
             let task = Task {
-                data: Some(verfploeter::task::Data::End(verfploeter::End {
+                data: Some(TaskEnd(End {
             })),
             };
 
@@ -186,7 +188,7 @@ impl Controller for ControllerService {
     /// Returns an error if the hostname already exists
     async fn get_client_id(
         &self,
-        request: Request<verfploeter::Metadata>
+        request: Request<Metadata>
     ) -> Result<Response<ClientId>, Status> {
         println!("[Server] Received get_client_id");
 
@@ -213,9 +215,9 @@ impl Controller for ControllerService {
         }
 
         // Add the client to the client list
-        let new_client = verfploeter::Client {
+        let new_client = Client {
             client_id,
-            metadata: Some(verfploeter::Metadata {
+            metadata: Some(Metadata {
                 hostname: hostname.clone(),
                 origin: Some(Origin {
                     source_address: Some(source_address),
@@ -281,6 +283,10 @@ impl Controller for ControllerService {
             }
         }
         if finished {
+            // Sleep 45 seconds to give clients time for traceroute
+            if *self.traceroute.lock().unwrap() {
+                tokio::time::sleep(Duration::from_secs(45)).await;
+            }
             println!("[Server] Sending default value to CLI, notifying the task is finished");
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
@@ -313,12 +319,12 @@ impl Controller for ControllerService {
     /// * 'request' - a Metadata message containing the hostname and client ID of the client
     async fn client_connect(
         &self,
-        request: Request<verfploeter::Metadata>,
+        request: Request<Metadata>,
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
         println!("[Server] Received client_connect");
 
         let hostname = request.into_inner().hostname;
-        let (tx, rx) = mpsc::channel::<Result<verfploeter::Task, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
         {
@@ -499,23 +505,30 @@ impl Controller for ControllerService {
 
         if traceroute {
             let targets = self.targets.clone();
+            let senders = self.senders.clone();
             // Thread that cleans up the targets map and instruct traceroute
             tokio::spawn(async move {
                 loop {
-                    let cleanup_interval = Duration::from_secs(10);
+                    let cleanup_interval = Duration::from_secs(40);
                     // Sleep for the cleanup interval
                     tokio::time::sleep(cleanup_interval).await;
-
                     // Perform the cleanup
                     let mut map = targets.lock().unwrap();
 
                     for (target, (clients, timestamp)) in map.clone().iter() {
-                        if Instant::now().duration_since(*timestamp) > cleanup_interval {
+                        if Instant::now().duration_since(*timestamp) > cleanup_interval { // TODO gets triggered before all clients have probed this address
                             map.remove(target);
                             if clients.len() > 1 {
-                                for client_id in clients {
-                                    println!("Tracerouting to {} from client {}", target, client_id);
-                                    // TODO instruct client to perform traceroute
+                                println!("Tracerouting to {} from clients {:?}", target, clients);
+
+                                let traceroute_task = Task {
+                                    data: Some(TaskTrace(Trace {
+                                        destination_address: Some(Address::from(target.clone()))
+                                    }))
+                                };
+
+                                for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                                    senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }
                             }
                         }
@@ -538,7 +551,7 @@ impl Controller for ControllerService {
             i = i + 1;
 
             let start_task = Task {
-                data: Some(verfploeter::task::Data::Start(verfploeter::Start {
+                data: Some(TaskStart(Start {
                     rate,
                     task_id,
                     active,
@@ -605,17 +618,17 @@ impl Controller for ControllerService {
                     if probing {
                         let task = match task_type {
                             1 => Task {
-                                data: Some(verfploeter::task::Data::Ping(verfploeter::Ping {
+                                data: Some(TaskPing(Ping {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
                             2 | 4 => Task {
-                                data: Some(verfploeter::task::Data::Udp(verfploeter::Udp {
+                                data: Some(TaskUdp(Udp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
                             3 => Task {
-                                data: Some(verfploeter::task::Data::Tcp(verfploeter::Tcp {
+                                data: Some(TaskTcp(Tcp {
                                     destination_addresses: chunk.to_vec(),
                                 })),
                             },
@@ -662,7 +675,7 @@ impl Controller for ControllerService {
     /// Returns the connected clients.
     async fn list_clients(
         &self,
-        _request: Request<verfploeter::Empty>,
+        _request: Request<Empty>,
     ) -> Result<Response<ClientList>, Status> {
         println!("[Server] Received list_clients");
         Ok(Response::new(self.clients.lock().unwrap().clone()))
@@ -681,6 +694,7 @@ impl Controller for ControllerService {
         let task_result = request.into_inner();
 
         if *self.traceroute.lock().unwrap() {
+            // Loop over the results and keep track of the clients that have received probe responses
             let client_id = task_result.client_id as u8;
             let mut map = self.targets.lock().unwrap();
             for result in task_result.clone().result_list {
@@ -688,20 +702,20 @@ impl Controller for ControllerService {
                 let address = match result.value.unwrap() {
                     PingResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
                         }
                     },
                     UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
                         }
                     },
                     TcpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
                         }
                     },
                     _ => IP::None,
@@ -711,7 +725,9 @@ impl Controller for ControllerService {
                 }
                  if map.contains_key(&address) {
                      let (clients, _) = map.get_mut(&address).unwrap();
-                     clients.push(client_id);
+                     if !clients.contains(&client_id) {
+                         clients.push(client_id);
+                     }
                  } else {
                      map.insert(address, (vec![client_id], Instant::now()));
                  }

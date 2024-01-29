@@ -472,18 +472,3 @@ impl Client {
         Ok(())
     }
 }
-
-// /// Create a socket for a certain address, domain, protocol, and port
-// fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Arc<Socket> {
-//     let (bind_address, domain) = if v6 == true {
-//         (format!("[{}]:{}", address, port), Domain::ipv6())
-//     } else {
-//         (format!("{}:{}", address, port), Domain::ipv4())
-//     };
-//
-//     // Create the socket to send and receive to/from
-//     let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
-//     socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-//
-//     return socket
-// }
