@@ -523,9 +523,6 @@ impl Controller for ControllerService {
                                 };
 
                                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
-                                    // TODO senders locked ?
-                                    println!("senders is locked: {}", senders.is_poisoned());
-                                    println!("senders {:?}", senders.try_lock());
                                     senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }
                             }
@@ -646,7 +643,7 @@ impl Controller for ControllerService {
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120 + clients.len() as u64 - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(85 + clients.len() as u64 - client_id as u64)).await;
                     } else {
                         tokio::time::sleep(Duration::from_secs(10 + clients.len() as u64 - client_id as u64)).await;
                     }
