@@ -378,7 +378,7 @@ impl Controller for ControllerService {
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
             }
 
-            // If a client is still working on an another measurement
+            // If a client is still working on another measurement
             let open_tasks = self.open_tasks.lock().unwrap();
 
             // For every open task
@@ -455,7 +455,6 @@ impl Controller for ControllerService {
         }
 
         // Create a Task from the ScheduleTask
-        // Get the destination addresses, the source address, the rate, and the task type from the CLI task
         let dest_addresses;
         let default_src_addr = task.source_address;
         let rate = task.rate;
@@ -645,11 +644,11 @@ impl Controller for ControllerService {
                     println!("Trace route: {}", traceroute);
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(45 + clients.len() as u64 - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(60 + clients.len() as u64 - client_id as u64)).await;
                     } else {
                         tokio::time::sleep(Duration::from_secs(10 + clients.len() as u64 - client_id as u64)).await;
                     }
-                    println!("[Server] Letting client with ID {} know it the measurement is finished", client_id);
+                    println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
                         data: None,
