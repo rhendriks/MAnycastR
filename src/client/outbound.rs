@@ -9,7 +9,7 @@ use crate::custom_module;
 use custom_module::IP;
 use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
-use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End};
+use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End, Trace};
 use std::process::{Command, Stdio};
 use tokio::sync::mpsc::error::TryRecvError;
 
@@ -72,6 +72,10 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                         break
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
+                    Trace(_) => {
+                        println!("Received a trace task");
+                        continue
+                    }, // TODO
                     _ => continue, // Invalid task
                 };
 

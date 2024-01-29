@@ -96,6 +96,7 @@ message Task {
     UDP udp = 4;
     TCP tcp = 5;
     Empty empty = 6;
+    Trace trace = 7;
   }
 }
 
@@ -120,6 +121,11 @@ message End {
 message Origin {
   Address source_address = 1;
   fixed32 source_port = 2;
+}
+
+// A traceroute task, which has a destination address
+message Trace {
+  Address destination_address = 1;
 }
 
 // A Ping, which has a list of destination addresses
