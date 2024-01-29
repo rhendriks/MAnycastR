@@ -24,7 +24,7 @@ impl Address {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[derive(PartialEq)]
+#[derive(Eq, Hash, PartialEq)]
 pub enum IP {
     V4(Ipv4Addr),
     V6(Ipv6Addr),

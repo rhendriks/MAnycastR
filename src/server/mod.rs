@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, transport::Server};
@@ -14,7 +14,8 @@ use crate::server::mpsc::Sender;
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::controller_server::{Controller, ControllerServer};
 use verfploeter::{
-    Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin
+    Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin,
+    verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Udp as UdpResult, verfploeter_result::Value::Tcp as TcpResult,
 };
 use crate::custom_module::IP;
 
@@ -38,7 +39,7 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    targets: Arc<Mutex<HashMap<u32, (Vec<u8>, Instant)>>>,
+    targets: Arc<Mutex<HashMap<IP, (Vec<u8>, Instant)>>>,
     traceroute: Arc<Mutex<bool>>,
 }
 
@@ -497,7 +498,8 @@ impl Controller for ControllerService {
         }
 
         if traceroute {
-            // Thread that cleans up the targets map and instrucst traceroute
+            let targets = self.targets.clone();
+            // Thread that cleans up the targets map and instruct traceroute
             tokio::spawn(async move {
                 loop {
                     let cleanup_interval = Duration::from_secs(10);
@@ -505,13 +507,14 @@ impl Controller for ControllerService {
                     tokio::time::sleep(cleanup_interval).await;
 
                     // Perform the cleanup
-                    let mut map = self.targets.lock().unwrap();
+                    let mut map = targets.lock().unwrap();
 
                     for (target, (clients, timestamp)) in map.clone().iter() {
                         if Instant::now().duration_since(*timestamp) > cleanup_interval {
                             map.remove(target);
                             if clients.len() > 1 {
                                 for client_id in clients {
+                                    println!("Tracerouting to {} from client {}", target, client_id);
                                     // TODO instruct client to perform traceroute
                                 }
                             }
@@ -675,12 +678,37 @@ impl Controller for ControllerService {
         request: Request<TaskResult>,
     ) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
+        let task_result = request.into_inner();
 
         if *self.traceroute.lock().unwrap() {
-            let client_id = request.into_inner().client_id;
+            let client_id = task_result.client_id as u8;
             let mut map = self.targets.lock().unwrap();
-            for result in request.into_inner().result_list {
-                 // let address = IP::from(result.value.unwrap().clone());
+            for result in task_result.clone().result_list {
+
+                let address = match result.value.unwrap() {
+                    PingResult(value) => {
+                        match value.ip_result.unwrap().value.unwrap() {
+                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                        }
+                    },
+                    UdpResult(value) => {
+                        match value.ip_result.unwrap().value.unwrap() {
+                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                        }
+                    },
+                    TcpResult(value) => {
+                        match value.ip_result.unwrap().value.unwrap() {
+                            verfploeter::ip_result::Value::Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
+                            verfploeter::ip_result::Value::Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                        }
+                    },
+                    _ => IP::None,
+                };
+                 if address == IP::None {
+                     continue
+                }
                  if map.contains_key(&address) {
                      let (clients, _) = map.get_mut(&address).unwrap();
                      clients.push(client_id);
@@ -695,7 +723,7 @@ impl Controller for ControllerService {
             sender.clone().unwrap()
         };
 
-        match tx.send(Ok(request.into_inner())).await {
+        match tx.send(Ok(task_result)).await {
             Ok(_) => Ok(Response::new(Ack {
                 success: true,
                 error_message: "".to_string(),
