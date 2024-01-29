@@ -283,10 +283,6 @@ impl Controller for ControllerService {
             }
         }
         if finished {
-            // Sleep 45 seconds to give clients time for traceroute
-            if *self.traceroute.lock().unwrap() {
-                tokio::time::sleep(Duration::from_secs(45)).await;
-            }
             println!("[Server] Sending default value to CLI, notifying the task is finished");
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
@@ -647,7 +643,11 @@ impl Controller for ControllerService {
 
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    tokio::time::sleep(Duration::from_secs(10)).await; // TODO is this sleep necessary?
+                    if traceroute {
+                        tokio::time::sleep(Duration::from_secs(45)).await;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
                     println!("[Server] Letting client with ID {} know it has received all tasks", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
@@ -702,20 +702,20 @@ impl Controller for ControllerService {
                 let address = match result.value.unwrap() {
                     PingResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
                         }
                     },
                     UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
                         }
                     },
                     TcpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.destination_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
+                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
                         }
                     },
                     _ => IP::None,
