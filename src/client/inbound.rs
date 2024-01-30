@@ -8,11 +8,11 @@ use custom_module::verfploeter::{
     Address, ip_result, IPv4Result, IPv6Result, IpResult, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
+    TraceResult
 };
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 use crate::net::netv6::IPv6Packet;
 use pcap::{Active, Capture, Device};
-use crate::custom_module::verfploeter::TraceResult;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -73,7 +73,6 @@ pub fn listen_ping(
                 };
 
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-                // TODO ICMP TTL exceeded listener
                 let mut result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
                 } else {
@@ -83,7 +82,6 @@ pub fn listen_ping(
                 // Attempt to parse the packet as an ICMP time exceeded packet
                 if traceroute && (result == None) {
                     result = parse_icmp_time_exceeded(&packet.data[14..], v6);
-                    println!("Traceroute result: {:?}", result);
                 }
 
                 // Invalid ICMP packets have value None
@@ -576,9 +574,75 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
             ipv4_header.unwrap()
         };
 
+        // 4. Parse the payload of the probe that caused the time exceeded
         return match ip_payload_probe {
-            // PacketPayload::UDP { value: udp_header } => udp_header.ttl as u32, // TODO
-            // PacketPayload::TCP { value: tcp_header } => tcp_header.ttl as u32, // TODO
+            PacketPayload::UDP { value: udp_header } => {
+                let inner_payload = udp_header.body.as_slice();
+                if inner_payload.len() < 10 { return None }
+
+                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let sender_client_id = u32::from(inner_payload[8]);
+                let ttl = u32::from(inner_payload[9]);
+
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl,
+                        receive_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        transmit_time,
+                        sender_client_id,
+                        value: Some(custom_module::verfploeter::trace_result::Value::Udp(UdpResult {
+                            receive_time: 0,
+                            source_port: udp_header.source_port as u32,
+                            destination_port: udp_header.destination_port as u32,
+                            code: 16,
+                            ip_result: Some(ip_result_probe),
+                            payload: Some(UdpPayload {
+                                value: None,
+                                // Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                                //     transmit_time: 0,
+                                //     source_address: None,
+                                //     destination_address: None,
+                                //     sender_client_id: 0,
+                                //     source_port: 0,
+                                // })),
+                            }),
+                        })),
+                    })),
+                })
+            },
+            PacketPayload::TCP { value: tcp_header } => {
+                let inner_payload = tcp_header.body.as_slice();
+                if inner_payload.len() < 10 { return None }
+
+                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let sender_client_id = u32::from(inner_payload[8]);
+                let ttl = u32::from(inner_payload[9]);
+
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl,
+                        receive_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        transmit_time,
+                        sender_client_id,
+                        value: Some(custom_module::verfploeter::trace_result::Value::Tcp(TcpResult {
+                            receive_time: 0,
+                            source_port: tcp_header.source_port as u32,
+                            destination_port: tcp_header.destination_port as u32,
+                            seq: tcp_header.seq,
+                            ip_result: Some(ip_result_probe),
+                            ack: tcp_header.ack,
+                        })),
+                    })),
+                })
+            },
             PacketPayload::ICMP { value: icmp_header } => {
                 let inner_payload = icmp_header.body.as_slice();
                 if inner_payload.len() < 10 { return None }
@@ -591,18 +655,22 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
                     value: Some(Value::Trace(TraceResult {
                         ip_result,
                         ttl,
+                        receive_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        transmit_time,
+                        sender_client_id,
                         value: Some(custom_module::verfploeter::trace_result::Value::Ping(PingResult {
-                            receive_time: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_nanos() as u64,
+                            receive_time: 0,
                             ip_result: Some(ip_result_probe),
-                            payload: Some(PingPayload {
-                                transmit_time,
-                                source_address: None,
-                                destination_address: None,
-                                sender_client_id,
-                            }),
+                            payload: None,
+                            // Some(PingPayload {
+                            //     transmit_time: 0,
+                            //     source_address: None,
+                            //     destination_address: None,
+                            //     sender_client_id: 0,
+                            // }),
                         })),
                     })),
                 })

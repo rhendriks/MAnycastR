@@ -182,10 +182,13 @@ message IPv6Result {
 message TraceResult {
   IPResult ip_result = 1; // IP result of the host that replied to the traceroute probe
   uint32 ttl = 2; // TTL of the traceroute probe that resulted in this trace result
+  uint64 receive_time = 3; // receive time of the traceroute probe that resulted in this trace result
+  uint64 transmit_time = 4; // transmit time of the traceroute probe that resulted in this trace result
+  uint32 sender_client_id = 5; // client ID of the client that sent out the traceroute probe that resulted in this trace result
   oneof value { // Depending on the protocol used, the trace result contains a ping, udp, or tcp result
-    PingResult ping = 3;
-    UDPResult udp = 4;
-    TCPResult tcp = 5;
+    PingResult ping = 6;
+    UDPResult udp = 7;
+    TCPResult tcp = 8;
   }
 }
 
