@@ -302,7 +302,7 @@ impl Client {
             2 | 4 => {
                 let task_type: u32 = start.task_type;
                 // Start listening thread
-                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter);
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter, traceroute);
 
                 // Start sending thread
                 if probing {
@@ -314,7 +314,7 @@ impl Client {
                 let dest_port = 63853;
 
                 // Start listening thread
-                listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
+                listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
 
                 // Start sending thread
                 if probing {
