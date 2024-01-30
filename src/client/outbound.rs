@@ -74,7 +74,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     Ping(ping) => ping,
                     Trace(trace) => {
                         println!("Received a trace task");
-                        perform_trace(source_addr, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id);
+                        perform_trace(source_addr, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8);
                         continue
                     }, // TODO
                     _ => continue, // Invalid task
@@ -364,13 +364,10 @@ fn perform_trace(
     cap: &mut Capture<pcap::Active>,
     dest_addr: IP,
     client_id: u8,
+    max_ttl: u8,
 ) {
-    println!("[Client outbound] Started traceroute thread");
-
-    // let ttl = 1;
-    // let max_ttl = 30;
-
-    for i in 1..10 {
+    println!("Max TTL: {} to dest {}", max_ttl, dest_addr);
+    for i in 1..(max_ttl + 1)  {
         let mut packet: Vec<u8> = Vec::new();
         packet.extend_from_slice(&ethernet_header);
 
@@ -382,13 +379,11 @@ fn perform_trace(
         bytes.extend_from_slice(&transmit_time.to_be_bytes()); // Bytes 0 - 7
         bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
         bytes.extend_from_slice(&(i as u8).to_be_bytes()); // Byte 9 *
-        // Bytes 10, 11 still free
-
-
+        
         let icmp = if ipv6 {
-            ICMPPacket::echo_request_v6(1, 2, bytes, source_address.get_v6().into(), dest_addr.get_v6().into(), i as u8)
+            ICMPPacket::echo_request_v6(1, 2, bytes, source_address.get_v6().into(), dest_addr.get_v6().into(), i)
         } else {
-            ICMPPacket::echo_request(1, 2, bytes, source_address.get_v4().into(), dest_addr.get_v4().into(), i as u8)
+            ICMPPacket::echo_request(1, 2, bytes, source_address.get_v4().into(), dest_addr.get_v4().into(), i)
         };
         packet.extend_from_slice(&icmp); // ip header included
 

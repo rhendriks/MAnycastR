@@ -41,7 +41,7 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    targets: Arc<Mutex<HashMap<IP, (Vec<u8>, Instant)>>>,
+    traceroute_targets: Arc<Mutex<HashMap<IP, (Vec<u8>, Instant, u8)>>>, // IP -> (clients, timestamp, ttl)
     traceroute: Arc<Mutex<bool>>,
 }
 
@@ -499,7 +499,7 @@ impl Controller for ControllerService {
         }
 
         if traceroute {
-            let targets = self.targets.clone();
+            let targets = self.traceroute_targets.clone();
             let senders = self.senders.clone();
             // Thread that cleans up the targets map and instruct traceroute
             tokio::spawn(async move {
@@ -510,14 +510,27 @@ impl Controller for ControllerService {
                     // Perform the cleanup
                     let mut map = targets.lock().unwrap();
 
-                    for (target, (clients, timestamp)) in map.clone().iter() {
+                    for (target, (clients, timestamp, ttl)) in map.clone().iter() {
                         if Instant::now().duration_since(*timestamp) > cleanup_interval {
                             map.remove(target);
                             if clients.len() > 1 {
                                 println!("Tracerouting to {} from clients {:?}", target, clients);
 
+                                // TODO keep track of lowest TTL recorded and use that to determine the number of traceroute hops to measure from each VP
+
+                                // Get the upper bound TTL we should perform traceroute with
+                                let max_ttl: u32 = if ttl >= &128 {
+                                    255 - ttl
+                                } else if ttl >= &64 {
+                                    128 - ttl
+                                } else {
+                                    64 - ttl
+                                } as u32;
+                                println!("TTL max: {}", max_ttl);
+
                                 let traceroute_task = Task {
                                     data: Some(TaskTrace(Trace {
+                                        max_ttl,
                                         destination_address: Some(Address::from(target.clone()))
                                     }))
                                 };
@@ -697,10 +710,11 @@ impl Controller for ControllerService {
         if *self.traceroute.lock().unwrap() {
             // Loop over the results and keep track of the clients that have received probe responses
             let client_id = task_result.client_id as u8;
-            let mut map = self.targets.lock().unwrap();
+            let mut map = self.traceroute_targets.lock().unwrap();
             for result in task_result.clone().result_list {
 
-                let address = match result.value.unwrap() {
+                let value = result.value.unwrap();
+                let address = match value.clone() {
                     PingResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
                             Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
@@ -721,16 +735,35 @@ impl Controller for ControllerService {
                     },
                     _ => IP::None,
                 };
+
+                let ttl = match value {
+                    PingResult(value) => {
+                        value.ip_result.unwrap().ttl
+                    },
+                    UdpResult(value) => {
+                        value.ip_result.unwrap().ttl
+                    },
+                    TcpResult(value) => {
+                        value.ip_result.unwrap().ttl
+                    },
+                    _ => 0,
+                } as u8;
+
                  if address == IP::None {
                      continue
                 }
                  if map.contains_key(&address) {
-                     let (clients, _) = map.get_mut(&address).unwrap();
+                     let (clients, _, ttl_old) = map.get_mut(&address).unwrap();
+                     // We want to keep track of the lowest TTL recorded
+                     if ttl < ttl_old.clone() {
+                         *ttl_old = ttl;
+                     }
+                     // Keep track of all clients that have received probe replies for this target
                      if !clients.contains(&client_id) {
                          clients.push(client_id);
                      }
                  } else {
-                     map.insert(address, (vec![client_id], Instant::now()));
+                     map.insert(address, (vec![client_id], Instant::now(), ttl));
                  }
             }
         }
@@ -774,7 +807,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
-        targets: Arc::new(Mutex::new(HashMap::new())),
+        traceroute_targets: Arc::new(Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
     };
 

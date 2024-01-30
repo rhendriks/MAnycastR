@@ -126,6 +126,7 @@ message Origin {
 // A traceroute task, which has a destination address
 message Trace {
   Address destination_address = 1;
+  uint32 max_ttl = 2;
 }
 
 // A Ping, which has a list of destination addresses
