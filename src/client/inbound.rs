@@ -599,7 +599,7 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
         // first 8 transmit time
         // next 1 sender client id
         // next 1 TTL
-        // 2 left over
+        // Rest is the edu URl
         let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
         let sender_client_id = u32::from(inner_payload[8]);
         let ttl = u32::from(inner_payload[9]);
