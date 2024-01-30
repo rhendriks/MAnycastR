@@ -538,6 +538,9 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
     let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
     // Traceroute writer
     let mut wtr_file_traceroute = if traceroute { Some(Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"))) } else { None }; // TODO file name
+
+    // TODO write traceroute header
+
     // Results file
     let mut wtr_file = Writer::from_writer(file);
 
