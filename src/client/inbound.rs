@@ -484,6 +484,8 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 
     // Obtain the payload
     return if let PacketPayload::ICMP { value } = payload {
+        if *&value.icmp_type != 129 { return None } // Only parse ICMP echo replies
+
         if *&value.body.len() < 4 { return None }
         let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
         let pkt_task_id = u32::from_be_bytes(s);
@@ -532,6 +534,7 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
+    println!("parse_icmp_time_exceeded");
     // 1. Parse IP header
     let (ip_result, payload) = if v6 {
         match parse_ipv6(packet_bytes) {
