@@ -511,7 +511,7 @@ impl Controller for ControllerService {
                     let mut map = targets.lock().unwrap();
 
                     for (target, (clients, timestamp)) in map.clone().iter() {
-                        if Instant::now().duration_since(*timestamp) > cleanup_interval { // TODO gets triggered after measurement ends
+                        if Instant::now().duration_since(*timestamp) > cleanup_interval {
                             map.remove(target);
                             if clients.len() > 1 {
                                 println!("Tracerouting to {} from clients {:?}", target, clients);
@@ -522,6 +522,7 @@ impl Controller for ControllerService {
                                     }))
                                 };
 
+                                // TODO make sure client_id is mapped to the right sender
                                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
                                     senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }

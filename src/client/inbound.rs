@@ -34,7 +34,15 @@ use pcap::{Active, Capture, Device};
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_ping(
+    tx: UnboundedSender<TaskResult>,
+    rx_f: Receiver<()>,
+    task_id: u32,
+    client_id: u8,
+    v6: bool,
+    filter: String,
+    traceroute: bool,
+) {
     println!("[Client inbound] Started ICMP listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
@@ -64,6 +72,7 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
                 };
 
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
+                // TODO ICMP TTL exceeded listener
                 let result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
                 } else {
@@ -72,6 +81,9 @@ pub fn listen_ping(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id:
 
                 // Invalid ICMP packets have value None
                 if result == None {
+                    if traceroute {
+                        parse_icmp_time_exceeded(&packet.data[14..], v6);
+                    }
                     continue
                 }
 
@@ -415,8 +427,14 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
+
     // Obtain the payload
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
+
+
+
+        if *&icmp_packet.icmp_type != 0 { return None } // Only parse ICMP echo replies
+
         if *&icmp_packet.body.len() < 4 { return None }
         let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() { s } else { return None };
         let pkt_task_id = u32::from_be_bytes(s);
@@ -511,6 +529,69 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     } else {
         None
     }
+}
+
+fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
+    // 1. Parse IP header
+    let (ip_result, payload) = if v6 {
+        match parse_ipv6(packet_bytes) {
+            None => return None, // Unable to parse IPv4 header
+            Some((ip_result, payload)) => (Some(ip_result), payload),
+        }
+    } else { // v4
+        match parse_ipv4(packet_bytes) {
+            None => return None, // Unable to parse IPv4 header
+            Some((ip_result, payload)) => (Some(ip_result), payload),
+        }
+    };
+
+    println!(" ip_result {:?}", ip_result);
+    println!(" payload {:?}", payload);
+
+    // 2. ICMP time exceeded header
+    if let PacketPayload::ICMP { value: icmp_packet } = payload {
+        println!(" icmp_packet {:?}", icmp_packet);
+
+        if (!v6 & (icmp_packet.icmp_type != 11)) | (v6 & (icmp_packet.icmp_type != 3)) { // Code 11 => time exceeded
+            return None;
+        }
+
+        // 3. IP header of the probe that caused the time exceeded
+        let (ip_result_probe, ip_payload_probe) = if v6 {
+            // Get the ipv6 header from the probe out of the ICMP body
+            let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
+
+            // If we are unable to retrieve an IP header out of the ICMP payload
+            if ipv6_header.is_none() {
+                // Create a VerfploeterResult for the received ping reply
+                return None;
+            }
+            let (ip_result_probe, ip_payload_probe) = ipv6_header.unwrap();
+
+            (ip_result_probe, ip_payload_probe)
+        } else {
+            // Get the ipv4 header from the probe out of the ICMP body
+            let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
+
+            // If we are unable to retrieve an IP header out of the ICMP payload
+            if ipv4_header.is_none() {
+                // Create a VerfploeterResult for the received ping reply
+                return None
+            }
+            let (ip_result_probe, ip_payload_probe) = ipv4_header.unwrap();
+
+            (ip_result_probe, ip_payload_probe)
+        };
+
+        println!(" ip_result_probe {:?}", ip_result_probe);
+        println!(" ip_payload_probe {:?}", ip_payload_probe);
+
+        // 4. First 8 bytes of original datagram's data
+
+        return None;
+    }
+
+    return None;
 }
 
 fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
