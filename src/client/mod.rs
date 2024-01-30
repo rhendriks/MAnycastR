@@ -148,7 +148,14 @@ impl Client {
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
-    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool, igreedy: bool) { // TODO we should keep all flow-fields static to avoid per-flow load-balancing from creating false positives
+    fn init(
+        &mut self,
+        task: Task,
+        client_id: u8,
+        outbound_f: Option<oneshot::Receiver<()>>,
+        probing: bool,
+        igreedy: bool,
+    ) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -169,6 +176,7 @@ impl Client {
         let task_id = start.task_id;
         let ipv6 = start.ipv6;
         let mut client_sources: Vec<Origin> = start.origins;
+        let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if igreedy {
@@ -285,7 +293,7 @@ impl Client {
         // Start listening thread and sending thread
         match start.task_type {
             1 => {
-                listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter);
+                listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
 
                 if probing {
                     perform_ping(client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);

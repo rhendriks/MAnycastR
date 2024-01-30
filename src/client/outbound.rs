@@ -72,8 +72,9 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                         break
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
-                    Trace(_) => {
+                    Trace(trace) => {
                         println!("Received a trace task");
+                        perform_trace(source_addr, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")));
                         continue
                     }, // TODO
                     _ => continue, // Invalid task
@@ -355,6 +356,29 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
         }
     });
 }
+
+fn perform_trace(source_address: IP, ipv6: bool, ethernet_header: Vec<u8>, cap: &mut Capture<pcap::Active>, dest_addr: IP) {
+    println!("[Client outbound] Started traceroute thread");
+
+    let ttl = 1;
+    // let max_ttl = 30;
+
+    let mut packet: Vec<u8> = Vec::new();
+    packet.extend_from_slice(&ethernet_header);
+    let icmp = if ipv6 {
+        ICMPPacket::echo_request_v6(1, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), ttl)
+    } else {
+        ICMPPacket::echo_request(1, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), ttl)
+    };
+    packet.extend_from_slice(&icmp); // ip header included
+
+    println!("Sending traceroute");
+    cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
+}
+
+
+
+
 
 /// Spawns a thread that waits for a possible abort signal.
 fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Receiver<()>) {
