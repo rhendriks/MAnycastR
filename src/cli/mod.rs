@@ -604,34 +604,43 @@ fn get_header(task_type: u32) -> Vec<&'static str> {
 /// Get the result (csv row) from a VerfploeterResult message
 fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32) -> Vec<String> {
     match result.value.unwrap() {
-        ResultTrace(trace) => { // TODO traceroute results should be written to a different file (as they have a different format)
-            // source, destination, ttl (that triggered the result), source2 (address of the middlebox that responded with icmp ttl exceeded),
-            // sender_client_id, receiver_client_id, transmit_time, receive_time
-
-
-            println!("Traceroute result found: {:?}", trace);
+        ResultTrace(trace) => {
             let ipresult = trace.ip_result.unwrap();
             let source_mb = ipresult.get_source_address_str();
             let ttl = trace.ttl;
+            let receive_time = trace.receive_time.to_string();
+            let transmit_time = trace.transmit_time.to_string();
+            let sender_client_id = trace.sender_client_id.to_string();
 
-            match trace.value.unwrap() {
+            return match trace.value.unwrap() {
                 Value::Ping(ping) => {
                     let inner_ip = ping.ip_result.unwrap();
                     let source = inner_ip.get_source_address_str();
                     let destination = inner_ip.get_dest_address_str();
 
-                    let receive_time = ping.receive_time.to_string();
-                    let ping_payload = ping.payload.unwrap();
-                    let transmit_time = ping_payload.transmit_time.to_string();
-                    let sender_client_id = ping_payload.sender_client_id.to_string();
-
-                    return vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time];
+                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time]
                 }
-                Value::Udp(_) => {} // TODO
-                Value::Tcp(_) => {} // TODO
-            }
+                Value::Udp(udp) => {
+                    let inner_ip = udp.ip_result.unwrap();
+                    let source = inner_ip.get_source_address_str();
+                    let destination = inner_ip.get_dest_address_str();
+                    let source_port = udp.source_port.to_string();
+                    let destination_port = udp.destination_port.to_string();
 
-            todo!("Traceroute results are not yet supported")
+                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time, source_port, destination_port]
+                }
+                Value::Tcp(tcp) => {
+                    let inner_ip = tcp.ip_result.unwrap();
+                    let source = inner_ip.get_source_address_str();
+                    let destination = inner_ip.get_dest_address_str();
+                    let source_port = tcp.source_port.to_string();
+                    let destination_port = tcp.destination_port.to_string();
+                    let seq = tcp.seq.to_string();
+                    let ack = tcp.ack.to_string();
+
+                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time, source_port, destination_port, seq, ack]
+                }
+            }
         }
         ResultPing(ping) => {
             let recv_time = ping.receive_time.to_string();
