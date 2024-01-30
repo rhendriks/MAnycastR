@@ -579,7 +579,8 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
     let value = result.value.unwrap();
 
     match value {
-        ResultTrace(_) => { // TODO traceroute results should be written to a different file (as they have a different format)
+        ResultTrace(trace) => { // TODO traceroute results should be written to a different file (as they have a different format)
+            println!("Traceroute result found: {:?}", trace);
             todo!("Traceroute results are not yet supported")
         }
         ResultPing(ping) => {

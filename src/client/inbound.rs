@@ -12,6 +12,7 @@ use custom_module::verfploeter::{
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 use crate::net::netv6::IPv6Packet;
 use pcap::{Active, Capture, Device};
+use crate::custom_module::verfploeter::TraceResult;
 
 
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
@@ -588,10 +589,65 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
 
         println!(" ip_result_probe {:?}", ip_result_probe);
         println!(" ip_payload_probe {:?}", ip_payload_probe);
+        let (ttl, inner_payload) = match ip_payload_probe {
+            // PacketPayload::UDP { value: udp_header } => udp_header.ttl as u32,
+            // PacketPayload::TCP { value: tcp_header } => tcp_header.ttl as u32,
+            PacketPayload::ICMP { value: icmp_header } => (icmp_header.identifier as u32, icmp_header.body),
+            _ => return None,
+        };
 
-        // 4. First 8 bytes of original datagram's data
+        let transmit_time = u64::from_be_bytes(inner_payload[4..12].try_into().unwrap());
+        let sender_client_id = u32::from_be_bytes(inner_payload[12..16].try_into().unwrap());
 
-        return None;
+        let (source_address, destination_address): (Address, Address) = if !v6 {
+            let source_address = inner_payload[16..20].try_into().unwrap();
+            let destination_address = inner_payload[20..24].try_into().unwrap();
+            (
+                Address {
+                    value: Some(V4(u32::from_be_bytes(source_address))),
+                },
+                Address {
+                    value: Some(V4(u32::from_be_bytes(destination_address))),
+                },
+            )
+        } else {
+            let source_address = inner_payload[16..32].try_into().unwrap();
+            let destination_address = inner_payload[32..48].try_into().unwrap();
+            (
+                Address {
+                    value: Some(V6(IPv6 {
+                        p1: (u128::from_be_bytes(source_address) >> 64) as u64,
+                        p2: u128::from_be_bytes(source_address) as u64,
+                    })),
+                },
+                Address {
+                    value: Some(V6(IPv6 {
+                        p1: (u128::from_be_bytes(destination_address) >> 64) as u64,
+                        p2: u128::from_be_bytes(destination_address) as u64,
+                    })),
+                },
+            )
+        };
+        return Some(VerfploeterResult {
+                value: Some(Value::Trace(TraceResult {
+                    ip_result,
+                    ttl,
+
+                    value: Some(custom_module::verfploeter::trace_result::Value::Ping(PingResult {
+                        receive_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        ip_result: Some(ip_result_probe),
+                        payload: Some(PingPayload {
+                            transmit_time,
+                            source_address: Some(source_address),
+                            destination_address: Some(destination_address),
+                            sender_client_id,
+                        }),
+                    })),
+                })),
+            })
     }
 
     return None;
