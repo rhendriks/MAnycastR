@@ -74,7 +74,7 @@ pub fn perform_ping(client_id: u8, source_addr: IP, mut outbound_channel_rx: Rec
                     Ping(ping) => ping,
                     Trace(trace) => {
                         println!("Received a trace task");
-                        perform_trace(source_addr, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")));
+                        perform_trace(source_addr, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id);
                         continue
                     }, // TODO
                     _ => continue, // Invalid task
@@ -357,7 +357,14 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
     });
 }
 
-fn perform_trace(source_address: IP, ipv6: bool, ethernet_header: Vec<u8>, cap: &mut Capture<pcap::Active>, dest_addr: IP) {
+fn perform_trace(
+    source_address: IP,
+    ipv6: bool,
+    ethernet_header: Vec<u8>,
+    cap: &mut Capture<pcap::Active>,
+    dest_addr: IP,
+    client_id: u8,
+) {
     println!("[Client outbound] Started traceroute thread");
 
     // let ttl = 1;
@@ -366,10 +373,22 @@ fn perform_trace(source_address: IP, ipv6: bool, ethernet_header: Vec<u8>, cap: 
     for i in 1..10 {
         let mut packet: Vec<u8> = Vec::new();
         packet.extend_from_slice(&ethernet_header);
+
+        let mut bytes: Vec<u8> = Vec::new();
+        let transmit_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        bytes.extend_from_slice(&transmit_time.to_be_bytes()); // Bytes 0 - 7
+        bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
+        bytes.extend_from_slice(&(i as u8).to_be_bytes()); // Byte 9 *
+        // Bytes 10, 11 still free
+
+
         let icmp = if ipv6 {
-            ICMPPacket::echo_request_v6(i, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), i as u8)
+            ICMPPacket::echo_request_v6(1, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), i as u8)
         } else {
-            ICMPPacket::echo_request(i, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), i as u8)
+            ICMPPacket::echo_request(1, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), i as u8)
         };
         packet.extend_from_slice(&icmp); // ip header included
 
