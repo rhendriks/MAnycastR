@@ -27,6 +27,7 @@ use custom_module::verfploeter::{
     verfploeter_result::Value::Trace as ResultTrace,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
 };
+use crate::custom_module::verfploeter::trace_result::Value;
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -167,7 +168,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, traceroute);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast).await
+        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast, traceroute).await
     } else {
         panic!("Unrecognized command");
     }
@@ -263,7 +264,17 @@ impl CliClient {
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     ///
     /// * 'live' - if true results will be checked for anycast targets as they come in.
-    async fn do_task_to_server(&mut self, task: ScheduleTask, task_type: u32, cli: bool, shuffle: bool, hitlist: &str, igreedy: Option<String>, unicast: bool) -> Result<(), Box<dyn Error>> {
+    async fn do_task_to_server(
+        &mut self,
+        task: ScheduleTask,
+        task_type: u32,
+        cli: bool,
+        shuffle: bool,
+        hitlist: &str,
+        igreedy: Option<String>,
+        unicast: bool,
+        traceroute: bool
+    ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
 
@@ -316,7 +327,7 @@ impl CliClient {
         let temp_file = File::create("temp").expect("Unable to create file");
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, temp_file, task_type);
+        write_results(rx_r, cli, temp_file, task_type, traceroute);
 
         let mut replies_count = 0;
         while let Ok(Some(task_result)) = stream.message().await {
@@ -522,9 +533,11 @@ fn igreedy(path: String, target: &str) {
         .spawn().expect("iGreedy failed!");
 }
 
-fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, task_type: u32) {
+fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, task_type: u32, traceroute: bool) {
     // CSV writer to command-line interface
     let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
+    // Traceroute writer
+    let mut wtr_file_traceroute = if traceroute { Some(Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"))) } else { None }; // TODO file name
     // Results file
     let mut wtr_file = Writer::from_writer(file);
 
@@ -542,6 +555,10 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
 
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
             for result in verfploeter_results {
+                let trace_result = match result.clone().value.unwrap() {
+                    ResultTrace(_) => true,
+                    _ => false
+                };
                 let result = get_result(result, task_result.client_id, task_type);
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
@@ -549,7 +566,15 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
                         writer.flush().expect("Failed to flush stdout");
                     }
                 };
-                wtr_file.write_record(result).expect("Failed to write payload to CLI");
+                // Traceroute results get written to a separate file
+                if trace_result {
+                    if let Some(ref mut writer) = wtr_file_traceroute {
+                        writer.write_record(result.clone()).expect("Failed to write payload to traceroute");
+                        writer.flush().expect("Failed to flush traceroute file");
+                    }
+                } else {
+                    wtr_file.write_record(result).expect("Failed to write payload to file");
+                }
             }
             wtr_file.flush().expect("Failed to flush file");
         }
@@ -573,14 +598,36 @@ fn get_header(task_type: u32) -> Vec<&'static str> {
     header
 }
 
+/// Get the result (csv row) from a VerfploeterResult message
 fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32) -> Vec<String> {
-    // TaskResult information
-    let mut record = vec![receiver_client_id.to_string()];
-    let value = result.value.unwrap();
-
-    match value {
+    match result.value.unwrap() {
         ResultTrace(trace) => { // TODO traceroute results should be written to a different file (as they have a different format)
+            // source, destination, ttl (that triggered the result), source2 (address of the middlebox that responded with icmp ttl exceeded),
+            // sender_client_id, receiver_client_id, transmit_time, receive_time
+
+
             println!("Traceroute result found: {:?}", trace);
+            let ipresult = trace.ip_result.unwrap();
+            let source_mb = ipresult.get_source_address_str();
+            let ttl = trace.ttl;
+
+            match trace.value.unwrap() {
+                Value::Ping(ping) => {
+                    let inner_ip = ping.ip_result.unwrap();
+                    let source = inner_ip.get_source_address_str();
+                    let destination = inner_ip.get_dest_address_str();
+
+                    let receive_time = ping.receive_time.to_string();
+                    let ping_payload = ping.payload.unwrap();
+                    let transmit_time = ping_payload.transmit_time.to_string();
+                    let sender_client_id = ping_payload.sender_client_id.to_string();
+
+                    return vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time];
+                }
+                Value::Udp(_) => {} // TODO
+                Value::Tcp(_) => {} // TODO
+            }
+
             todo!("Traceroute results are not yet supported")
         }
         ResultPing(ping) => {
@@ -598,8 +645,7 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
             let request_dest = payload.destination_address.unwrap().to_string();
             let sender_client_id = payload.sender_client_id.to_string();
 
-            record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, transmit_time, request_src, request_dest, sender_client_id]);
-            return record;
+            return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, transmit_time, request_src, request_dest, sender_client_id];
         }
         ResultUdp(udp) => {
             let recv_time = udp.receive_time.to_string();
@@ -621,14 +667,12 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
                     let request_src_port = "-1".to_string();
                     let request_dest_port = "-1".to_string();
 
-                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port]);
-                    return record;
+                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port];
                 } else if task_type == 4 {
                     let sender_client_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
-                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos]);
-                    return record;
+                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -646,15 +690,13 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
                     let request_src_port = dns_a_record.source_port.to_string();
                     let request_dest_port = "53".to_string();
 
-                    record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port]);
-                    return record;
+                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port];
                 },
                 Some(DnsChaos(dns_chaos)) => {
                     let sender_client_id = dns_chaos.sender_client_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
-                    record.append( &mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos]);
-                    return record;
+                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos];
                 },
                 None => {
                     panic!("No payload found for UDP result!");
@@ -675,8 +717,7 @@ fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            record.append(&mut vec![reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack]);
-            return record;
+            return  vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack];
         }
     }
 }

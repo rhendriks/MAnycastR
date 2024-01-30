@@ -537,10 +537,11 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     }
 }
 
+/// ICMP Time exceeded parser, used for traceroute
 fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if v6 {
-        match parse_ipv6(packet_bytes) {
+        match parse_ipv6(packet_bytes) { //v6
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
         }
@@ -553,7 +554,7 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
 
     // 2. ICMP time exceeded header
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        if (!v6 & (icmp_packet.icmp_type != 11)) | (v6 & (icmp_packet.icmp_type != 3)) { // Code 11 => time exceeded
+        if (!v6 & (icmp_packet.icmp_type != 11)) | (v6 & (icmp_packet.icmp_type != 3)) { // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
             return None;
         }
 
@@ -563,67 +564,57 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
             let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
 
             // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv6_header.is_none() {
-                // Create a VerfploeterResult for the received ping reply
-                return None;
-            }
-            let (ip_result_probe, ip_payload_probe) = ipv6_header.unwrap();
+            if ipv6_header.is_none() { return None; }
 
-            (ip_result_probe, ip_payload_probe)
+            ipv6_header.unwrap()
         } else {
             // Get the ipv4 header from the probe out of the ICMP body
             let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
 
             // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv4_header.is_none() {
-                // Create a VerfploeterResult for the received ping reply
-                return None
-            }
-            let (ip_result_probe, ip_payload_probe) = ipv4_header.unwrap();
-
-            (ip_result_probe, ip_payload_probe)
+            if ipv4_header.is_none() { return None }
+            ipv4_header.unwrap()
         };
 
-        let inner_payload = match ip_payload_probe {
-            // PacketPayload::UDP { value: udp_header } => udp_header.ttl as u32,
-            // PacketPayload::TCP { value: tcp_header } => tcp_header.ttl as u32,
-            PacketPayload::ICMP { value: icmp_header } => icmp_header.body,
-            _ => return None,
-        };
+        return match ip_payload_probe {
+            // PacketPayload::UDP { value: udp_header } => udp_header.ttl as u32, // TODO
+            // PacketPayload::TCP { value: tcp_header } => tcp_header.ttl as u32, // TODO
+            PacketPayload::ICMP { value: icmp_header } => {
+                let inner_payload = icmp_header.body.as_slice();
+                if inner_payload.len() < 10 { return None }
 
-        // first 8 transmit time
-        // next 1 sender client id
-        // next 1 TTL
-        // Rest is the edu URl
-        let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-        let sender_client_id = u32::from(inner_payload[8]);
-        let ttl = u32::from(inner_payload[9]);
+                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let sender_client_id = u32::from(inner_payload[8]);
+                let ttl = u32::from(inner_payload[9]);
 
-        return Some(VerfploeterResult {
-                value: Some(Value::Trace(TraceResult {
-                    ip_result,
-                    ttl,
-
-                    value: Some(custom_module::verfploeter::trace_result::Value::Ping(PingResult {
-                        receive_time: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64,
-                        ip_result: Some(ip_result_probe),
-                        payload: Some(PingPayload {
-                            transmit_time,
-                            source_address: None,
-                            destination_address: None,
-                            sender_client_id,
-                        }),
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl,
+                        value: Some(custom_module::verfploeter::trace_result::Value::Ping(PingResult {
+                            receive_time: SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_nanos() as u64,
+                            ip_result: Some(ip_result_probe),
+                            payload: Some(PingPayload {
+                                transmit_time,
+                                source_address: None,
+                                destination_address: None,
+                                sender_client_id,
+                            }),
+                        })),
                     })),
-                })),
-            })
+                })
+            },
+            _ => None,
+        };
     }
 
     return None;
 }
 
+/// ICMP Destination unreachable parser, used for DNS A record probing
 fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if v6 {
