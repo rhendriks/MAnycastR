@@ -74,17 +74,20 @@ pub fn listen_ping(
 
                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                 // TODO ICMP TTL exceeded listener
-                let result = if v6 {
+                let mut result = if v6 {
                     parse_icmpv6(&packet.data[14..], task_id)
                 } else {
                     parse_icmpv4(&packet.data[14..], task_id)
                 };
 
+                // Attempt to parse the packet as an ICMP time exceeded packet
+                if traceroute && (result == None) {
+                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
+                    println!("Traceroute result: {:?}", result);
+                }
+
                 // Invalid ICMP packets have value None
                 if result == None {
-                    if traceroute {
-                        parse_icmp_time_exceeded(&packet.data[14..], v6);
-                    }
                     continue
                 }
 
@@ -535,7 +538,6 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
-    println!("parse_icmp_time_exceeded");
     // 1. Parse IP header
     let (ip_result, payload) = if v6 {
         match parse_ipv6(packet_bytes) {
@@ -549,13 +551,8 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
         }
     };
 
-    println!(" ip_result {:?}", ip_result);
-    println!(" payload {:?}", payload);
-
     // 2. ICMP time exceeded header
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        println!(" icmp_packet {:?}", icmp_packet);
-
         if (!v6 & (icmp_packet.icmp_type != 11)) | (v6 & (icmp_packet.icmp_type != 3)) { // Code 11 => time exceeded
             return None;
         }
@@ -587,8 +584,6 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
             (ip_result_probe, ip_payload_probe)
         };
 
-        println!(" ip_result_probe {:?}", ip_result_probe);
-        println!(" ip_payload_probe {:?}", ip_payload_probe);
         let inner_payload = match ip_payload_probe {
             // PacketPayload::UDP { value: udp_header } => udp_header.ttl as u32,
             // PacketPayload::TCP { value: tcp_header } => tcp_header.ttl as u32,
