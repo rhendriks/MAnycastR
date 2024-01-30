@@ -146,7 +146,16 @@ pub fn listen_ping(
 /// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
 ///
 /// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
-pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, task_type: u32, filter: String) {
+pub fn listen_udp(
+    tx: UnboundedSender<TaskResult>,
+    rx_f: Receiver<()>,
+    task_id: u32,
+    client_id: u8,
+    v6: bool,
+    task_type: u32,
+    filter: String,
+    traceroute: bool,
+) {
     println!("[Client inbound] Started UDP listener with filter {}", filter);
 
     // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
@@ -177,7 +186,7 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 
 
                 // UDP
-                let result = if v6 {
+                let mut result = if v6 {
                     if packet.data[20] == 17 {
                         parse_udpv6(&packet.data[14..], task_type)
                     } else {
@@ -198,6 +207,11 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                         }
                     }
                 };
+
+                // Attempt to parse the packet as an ICMP time exceeded packet
+                if traceroute && (result == None) {
+                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
+                }
 
                 // Invalid packets have value None
                 if result == None {
@@ -256,7 +270,15 @@ pub fn listen_udp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
-pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: u32, client_id: u8, v6: bool, filter: String) {
+pub fn listen_tcp(
+    tx: UnboundedSender<TaskResult>,
+    rx_f: Receiver<()>,
+    task_id: u32,
+    client_id: u8,
+    v6: bool,
+    filter: String,
+    traceroute: bool,
+) {
     println!("[Client inbound] Started TCP listener with filter {}", filter);
     // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
@@ -284,11 +306,16 @@ pub fn listen_tcp(tx: UnboundedSender<TaskResult>, rx_f: Receiver<()>, task_id: 
                     },
                 };
 
-                let result = if v6 {
+                let mut result = if v6 {
                     parse_tcpv6(&packet.data[14..])
                 } else {
                     parse_tcpv4(&packet.data[14..])
                 };
+
+                // Attempt to parse the packet as an ICMP time exceeded packet
+                if traceroute && (result == None) {
+                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
+                }
 
                 // Invalid TCP packets have value None
                 if result == None {
@@ -432,9 +459,6 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 
     // Obtain the payload
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
-
-
-
         if *&icmp_packet.icmp_type != 0 { return None } // Only parse ICMP echo replies
 
         if *&icmp_packet.body.len() < 4 { return None }
