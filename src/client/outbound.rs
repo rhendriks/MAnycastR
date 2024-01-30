@@ -360,20 +360,22 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 fn perform_trace(source_address: IP, ipv6: bool, ethernet_header: Vec<u8>, cap: &mut Capture<pcap::Active>, dest_addr: IP) {
     println!("[Client outbound] Started traceroute thread");
 
-    let ttl = 1;
+    // let ttl = 1;
     // let max_ttl = 30;
 
-    let mut packet: Vec<u8> = Vec::new();
-    packet.extend_from_slice(&ethernet_header);
-    let icmp = if ipv6 {
-        ICMPPacket::echo_request_v6(1, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), ttl)
-    } else {
-        ICMPPacket::echo_request(1, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), ttl)
-    };
-    packet.extend_from_slice(&icmp); // ip header included
+    for i in 1..10 {
+        let mut packet: Vec<u8> = Vec::new();
+        packet.extend_from_slice(&ethernet_header);
+        let icmp = if ipv6 {
+            ICMPPacket::echo_request_v6(1, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), i)
+        } else {
+            ICMPPacket::echo_request(1, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), i)
+        };
+        packet.extend_from_slice(&icmp); // ip header included
 
-    println!("Sending traceroute");
-    cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
+        println!("Sending traceroute");
+        cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
+    }
 }
 
 
