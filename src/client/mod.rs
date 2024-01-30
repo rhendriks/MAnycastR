@@ -313,6 +313,15 @@ impl Client {
                 // Destination port is a high number to prevent causing open states on the target
                 let dest_port = 63853;
 
+                // When tracerouting we need to listen to ICMP for TTL expired messages
+                if traceroute {
+                    if ipv6 {
+                        filter.push_str(" or icmp6");
+                    } else {
+                        filter.push_str(" or icmp");
+                    }
+                }
+
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
 
