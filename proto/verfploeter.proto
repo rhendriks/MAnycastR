@@ -179,11 +179,12 @@ message IPv6Result {
 }
 
 message TraceResult {
-  uint32 ttl = 1; // TTL of the traceroute probe that resulted in this trace result
+  IPResult ip_result = 1; // IP result of the host that replied to the traceroute probe
+  uint32 ttl = 2; // TTL of the traceroute probe that resulted in this trace result
   oneof value { // Depending on the protocol used, the trace result contains a ping, udp, or tcp result
-    PingResult ping = 2;
-    UDPResult udp = 3;
-    TCPResult tcp = 4;
+    PingResult ping = 3;
+    UDPResult udp = 4;
+    TCPResult tcp = 5;
   }
 }
 

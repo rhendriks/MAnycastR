@@ -523,6 +523,7 @@ impl Controller for ControllerService {
                                 };
 
                                 // TODO make sure client_id is mapped to the right sender
+                                // TODO when client IDs don't start at 1, this will fail
                                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
                                     senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }

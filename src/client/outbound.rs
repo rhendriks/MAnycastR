@@ -367,9 +367,9 @@ fn perform_trace(source_address: IP, ipv6: bool, ethernet_header: Vec<u8>, cap: 
         let mut packet: Vec<u8> = Vec::new();
         packet.extend_from_slice(&ethernet_header);
         let icmp = if ipv6 {
-            ICMPPacket::echo_request_v6(1, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), i)
+            ICMPPacket::echo_request_v6(i, 2, vec![], source_address.get_v6().into(), dest_addr.get_v6().into(), i as u8)
         } else {
-            ICMPPacket::echo_request(1, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), i)
+            ICMPPacket::echo_request(i, 2, vec![], source_address.get_v4().into(), dest_addr.get_v4().into(), i as u8)
         };
         packet.extend_from_slice(&icmp); // ip header included
 
