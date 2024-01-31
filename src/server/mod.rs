@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, transport::Server};
+use tonic::{IntoRequest, Request, Response, Status, transport::Server};
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -41,7 +41,7 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    traceroute_targets: Arc<Mutex<HashMap<IP, (Vec<u8>, Instant, u8)>>>, // IP -> (clients, timestamp, ttl)
+    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8)>>>, // IP -> (clients, timestamp, ttl)
     traceroute: Arc<Mutex<bool>>,
 }
 
@@ -508,43 +508,48 @@ impl Controller for ControllerService {
                     // Sleep for the cleanup interval
                     tokio::time::sleep(cleanup_interval).await;
                     // Perform the cleanup
-                    let mut map = targets.lock().unwrap();
+                    let mut map = targets.lock().await;
 
-                    for (target, (clients, timestamp, ttl)) in map.clone().iter() {
+                    let mut traceroute_targets = HashMap::new();
+
+                    for (target, (clients, timestamp, _)) in map.clone().iter() {
                         if Instant::now().duration_since(*timestamp) > cleanup_interval {
-                            map.remove(target);
+                            let value = map.remove(target).expect("Failed to remove target from map");
                             if clients.len() > 1 {
                                 println!("Tracerouting to {} from clients {:?}", target, clients);
-
-                                // TODO keep track of lowest TTL recorded and use that to determine the number of traceroute hops to measure from each VP
-
-                                // Get the upper bound TTL we should perform traceroute with
-                                let max_ttl: u32 = if ttl >= &128 {
-                                    255 - ttl
-                                } else if ttl >= &64 {
-                                    128 - ttl
-                                } else {
-                                    64 - ttl
-                                } as u32;
-                                println!("TTL max: {}", max_ttl);
-
-                                let traceroute_task = Task {
-                                    data: Some(TaskTrace(Trace {
-                                        max_ttl,
-                                        destination_address: Some(Address::from(target.clone()))
-                                    }))
-                                };
-
-                                // TODO make sure client_id is mapped to the right sender
-                                // TODO when client IDs don't start at 1, this will fail
-                                for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
-                                    // Sleep 1 second between each client to avoid rate limiting
-                                    tokio::time::sleep(Duration::from_secs(1)).await;
-                                    senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
-                                }
+                                traceroute_targets.insert(target.clone(), value);
                             }
                         }
                     }
+
+                    for (target, (clients, _, ttl)) in traceroute_targets {
+                        // Get the upper bound TTL we should perform traceroute with
+                        let max_ttl: u32 = if ttl >= 128 {
+                            255 - ttl
+                        } else if ttl >= 64 {
+                            128 - ttl
+                        } else {
+                            64 - ttl
+                        } as u32;
+                        println!("TTL max: {}", max_ttl);
+
+                        let traceroute_task = Task {
+                            data: Some(TaskTrace(Trace {
+                                max_ttl,
+                                destination_address: Some(Address::from(target.clone()))
+                            }))
+                        };
+
+                        // TODO make sure client_id is mapped to the right sender
+                        // TODO when client IDs don't start at 1, this will fail
+                        for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                            // Sleep 1 second between each client to avoid rate limiting
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
+                        }
+                    }
+
+
                 }
             });
         }
@@ -712,7 +717,7 @@ impl Controller for ControllerService {
         if *self.traceroute.lock().unwrap() {
             // Loop over the results and keep track of the clients that have received probe responses
             let client_id = task_result.client_id as u8;
-            let mut map = self.traceroute_targets.lock().unwrap();
+            let mut map = self.traceroute_targets.lock().await;
             for result in task_result.clone().result_list {
 
                 let value = result.value.unwrap();
@@ -809,7 +814,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         current_task_id: Arc::new(Mutex::new(156434)),
         current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
-        traceroute_targets: Arc::new(Mutex::new(HashMap::new())),
+        traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
     };
 
