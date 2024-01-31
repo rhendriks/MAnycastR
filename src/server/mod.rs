@@ -538,6 +538,8 @@ impl Controller for ControllerService {
                                 // TODO make sure client_id is mapped to the right sender
                                 // TODO when client IDs don't start at 1, this will fail
                                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                                    // Sleep 1 second between each client to avoid rate limiting
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
                                     senders.lock().unwrap().get(*client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                                 }
                             }
@@ -658,7 +660,7 @@ impl Controller for ControllerService {
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(90 + clients.len() as u64 - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(120 + clients.len() as u64 - client_id as u64)).await;
                     } else {
                         tokio::time::sleep(Duration::from_secs(10 + clients.len() as u64 - client_id as u64)).await;
                     }
