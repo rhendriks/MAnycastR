@@ -15,6 +15,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 
 extern crate mac_address;
 use mac_address::get_mac_address;
+use crate::custom_module::verfploeter::Origin;
 
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
@@ -33,7 +34,7 @@ use mac_address::get_mac_address;
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32, origins: Vec<Origin>) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -73,7 +74,7 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
                     Trace(trace) => { // TODO trace task for udp/tcp
-                        perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1);
+                        perform_trace(origins.clone(), ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1);
                         continue
                     },
                     _ => continue, // Invalid task
@@ -203,7 +204,7 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
                     }, // An End task means the measurement has finished
                     Udp(udp) => udp,
                     Trace(trace) => {
-                        perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, task_type as u8);
+                        // perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, task_type as u8); TODO
                         continue
                     },
                     _ => continue, // Invalid task
@@ -318,7 +319,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                     }, // An End task means the measurement has finished
                     Tcp(tcp) => tcp,
                     Trace(trace) => {
-                        perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3);
+                        // perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3); TODO
                         continue
                     },
                     _ => continue, // Invalid task
@@ -365,46 +366,51 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 }
 
 fn perform_trace(
-    source_address: IP,
+    sources: Vec<Origin>,
     ipv6: bool,
     ethernet_header: Vec<u8>,
     cap: &mut Capture<pcap::Active>,
     dest_addr: IP,
     client_id: u8,
     max_ttl: u8,
-    task_type: u8,
-) {
+    task_type: u8
+) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
+    // TODO do this for all origins
     if task_type > 3 {
         panic!("Invalid task type")
     }
+    println!("Performing trace to {}", dest_addr.to_string());
 
-    for i in 1..(max_ttl + 1)  { // TODO we can likely skip the first few vultr hops
-        let mut packet: Vec<u8> = Vec::new();
-        packet.extend_from_slice(&ethernet_header);
+    for origin in sources {
+        let source_address = IP::from(origin.source_address.expect("None IP address"));
+        for i in 1..(max_ttl + 1) { // TODO we can likely skip the first few vultr hops
+            let mut packet: Vec<u8> = Vec::new();
+            packet.extend_from_slice(&ethernet_header);
 
-        let mut payload_bytes: Vec<u8> = Vec::new();
-        let transmit_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-        payload_bytes.extend_from_slice(&transmit_time.to_be_bytes()); // Bytes 0 - 7
-        payload_bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
-        payload_bytes.extend_from_slice(&i.to_be_bytes()); // Byte 9 *
+            let mut payload_bytes: Vec<u8> = Vec::new();
+            let transmit_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64;
+            payload_bytes.extend_from_slice(&transmit_time.to_be_bytes()); // Bytes 0 - 7
+            payload_bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
+            payload_bytes.extend_from_slice(&i.to_be_bytes()); // Byte 9 *
 
-        if task_type == 1 { // ICMP
-            let icmp = if ipv6 {
-                ICMPPacket::echo_request_v6(1, 2, payload_bytes, source_address.get_v6().into(), dest_addr.get_v6().into(), i)
-            } else {
-                ICMPPacket::echo_request(1, 2, payload_bytes, source_address.get_v4().into(), dest_addr.get_v4().into(), i)
-            };
-            packet.extend_from_slice(&icmp); // ip header included
-        } else if task_type == 2 { // UDP
-            // TODO
-        } else if task_type == 3 { // TCP
-            // TODO
+            if task_type == 1 { // ICMP
+                let icmp = if ipv6 {
+                    ICMPPacket::echo_request_v6(1, 2, payload_bytes, source_address.get_v6().into(), dest_addr.get_v6().into(), i)
+                } else {
+                    ICMPPacket::echo_request(1, 2, payload_bytes, source_address.get_v4().into(), dest_addr.get_v4().into(), i)
+                };
+                packet.extend_from_slice(&icmp); // ip header included
+            } else if task_type == 2 { // UDP
+                // TODO
+            } else if task_type == 3 { // TCP
+                // TODO
+            }
+
+            cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
         }
-
-        cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
     }
 }
 
