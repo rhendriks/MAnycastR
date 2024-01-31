@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tonic::{IntoRequest, Request, Response, Status, transport::Server};
+use tonic::{Request, Response, Status, transport::Server};
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
