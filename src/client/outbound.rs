@@ -382,8 +382,8 @@ fn perform_trace(
     println!("Performing trace to {}", dest_addr.to_string());
 
     for origin in sources {
-        let source_address = IP::from(origin.source_address.expect("None IP address"));
-        for i in 1..(max_ttl + 1) { // TODO we can likely skip the first few vultr hops
+        let source_address = IP::from(origin.source_address.expect("None IP address")); // TODO there will be duplicate source addresses for ICMP/PING, also the default one when it is unused
+        for i in 1..(max_ttl + 5) { // TODO we can likely skip the first few vultr hops
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
 
