@@ -74,7 +74,7 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
                     Trace(trace) => { // TODO trace task for udp/tcp
-                        perform_trace(origins.clone(), ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1);
+                        perform_trace(origins.clone(), ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1, 0);
                         continue
                     },
                     _ => continue, // Invalid task
@@ -319,7 +319,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                     }, // An End task means the measurement has finished
                     Tcp(tcp) => tcp,
                     Trace(trace) => {
-                        // perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3); TODO
+                        // perform_trace(origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3);
                         continue
                     },
                     _ => continue, // Invalid task
@@ -366,23 +366,36 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 }
 
 fn perform_trace(
-    sources: Vec<Origin>,
+    origins: Vec<Origin>,
     ipv6: bool,
     ethernet_header: Vec<u8>,
     cap: &mut Capture<pcap::Active>,
     dest_addr: IP,
     client_id: u8,
     max_ttl: u8,
-    task_type: u8
+    task_type: u8,
+    destination_port: u16,
 ) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
-    // TODO do this for all origins
     if task_type > 3 {
         panic!("Invalid task type")
     }
     println!("Performing trace to {}", dest_addr.to_string());
 
-    for origin in sources {
-        let source_address = IP::from(origin.source_address.expect("None IP address")); // TODO there will be duplicate source addresses for ICMP/PING, also the default one when it is unused
+    let mut sources: Vec<IP> = vec![];
+
+    for origin in origins {
+        let source_address = IP::from(origin.source_address.expect("None IP address"));
+
+        // For ICMP, we only need to send one probe per source address
+        if task_type == 1 {
+            if sources.contains(&source_address) {
+                continue
+            } else {
+                sources.push(source_address.clone());
+            }
+        }
+        let port = origin.source_port as u16;
+
         for i in 1..(max_ttl + 5) { // TODO we can likely skip the first few vultr hops
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
@@ -404,12 +417,24 @@ fn perform_trace(
                 };
                 packet.extend_from_slice(&icmp); // ip header included
             } else if task_type == 2 { // UDP
-                // TODO
+                let udp = if ipv6 { // TODO encode TTL in the domain name
+                    UDPPacket::dns_request_v6(source_address.get_v6().into(), dest_addr.get_v6().into(), port, "any.dnsjedi.org", transmit_time, client_id, i)
+                } else {
+                    UDPPacket::dns_request(source_address.get_v4().into(), dest_addr.get_v4().into(), port, "any.dnsjedi.org", transmit_time, client_id, i)
+                };
+                packet.extend_from_slice(&udp); // ip header included
             } else if task_type == 3 { // TCP
-                // TODO
+                // ACK: first 16 is the TTL, last 16 is the client ID
+                let ack = (i as u32) << 16 | client_id as u32; // TODO test this
+                let tcp = if ipv6 {
+                    TCPPacket::tcp_syn_ack_v6(source_address.get_v6().into(), dest_addr.get_v6().into(), port, destination_port, 0, ack, i)
+                } else {
+                    TCPPacket::tcp_syn_ack(source_address.get_v4().into(), dest_addr.get_v4().into(), port, destination_port, 0, ack, i)
+                };
+                packet.extend_from_slice(&tcp); // ip header included
             }
 
-            cap.sendpacket(packet).expect("Failed to send ICMP traceroute packet");
+            cap.sendpacket(packet).expect("Failed to send traceroute packet");
         }
     }
 }
