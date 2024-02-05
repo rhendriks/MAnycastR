@@ -493,7 +493,7 @@ impl Controller for ControllerService {
                 }
             }
             // Avoid duplicate origins
-            if !client_sources.contains(&origin) { // TODO will this work?
+            if !client_sources.contains(&origin) {
                 client_sources.push(origin);
             }
         }
