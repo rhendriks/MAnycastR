@@ -589,6 +589,8 @@ impl Controller for ControllerService {
 
         println!("[Server] Distributing tasks");
         let mut t: u64 = 0;
+
+        let number_of_clients = senders.len() as u64;
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             t += 1;
@@ -665,11 +667,11 @@ impl Controller for ControllerService {
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120 + clients.len() as u64 - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(120 + number_of_clients - client_id as u64)).await;
                     } else {
-                        println!("clients length: {}", clients.len() as u64);
+                        println!("clients length: {}", number_of_clients);
                         println!("client_id: {}", client_id as u64);
-                        tokio::time::sleep(Duration::from_secs((10 + clients.len() as u64) - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs((10 + number_of_clients) - client_id as u64)).await;
                     }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
