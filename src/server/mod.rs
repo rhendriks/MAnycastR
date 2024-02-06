@@ -667,7 +667,9 @@ impl Controller for ControllerService {
                     if traceroute {
                         tokio::time::sleep(Duration::from_secs(120 + clients.len() as u64 - client_id as u64)).await;
                     } else {
-                        tokio::time::sleep(Duration::from_secs(10 + clients.len() as u64 - client_id as u64)).await;
+                        println!("clients length: {}", clients.len() as u64);
+                        println!("client_id: {}", client_id as u64);
+                        tokio::time::sleep(Duration::from_secs((10 + clients.len() as u64) - client_id as u64)).await;
                     }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
