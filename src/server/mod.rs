@@ -669,8 +669,6 @@ impl Controller for ControllerService {
                     if traceroute {
                         tokio::time::sleep(Duration::from_secs(120 + number_of_clients - client_id as u64)).await;
                     } else {
-                        println!("clients length: {}", number_of_clients);
-                        println!("client_id: {}", client_id as u64);
                         tokio::time::sleep(Duration::from_secs((10 + number_of_clients) - client_id as u64)).await;
                     }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
