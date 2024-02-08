@@ -91,12 +91,10 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
 
                     // Create ping payload
                     let payload = PingPayload {
-                        // transmit_time,
-                        transmit_time: 0,
+                        transmit_time,
                         source_address: Some(source_address.clone().into()),
                         destination_address: Some(dest_addr.clone()),
-                        // sender_client_id: client_id as u32,
-                        sender_client_id: 0,
+                        sender_client_id: client_id as u32,
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
