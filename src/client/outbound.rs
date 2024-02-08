@@ -91,10 +91,12 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
 
                     // Create ping payload
                     let payload = PingPayload {
-                        transmit_time,
+                        // transmit_time,
+                        transmit_time: 0,
                         source_address: Some(source_address.clone().into()),
                         destination_address: Some(dest_addr.clone()),
-                        sender_client_id: client_id as u32,
+                        // sender_client_id: client_id as u32,
+                        sender_client_id: 0,
                     };
 
                     let mut bytes: Vec<u8> = Vec::new();
@@ -122,7 +124,7 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
                         }
                     }
 
-                    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header?
+                    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
                     let icmp = if ipv6 {
                         ICMPPacket::echo_request_v6(1, 2, bytes, source_address.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
                     } else {
@@ -396,7 +398,8 @@ fn perform_trace(
         }
         let port = origin.source_port as u16;
 
-        for i in 1..(max_ttl + 5) { // TODO we can likely skip the first few vultr hops
+        // Send traceroutes to hops 5 to max_ttl + 5 (starting at 5 to avoid the first 4 vultr hops, and adding 5 to the max_ttl in case of false RTTs)
+        for i in 5..(max_ttl + 5) {
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
 
