@@ -123,10 +123,11 @@ message Origin {
   fixed32 source_port = 2;
 }
 
-// A traceroute task, which has a destination address
+// A traceroute task, which has a destination address, a max_ttl (expected number of hops to traceroute), and a list of flows (a unique flow for each receiving client)
 message Trace {
   Address destination_address = 1;
   uint32 max_ttl = 2;
+  repeated Origin origins = 3;
 }
 
 // A Ping, which has a list of destination addresses

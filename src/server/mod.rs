@@ -41,7 +41,7 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8)>>>, // IP -> (clients, timestamp, ttl)
+    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl)
     traceroute: Arc<Mutex<bool>>,
 }
 
@@ -512,7 +512,7 @@ impl Controller for ControllerService {
 
                     let mut traceroute_targets = HashMap::new();
 
-                    for (target, (clients, timestamp, _)) in map.clone().iter() {
+                    for (target, (clients, timestamp, _, _)) in map.clone().iter() {
                         if Instant::now().duration_since(*timestamp) > cleanup_interval {
                             let value = map.remove(target).expect("Failed to remove target from map");
                             if clients.len() > 1 {
@@ -522,7 +522,7 @@ impl Controller for ControllerService {
                         }
                     }
 
-                    for (target, (clients, _, ttl)) in traceroute_targets {
+                    for (target, (clients, _, ttl, origins)) in traceroute_targets {
                         // Get the upper bound TTL we should perform traceroute with
                         let max_ttl: u32 = if ttl >= 128 {
                             255 - ttl
@@ -536,7 +536,8 @@ impl Controller for ControllerService {
                         let traceroute_task = Task {
                             data: Some(TaskTrace(Trace {
                                 max_ttl,
-                                destination_address: Some(Address::from(target.clone()))
+                                destination_address: Some(Address::from(target.clone())),
+                                origins,
                             }))
                         };
 
@@ -723,26 +724,37 @@ impl Controller for ControllerService {
             for result in task_result.clone().result_list {
 
                 let value = result.value.unwrap();
-                let address = match value.clone() {
+                let (probed_address, anycast_address) = match value.clone() {
                     PingResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
                         }
                     },
                     UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
                         }
                     },
                     TcpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => IP::V4(Ipv4Addr::from(v4.source_address)),
-                            Ipv6(v6) => IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
                         }
                     },
-                    _ => IP::None,
+                    _ => (IP::None, IP::None),
+                };
+
+                //TODO get ports for construction of origin flows for TCP/UDP
+
+                // Create origin flows (i.e., a single flow for each client that has received probe replies)
+                let origin_flow = Origin {
+                    source_address: Some(Address::from(anycast_address)),
+                    source_port: 0, // TODO port
                 };
 
                 let ttl = match value {
@@ -758,11 +770,11 @@ impl Controller for ControllerService {
                     _ => 0,
                 } as u8;
 
-                 if address == IP::None {
+                 if probed_address == IP::None {
                      continue
                 }
-                 if map.contains_key(&address) {
-                     let (clients, _, ttl_old) = map.get_mut(&address).unwrap();
+                 if map.contains_key(&probed_address) {
+                     let (clients, _, ttl_old, origins) = map.get_mut(&probed_address).unwrap();
                      // We want to keep track of the lowest TTL recorded
                      if ttl < ttl_old.clone() {
                          *ttl_old = ttl;
@@ -770,9 +782,10 @@ impl Controller for ControllerService {
                      // Keep track of all clients that have received probe replies for this target
                      if !clients.contains(&client_id) {
                          clients.push(client_id);
+                         origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
                      }
                  } else {
-                     map.insert(address, (vec![client_id], Instant::now(), ttl));
+                     map.insert(probed_address, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
                  }
             }
         }
