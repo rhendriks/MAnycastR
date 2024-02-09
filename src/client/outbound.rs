@@ -34,7 +34,7 @@ use crate::custom_module::verfploeter::Origin;
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32, origins: Vec<Origin>) {
+pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -74,7 +74,7 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
                     Trace(trace) => { // TODO trace task for udp/tcp
-                        perform_trace(origins.clone(), ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1, 0);
+                        perform_trace(trace.origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1, 0);
                         continue
                     },
                     _ => continue, // Invalid task
@@ -287,7 +287,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
         move || {
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(1_000_000).open().expect("Failed to open capture");
             'outer: loop {
                 if *abort.lock().unwrap() == true {
                     println!("ABORTING");
@@ -355,7 +355,7 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
                     packet.extend_from_slice(&tcp); // ip header included
 
                     // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send TCP packet");
+                    cap.sendpacket(packet).expect("Failed to send TCP packet"); // TODO encountered PcapError "send: no buffer space available"
                 }
             }
             debug!("finished TCP probing");
