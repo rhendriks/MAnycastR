@@ -195,7 +195,8 @@ impl Controller for ControllerService {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
         let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
-        let source_port = metadata.origin.unwrap().source_port;
+        let source_port = metadata.origin.clone().unwrap().source_port;
+        let destination_port = metadata.origin.unwrap().destination_port;
 
         let mut clients_list = self.clients.lock().unwrap();
 
@@ -222,6 +223,7 @@ impl Controller for ControllerService {
                 origin: Some(Origin {
                     source_address: Some(source_address),
                     source_port,
+                    destination_port,
                 })
             }),
         };
@@ -490,6 +492,7 @@ impl Controller for ControllerService {
                 origin = Origin {
                     source_address: default_src_addr.clone(),
                     source_port: origin.source_port,
+                    destination_port: origin.destination_port,
                 }
             }
             // Avoid duplicate origins
@@ -767,6 +770,7 @@ impl Controller for ControllerService {
                 let origin_flow = Origin {
                     source_address: Some(Address::from(anycast_address)),
                     source_port,
+                    destination_port,
                 };
 
                 // TODO we need to keep track of the flow per /24 (or /48 for ipv6)

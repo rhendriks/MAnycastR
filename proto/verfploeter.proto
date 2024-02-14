@@ -44,7 +44,7 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Address source_address = 3; // TODO let CLI set the port number
+  Address source_address = 3; // TODO let CLI set the port numbers
   uint32 task_type = 4;
   bool unicast = 5;
   bool ipv6 = 6;
@@ -67,7 +67,7 @@ message Client {
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname, a source address and port (0 if client uses the default source/port)
+// Metadata (as used in Client), contains a hostname, and the origin the client uses
 message Metadata {
   string hostname = 1;
   Origin origin = 2;
@@ -121,6 +121,7 @@ message End {
 message Origin {
   Address source_address = 1;
   fixed32 source_port = 2;
+  fixed32 destination_port = 3;
 }
 
 // A traceroute task, which has a destination address, a max_ttl (expected number of hops to traceroute), and a list of flows (a unique flow for each receiving client)

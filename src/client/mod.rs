@@ -92,6 +92,7 @@ impl Client {
             origin: Some(Origin {
                 source_address: Some(Address::from(source_address.clone())),
                 source_port: source_port.into(),
+                destination_port: 0, // TODO
                 })
         };
 
@@ -196,22 +197,29 @@ impl Client {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
 
+            // We only listen to our own unicast address (each client has its own unicast address)
             client_sources = vec![Origin {
                 source_address: Some(Address::from(unicast_ip.clone())),
                 source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
+                destination_port: 0, // TODO
             }]; // We only listen on our own unicast address
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
             unicast_ip
         } else if self.source_address == IP::None {
+            // Use the 'default' anycast source address set by the CLI
             IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
         } else {
+            // Add default address to client_sources such that this client will listen on the default address as well
             client_sources.append(&mut vec![
                 Origin {
                     source_address: Some(start.source_address.unwrap()),
                     source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
+                    destination_port: 0, // TODO
                 }
-            ]); // Add default address to client_sources such that this client will listen on the default address as well
+            ]);
+
+            // Use the 'custom' anycast source address set when launching this client
             self.source_address.clone()
         };
 
