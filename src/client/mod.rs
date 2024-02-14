@@ -41,6 +41,7 @@ pub struct Client {
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
+    multi_probing: bool,
 }
 
 impl Client {
@@ -104,6 +105,7 @@ impl Client {
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
+            multi_probing: args.is_present("multi_probing"),
         };
 
         client_class.connect_to_server().await?;
@@ -230,9 +232,7 @@ impl Client {
             filter.push_str("ip");
         };
 
-        // TODO add traceroute option
         // With these traceroute probes we need to encode the TTL used in the probe in the payload
-        // TODO listener needs to capture ICMP TTL expired messages
         // TODO this listener needs to capture ICMP TTL expired for all protocols
 
         match start.task_type {
@@ -295,8 +295,16 @@ impl Client {
             1 => {
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
 
+                // all option to tell this client to use all possible origins
+                let sources = if self.multi_probing {
+                    // get the IPs out of client_sources
+                    client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
+                } else {
+                    vec![source_addr]
+                };
+
                 if probing {
-                    perform_ping(client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
+                    perform_ping(client_id, sources, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
                 }
             }
             2 | 4 => {

@@ -34,7 +34,7 @@ use crate::custom_module::verfploeter::Origin;
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(client_id: u8, sources: Vec<IP>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -82,59 +82,62 @@ pub fn perform_ping(client_id: u8, source_address: IP, mut outbound_channel_rx: 
 
                 let dest_addresses = ping_task.destination_addresses;
 
-                // Loop over the destination addresses
-                for dest_addr in dest_addresses {
-                    let transmit_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
+                // Loop over the source addresses
+                for source in &sources {
+                    // Loop over the destination addresses
+                    for dest_addr in &dest_addresses {
+                        let transmit_time = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64;
 
-                    // Create ping payload
-                    let payload = PingPayload {
-                        transmit_time,
-                        source_address: Some(source_address.clone().into()),
-                        destination_address: Some(dest_addr.clone()),
-                        sender_client_id: client_id as u32,
-                    };
+                        // Create ping payload
+                        let payload = PingPayload {
+                            transmit_time,
+                            source_address: Some(source.clone().into()),
+                            destination_address: Some(dest_addr.clone()),
+                            sender_client_id: client_id as u32,
+                        };
 
-                    let mut bytes: Vec<u8> = Vec::new();
-                    bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
-                    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
-                    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
-                    if let Some(source_address) = payload.source_address {
-                        match source_address.value {
-                            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
-                            Some(V6(v6)) => {
-                                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
-                                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
-                            },
-                            None => panic!("Source address is None"),
+                        let mut bytes: Vec<u8> = Vec::new();
+                        bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
+                        bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
+                        bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
+                        if let Some(source_address) = payload.source_address {
+                            match source_address.value {
+                                Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
+                                Some(V6(v6)) => {
+                                    bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
+                                    bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
+                                },
+                                None => panic!("Source address is None"),
+                            }
                         }
-                    }
-                    if let Some(destination_address) = payload.destination_address {
-                        match destination_address.value {
-                            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
-                            Some(V6(v6)) => {
-                                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
-                                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
-                            },
-                            None => panic!("Destination address is None"),
+                        if let Some(destination_address) = payload.destination_address {
+                            match destination_address.value {
+                                Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
+                                Some(V6(v6)) => {
+                                    bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
+                                    bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
+                                },
+                                None => panic!("Destination address is None"),
+                            }
                         }
+
+                        // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
+                        let icmp = if ipv6 {
+                            ICMPPacket::echo_request_v6(1, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
+                        } else {
+                            ICMPPacket::echo_request(1, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
+                        };
+
+                        let mut packet: Vec<u8> = Vec::new();
+                        packet.extend_from_slice(&ethernet_header);
+                        packet.extend_from_slice(&icmp); // ip header included
+
+                        // Send out packet
+                        cap.sendpacket(packet).expect("Failed to send ICMP packet");
                     }
-
-                    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
-                    let icmp = if ipv6 {
-                        ICMPPacket::echo_request_v6(1, 2, bytes, source_address.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
-                    } else {
-                        ICMPPacket::echo_request(1, 2, bytes, source_address.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
-                    };
-
-                    let mut packet: Vec<u8> = Vec::new();
-                    packet.extend_from_slice(&ethernet_header);
-                    packet.extend_from_slice(&icmp); // ip header included
-
-                    // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send ICMP packet");
                 }
             }
             debug!("finished ping");
