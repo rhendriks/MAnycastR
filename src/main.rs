@@ -216,6 +216,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false)
                 )
                 .arg(
+                    Arg::with_name("dest_port")
+                        .short("dp")
+                        .takes_value(true)
+                        .help("Destination port for this client's probes (only used for TCP probing (UDP is always 53)")
+                        .required(false)
+                )
+                .arg(
                     Arg::with_name("multi-probing")
                         .short("m")
                         .takes_value(false)

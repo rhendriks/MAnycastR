@@ -37,6 +37,7 @@ pub struct Client {
     metadata: Metadata,
     source_address: IP,
     source_port: u16,
+    dest_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
@@ -87,12 +88,26 @@ impl Client {
             62321
         };
 
+
+        // Get the optional destination port for this client (optional)
+        let dest_port = if args.is_present("dest_port") {
+            let dest_port = args.value_of("dest_port").unwrap();
+            let dest_port = dest_port.parse::<u16>().expect("Invalid destination port");
+            println!("[Client] Using custom destination port: {}", dest_port);
+
+            dest_port
+        } else {
+            println!("[Client] Using default destination port 63853");
+            63853
+        };
+
+        // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
             origin: Some(Origin {
                 source_address: Some(Address::from(source_address.clone())),
                 source_port: source_port.into(),
-                destination_port: 0, // TODO
+                destination_port: dest_port.into(),
                 })
         };
 
@@ -102,6 +117,7 @@ impl Client {
             metadata,
             source_address,
             source_port,
+            dest_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -200,11 +216,12 @@ impl Client {
             // We only listen to our own unicast address (each client has its own unicast address)
             client_sources = vec![Origin {
                 source_address: Some(Address::from(unicast_ip.clone())),
-                source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
-                destination_port: 0, // TODO
-            }]; // We only listen on our own unicast address
+                source_port: self.source_port.into(),
+                destination_port: self.dest_port.into(),
+            }];
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
+            // Use the local unicast address
             unicast_ip
         } else if self.source_address == IP::None {
             // Use the 'default' anycast source address set by the CLI
@@ -214,8 +231,8 @@ impl Client {
             client_sources.append(&mut vec![
                 Origin {
                     source_address: Some(start.source_address.unwrap()),
-                    source_port: self.source_port.into(), // TODO there is no port that the CLI can specify
-                    destination_port: 0, // TODO
+                    source_port: self.source_port.into(),
+                    destination_port: self.dest_port.into(), // TODO CLI should specify a default src/destination port
                 }
             ]);
 
@@ -270,9 +287,6 @@ impl Client {
 
         println!("[Client] Sending on address: {}", source_addr.to_string());
 
-        // let dest_port = 63853;
-        let dest_port = 80;
-
         // Add filter for each address/port combination
         filter.push_str(" and");
         let filter_parts: Vec<String> = match start.task_type {
@@ -294,7 +308,7 @@ impl Client {
             },
             _ => {
                 client_sources.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, dest_port))
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port))
                     .collect()
             }
         };
@@ -319,6 +333,7 @@ impl Client {
                 }
             }
             2 | 4 => {
+                // TODO send list of origins to the prober (when multi_probing)
                 let task_type: u32 = start.task_type;
                 // Start listening thread
                 listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter, traceroute);
@@ -329,6 +344,7 @@ impl Client {
                 }
             }
             3 => {
+                // TODO send list of origins to the prober (when multi_probing)
                 // Destination port is a high number to prevent causing open states on the target
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
@@ -345,7 +361,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
+                    perform_tcp(source_addr, self.dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
                 }
             }
             _ => { () }
