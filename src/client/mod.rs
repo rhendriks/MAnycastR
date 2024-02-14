@@ -311,7 +311,8 @@ impl Client {
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853;
+                // let dest_port = 63853;
+                let dest_port = 80;
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
