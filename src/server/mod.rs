@@ -749,13 +749,28 @@ impl Controller for ControllerService {
                     _ => (IP::None, IP::None),
                 };
 
-                //TODO get ports for construction of origin flows for TCP/UDP
+                // get source port that triggered the probe
+                let (source_port, destination_port) = match value.clone() {
+                    PingResult(_) => {
+                        (0, 0)
+                    },
+                    UdpResult(value) => {
+                        (value.source_port, value.destination_port)
+                    },
+                    TcpResult(value) => {
+                        (value.source_port, value.destination_port)
+                    },
+                    _ => (0, 0)
+                };
 
                 // Create origin flows (i.e., a single flow for each client that has received probe replies)
                 let origin_flow = Origin {
                     source_address: Some(Address::from(anycast_address)),
-                    source_port: 0, // TODO port
+                    source_port,
                 };
+
+                // TODO we need to keep track of the flow per /24 (or /48 for ipv6)
+                // TODO we need to add the dest. port to the origin flow
 
                 let ttl = match value {
                     PingResult(value) => {
