@@ -101,6 +101,13 @@ impl Client {
             63853
         };
 
+        let multi_probing = if args.is_present("multi_probing") {
+            println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
+            true
+        } else {
+            false
+        };
+
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
@@ -122,7 +129,7 @@ impl Client {
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
-            multi_probing: args.is_present("multi_probing"),
+            multi_probing,
         };
 
         client_class.connect_to_server().await?;
