@@ -101,7 +101,7 @@ impl Client {
             63853
         };
 
-        let multi_probing = if args.is_present("multi_probing") {
+        let multi_probing = if args.is_present("multi-probing") {
             println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
             true
         } else {
