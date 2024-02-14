@@ -224,7 +224,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
                 .arg(
                     Arg::with_name("multi-probing")
-                        .short("m")
+                        .long("multi-probing")
                         .takes_value(false)
                         .help("Enable multi-source probing")
                         .required(false)
