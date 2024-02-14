@@ -292,7 +292,24 @@ impl Client {
             _ => panic!("Invalid task type"),
         };
 
-        println!("[Client] Sending on address: {}", source_addr.to_string());
+        // Print how this client will probe
+        if self.multi_probing {
+            if probing {
+                println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
+                // Print all origins
+                for origin in client_sources.iter() {
+                    println!("* Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                }
+            } else {
+                println!("[Client] Not sending probes");
+            }
+        } else {
+            if probing {
+                println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), self.source_port, self.dest_port);
+            } else {
+                println!("[Client] Not sending probes");
+            }
+        }
 
         // Add filter for each address/port combination
         filter.push_str(" and");
