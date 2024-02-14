@@ -262,6 +262,9 @@ impl Client {
 
         println!("[Client] Sending on address: {}", source_addr.to_string());
 
+        // let dest_port = 63853;
+        let dest_port = 80;
+
         // Add filter for each address/port combination
         filter.push_str(" and");
         let filter_parts: Vec<String> = match start.task_type {
@@ -283,7 +286,7 @@ impl Client {
             },
             _ => {
                 client_sources.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, 63853))
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, dest_port))
                     .collect()
             }
         };
@@ -319,8 +322,6 @@ impl Client {
             }
             3 => {
                 // Destination port is a high number to prevent causing open states on the target
-                // let dest_port = 63853;
-                let dest_port = 80;
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
