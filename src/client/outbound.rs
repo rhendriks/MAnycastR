@@ -383,20 +383,10 @@ fn perform_trace(
         panic!("Invalid task type")
     }
     println!("Performing trace to {}", dest_addr.to_string());
-
-    let mut sources: Vec<IP> = vec![];
+    println!("Origins: {:?}", origins);
 
     for origin in origins {
         let source_address = IP::from(origin.source_address.expect("None IP address"));
-
-        // For ICMP, we only need to send one probe per source address
-        if task_type == 1 {
-            if sources.contains(&source_address) {
-                continue
-            } else {
-                sources.push(source_address.clone());
-            }
-        }
         let port = origin.source_port as u16;
 
         // Send traceroutes to hops 5 to max_ttl + 5 (starting at 5 to avoid the first 4 vultr hops, and adding 5 to the max_ttl in case of false RTTs)
