@@ -357,6 +357,17 @@ impl Client {
                 }
             }
             2 | 4 => {
+                let origins = if self.multi_probing {
+                    client_sources
+                } else {
+                    vec![Origin {
+                        source_address: Some(Address::from(source_addr.clone())),
+                        source_port: self.source_port.into(),
+                        destination_port: self.dest_port.into(),
+                    }]
+                };
+
+
                 // TODO send list of origins to the prober (when multi_probing)
                 let task_type: u32 = start.task_type;
                 // Start listening thread
