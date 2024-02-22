@@ -165,7 +165,7 @@ pub fn perform_ping(client_id: u8, sources: Vec<IP>, mut outbound_channel_rx: Re
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+pub fn perform_udp(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -215,43 +215,48 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
 
                 let dest_addresses = udp_task.destination_addresses;
 
-                // Loop over the destination addresses
-                for dest_addr in dest_addresses {
-                    let transmit_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
+                // Loop over the origins
+                for origin in &origins {
+                    let source_address = IP::from(origin.source_address.clone().expect("None IP address"));
+                    let source_port = origin.source_port as u16;
+                    // Loop over the destination addresses
+                    for dest_addr in &dest_addresses {
+                        let transmit_time = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64;
 
-                    let udp = if ipv6 {
-                        let source = source_address.get_v6();
-                        let dest = IP::from(dest_addr.clone()).get_v6();
+                        let udp = if ipv6 {
+                            let source = source_address.get_v6();
+                            let dest = IP::from(dest_addr.clone()).get_v6();
 
-                        if task_type == 2 {
-                            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
-                        } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
+                            if task_type == 2 {
+                                UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
+                            } else if task_type == 4 {
+                                UDPPacket::chaos_request(source_address, IP::from(dest_addr.clone()), source_port, client_id)
+                            } else {
+                                panic!("Invalid task type")
+                            }
                         } else {
-                            panic!("Invalid task type")
-                        }
-                    } else {
-                        let source =source_address.get_v4();
-                        let dest = IP::from(dest_addr.clone()).get_v4();
+                            let source = source_address.get_v4();
+                            let dest = IP::from(dest_addr.clone()).get_v4();
 
-                        if task_type == 2 {
-                            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
-                        } else if task_type == 4 {
-                            UDPPacket::chaos_request(source_address, IP::from(dest_addr), source_port, client_id)
-                        } else {
-                            panic!("Invalid task type")
-                        }
-                    };
+                            if task_type == 2 {
+                                UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
+                            } else if task_type == 4 {
+                                UDPPacket::chaos_request(source_address, IP::from(dest_addr.clone()), source_port, client_id)
+                            } else {
+                                panic!("Invalid task type")
+                            }
+                        };
 
-                    let mut packet: Vec<u8> = Vec::new();
-                    packet.extend_from_slice(&ethernet_header);
-                    packet.extend_from_slice(&udp); // ip header included
+                        let mut packet: Vec<u8> = Vec::new();
+                        packet.extend_from_slice(&ethernet_header);
+                        packet.extend_from_slice(&udp); // ip header included
 
-                    // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send UDP packet");
+                        // Send out packet
+                        cap.sendpacket(packet).expect("Failed to send UDP packet");
+                    }
                 }
             }
             debug!("finished udp probing");
@@ -280,8 +285,8 @@ pub fn perform_udp(client_id: u8, source_address: IP, source_port: u16, mut outb
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, client_id: u8) {
-    println!("[Client outbound] Started TCP probing thread using source address {:?}", source_address.to_string());
+pub fn perform_tcp(origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, client_id: u8) {
+    println!("[Client outbound] Started TCP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -330,35 +335,41 @@ pub fn perform_tcp(source_address: IP, destination_port: u16, source_port: u16, 
 
                 let dest_addresses = tcp_task.destination_addresses;
 
-                // Loop over the destination addresses
-                for dest_addr in dest_addresses {
-                    // let transmit_time = SystemTime::now()
-                    //     .duration_since(UNIX_EPOCH)
-                    //     .unwrap()
-                    //     .as_millis() as u32; // The least significant bits are kept
+                // Loop over the source addresses
+                for origin in &origins {
+                    let source_address = IP::from(origin.source_address.clone().expect("None IP address"));
+                    let source_port = origin.source_port as u16;
+                    let destination_port = origin.destination_port as u16;
+                    // Loop over the destination addresses
+                    for dest_addr in &dest_addresses {
+                        // let transmit_time = SystemTime::now()
+                        //     .duration_since(UNIX_EPOCH)
+                        //     .unwrap()
+                        //     .as_millis() as u32; // The least significant bits are kept
 
-                    let seq = 0; // information in seq gets lost
-                    // let ack = transmit_time; // ack information gets returned as seq
-                    let ack = client_id as u32; // Does not trigger ECMP
+                        let seq = 0; // information in seq gets lost
+                        // let ack = transmit_time; // ack information gets returned as seq
+                        let ack = client_id as u32; // ACK does not trigger ECMP
 
-                    let tcp = if ipv6 {
-                        let source = source_address.get_v6();
-                        let dest = IP::from(dest_addr).get_v6();
+                        let tcp = if ipv6 {
+                            let source = source_address.get_v6();
+                            let dest = IP::from(dest_addr.clone()).get_v6();
 
-                        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
-                    } else {
-                        let source = source_address.get_v4();
-                        let dest = IP::from(dest_addr).get_v4();
+                            TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
+                        } else {
+                            let source = source_address.get_v4();
+                            let dest = IP::from(dest_addr.clone()).get_v4();
 
-                        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
-                    };
+                            TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
+                        };
 
-                    let mut packet: Vec<u8> = Vec::new();
-                    packet.extend_from_slice(&ethernet_header);
-                    packet.extend_from_slice(&tcp); // ip header included
+                        let mut packet: Vec<u8> = Vec::new();
+                        packet.extend_from_slice(&ethernet_header);
+                        packet.extend_from_slice(&tcp); // ip header included
 
-                    // Send out packet
-                    cap.sendpacket(packet).expect("Failed to send TCP packet"); // TODO encountered PcapError "send: no buffer space available"
+                        // Send out packet
+                        cap.sendpacket(packet).expect("Failed to send TCP packet"); // TODO encountered PcapError "send: no buffer space available"
+                    }
                 }
             }
             debug!("finished TCP probing");

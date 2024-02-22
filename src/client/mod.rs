@@ -368,19 +368,25 @@ impl Client {
                 };
 
 
-                // TODO send list of origins to the prober (when multi_probing)
                 let task_type: u32 = start.task_type;
                 // Start listening thread
                 listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter, traceroute);
 
                 // Start sending thread
                 if probing {
-                    perform_udp(client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
+                    perform_udp(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
             3 => {
-                // TODO send list of origins to the prober (when multi_probing)
-                // Destination port is a high number to prevent causing open states on the target
+                let origins = if self.multi_probing {
+                    client_sources
+                } else {
+                    vec![Origin {
+                        source_address: Some(Address::from(source_addr.clone())),
+                        source_port: self.source_port.into(),
+                        destination_port: self.dest_port.into(),
+                    }]
+                };
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
@@ -396,7 +402,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(source_addr, self.dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
+                    perform_tcp(origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
                 }
             }
             _ => { () }
