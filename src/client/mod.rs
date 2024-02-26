@@ -298,14 +298,36 @@ impl Client {
                 println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
                 // Print all origins
                 for origin in client_sources.iter() {
-                    println!("* Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                    match start.task_type {
+                        1 => {
+                            println!("* Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
+                        },
+                        2 | 4 => {
+                            println!("* Sending on address: {}, from src port {}, to dst port 53", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port);
+                        },
+                        3 => {
+                            println!("* Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                        },
+                        _ => { () }
+                    }
                 }
             } else {
                 println!("[Client] Not sending probes");
             }
         } else {
             if probing {
-                println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), self.source_port, self.dest_port);
+                match start.task_type {
+                    1 => {
+                        println!("[Client] Sending on address: {}", source_addr.to_string());
+                    },
+                    2 | 4 => {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port 53", source_addr.to_string(), self.source_port);
+                    },
+                    3 => {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), self.source_port, self.dest_port);
+                    },
+                    _ => { () }
+                }
             } else {
                 println!("[Client] Not sending probes");
             }
@@ -319,7 +341,7 @@ impl Client {
                     .map(|origin| format!(" dst host {}", IP::from(origin.clone().source_address.unwrap()).to_string()))
                     .collect()
             },
-            2 => {
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
                 if ipv6 {
                     client_sources.iter()
                         .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
@@ -330,7 +352,7 @@ impl Client {
                         .collect()
                 }
             },
-            _ => {
+            _ => { // TCP
                 client_sources.iter()
                     .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port))
                     .collect()
@@ -341,7 +363,7 @@ impl Client {
 
         // Start listening thread and sending thread
         match start.task_type {
-            1 => {
+            1 => { // ICMP
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
 
                 // all option to tell this client to use all possible origins
@@ -356,7 +378,7 @@ impl Client {
                     perform_ping(client_id, sources, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
                 }
             }
-            2 | 4 => {
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
                 let origins = if self.multi_probing {
                     client_sources
                 } else {
@@ -377,7 +399,7 @@ impl Client {
                     perform_udp(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
                 }
             }
-            3 => {
+            3 => { // TCP
                 let origins = if self.multi_probing {
                     client_sources
                 } else {
