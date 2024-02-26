@@ -4,6 +4,7 @@ extern crate byteorder;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
+use prost::bytes::Buf;
 use crate::custom_module::IP;
 use crate::net::netv6::{calculate_checksum_v6, PseudoHeaderv6};
 
@@ -445,17 +446,39 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
 impl From<&[u8]> for DNSRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+
+        let transaction_id = data.read_u16::<NetworkEndian>().unwrap();
+        let flags = data.read_u16::<NetworkEndian>().unwrap();
+        let questions = data.read_u16::<NetworkEndian>().unwrap();
+        let answer = data.read_u16::<NetworkEndian>().unwrap();
+        let authority = data.read_u16::<NetworkEndian>().unwrap();
+        let additional = data.read_u16::<NetworkEndian>().unwrap();
+        let domain = read_dns_name(&mut data);
+
+        let (record_type, class, body) = if data.has_remaining() {
+            let record_type = data.read_u16::<NetworkEndian>().unwrap(); // TODO failed to fill whole buffer
+            let class = data.read_u16::<NetworkEndian>().unwrap();
+            let body = data.clone().into_inner()[data.position() as usize..].to_vec();
+            (record_type, class, body)
+        } else {
+            let record_type = 0;
+            let class = 0;
+            let body = vec![];
+            (record_type, class, body)
+        };
+
+
         DNSRecord {
-            transaction_id: data.read_u16::<NetworkEndian>().unwrap(),
-            flags: data.read_u16::<NetworkEndian>().unwrap(),
-            questions: data.read_u16::<NetworkEndian>().unwrap(),
-            answer: data.read_u16::<NetworkEndian>().unwrap(),
-            authority: data.read_u16::<NetworkEndian>().unwrap(),
-            additional: data.read_u16::<NetworkEndian>().unwrap(),
-            domain: read_dns_name(&mut data),
-            record_type: data.read_u16::<NetworkEndian>().unwrap(),
-            class: data.read_u16::<NetworkEndian>().unwrap(),
-            body: data.clone().into_inner()[data.position() as usize..].to_vec(),
+            transaction_id,
+            flags,
+            questions,
+            answer,
+            authority,
+            additional,
+            domain,
+            record_type,
+            class,
+            body,
         }
     }
 }
