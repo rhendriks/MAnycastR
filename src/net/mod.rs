@@ -47,6 +47,17 @@ impl From<&[u8]> for IPv4Packet {
         let source_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap());
         let destination_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap()); // Destination IP Address
 
+        // If the header length is longer than the data, the packet is incomplete
+        if header_length > data.len() {
+            return IPv4Packet {
+                length: header_length as u16,
+                ttl,
+                source_address,
+                destination_address,
+                payload: PacketPayload::Unimplemented,
+            };
+        }
+
         let payload_bytes = &cursor.into_inner()[header_length..];
         let payload = match packet_type {
             1 => {
