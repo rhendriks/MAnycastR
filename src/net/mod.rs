@@ -455,8 +455,8 @@ impl From<&[u8]> for DNSRecord {
         let additional = data.read_u16::<NetworkEndian>().unwrap();
         let domain = read_dns_name(&mut data);
 
-        let (record_type, class, body) = if data.has_remaining() {
-            let record_type = data.read_u16::<NetworkEndian>().unwrap(); // TODO failed to fill whole buffer
+        let (record_type, class, body) = if data.remaining() >= 4 {
+            let record_type = data.read_u16::<NetworkEndian>().unwrap();
             let class = data.read_u16::<NetworkEndian>().unwrap();
             let body = data.clone().into_inner()[data.position() as usize..].to_vec();
             (record_type, class, body)
