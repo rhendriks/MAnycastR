@@ -416,6 +416,9 @@ pub struct TXTRecord {
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     let mut result = String::new();
     loop {
+        if !data.has_remaining() {
+            break;
+        }
         let label_len = data.read_u8().unwrap();
         // If label length is 0, it is the end of the string
         if label_len == 0 {
