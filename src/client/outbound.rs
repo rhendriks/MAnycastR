@@ -34,7 +34,7 @@ use crate::custom_module::verfploeter::Origin;
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(client_id: u8, sources: Vec<IP>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+pub fn perform_ping(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -82,8 +82,9 @@ pub fn perform_ping(client_id: u8, sources: Vec<IP>, mut outbound_channel_rx: Re
 
                 let dest_addresses = ping_task.destination_addresses;
 
-                // Loop over the source addresses
-                for source in &sources {
+                // Loop over the origins
+                for origin in &origins {
+                    let source = IP::from(origin.source_address.clone().expect("None IP address"));
                     // Loop over the destination addresses
                     for dest_addr in &dest_addresses {
                         let transmit_time = SystemTime::now()
@@ -126,9 +127,9 @@ pub fn perform_ping(client_id: u8, sources: Vec<IP>, mut outbound_channel_rx: Re
 
                         // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
                         let icmp = if ipv6 {
-                            ICMPPacket::echo_request_v6(1, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
+                            ICMPPacket::echo_request_v6(origin.destination_port as u16, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
                         } else {
-                            ICMPPacket::echo_request(1, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
+                            ICMPPacket::echo_request(origin.destination_port as u16, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
                         };
 
                         let mut packet: Vec<u8> = Vec::new();
