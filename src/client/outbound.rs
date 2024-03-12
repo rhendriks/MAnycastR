@@ -402,7 +402,7 @@ fn perform_trace(
         let port = origin.source_port as u16;
 
         // Send traceroutes to hops 5 to max_ttl + 5 (starting at 5 to avoid the first 4 vultr hops, and adding 5 to the max_ttl in case of false RTTs)
-        for i in 5..(max_ttl + 15) {
+        for i in 5..(max_ttl + 10) {
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
 
