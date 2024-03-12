@@ -534,7 +534,6 @@ impl Controller for ControllerService {
                         } else {
                             64 - ttl
                         } as u32;
-                        println!("TTL max: {}", max_ttl);
 
                         let traceroute_task = Task {
                             data: Some(TaskTrace(Trace {
