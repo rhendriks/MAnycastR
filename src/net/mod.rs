@@ -122,7 +122,7 @@ impl Into<Vec<u8>> for &IPv4Packet {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Calculate and write the checksum
-        let checksum = IPv4Packet::calc_checksum(&wtr); // Calculate checksum
+        let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
         let mut cursor = Cursor::new(wtr);
         cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
@@ -229,24 +229,6 @@ impl From<&[u8]> for ICMPPacket {
     }
 }
 
-impl IPv4Packet {
-    // Calculate the ICMP Checksum. TODO ICMP and v4 use the same checksum, share this function
-    fn calc_checksum(buffer: &[u8]) -> u16 {
-        let mut cursor = Cursor::new(buffer);
-        let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<NetworkEndian>() {
-            sum += u32::from(word);
-        }
-        if let Ok(byte) = cursor.read_u8() {
-            sum += u32::from(byte);
-        }
-        while sum >> 16 > 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-        !sum as u16
-    }
-}
-
 /// Convert ICMp4Packet into a vector of bytes
 impl Into<Vec<u8>> for &ICMPPacket {
     fn into(self) -> Vec<u8> {
@@ -277,6 +259,12 @@ impl ICMPPacket {
     /// * 'sequence_number' - the sequence number for the ICMP header
     ///
     /// * 'body' - the ICMP payload
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'ttl' - the time to live of the packet
     pub fn echo_request(
         identifier: u16,
         sequence_number: u16,
@@ -497,6 +485,7 @@ impl From<&[u8]> for DNSRecord {
     }
 }
 
+/// Parsing from bytes into a DNS A record
 impl From<&[u8]> for DNSAnswer {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -512,6 +501,7 @@ impl From<&[u8]> for DNSAnswer {
     }
 }
 
+/// Parsing from bytes into a DNS TXT record
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -525,16 +515,16 @@ impl From<&[u8]> for TXTRecord {
 }
 
 impl UDPPacket {
-    /// Create a basic UDP packet with checksum.
+    /// Create a basic UDP packet with checksum (v4 only).
     pub fn udp_request(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
-        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
+        let length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
 
         let mut packet = Self {
             source_port,
             destination_port,
-            length: udp_length,
+            length,
             checksum: 0,
             body,
         };
@@ -547,7 +537,7 @@ impl UDPPacket {
             destination_address,
             zeroes: 0,
             protocol: 17,
-            length: udp_length,
+            length,
         };
 
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
@@ -655,14 +645,13 @@ impl UDPPacket {
         client_id: u8
     ) -> Vec<u8> {
         let destination_port = 53u16;
-
         let dns_packet = Self::create_chaos_request(client_id);
-        let udp_length = 8 + dns_packet.len();
+        let length = 8 + dns_packet.len() as u32;
 
         let mut packet = Self {
             source_port,
             destination_port,
-            length: udp_length as u16,
+            length: length as u16,
             checksum: 0,
             body: dns_packet,
         };
@@ -674,7 +663,7 @@ impl UDPPacket {
                 destination_address: destination_address.get_v4().into(),
                 zeroes: 0,
                 protocol: 17,
-                length: udp_length as u16,
+                length: length as u16,
             };
 
             calculate_checksum(&bytes, &pseudo_header)
@@ -683,7 +672,7 @@ impl UDPPacket {
                 source_address: source_address.get_v6().into(),
                 destination_address: destination_address.get_v6().into(),
                 zeros: 0,
-                length: udp_length as u32,
+                length,
                 next_header: 17,
             };
 
