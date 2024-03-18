@@ -21,15 +21,6 @@ pub struct IPv4Packet {
     pub payload: PacketPayload,
 }
 
-/// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
-#[derive(Debug)]
-pub enum PacketPayload {
-    ICMP { value: ICMPPacket },
-    UDP {value: UDPPacket },
-    TCP {value: TCPPacket },
-    Unimplemented,
-}
-
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
 impl From<&[u8]> for IPv4Packet {
     fn from(data: &[u8]) -> Self {
@@ -132,6 +123,27 @@ impl Into<Vec<u8>> for &IPv4Packet {
         cursor.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
 
         cursor.into_inner()
+    }
+}
+
+/// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
+#[derive(Debug)]
+pub enum PacketPayload {
+    ICMP { value: ICMPPacket },
+    UDP {value: UDPPacket },
+    TCP {value: TCPPacket },
+    Unimplemented,
+}
+
+/// Convert a packet payload to bytes
+impl Into<Vec<u8>> for PacketPayload {
+    fn into(self) -> Vec<u8> {
+        match self {
+            PacketPayload::ICMP { value } => (&value).into(),
+            PacketPayload::UDP { value } => (&value).into(),
+            PacketPayload::TCP { value } => (&value).into(),
+            PacketPayload::Unimplemented => vec![],
+        }
     }
 }
 
