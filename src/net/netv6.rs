@@ -12,23 +12,12 @@ pub struct IPv6Packet {
     pub payload_length: u16,      // 16-bit Payload Length
     pub next_header: u8,         // 8-bit Next Header
     pub hop_limit: u8,           // 8-bit Hop Limit
-    pub source_address: Ipv6Addr, // TODO why not u128 for these addresses?
+    pub source_address: Ipv6Addr,
     pub destination_address: Ipv6Addr,
     pub payload: PacketPayload,
 }
 
-impl Into<Vec<u8>> for PacketPayload {
-    fn into(self) -> Vec<u8> {
-        match self {
-            PacketPayload::ICMP { value } => (&value).into(),
-            PacketPayload::UDP { value } => (&value).into(),
-            PacketPayload::TCP { value } => (&value).into(),
-            PacketPayload::Unimplemented => vec![],
-        }
-    }
-}
-
-/// Convert list of u8 (i.e. received bytes) into an IPv6Packet
+/// Convert bytes into an IPv6Packet
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
@@ -99,6 +88,7 @@ impl From<&[u8]> for IPv6Packet {
     }
 }
 
+/// Convert an IPv6Packet into bytes
 impl Into<Vec<u8>> for IPv6Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
@@ -153,6 +143,21 @@ impl Into<Vec<u8>> for IPv6Packet {
 }
 
 impl ICMPPacket {
+    /// Create an ICMPv6 echo request packet with checksum
+    ///
+    /// # Arguments
+    ///
+    /// * 'identifier' - the identifier for this packet
+    ///
+    /// * 'sequence_number' - the sequence number for this packet
+    ///
+    /// * 'body' - the payload of the packet
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn echo_request_v6(
         identifier: u16,
         sequence_number: u16,
@@ -204,7 +209,7 @@ impl ICMPPacket {
     }
 }
 
-/// Struct defining a pseudo header (ipv6) that is used by both TCP and UDP to calculate their checksum
+/// Struct defining a pseudo header (IPv6) that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeaderv6 {
     pub source_address: u128,
@@ -269,6 +274,18 @@ pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6)
 
 impl super::UDPPacket {
     /// Create a basic UDP packet with checksum.
+    ///
+    /// # Arguments
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'source_port' - the source port of the packet
+    ///
+    /// * 'destination_port' - the destination port of the packet
+    ///
+    /// * 'body' - the payload of the packet
     pub fn udp_request_v6( // TODO add IP header
         source_address: u128,
         destination_address: u128,
@@ -310,6 +327,22 @@ impl super::UDPPacket {
 
     /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
     /// source_address, destination_address, client_id, source_port, destination_port
+    ///
+    /// # Arguments
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'source_port' - the source port of the packet
+    ///
+    /// * 'domain_name' - the domain name of the A record (excluding encoded values)
+    ///
+    /// * 'transmit_time' - the time of transmission
+    ///
+    /// * 'client_id' - the sender client ID
+    ///
+    /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn dns_request_v6(
         source_address: u128,
         destination_address: u128,
@@ -356,7 +389,21 @@ impl super::UDPPacket {
         v6_packet.into()
     }
 
-    /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
+    /// Creating the DNS body with the A record request
+    ///
+    /// # Arguments
+    ///
+    /// * 'domain_name' - the domain name of the A record (excluding encoded values)
+    ///
+    /// * 'transmit_time' - the time of transmission
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'client_id' - the sender client ID
+    ///
+    /// * 'source_port' - the source port of the packet
     fn create_dns_a_record_request_v6(
         domain_name: &str,
         transmit_time: u64,
@@ -398,7 +445,23 @@ impl super::UDPPacket {
 }
 
 impl super::TCPPacket {
-    /// Create a basic TCP SYN/ACK packet with checksum
+    /// Create a basic TCPv6 SYN/ACK packet with checksum
+    ///
+    /// # Arguments
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'source_port' - the source port of the packet
+    ///
+    /// * 'destination_port' - the destination port of the packet
+    ///
+    /// * 'seq' - the sequence number of the packet
+    ///
+    /// * 'ack' - the acknowledgment number of the packet
+    ///
+    /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn tcp_syn_ack_v6(
         source_address: u128,
         destination_address: u128,
