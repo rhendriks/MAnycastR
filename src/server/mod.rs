@@ -30,8 +30,10 @@ use custom_module::verfploeter::{
 /// * 'cli_sender' - the sender that connects to the CLI, to stream TaskResults
 /// * 'open_tasks' - a list of the current open tasks, and the number of clients that are currently working on it
 /// * 'current_task_id' - keeps track of the last used task ID and is used to assign a unique task ID to a new measurement
-/// * 'current-client_id' - keeps track of the last used client ID and is used to assign a unique client ID to a new connecting client
+/// * 'current_client_id' - keeps track of the last used client ID and is used to assign a unique client ID to a new connecting client
 /// * 'active' - a boolean value that is set to true when there is an active measurement
+/// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
+/// * 'traceroute' - a boolean value that is set to true when traceroute is enabled
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
@@ -41,11 +43,9 @@ pub struct ControllerService {
     current_task_id: Arc<Mutex<u32>>,
     current_client_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl)
+    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
 }
-
-//https://github.com/hyperium/tonic/issues/196#issuecomment-567137432
 
 /// Special Receiver struct that notices when the client disconnects.
 ///
@@ -53,6 +53,20 @@ pub struct ControllerService {
 /// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this client is finished.
 ///
 /// Finally, remove this client from the client list.
+///
+/// # Fields
+///
+/// * 'inner' - the receiver that connects to the client
+///
+/// * 'open_tasks' - a list of the current open tasks, and the number of clients that are currently working on it
+///
+/// * 'cli_sender' - the sender that connects to the CLI
+///
+/// * 'hostname' - the hostname of the client
+///
+/// * 'clients' - a ClientList that contains all connected clients (hostname and client ID)
+///
+/// * 'active' - a boolean value that is set to true when there is an active measurement
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -119,6 +133,14 @@ impl<T> Drop for ClientReceiver<T> {
 /// When a CLI disconnects we cancel all open measurements. We set this server as available for receiving a new measurement.
 ///
 /// Furthermore, if a measurement is active, we send a termination message to all clients to quit the current measurement.
+///
+/// # Fields
+///
+/// * 'inner' - the receiver that connects to the CLI
+///
+/// * 'active' - a boolean value that is set to true when there is an active measurement
+///
+/// * 'senders' - a list of senders that connect to the clients
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
@@ -136,12 +158,10 @@ impl<T> Stream for CLIReceiver<T> {
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
         println!("[Server] CLI receiver has been dropped");
-
         let mut active = self.active.lock().unwrap();
 
         // If there is an active task we need to cancel it and notify the clients
         if *active == true {
-
             // Create termination 'task'
             let task = Task {
                 data: Some(TaskEnd(End {
@@ -197,9 +217,9 @@ impl Controller for ControllerService {
         let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
         let source_port = metadata.origin.clone().unwrap().source_port;
         let destination_port = metadata.origin.unwrap().destination_port;
-
         let mut clients_list = self.clients.lock().unwrap();
 
+        // Check if the hostname already exists
         for client in clients_list.clone().clients.into_iter() {
             if hostname == client.metadata.unwrap().hostname {
                 println!("[Server] Refusing client as the hostname already exists: {}", hostname);
@@ -207,7 +227,7 @@ impl Controller for ControllerService {
             }
         }
 
-        // Obtain client id
+        // Obtain unique client id
         let client_id: u32;
         {
             let mut current_client_id = self.current_client_id.lock().unwrap();
@@ -227,9 +247,9 @@ impl Controller for ControllerService {
                 })
             }),
         };
-
         clients_list.clients.push(new_client);
 
+        // Accept the client and give it a unique client ID
         Ok(Response::new(ClientId{
             client_id,
         }))
@@ -501,11 +521,12 @@ impl Controller for ControllerService {
             }
         }
 
+        // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
         if traceroute {
             let targets = self.traceroute_targets.clone();
             let senders = self.senders.clone();
             // Thread that cleans up the targets map and instruct traceroute
-            tokio::spawn(async move {
+            spawn(async move {
                 loop {
                     let cleanup_interval = Duration::from_secs(40);
                     // Sleep for the cleanup interval
@@ -751,7 +772,7 @@ impl Controller for ControllerService {
                     _ => (IP::None, IP::None),
                 };
 
-                // get source port that triggered the probe
+                // Get port combination that the client received
                 let (source_port, destination_port) = match value.clone() {
                     PingResult(_) => {
                         (0, 0)
@@ -773,7 +794,6 @@ impl Controller for ControllerService {
                 };
 
                 // TODO we need to keep track of the flow per /24 (or /48 for ipv6)
-                // TODO we need to add the dest. port to the origin flow
 
                 let ttl = match value {
                     PingResult(value) => {
