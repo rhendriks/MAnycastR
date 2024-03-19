@@ -211,7 +211,7 @@ impl Client {
                 let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
                 if let Some((_, ipaddr)) = ifas
                     .iter()
-                    .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (ipaddr.to_string() != "2001:610:9000::1")) {
+                    .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
                     IP::from(ipaddr.to_string())
                 } else {
                     panic!("Unable to find local unicast IPv6 address");
