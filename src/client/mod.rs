@@ -429,7 +429,7 @@ impl Client {
 
                 // Start sending thread
                 if probing {
-                    perform_tcp(origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id);
+                    perform_tcp(origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id, igreedy);
                 }
             }
             _ => { () }
