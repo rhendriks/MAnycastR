@@ -286,7 +286,19 @@ pub fn perform_udp(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx:
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
 /// * 'rate' - the number of probes to send out each second
-pub fn perform_tcp(origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, client_id: u8) {
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'igreedy' - whether this is an igreedy measurement
+pub fn perform_tcp(
+    origins: Vec<Origin>,
+    mut outbound_channel_rx: Receiver<Data>,
+    finish_rx: futures::sync::oneshot::Receiver<()>,
+    _rate: u32,
+    ipv6: bool,
+    client_id: u8,
+    igreedy: bool
+) {
     println!("[Client outbound] Started TCP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -343,14 +355,18 @@ pub fn perform_tcp(origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>
                     let destination_port = origin.destination_port as u16;
                     // Loop over the destination addresses
                     for dest_addr in &dest_addresses {
-                        // let transmit_time = SystemTime::now()
-                        //     .duration_since(UNIX_EPOCH)
-                        //     .unwrap()
-                        //     .as_millis() as u32; // The least significant bits are kept
+                        let transmit_time = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u32; // The least significant bits are kept
 
                         let seq = 0; // information in seq gets lost
-                        // let ack = transmit_time; // ack information gets returned as seq
-                        let ack = client_id as u32; // ACK does not trigger ECMP
+                        // for MAnycast the ACK is the client ID, for iGreedy the ACK is the transmit time
+                        let ack = if !igreedy {
+                            client_id as u32
+                        } else {
+                            transmit_time
+                        };
 
                         let tcp = if ipv6 {
                             let source = source_address.get_v6();
