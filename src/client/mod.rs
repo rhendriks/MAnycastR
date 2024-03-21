@@ -27,10 +27,13 @@ mod outbound;
 /// * 'grpc_client' - the client connection with the server
 /// * 'metadata' - used to store this client's hostname and unique client ID
 /// * 'source_address' - contains the source address this client will use for outgoing probes (optional value that can be defined when creating this client)
+/// * 'source_port' - contains the source port this client will use for outgoing probes (optional value that can be defined when creating this client)
+/// * 'dest_port' - contains the destination port (OR ICMP identifier value) this client will use for outgoing probes (optional value that can be defined when creating this client)
 /// * 'active' - boolean value that is set to true when the client is currently doing a measurement
 /// * 'current_task' - contains the task ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
+/// * 'multi_probing' - boolean value that is set to true when the client is configured to send probes from all configured origins (i.e., address/port combinations)
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
@@ -169,11 +172,11 @@ impl Client {
     ///
     /// * 'client_id' - the unique ID of this client
     ///
-    /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
-    ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
+    ///
+    /// * 'igreedy' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
     fn init(
         &mut self,
         task: Task,
@@ -239,7 +242,7 @@ impl Client {
                 Origin {
                     source_address: Some(start.source_address.unwrap()),
                     source_port: self.source_port.into(),
-                    destination_port: self.dest_port.into(), // TODO CLI should specify a default src/destination port
+                    destination_port: self.dest_port.into(),
                 }
             ]);
 
@@ -254,7 +257,7 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        let mut filter = String::new(); // TODO improve filter to only accept probe replies from this program and remove verification elsewhere
+        let mut filter = String::new();
 
         if ipv6 {
             println!("[Client] Using IPv6");
@@ -266,7 +269,6 @@ impl Client {
 
         // With these traceroute probes we need to encode the TTL used in the probe in the payload
         // TODO this listener needs to capture ICMP TTL expired for all protocols
-
         match start.task_type {
             1 => {
                 if ipv6 {
@@ -581,7 +583,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * 'task_id' - the task ID of the current measurement
+    /// * 'finished' - the 'Finished' message to send to the server
     async fn task_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         *self.active.lock().unwrap() = false;

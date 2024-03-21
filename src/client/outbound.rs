@@ -17,24 +17,36 @@ extern crate mac_address;
 use mac_address::get_mac_address;
 use crate::custom_module::verfploeter::Origin;
 
+
+// TODO combine the perform_ping, perform_udp, and perform_tcp functions into one function that takes a task_type as an argument
 /// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
 ///
 /// This payload contains the client ID of this prober, transmission time, source and destination address, and the task ID of the current measurement.
 ///
 /// # Arguments
 ///
-/// * 'socket' - the socket to send the probes from
-///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'source_addr' - the source address we use in our probes
+/// * 'origins' - the unique source addresses and port combinations we use for our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
-/// * 'rate' - the number of probes to send out each second
-pub fn perform_ping(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_id: u32) {
+/// * 'rate' - the number of probes to send out each second // TODO implement rate limiting (taking into account the number of origins)
+///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
+/// * 'task_id' - the unique task ID of the current measurement
+pub fn perform_ping(
+    client_id: u8,
+    origins: Vec<Origin>,
+    mut outbound_channel_rx: Receiver<Data>,
+    finish_rx: futures::sync::oneshot::Receiver<()>,
+    _rate: u32,
+    ipv6: bool,
+    task_id: u32
+) {
     println!("[Client outbound] Started pinging thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
@@ -73,7 +85,7 @@ pub fn perform_ping(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx
                         break
                     }, // An End task means the measurement has finished
                     Ping(ping) => ping,
-                    Trace(trace) => { // TODO trace task for udp/tcp
+                    Trace(trace) => {
                         perform_trace(trace.origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1, 0);
                         continue
                     },
@@ -153,20 +165,28 @@ pub fn perform_ping(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx
 ///
 /// # Arguments
 ///
-/// * 'socket' - the socket to send the probes from
-///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'source_addr' - the source address we use in our probes
-///
-/// * 'source_port' - the source port we use in our probes
+/// * 'origins' - the unique source addresses and port combinations we use for our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
-/// * 'rate' - the number of probes to send out each second
-pub fn perform_udp(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx: Receiver<Data>, finish_rx: futures::sync::oneshot::Receiver<()>, _rate: u32, ipv6: bool, task_type: u32) {
+/// * 'rate' - the number of probes to send out each second //TODO implement rate limiting (taking into account the number of origins)
+///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
+/// * 'task_type' - the unique task ID of the current measurement
+pub fn perform_udp(
+    client_id: u8,
+    origins: Vec<Origin>,
+    mut outbound_channel_rx: Receiver<Data>,
+    finish_rx: futures::sync::oneshot::Receiver<()>,
+    _rate: u32,
+    ipv6: bool,
+    task_type: u32
+) {
     println!("[Client outbound] Started UDP probing thread");
 
     let abort = Arc::new(Mutex::new(false));
@@ -273,13 +293,7 @@ pub fn perform_udp(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx:
 ///
 /// # Arguments
 ///
-/// * 'socket' - the socket to send the probes from
-///
-/// * 'source_addr' - the source address we use in our probes
-///
-/// * 'destination_port' - the destination port we use in our probes
-///
-/// * 'source_port' - the source port we use in our probes
+/// * 'origins' - the unique source addresses and port combinations we use for our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
@@ -287,9 +301,11 @@ pub fn perform_udp(client_id: u8, origins: Vec<Origin>, mut outbound_channel_rx:
 ///
 /// * 'rate' - the number of probes to send out each second
 ///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'igreedy' - whether this is an igreedy measurement
+/// * 'igreedy' - whether this is an igreedy measurement (if so, the ACK value is the transmit time instead of the client ID)
 pub fn perform_tcp(
     origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
@@ -396,6 +412,27 @@ pub fn perform_tcp(
     });
 }
 
+/// Performs a trace task by sending out ICMP, UDP, or TCP probes with increasing TTLs.
+///
+/// # Arguments
+///
+/// * 'origins' - the unique source addresses and port combinations we send traceroutes with
+///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
+/// * 'ethernet_header' - the ethernet header to use for the traceroutes
+///
+/// * 'cap' - the pcap capture to send the traceroutes with
+///
+/// * 'dest_addr' - the destination address for the traceroutes
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'max_ttl' - the maximum TTL to use for the traceroutes (the actual TTLs used are 5 to max_ttl + 10)
+///
+/// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP)
+///
+/// * 'destination_port' - the destination port to use for the TCP traceroutes
 fn perform_trace(
     origins: Vec<Origin>,
     ipv6: bool,
@@ -414,7 +451,8 @@ fn perform_trace(
         let source_address = IP::from(origin.source_address.expect("None IP address"));
         let port = origin.source_port as u16;
 
-        // Send traceroutes to hops 5 to max_ttl + 5 (starting at 5 to avoid the first 4 vultr hops, and adding 5 to the max_ttl in case of false RTTs)
+        // Send traceroutes to hops 5 to max_ttl + 10 (starting at 5 to avoid the first 4 vultr hops, and adding 10 to the max_ttl in case of false RTTs)
+        // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different client may receive the destination's response)
         for i in 5..(max_ttl + 10) {
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
@@ -463,8 +501,17 @@ fn perform_trace(
 
 
 /// Spawns a thread that waits for a possible abort signal.
-fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Receiver<()>) {
-    thread::spawn({
+///
+/// # Arguments
+///
+/// * 'abort' - the shared boolean that is set to true when the measurement is aborted (exiting the outbound thread)
+///
+/// * 'finish_rx' - main thread will send a message on this channel when the measurement must be aborted
+fn abort_handler(
+    abort: Arc<Mutex<bool>>,
+    finish_rx: futures::sync::oneshot::Receiver<()>
+) {
+    thread::spawn({ // TODO does this thread get killed when the main thread finishes gracefully (i.e., no abort signal)?
         let abort = abort.clone();
 
         move || {
@@ -474,6 +521,11 @@ fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Rec
     });
 }
 
+/// Returns the ethernet header to use for the outbound packets.
+///
+/// # Arguments
+///
+/// * 'v6' - whether we are using IPv6 or not
 fn get_ethernet_header(v6: bool) -> Vec<u8> {
     // Source MAC address
     let mac_src = match get_mac_address() {
@@ -484,7 +536,7 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
         Err(e) => panic!("{:?}", e),
     };
 
-    // Run the sudo arp command (for the destination MAC address)
+    // Run the sudo arp command (for the destination MAC addresses)
     let output = Command::new("cat")
         .arg("/proc/net/arp")
         .stdout(Stdio::piped())
@@ -493,13 +545,12 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
         .stdout
         .expect("Failed to capture stdout");
 
+    // Get the destination MAC addresses
     let mut mac_dest = vec![];
-    // Read the output line by line
     let reader = io::BufReader::new(output);
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
     for line in lines {
-        // Skip the first line
         if let Ok(line) = line {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() > 3 {
@@ -509,12 +560,14 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
         }
     }
 
+    // TODO rotate the destination MAC address (when we have multiple next hops)
+
+    // Construct the ethernet header
     let ether_type = if v6 {
         0x86DDu16
     } else {
         0x0800u16
     };
-
     let mut ethernet_header: Vec<u8> = Vec::new();
     ethernet_header.extend_from_slice(&mac_dest);
     ethernet_header.extend_from_slice(&mac_src);
