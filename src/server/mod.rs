@@ -110,7 +110,7 @@ impl<T> Drop for ClientReceiver<T> {
                 // If this is the last client for this open task
                 if remaining == &1 {
                     // The server no longer has to wait for this client
-                    *open_tasks.get_mut(&task_id).unwrap() -= 1;
+                    open_tasks.remove(&task_id);
 
                     println!("[Server] The last client for a task dropped, sending task_finished to CLI");
                     *self.active.lock().unwrap() = false;
@@ -281,7 +281,7 @@ impl Controller for ControllerService {
 
         // Wait till we have received 'task_finished' from all clients that executed this task
         let finished: bool;
-        {
+        { // TODO if a client disconnects during a measurement, this will hang
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
             let remaining: &u32;
@@ -327,7 +327,6 @@ impl Controller for ControllerService {
     }
 
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
-
     /// Handles a client connecting to this server formally.
     ///
     /// Returns the receiver side of a stream to which the server will send Tasks
