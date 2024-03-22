@@ -168,7 +168,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, traceroute);
-        cli_client.do_task_to_server(schedule_task, task_type, cli, shuffle, ip_file, igreedy, unicast, traceroute).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, igreedy).await
     } else {
         panic!("Unrecognized command");
     }
@@ -255,28 +255,28 @@ impl CliClient {
     ///
     /// # Arguments
     ///
-    /// * 'task' - the task that is being sent to the server
-    ///
-    /// * 'task_type' - the type of task that is being sent, and the type of the task results we will receive
+    /// * 'task' - the task that is being sent to the server (contains all the necessary information about the upcoming measurement)
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
     /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
     ///
-    /// * 'live' - if true results will be checked for anycast targets as they come in.
+    /// * 'hitlist' - the name of the hitlist file that was used for this measurement
+    ///
+    /// * 'igreedy' - the path to the iGreedy script (to perform live checks on addresses) // TODO unimplemented
     async fn do_task_to_server(
         &mut self,
         task: ScheduleTask,
-        task_type: u32,
         cli: bool,
         shuffle: bool,
         hitlist: &str,
         igreedy: Option<String>,
-        unicast: bool,
-        traceroute: bool
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
+        let task_type = task.task_type;
+        let unicast = task.unicast;
+        let traceroute = task.traceroute;
 
         // Obtain connected client information for metadata
         let request = Request::new(Empty::default());
@@ -362,12 +362,19 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
-        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
 
+        // Determine the type of measurement
+        let measurement_type = if unicast {
+            "iGreedy"
+        } else {
+            "MAnycast"
+        };
+
         // Output file // TODO add option to write as a compressed file
-        let mut file = File::create("./out/output_".to_string().add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
+        let mut file = File::create("./out/".to_string().add(measurement_type).add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
 
         // Write metadata of measurement
         if !graceful {
