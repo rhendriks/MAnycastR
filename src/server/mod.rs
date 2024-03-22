@@ -194,67 +194,6 @@ impl<T> Drop for CLIReceiver<T> {
 // The Controller service implementation
 #[tonic::async_trait]
 impl Controller for ControllerService {
-
-    /// Handles a client requesting a client ID.
-    ///
-    /// Returns a unique client ID.
-    ///
-    /// # Arguments
-    ///
-    /// * 'request' - Metadata message that contains the client's hostname
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the hostname already exists
-    async fn get_client_id(
-        &self,
-        request: Request<Metadata>
-    ) -> Result<Response<ClientId>, Status> {
-        println!("[Server] Received get_client_id");
-
-        let metadata = request.into_inner();
-        let hostname = metadata.hostname;
-        let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
-        let source_port = metadata.origin.clone().unwrap().source_port;
-        let destination_port = metadata.origin.unwrap().destination_port;
-        let mut clients_list = self.clients.lock().unwrap();
-
-        // Check if the hostname already exists
-        for client in clients_list.clone().clients.into_iter() {
-            if hostname == client.metadata.unwrap().hostname {
-                println!("[Server] Refusing client as the hostname already exists: {}", hostname);
-                return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
-            }
-        }
-
-        // Obtain unique client id
-        let client_id: u32;
-        {
-            let mut current_client_id = self.current_client_id.lock().unwrap();
-            client_id = *current_client_id;
-            current_client_id.add_assign(1);
-        }
-
-        // Add the client to the client list
-        let new_client = Client {
-            client_id,
-            metadata: Some(Metadata {
-                hostname: hostname.clone(),
-                origin: Some(Origin {
-                    source_address: Some(source_address),
-                    source_port,
-                    destination_port,
-                })
-            }),
-        };
-        clients_list.clients.push(new_client);
-
-        // Accept the client and give it a unique client ID
-        Ok(Response::new(ClientId{
-            client_id,
-        }))
-    }
-
     /// Called by the client when it has finished its current task.
     ///
     /// When all connected clients have finished this task, it will notify the CLI that the task is finished.
@@ -295,7 +234,7 @@ impl Controller for ControllerService {
                 }))
             }
             // If this is the last client we are finished
-            if remaining == &(1 as u32) {
+            if remaining == &(1u32) {
                 open_tasks.remove(&task_id);
                 finished = true;
             // If this is not the last client, decrement the amount of remaining clients
@@ -327,6 +266,7 @@ impl Controller for ControllerService {
     }
 
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
+
     /// Handles a client connecting to this server formally.
     ///
     /// Returns the receiver side of a stream to which the server will send Tasks
@@ -361,8 +301,8 @@ impl Controller for ControllerService {
         // Send the stream receiver to the client
         Ok(Response::new(rx))
     }
-
     type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
+
     /// Handles the do_task command from the CLI.
     ///
     /// Instructs all clients to perform the task and returns the receiver side of a stream in which TaskResults will be streamed.
@@ -389,7 +329,7 @@ impl Controller for ControllerService {
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {
         println!("[Server] Received do_task");
-        
+
         // If there already is an active measurement, we skip
         {
             // If the server is already working on another measurement
@@ -715,7 +655,6 @@ impl Controller for ControllerService {
         println!("[Server] Sending task stream receiver to CLI");
         Ok(Response::new(rx))
     }
-
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
@@ -842,6 +781,66 @@ impl Controller for ControllerService {
                 error_message: "CLI disconnected".to_string(),
             })),
         }
+    }
+
+    /// Handles a client requesting a client ID.
+    ///
+    /// Returns a unique client ID.
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - Metadata message that contains the client's hostname
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hostname already exists
+    async fn get_client_id(
+        &self,
+        request: Request<Metadata>
+    ) -> Result<Response<ClientId>, Status> {
+        println!("[Server] Received get_client_id");
+
+        let metadata = request.into_inner();
+        let hostname = metadata.hostname;
+        let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
+        let source_port = metadata.origin.clone().unwrap().source_port;
+        let destination_port = metadata.origin.unwrap().destination_port;
+        let mut clients_list = self.clients.lock().unwrap();
+
+        // Check if the hostname already exists
+        for client in clients_list.clone().clients.into_iter() {
+            if hostname == client.metadata.unwrap().hostname {
+                println!("[Server] Refusing client as the hostname already exists: {}", hostname);
+                return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
+            }
+        }
+
+        // Obtain unique client id
+        let client_id: u32;
+        {
+            let mut current_client_id = self.current_client_id.lock().unwrap();
+            client_id = *current_client_id;
+            current_client_id.add_assign(1);
+        }
+
+        // Add the client to the client list
+        let new_client = Client {
+            client_id,
+            metadata: Some(Metadata {
+                hostname: hostname.clone(),
+                origin: Some(Origin {
+                    source_address: Some(source_address),
+                    source_port,
+                    destination_port,
+                })
+            }),
+        };
+        clients_list.clients.push(new_client);
+
+        // Accept the client and give it a unique client ID
+        Ok(Response::new(ClientId{
+            client_id,
+        }))
     }
 }
 

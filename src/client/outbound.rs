@@ -149,7 +149,10 @@ pub fn perform_ping(
                         packet.extend_from_slice(&icmp); // ip header included
 
                         // Send out packet
-                        cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                        if let Err(e) = cap.sendpacket(packet) {
+                            println!("[Outbound] Failed to send ICMP packet: {:?}", e);
+                        }
+                        // cap.sendpacket(packet).expect("Failed to send ICMP packet");
                     }
                 }
             }
@@ -192,6 +195,7 @@ pub fn perform_udp(
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
+    // Name this thread
     thread::spawn({
         move || {
             let ethernet_header = get_ethernet_header(ipv6);
@@ -276,7 +280,11 @@ pub fn perform_udp(
                         packet.extend_from_slice(&udp); // ip header included
 
                         // Send out packet
-                        cap.sendpacket(packet).expect("Failed to send UDP packet");
+                        // Send out packet
+                        if let Err(e) = cap.sendpacket(packet) {
+                            println!("[Outbound] Failed to send UDP packet: {:?}", e);
+                        }
+                        // cap.sendpacket(packet).expect("Failed to send UDP packet");
                     }
                 }
             }
@@ -401,7 +409,10 @@ pub fn perform_tcp(
                         packet.extend_from_slice(&tcp); // ip header included
 
                         // Send out packet
-                        cap.sendpacket(packet).expect("Failed to send TCP packet"); // TODO encountered PcapError "send: no buffer space available"
+                        if let Err(e) = cap.sendpacket(packet) {
+                            println!("[Outbound] Failed to send TCP packet: {:?}", e);
+                        }
+                        // cap.sendpacket(packet).expect("Failed to send TCP packet");
                     }
                 }
             }
