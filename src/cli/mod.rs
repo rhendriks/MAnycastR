@@ -564,7 +564,26 @@ fn igreedy(path: String, target: &str) {
         .spawn().expect("iGreedy failed!");
 }
 
-fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, task_type: u32, traceroute: bool) {
+/// Write the results to the command-line interface and a file
+///
+/// # Arguments
+///
+/// * 'rx' - Receives task results to be written
+///
+/// * 'cli' - A boolean that determines whether the results should be printed to the command-line
+///
+/// * 'file' - The file to which the results should be written
+///
+/// * 'task_type' - The type of task that was performed (determines the header)
+///
+/// * 'traceroute' - If true, it will handle traceroute results (which are written to a separate file)
+fn write_results(
+    mut rx: UnboundedReceiver<TaskResult>,
+    cli: bool,
+    file: File,
+    task_type: u32,
+    traceroute: bool
+) {
     // CSV writer to command-line interface
     let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
     // Traceroute writer
@@ -616,6 +635,7 @@ fn write_results(mut rx: UnboundedReceiver<TaskResult>, cli: bool, file: File, t
     });
 }
 
+/// Creates the appropriate header for the results file (based on the task type)
 fn get_header(task_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
     let mut header = vec!["recv_client_id"];
@@ -633,7 +653,19 @@ fn get_header(task_type: u32) -> Vec<&'static str> {
 }
 
 /// Get the result (csv row) from a VerfploeterResult message
-fn get_result(result: VerfploeterResult, receiver_client_id: u32, task_type: u32) -> Vec<String> {
+///
+/// # Arguments
+///
+/// * 'result' - The VerfploeterResult that is being written to this row
+///
+/// * 'receiver_client_id' - The client ID of the receiver
+///
+/// * 'task_type' - The type of task that is being performed
+fn get_result(
+    result: VerfploeterResult,
+    receiver_client_id: u32,
+    task_type: u32
+) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
             let ipresult = trace.ip_result.unwrap();
