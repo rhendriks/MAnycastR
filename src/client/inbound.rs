@@ -24,10 +24,6 @@ use pcap::{Active, Capture, Device};
 ///
 /// # Arguments
 ///
-/// * 'metadata' - contains the metadata of this listening client (the hostname and client ID)
-///
-/// * 'socket' - the socket to listen on
-///
 /// * 'tx' - sender to put task results in
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
@@ -35,6 +31,12 @@ use pcap::{Active, Capture, Device};
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
+///
+/// * 'v6' - whether to parse the packets as IPv6 or IPv4
+///
+/// * 'filter' - the pcap filter to use
+///
+/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
 pub fn listen_ping(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
@@ -131,10 +133,6 @@ pub fn listen_ping(
 ///
 /// # Arguments
 ///
-/// * 'metadata' - contains the metadata of this listening client (the hostname)
-///
-/// * 'socket' - the socket to listen on
-///
 /// * 'tx' - sender to put task results in
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
@@ -143,9 +141,13 @@ pub fn listen_ping(
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'sender_src_port' - the source port used in the probes (destination port of received reply must match this value)
+/// * 'v6' - whether to parse the packets as IPv6 or IPv4
 ///
-/// * 'socket_icmp' - an additional socket to listen for ICMP port unreachable responses
+/// * 'task_type' - the type of task that is being executed
+///
+/// * 'filter' - the pcap filter to use
+///
+/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
 pub fn listen_udp(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
@@ -187,7 +189,7 @@ pub fn listen_udp(
 
                 // UDP
                 let mut result = if v6 {
-                    if packet.data[20] == 17 {
+                    if packet.data[20] == 17 { // 17 is the protocol number for UDP
                         parse_udpv6(&packet.data[14..], task_type)
                     } else {
                         if task_type == 2 { // We only parse icmp responses to DNS requests for A records
@@ -197,10 +199,10 @@ pub fn listen_udp(
                         }
                     }
                 } else {
-                    if packet.data[23] == 17 {
+                    if packet.data[23] == 17 { // 17 is the protocol number for UDP
                         parse_udpv4(&packet.data[14..], task_type)
                     } else {
-                        if task_type == 2 {
+                        if task_type == 2 { // We only parse icmp responses to DNS requests for A records
                             parse_icmp_dest_unreachable(&packet.data[14..], false)
                         } else {
                             None
@@ -259,10 +261,6 @@ pub fn listen_udp(
 ///
 /// # Arguments
 ///
-/// * 'metadata' - contains the metadata of this listening client (the hostname)
-///
-/// * 'socket' - the socket to listen on
-///
 /// * 'tx' - sender to put task results in
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
@@ -270,6 +268,12 @@ pub fn listen_udp(
 /// * 'task_id' - the task_id of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
+///
+/// * 'v6' - whether to parse the packets as IPv6 or IPv4
+///
+/// * 'filter' - the pcap filter to use
+///
+/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
 pub fn listen_tcp(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
@@ -356,8 +360,6 @@ pub fn listen_tcp(
 ///
 /// # Arguments
 ///
-/// * 'metadata' - contains the metadata of this listening client (the hostname)
-///
 /// * 'tx' - sender to put task results in
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
@@ -365,7 +367,12 @@ pub fn listen_tcp(
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'result_queue_sender' - contains a vector of all received replies as VerfploeterResult
-fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, client_id: u8, result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>) {
+fn handle_results(
+    tx: &UnboundedSender<TaskResult>,
+    mut rx_f: Receiver<()>,
+    client_id: u8,
+    result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>
+) {
     loop {
         // Every 5 seconds, forward the ping results to the server
         sleep(Duration::from_secs(5));
@@ -397,6 +404,7 @@ fn handle_results(tx: &UnboundedSender<TaskResult>, mut rx_f: Receiver<()>, clie
     }
 }
 
+/// Create a pcap capture object with the given filter.
 fn get_pcap(filter: String) -> Capture<Active> {
     // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
@@ -451,6 +459,7 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     }, packet.payload));
 }
 
+/// Parse ICMPv4 packets (including v4 headers) into a VerfploeterResult.
 fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
@@ -502,6 +511,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
     }
 }
 
+/// Parse ICMPv6 packets (including v6 headers) into a VerfploeterResult.
 fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
@@ -871,6 +881,7 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
     }
 }
 
+/// Parse UDPv4 packets (including v4 headers) into a VerfploeterResult.
 fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
@@ -913,6 +924,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     }
 }
 
+/// Parse UDPv6 packets (including v6 headers) into a VerfploeterResult.
 fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
@@ -1047,6 +1059,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
     }
 }
 
+/// Attempts to parse the DNS Chaos record from a UDP payload body.
 fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
 
@@ -1074,6 +1087,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     });
 }
 
+/// Parse TCP body into a VerfploeterResult.
 fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<VerfploeterResult> {
     // Obtain the payload
     return if let PacketPayload::TCP { value: tcp_packet } = ip_payload {
@@ -1101,7 +1115,7 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
     }
 }
 
-
+/// Parse TCPv4 packets (including v4 headers) into a VerfploeterResult.
 fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
@@ -1110,6 +1124,7 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     return parse_tcp(payload, ip_result);
 }
 
+/// Parse TCPv6 packets (including v6 headers) into a VerfploeterResult.
 fn parse_tcpv6(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
