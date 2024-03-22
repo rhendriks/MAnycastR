@@ -101,6 +101,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let ipv6 = ips.first().unwrap().is_v6();
 
+        // Panic if the source IP is not the same type as the addresses
+        if source_ip.is_v6() != ipv6 {
+            panic!("Source IP and target addresses are not of the same type! (IPv4/IPv6)");
+        }
+
+        // Panic if the ips are not all the same type
+        if ips.iter().any(|ip| ip.is_v6() != ipv6) {
+            panic!("Target addresses are not all of the same type! (IPv4/IPv6)");
+        }
+
         debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist, if desired
@@ -180,7 +190,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'source_address' - the source address to be used for this task (will be overwritten by the clients if they have a source address specified locally)
 ///
-/// * 'destination_addresses' - a vector of destination addresses that will be probed in this task
+/// * 'destination_addresses' - a vector of destination addresses that will be probed in this task (e.g., the hitlist)
 ///
 /// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: UDP/A, 3: TCP, 4: UDP/CHAOS
 ///
@@ -188,6 +198,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'client_ids' - the list of clients (by IDs) who participate in the measurement (empty list means all clients participate)
 ///
+/// * 'unicast' - a boolean that determines whether the clients must use their unicast source address
+///
+/// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not // TODO useless ?
+///
+/// * 'traceroute' - a boolean that determines whether the clients must perform traceroute measurements
 /// # Examples
 ///
 /// ```
@@ -470,7 +485,12 @@ impl CliClient {
 ///
 /// * 'cleanup_interval' - The interval at which results are cleaned up
 ///
-fn address_feed(mut rx: UnboundedReceiver<TaskResult>, cleanup_interval: Duration, path: String) {
+/// * 'path' - The path to the iGreedy script
+fn address_feed( // TODO unimplemented
+    mut rx: UnboundedReceiver<TaskResult>,
+    cleanup_interval: Duration,
+    path: String
+) {
     let map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
 
     let map_clone = map.clone();
