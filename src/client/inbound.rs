@@ -107,9 +107,9 @@ pub fn listen_ping(
 
     // Thread for sending the received replies to the server as TaskResult
     thread::spawn({
-        let result_queue_sender = rq.clone();
+        let rq_sender = rq.clone();
         move || {
-            handle_results(&tx, rx_f, client_id, result_queue_sender);
+            handle_results(&tx, rx_f, client_id, rq_sender);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -310,6 +310,7 @@ pub fn listen_tcp(
                     },
                 };
 
+                // TCP
                 let mut result = if v6 {
                     parse_tcpv6(&packet.data[14..])
                 } else {
@@ -366,12 +367,12 @@ pub fn listen_tcp(
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'result_queue_sender' - contains a vector of all received replies as VerfploeterResult
+/// * 'rq_sender' - contains a vector of all received replies as VerfploeterResult
 fn handle_results(
     tx: &UnboundedSender<TaskResult>,
     mut rx_f: Receiver<()>,
     client_id: u8,
-    result_queue_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>
+    rq_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>
 ) {
     loop {
         // Every 5 seconds, forward the ping results to the server
@@ -380,7 +381,7 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq;
         {
-            let mut rq_mutex = result_queue_sender.lock().unwrap();
+            let mut rq_mutex = rq_sender.lock().unwrap();
             rq = rq_mutex.replace(Vec::new()).unwrap();
         }
 

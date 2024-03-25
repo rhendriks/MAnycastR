@@ -288,7 +288,10 @@ impl CliClient {
         igreedy: Option<String>,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
-        let source_address = IP::from(task.clone().source_address.unwrap()).to_string();
+        let source_address = IP::from(task.clone().source_address.unwrap());
+        let ipv6 = source_address.is_v6();
+        let source_address = source_address.to_string();
+
         let task_type = task.task_type;
         let unicast = task.unicast;
         let traceroute = task.traceroute;
@@ -336,7 +339,37 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get task type
-        let type_str = if task_type == 1 { "ICMP" } else if task_type == 2 { "UDP-A" } else if task_type == 3 { "TCP" } else if task_type == 4 { "UDP-CHAOS" } else { "ICMP" };
+        let type_str = match task_type {
+            1 => {
+                if ipv6 {
+                    "ICMpv6"
+                } else {
+                    "ICMPv4"
+                }
+            },
+            2 => {
+                if ipv6 {
+                    "UDPv6"
+                } else {
+                    "UDPv4"
+                }
+            },
+            3 => {
+                if ipv6 {
+                    "TCPv6"
+                } else {
+                    "TCPv4"
+                }
+            },
+            4 => {
+                if ipv6 {
+                    "UDP-CHAOSv6"
+                } else {
+                    "UDP-CHAOSv4"
+                }
+            },
+            _ => "ICMP"
+        };
 
         // Temporary output file (for writing live results to)
         let temp_file = File::create("temp").expect("Unable to create file");
