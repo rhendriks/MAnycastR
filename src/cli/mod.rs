@@ -339,7 +339,7 @@ impl CliClient {
         let type_str = match task_type {
             1 => {
                 if ipv6 {
-                    "ICMpv6"
+                    "ICMPv6"
                 } else {
                     "ICMPv4"
                 }
