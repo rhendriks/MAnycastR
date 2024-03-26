@@ -90,15 +90,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ip_file = matches.value_of("IP_FILE").unwrap();
         let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
         let buf_reader = BufReader::new(file);
-
-        // TODO make sure that all addresses are the same type (v4 or v6)
-        let mut ips: Vec<Address> = buf_reader
+        let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
             .map(|l| {
                 Address::from(IP::from(l.unwrap()))
             })
             .collect::<Vec<_>>();
-
         let ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
