@@ -10,9 +10,9 @@ package verfploeter;
 service Controller {
   // Client lets the server know the task is finished
   rpc TaskFinished(Finished) returns (Ack) {}
-  // Client announces itself, and starts connection with the Server. The server sends a stream of Task
+  // Client announces itself, and starts its connection with the Server. The server sends a stream of Task
   rpc ClientConnect(Metadata) returns (stream Task) {}
-  // CLI instructs Server to perform a task
+  // CLI instructs Server to perform a measurement
   rpc DoTask(ScheduleTask) returns (stream TaskResult) {}
   // CLI asks Server to list clients, Server returns ClientList
   rpc ListClients(Empty) returns (ClientList) {}
@@ -162,6 +162,7 @@ message VerfploeterResult {
   }
 }
 
+// IPResult, contains either an IPv4Result or an IPv6Result, and the TTL
 message IPResult {
   oneof value {
     IPv4Result ipv4 = 1;
@@ -176,11 +177,13 @@ message IPv4Result {
   fixed32 destination_address = 2;
 }
 
+// IPv6Result, contains all information extracted from the IPv6 header: source, destination addresses
 message IPv6Result {
   IPv6 source_address = 1;
   IPv6 destination_address = 2;
 }
 
+// TraceResult, contains the IP result, TTL, receive time, transmit time, and the sender client ID
 message TraceResult {
   IPResult ip_result = 1; // IP result of the host that replied to the traceroute probe
   uint32 ttl = 2; // TTL of the traceroute probe that resulted in this trace result
@@ -219,6 +222,7 @@ message UDPResult {
   UDPPayload payload = 6;
 }
 
+// UDP payload, which contains the transmission time, source/dest address, and the sender client ID
 message UDPPayload {
   oneof value {
     DNS_A_Record dns_a_record = 1;
@@ -235,6 +239,7 @@ message DNS_A_Record {
   fixed32 source_port = 5;
 }
 
+// CHAOS payload, which is extracted from the domain of the DNS CHAOS reply
 message DNS_CHAOS {
   fixed32 sender_client_id = 1;
   string chaos_data = 2;
