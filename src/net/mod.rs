@@ -513,7 +513,7 @@ impl From<&[u8]> for DNSAnswer {
     }
 }
 
-/// Parsing from bytes into a DNS TXT record
+/// Parsing from bytes into a DNS TXT record TODO thread '<unnamed>' panicked at src/net/mod.rs:524:68: range end index 111 out of range for slice of length 25
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -521,7 +521,8 @@ impl From<&[u8]> for TXTRecord {
         let txt_length = data.read_u8().unwrap();
         TXTRecord {
             txt_length,
-            txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
+            txt: read_dns_name(&mut data),
+            // txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
         }
     }
 }
@@ -733,7 +734,6 @@ impl UDPPacket {
 
         v6_packet.into()
     }
-
     /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(client_id: u8) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
