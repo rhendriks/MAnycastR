@@ -517,12 +517,28 @@ impl From<&[u8]> for DNSAnswer {
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+        // Make sure txt_length is not out of bounds
+        if data.remaining() < 1 {
+            return TXTRecord {
+                txt_length: 0,
+                txt: "Invalid TXT record".to_string(),
+            };
+        }
 
         let txt_length = data.read_u8().unwrap();
+
+        // Make sure txt_length is not out of bounds
+        if txt_length as usize > data.remaining() {
+            return TXTRecord {
+                txt_length,
+                txt: "Invalid TXT record".to_string(),
+            };
+        }
+
         TXTRecord {
             txt_length,
-            txt: read_dns_name(&mut data),
-            // txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
+            // txt: read_dns_name(&mut data),
+            txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
         }
     }
 }
