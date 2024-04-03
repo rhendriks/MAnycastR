@@ -258,7 +258,7 @@ pub fn perform_udp(
                             if task_type == 2 {
                                 UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                             } else if task_type == 4 {
-                                UDPPacket::chaos_request(source_address, IP::from(dest_addr.clone()), source_port, client_id)
+                                UDPPacket::chaos_request_v6(source.into(), dest.into(), source_port, client_id)
                             } else {
                                 panic!("Invalid task type")
                             }
@@ -269,7 +269,7 @@ pub fn perform_udp(
                             if task_type == 2 {
                                 UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
                             } else if task_type == 4 {
-                                UDPPacket::chaos_request(source_address, IP::from(dest_addr.clone()), source_port, client_id)
+                                UDPPacket::chaos_request(source.into(), dest.into(), source_port, client_id)
                             } else {
                                 panic!("Invalid task type")
                             }
@@ -279,7 +279,6 @@ pub fn perform_udp(
                         packet.extend_from_slice(&ethernet_header);
                         packet.extend_from_slice(&udp); // ip header included
 
-                        // Send out packet
                         // Send out packet
                         if let Err(e) = cap.sendpacket(packet) {
                             println!("[Outbound] Failed to send UDP packet: {:?}", e);
@@ -412,7 +411,6 @@ pub fn perform_tcp(
                         if let Err(e) = cap.sendpacket(packet) {
                             println!("[Outbound] Failed to send TCP packet: {:?}", e);
                         }
-                        // cap.sendpacket(packet).expect("Failed to send TCP packet");
                     }
                 }
             }

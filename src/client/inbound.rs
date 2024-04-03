@@ -904,6 +904,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
         let payload = if task_type == 2 {
             parse_dns_a_record(udp_packet.body.as_slice(), false)
         } else if task_type == 4 {
+            println!("Parsing chaos");
             parse_chaos(udp_packet.body.as_slice())
         } else {
             None
