@@ -749,7 +749,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question (id.server)
-        let domain = "hostname.bind";
+        let domain = "id.server";
         for label in domain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
