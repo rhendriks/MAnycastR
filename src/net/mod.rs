@@ -498,9 +498,21 @@ impl From<&[u8]> for DNSRecord {
 }
 
 /// Parsing from bytes into a DNS A record
-impl From<&[u8]> for DNSAnswer {
+impl From<&[u8]> for DNSAnswer { // TODO panicked at src/net/mod.rs:506:54: called `Result::unwrap()` on an `Err` value: Error { kind: UnexpectedEof, message: "failed to fill whole buffer" }
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+
+        // Make sure data has the required length
+        if data.remaining() < 10 {
+            return DNSAnswer {
+                domain: "Invalid DNS record".to_string(),
+                record_type: 0,
+                class: 0,
+                ttl: 0,
+                data_length: 0,
+                data: vec![],
+            };
+        }
 
         DNSAnswer {
             domain: data.read_u16::<NetworkEndian>().unwrap().to_string(), //read_dns_name(&mut data), // Two bytes that are a pointer to the domain name of the request record
@@ -513,7 +525,7 @@ impl From<&[u8]> for DNSAnswer {
     }
 }
 
-/// Parsing from bytes into a DNS TXT record TODO thread '<unnamed>' panicked at src/net/mod.rs:524:68: range end index 111 out of range for slice of length 25
+/// Parsing from bytes into a DNS TXT record
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
