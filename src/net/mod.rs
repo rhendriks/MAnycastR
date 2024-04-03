@@ -498,7 +498,7 @@ impl From<&[u8]> for DNSRecord {
 }
 
 /// Parsing from bytes into a DNS A record
-impl From<&[u8]> for DNSAnswer { // TODO panicked at src/net/mod.rs:506:54: called `Result::unwrap()` on an `Err` value: Error { kind: UnexpectedEof, message: "failed to fill whole buffer" }
+impl From<&[u8]> for DNSAnswer {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
 
@@ -777,7 +777,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question (id.server)
-        let domain = "id.server";
+        let domain = "hostname.bind";
         for label in domain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
