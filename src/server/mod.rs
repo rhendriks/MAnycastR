@@ -556,14 +556,14 @@ impl Controller for ControllerService {
         let mut t: u64 = 0;
 
         let number_of_clients = senders.len() as u64;
+        println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, self.interval);
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             t += 1;
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
-            let interval = self.interval;
-            println!("[Server] Clients will send out probes to the same target {} seconds after each other", interval);
+            let clients_interval = self.interval;
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize - 1).unwrap();
             let clients = clients.clone();
@@ -573,7 +573,7 @@ impl Controller for ControllerService {
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                tokio::time::sleep(Duration::from_secs(t * interval)).await;
+                tokio::time::sleep(Duration::from_secs(t * clients_interval)).await;
 
                 // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
                 let probing = if clients.clone().len() == 0 {
@@ -634,9 +634,9 @@ impl Controller for ControllerService {
                 if !abort {
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses
                     if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120 + number_of_clients - client_id as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(120 + (number_of_clients * clients_interval) - (client_id as u64 * clients_interval))).await;
                     } else {
-                        tokio::time::sleep(Duration::from_secs((10 + number_of_clients) - client_id as u64)).await; // TODO thread 'main' panicked at src/server/mod.rs:635:64  attempt to subtract with overflow (when probing with client_ids > 32)
+                        tokio::time::sleep(Duration::from_secs((10 + (number_of_clients * clients_interval)) - (client_id as u64 * clients_interval))).await; // TODO thread 'main' panicked at src/server/mod.rs:635:64  attempt to subtract with overflow (when probing with client_ids > 32)
                     }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
