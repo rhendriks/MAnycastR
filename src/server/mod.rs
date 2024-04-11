@@ -557,6 +557,13 @@ impl Controller for ControllerService {
 
         let number_of_clients = senders.len() as u64;
         println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, self.interval);
+
+        // Shared variable to keep track of the number of clients that have finished
+        let clients_finished = Arc::new(Mutex::new(0));
+
+        // Shared channel that clients will wait for till the last client has finished
+        let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
+
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             t += 1;
@@ -567,6 +574,9 @@ impl Controller for ControllerService {
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize - 1).unwrap();
             let clients = clients.clone();
+            let tx_f = tx_f.clone();
+            let mut rx_f = tx_f.subscribe();
+            let clients_finished = clients_finished.clone();
 
             spawn(async move {
                 let mut abort = false;
@@ -597,6 +607,10 @@ impl Controller for ControllerService {
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");
+                        clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                        if clients_finished.lock().unwrap().clone() == number_of_clients {
+                            tx_f.send(()).expect("Failed to send finished signal");
+                        }
                         abort = true;
                         break
                     }
@@ -632,12 +646,36 @@ impl Controller for ControllerService {
                 }
 
                 if !abort {
-                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120 + (number_of_clients * clients_interval) - (client_id as u64 * clients_interval))).await;
+                    // TODO server should keep track of when all clients have finished the measurement, rather than sleeping (when any client finishes late, the server will send the termination messages too early)
+                    // Increment variable with 1
+                    // if variable == number of clients
+                    // broadcast finished signal to all clients
+                    // if not: wait for broadcast from last client thread
+                    // Wait 10 seconds to give all clients time to receive the last responses
+                    clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                    if clients_finished.lock().unwrap().clone() == number_of_clients {
+                        println!("[Server] All clients have finished the measurement");
+                        // Send a message to the other sending threads to let them know the measurement is finished
+                        tx_f.send(()).expect("Failed to send finished signal");
+                        // tx_f.send(()).await.expect("Failed to send finished signal");
                     } else {
-                        tokio::time::sleep(Duration::from_secs((10 + (number_of_clients * clients_interval)) - (client_id as u64 * clients_interval))).await; // TODO thread 'main' panicked at src/server/mod.rs:635:64  attempt to subtract with overflow (when probing with client_ids > 32)
+                        // Wait for the last client to finish
+                        rx_f.recv().await.expect("Failed to receive finished signal");
                     }
+
+                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
+                    if traceroute {
+                        tokio::time::sleep(Duration::from_secs(120)).await;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
+
+                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses
+                    // if traceroute {
+                    //     tokio::time::sleep(Duration::from_secs(120 + (number_of_clients * clients_interval) - (client_id as u64 * clients_interval))).await;
+                    // } else {
+                    //     tokio::time::sleep(Duration::from_secs((10 + (number_of_clients * clients_interval)) - (client_id as u64 * clients_interval))).await; // TODO thread 'main' panicked at src/server/mod.rs:635:64  attempt to subtract with overflow (when probing with client_ids > 32)
+                    // }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
