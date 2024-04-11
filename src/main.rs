@@ -125,7 +125,9 @@
 extern crate env_logger;
 #[macro_use]
 extern crate log;
+
 use clap::{App, Arg, ArgMatches, SubCommand};
+
 mod cli;
 mod server;
 mod client;
@@ -161,11 +163,8 @@ fn main() {
 
         let _ = cli::execute(cli_matches);
         return;
-    }
-
-    else if let Some(server_matches) = matches.subcommand_matches("server") {
+    } else if let Some(server_matches) = matches.subcommand_matches("server") {
         println!("[Main] Executing server");
-        debug!("Selected SERVER_MODE!");
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -182,8 +181,22 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Performs measurements")
-        .subcommand(SubCommand::with_name("server").about("Launches the verfploeter server")
-            .arg(Arg::with_name("port").short("p").takes_value(true).help("Port to listen on").required(false))
+        .subcommand(
+            SubCommand::with_name("server").about("Launches the verfploeter server")
+                .arg(
+                    Arg::with_name("port")
+                        .short("p")
+                        .takes_value(true)
+                        .help("Port to listen on [default: 50001]")
+                        .required(false)
+                )
+                .arg(
+                    Arg::with_name("interval")
+                        .short("i")
+                        .takes_value(true)
+                        .help("Interval between separate client's probes to the same target [default: 1s]")
+                        .required(false)
+                )
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
@@ -241,48 +254,47 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
-                    .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
-                        .required(true)
-                        .index(1))
-                    .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
-                        .required(true)
-                        .index(2))
-                    .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
-                        .required(true)
-                        .index(3))
-                    .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
-                        .required(false)
-                        .index(4)
-                        .default_value("1000"))
-                    .arg(Arg::with_name("CLIENTS").help("Specify which clients have to send out probes (all connected clients will listen for packets)")
-                        .required(false)
-                        .index(5)
-                        .multiple(true))
-                    .arg(Arg::with_name("STREAM").help("Stream results to stdout")
-                        .takes_value(false)
-                        .long("stream")
-                        .required(false))
-                    .arg(Arg::with_name("SHUFFLE").help("Randomly shuffle the ip file")
-                        .takes_value(false)
-                        .long("shuffle")
-                        .required(false))
-                    .arg(Arg::with_name("LIVE").help("Check results for Anycast targets as they come in live")
-                        .takes_value(true)
-                        .long("live")
-                        .required(false))
-                    .arg(Arg::with_name("UNICAST").help("Probe the targets using the unicast address of each client")
-                        .takes_value(false)
-                        .long("unicast")
-                        .required(false))
-                    .arg(Arg::with_name("TRACEROUTE").help("Probe the targets using traceroute")
-                        .takes_value(false)
-                        .long("traceroute")
-                        .required(false))
+                                .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
+                                    .required(true)
+                                    .index(1))
+                                .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
+                                    .required(true)
+                                    .index(2))
+                                .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                                    .required(true)
+                                    .index(3))
+                                .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
+                                    .required(false)
+                                    .index(4)
+                                    .default_value("1000"))
+                                .arg(Arg::with_name("CLIENTS").help("Specify which clients have to send out probes (all connected clients will listen for packets)")
+                                    .required(false)
+                                    .index(5)
+                                    .multiple(true))
+                                .arg(Arg::with_name("STREAM").help("Stream results to stdout")
+                                    .takes_value(false)
+                                    .long("stream")
+                                    .required(false))
+                                .arg(Arg::with_name("SHUFFLE").help("Randomly shuffle the ip file")
+                                    .takes_value(false)
+                                    .long("shuffle")
+                                    .required(false))
+                                .arg(Arg::with_name("LIVE").help("Check results for Anycast targets as they come in live")
+                                    .takes_value(true)
+                                    .long("live")
+                                    .required(false))
+                                .arg(Arg::with_name("UNICAST").help("Probe the targets using the unicast address of each client")
+                                    .takes_value(false)
+                                    .long("unicast")
+                                    .required(false))
+                                .arg(Arg::with_name("TRACEROUTE").help("Probe the targets using traceroute")
+                                    .takes_value(false)
+                                    .long("traceroute")
+                                    .required(false))
 
-                    // TODO option to perform manycast for all 3 protocols on a hitlist
-                    // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
-                    // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
-
+                            // TODO option to perform manycast for all 3 protocols on a hitlist
+                            // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
+                            // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
                 )
         )
         .get_matches()

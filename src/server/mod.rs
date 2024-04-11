@@ -34,6 +34,7 @@ use custom_module::verfploeter::{
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 /// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
 /// * 'traceroute' - a boolean value that is set to true when traceroute is enabled
+/// * 'interval' - the interval between clients sending out probes to the same target
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
@@ -45,6 +46,7 @@ pub struct ControllerService {
     active: Arc<Mutex<bool>>,
     traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
+    interval: u64,
 }
 
 /// Special Receiver struct that notices when the client disconnects.
@@ -313,7 +315,7 @@ impl Controller for ControllerService {
     ///
     /// Assigns a unique task ID to the measurement.
     ///
-    /// Streams the task to the clients, in a round-robin fashion, with 1 second delays between clients.
+    /// Streams the task to the clients, in a round-robin fashion, with 1-second delays between clients.
     ///
     /// Furthermore, lets the clients know of the desired probing rate (defined by the CLI).
     ///
@@ -560,6 +562,8 @@ impl Controller for ControllerService {
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
+            let interval = self.interval;
+            println!("[Server] Clients will send out probes to the same target {} seconds after each other", interval);
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize - 1).unwrap();
             let clients = clients.clone();
@@ -568,8 +572,8 @@ impl Controller for ControllerService {
                 let mut abort = false;
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
-                // Sleep the desired time
-                tokio::time::sleep(Duration::from_secs(t)).await;
+                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+                tokio::time::sleep(Duration::from_secs(t * interval)).await;
 
                 // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
                 let probing = if clients.clone().len() == 0 {
@@ -857,6 +861,14 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
     println!("[Server] Controller server listening on: {}", addr);
 
+    let interval = if args.is_present("interval") {
+        let interval = args.value_of("interval").unwrap();
+        println!("[Server] Using custom interval: {}", args.value_of("interval").unwrap());
+        interval.parse::<u64>().unwrap()
+    } else {
+        1
+    };
+
     let controller = ControllerService {
         clients: Arc::new(Mutex::new(ClientList::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
@@ -867,6 +879,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
+        interval,
     };
 
     let svc = ControllerServer::new(controller);
