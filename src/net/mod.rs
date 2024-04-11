@@ -5,7 +5,6 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use prost::bytes::Buf;
-use crate::custom_module::IP;
 use crate::net::netv6::{calculate_checksum_v6, IPv6Packet, PseudoHeaderv6};
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
