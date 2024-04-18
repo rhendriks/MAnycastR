@@ -904,7 +904,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
-        current_task_id: Arc::new(Mutex::new(random_task_id)), // TODO randomize this value (there's people sending back replies with this task_id from old measurements)
+        current_task_id: Arc::new(Mutex::new(random_task_id)),
         current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
