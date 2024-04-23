@@ -197,6 +197,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Interval between separate client's probes to the same target [default: 1s]")
                         .required(false)
                 )
+                .arg(
+                    Arg::with_name("divide")
+                        .long("divide")
+                        .takes_value(false)
+                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
+                        .required(false)
+                )
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
