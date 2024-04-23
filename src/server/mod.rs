@@ -582,7 +582,15 @@ impl Controller for ControllerService {
                 }
                 // Each client gets its own chunk of the destination addresses
                 let chunk_size = dest_addresses.len() / number_of_clients as usize;
-                dest_addresses.clone().split_off(t as usize * chunk_size)
+                let mut start_index = t as usize * chunk_size;
+                let mut end_index = start_index + chunk_size;
+
+                // Adjust end_index for the last client to include any remaining elements
+                if t == number_of_clients - 1 {
+                    end_index = dest_addresses.len();
+                }
+
+                dest_addresses[start_index..end_index].to_vec()
             } else {
                 // All clients get the same destination addresses
                 dest_addresses.clone()
