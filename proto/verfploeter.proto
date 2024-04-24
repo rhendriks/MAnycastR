@@ -49,10 +49,12 @@ message ScheduleTask {
   bool unicast = 5;
   bool ipv6 = 6;
   bool traceroute = 7;
+  uint32 interval = 8;
+  bool divide = 9;
   oneof data {
-    Ping ping = 8;
-    UDP udp = 9;
-    TCP tcp = 10;
+    Ping ping = 10;
+    UDP udp = 11;
+    TCP tcp = 12;
   }
 }
 

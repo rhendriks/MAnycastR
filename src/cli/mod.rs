@@ -138,6 +138,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let cli = matches.is_present("STREAM");
         let unicast = matches.is_present("UNICAST");
         let traceroute = matches.is_present("TRACEROUTE");
+        let divide = matches.is_present("DIVIDE");
+        let interval = if matches.is_present("INTERVAL") {
+            u32::from_str(matches.value_of("INTERVAL").unwrap()).unwrap()
+        } else {
+            1 // Default interval
+        };
         // Get the rate for this task
         let rate = if matches.is_present("RATE") {
             u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
@@ -153,7 +159,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, and a rate of {}", t_type,
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}", t_type,
             ips.len().to_string()
                 .as_bytes()
                 .rchunks(3)
@@ -170,12 +176,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                  .collect::<Result<Vec<&str>, _>>()
                  .unwrap()
                  .join(","),
+            interval
         );
-        println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0); // TODO update when using divide-and-conquer
 
+        let hitlist_length = ips.len();
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, traceroute);
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, igreedy).await
+        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, igreedy).await
     } else {
         panic!("Unrecognized command");
     }
@@ -213,6 +220,8 @@ fn create_schedule_task(
     client_ids: Vec<u32>,
     unicast: bool,
     ipv6: bool,
+    divide: bool,
+    interval: u32,
     traceroute: bool
 ) -> ScheduleTask {
     match task_type {
@@ -225,6 +234,8 @@ fn create_schedule_task(
                 unicast,
                 ipv6,
                 traceroute,
+                divide,
+                interval,
                 data: Some(schedule_task::Data::Ping(Ping {
                     destination_addresses,
                 }))
@@ -239,6 +250,8 @@ fn create_schedule_task(
                 unicast,
                 ipv6,
                 traceroute,
+                divide,
+                interval,
                 data: Some(schedule_task::Data::Udp(Udp {
                     destination_addresses,
                 }))
@@ -253,6 +266,8 @@ fn create_schedule_task(
                 unicast,
                 ipv6,
                 traceroute,
+                divide,
+                interval,
                 data: Some(schedule_task::Data::Tcp(Tcp {
                     destination_addresses,
                 }))
@@ -282,6 +297,8 @@ impl CliClient {
         cli: bool,
         shuffle: bool,
         hitlist: &str,
+        divide: bool,
+        hitlist_length: usize,
         igreedy: Option<String>,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
@@ -299,6 +316,13 @@ impl CliClient {
         let mut clients = HashMap::new();
         for client in response.into_inner().clients {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
+        }
+
+        if divide {
+            println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
+            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 10.0) / 60.0);
+        } else {
+            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0); // TODO update when using divide-and-conquer
         }
 
         let request = Request::new(task.clone());
