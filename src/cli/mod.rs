@@ -171,7 +171,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                  .unwrap()
                  .join(","),
         );
-        println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0);
+        println!("[CLI] This task will take an estimated {:.2} minutes", ((ips.len() as f32 / rate as f32) + 10.0) / 60.0); // TODO update when using divide-and-conquer
 
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, traceroute);

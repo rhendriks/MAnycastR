@@ -1,5 +1,3 @@
-use std::env;
-
 // Generates the tonic/grpc code from the .proto file
 fn main() {
     // Compile Protocol Buffers definitions
