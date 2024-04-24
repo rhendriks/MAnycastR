@@ -577,7 +577,7 @@ impl Controller for ControllerService {
             let clients = clients.clone();
 
             let dest_addresses = if self.divide {
-                if clients.len() == 0 {
+                if clients.len() != 0 {
                     panic!("[Server] Divide and conquer is not supported for client-selective probing")
                 }
                 // Each client gets its own chunk of the destination addresses
