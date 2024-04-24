@@ -25,7 +25,7 @@
 //!
 //! When creating a task you can specify:
 //! * **Source address** - the source address from which the probes are to be sent out
-//! * **Destination addresses** - the target addresses that will be probed (e.g. a hitlist)
+//! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
 //! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
@@ -46,7 +46,7 @@
 //! ```
 //! client -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
 //! ```
-//! Server address has format IPv4:port (e.g. 187.0.0.0:50001), '-a SOURCE IP' is optional.
+//! Server address has format IPv4:port (e.g., 187.0.0.0:50001), '-a SOURCE IP' is optional.
 //!
 //! To confirm that the clients are connected, you can run the client-list command on the CLI.
 //! ```
@@ -195,6 +195,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("i")
                         .takes_value(true)
                         .help("Interval between separate client's probes to the same target [default: 1s]")
+                        .required(false)
+                )
+                .arg(
+                    Arg::with_name("divide")
+                        .long("divide")
+                        .takes_value(false)
+                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
                         .required(false)
                 )
         )

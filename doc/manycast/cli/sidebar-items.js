@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["create_schedule_task","Create a Verfploeter ScheduleTask message that can be sent to the server."],["execute","Connect to the server and make it perform the CLI command from the command-line"]],"mod":[["verfploeter",""]],"struct":[["CliClient","A CLI client that creates a connection with the ‘server’ and sends the desired commands based on the command-line input."]]};
+window.SIDEBAR_ITEMS = {"fn":["address_feed","create_schedule_task","execute","get_header","get_result","igreedy","write_results"],"struct":["CliClient"]};

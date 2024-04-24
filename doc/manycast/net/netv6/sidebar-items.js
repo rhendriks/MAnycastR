@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["calculate_checksum_v6"],"struct":["IPv6Packet","PseudoHeaderv6"]};

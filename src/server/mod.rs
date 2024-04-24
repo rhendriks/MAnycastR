@@ -9,6 +9,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use clap::ArgMatches;
 use futures_core::Stream;
+use rand::Rng;
 use tokio::spawn;
 use crate::server::mpsc::Sender;
 use crate::custom_module;
@@ -47,6 +48,7 @@ pub struct ControllerService {
     traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
     interval: u64,
+    divide: bool,
 }
 
 /// Special Receiver struct that notices when the client disconnects.
@@ -389,7 +391,7 @@ impl Controller for ControllerService {
         {
             let mut current_task_id = self.current_task_id.lock().unwrap();
             task_id = *current_task_id;
-            current_task_id.add_assign(1);
+            *current_task_id = current_task_id.wrapping_add(1);
         }
 
         let task = request.into_inner();
@@ -566,7 +568,6 @@ impl Controller for ControllerService {
 
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
-            t += 1;
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
@@ -574,6 +575,28 @@ impl Controller for ControllerService {
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize - 1).unwrap();
             let clients = clients.clone();
+
+            let dest_addresses = if self.divide {
+                if clients.len() == 0 {
+                    panic!("[Server] Divide and conquer is not supported for client-selective probing")
+                }
+                // Each client gets its own chunk of the destination addresses
+                let chunk_size = dest_addresses.len() / number_of_clients as usize;
+                let mut start_index = t as usize * chunk_size;
+                let mut end_index = start_index + chunk_size;
+
+                // Adjust end_index for the last client to include any remaining elements
+                if t == number_of_clients - 1 {
+                    end_index = dest_addresses.len();
+                }
+
+                dest_addresses[start_index..end_index].to_vec()
+            } else {
+                // All clients get the same destination addresses
+                dest_addresses.clone()
+            };
+            t += 1;
+
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = clients_finished.clone();
@@ -646,12 +669,6 @@ impl Controller for ControllerService {
                 }
 
                 if !abort {
-                    // TODO server should keep track of when all clients have finished the measurement, rather than sleeping (when any client finishes late, the server will send the termination messages too early)
-                    // Increment variable with 1
-                    // if variable == number of clients
-                    // broadcast finished signal to all clients
-                    // if not: wait for broadcast from last client thread
-                    // Wait 10 seconds to give all clients time to receive the last responses
                     clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                     if clients_finished.lock().unwrap().clone() == number_of_clients {
                         println!("[Server] All clients have finished the measurement");
@@ -670,12 +687,6 @@ impl Controller for ControllerService {
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }
 
-                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses
-                    // if traceroute {
-                    //     tokio::time::sleep(Duration::from_secs(120 + (number_of_clients * clients_interval) - (client_id as u64 * clients_interval))).await;
-                    // } else {
-                    //     tokio::time::sleep(Duration::from_secs((10 + (number_of_clients * clients_interval)) - (client_id as u64 * clients_interval))).await; // TODO thread 'main' panicked at src/server/mod.rs:635:64  attempt to subtract with overflow (when probing with client_ids > 32)
-                    // }
                     println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
@@ -907,17 +918,23 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         1
     };
 
+    let divide = args.is_present("divide");
+
+    // Get a random task ID
+    let random_task_id = rand::thread_rng().gen_range(0..u32::MAX);
+
     let controller = ControllerService {
         clients: Arc::new(Mutex::new(ClientList::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_tasks: Arc::new(Mutex::new(HashMap::new())),
-        current_task_id: Arc::new(Mutex::new(156434)),
+        current_task_id: Arc::new(Mutex::new(random_task_id)),
         current_client_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
         interval,
+        divide,
     };
 
     let svc = ControllerServer::new(controller);

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":[["inbound",""],["outbound",""],["verfploeter",""]],"struct":[["Client","The client that is ran at the anycast sites and performs tasks as instructed by the server to which it is connected to"]]};
+window.SIDEBAR_ITEMS = {"mod":["inbound","outbound"],"struct":["Client"]};
