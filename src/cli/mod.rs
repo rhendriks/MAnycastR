@@ -822,7 +822,7 @@ fn get_result(
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            return  vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack];
+            return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack];
         }
     }
 }
