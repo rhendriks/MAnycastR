@@ -190,20 +190,20 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Port to listen on [default: 50001]")
                         .required(false)
                 )
-                .arg(
-                    Arg::with_name("interval")
-                        .short("i")
-                        .takes_value(true)
-                        .help("Interval between separate client's probes to the same target [default: 1s]")
-                        .required(false)
-                )
-                .arg(
-                    Arg::with_name("divide")
-                        .long("divide")
-                        .takes_value(false)
-                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
-                        .required(false)
-                )
+                // .arg(
+                //     Arg::with_name("interval")
+                //         .short("i")
+                //         .takes_value(true)
+                //         .help("Interval between separate client's probes to the same target [default: 1s]")
+                //         .required(false)
+                // )
+                // .arg(
+                //     Arg::with_name("divide")
+                //         .long("divide")
+                //         .takes_value(false)
+                //         .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
+                //         .required(false)
+                // )
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
@@ -298,6 +298,20 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                     .takes_value(false)
                                     .long("traceroute")
                                     .required(false))
+                                .arg(
+                                    Arg::with_name("INTERVAL")
+                                        .short("i")
+                                        .takes_value(true)
+                                        .help("Interval between separate client's probes to the same target [default: 1s]")
+                                        .required(false)
+                                )
+                                .arg(
+                                    Arg::with_name("DIVIDE")
+                                        .long("divide")
+                                        .takes_value(false)
+                                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
+                                        .required(false)
+                                )
 
                             // TODO option to perform manycast for all 3 protocols on a hitlist
                             // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)

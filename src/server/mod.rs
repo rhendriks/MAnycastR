@@ -47,8 +47,6 @@ pub struct ControllerService {
     active: Arc<Mutex<bool>>,
     traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
-    interval: u64,
-    divide: bool,
 }
 
 /// Special Receiver struct that notices when the client disconnects.
@@ -427,6 +425,8 @@ impl Controller for ControllerService {
         let unicast = task.unicast;
         let ipv6 = task.ipv6;
         let traceroute = task.traceroute;
+        let divide = task.divide;
+        let clients_interval = task.interval;
         *self.traceroute.lock().unwrap() = traceroute;
         match task.data.unwrap() {
             Data::Ping(ping) => {
@@ -558,7 +558,11 @@ impl Controller for ControllerService {
         let mut t: u64 = 0;
 
         let number_of_clients = senders.len() as u64;
-        println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, self.interval);
+        if !divide {
+            println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, clients_interval);
+        } else {
+            println!("[Server] Each client will send out probes to a different chunk of the destination addresses");
+        }
 
         // Shared variable to keep track of the number of clients that have finished
         let clients_finished = Arc::new(Mutex::new(0));
@@ -571,12 +575,11 @@ impl Controller for ControllerService {
             let sender = sender.clone();
             let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
-            let clients_interval = self.interval;
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize).unwrap();
             let clients = clients.clone();
 
-            let dest_addresses = if self.divide {
+            let dest_addresses = if divide {
                 if clients.len() != 0 {
                     panic!("[Server] Divide and conquer is not supported for client-selective probing")
                 }
@@ -606,7 +609,9 @@ impl Controller for ControllerService {
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                tokio::time::sleep(Duration::from_secs(t * clients_interval)).await;
+                if !divide {
+                    tokio::time::sleep(Duration::from_secs(t * clients_interval as u64)).await;
+                }
 
                 // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
                 let probing = if clients.clone().len() == 0 {
@@ -910,16 +915,6 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
     println!("[Server] Controller server listening on: {}", addr);
 
-    let interval = if args.is_present("interval") {
-        let interval = args.value_of("interval").unwrap();
-        println!("[Server] Using custom interval: {}", args.value_of("interval").unwrap());
-        interval.parse::<u64>().unwrap()
-    } else {
-        1
-    };
-
-    let divide = args.is_present("divide");
-
     // Get a random task ID
     let random_task_id = rand::thread_rng().gen_range(0..u32::MAX);
 
@@ -933,8 +928,6 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
-        interval,
-        divide,
     };
 
     let svc = ControllerServer::new(controller);
