@@ -5,7 +5,7 @@ RUN USER=root cargo new --bin manycast
 WORKDIR /manycast
 
 # install dependencies
-RUN apt-get update && apt-get install -y protobuf-compiler && apt-get install -y gcc && apt-get install -y libpcap-dev
+#RUN apt-get update && apt-get install -y protobuf-compiler && apt-get install -y gcc && apt-get install -y libpcap-dev
 
 # Copy over manifests
 COPY ./Cargo.toml ./Cargo.toml
