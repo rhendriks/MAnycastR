@@ -573,7 +573,7 @@ impl Controller for ControllerService {
             let active = self.active.clone();
             let clients_interval = self.interval;
             // This client's unique ID
-            let client_id = *client_list_u32.get(t as usize - 1).unwrap();
+            let client_id = *client_list_u32.get(t as usize).unwrap();
             let clients = clients.clone();
 
             let dest_addresses = if self.divide {
