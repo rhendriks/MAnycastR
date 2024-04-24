@@ -63,6 +63,22 @@
 //!
 //! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
 //!
+//! # Additional CLI options
+//!
+//! * --live - Check results for Anycast targets as they come in live (unimplemented)
+//!
+//! * --unicast - Probe the targets using the unicast address of each client
+//!
+//! * --traceroute - Probe the targets using traceroute (broken)
+//!
+//! * --divide - Divide the hitlist into equal separate parts for each client (divide and conquer)
+//! 
+//! * --i - Interval between separate client's probes to the same target [default: 1s]
+//!
+//! # Additional client options
+//!
+//! * --multi-probing - Enable multi-source probing, i.e., the client will send out probes from all addresses
+//!
 //! # Measurement details
 //!
 //! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
@@ -190,20 +206,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Port to listen on [default: 50001]")
                         .required(false)
                 )
-                // .arg(
-                //     Arg::with_name("interval")
-                //         .short("i")
-                //         .takes_value(true)
-                //         .help("Interval between separate client's probes to the same target [default: 1s]")
-                //         .required(false)
-                // )
-                // .arg(
-                //     Arg::with_name("divide")
-                //         .long("divide")
-                //         .takes_value(false)
-                //         .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
-                //         .required(false)
-                // )
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
