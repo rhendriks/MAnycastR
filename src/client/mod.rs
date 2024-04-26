@@ -3,7 +3,7 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
@@ -15,7 +15,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::{local_ip, local_ipv6};
+use local_ip_address::{list_afinet_netifas, local_ip, local_ipv6};
 
 mod inbound;
 mod outbound;
@@ -210,16 +210,16 @@ impl Client {
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if igreedy {
             let unicast_ip = if ipv6 {
-                IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
-                // // Get the local unicast v6 address
-                // let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
-                // if let Some((_, ipaddr)) = ifas
-                //     .iter()
-                //     .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
-                //     IP::from(ipaddr.to_string())
-                // } else {
-                //     panic!("Unable to find local unicast IPv6 address");
-                // }
+                // IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
+                // Get the local unicast v6 address
+                let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
+                if let Some((_, ipaddr)) = ifas
+                    .iter()
+                    .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
+                    IP::from(ipaddr.to_string())
+                } else {
+                    panic!("Unable to find local unicast IPv6 address");
+                }
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
