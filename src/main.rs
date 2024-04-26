@@ -72,7 +72,7 @@
 //! * --traceroute - Probe the targets using traceroute (broken)
 //!
 //! * --divide - Divide the hitlist into equal separate parts for each client (divide and conquer)
-//! 
+//!
 //! * --i - Interval between separate client's probes to the same target [default: 1s]
 //!
 //! # Additional client options
