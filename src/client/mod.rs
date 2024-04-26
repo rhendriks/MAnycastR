@@ -3,7 +3,7 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
@@ -15,7 +15,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::{local_ip, local_ipv6, list_afinet_netifas};
+use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
 mod outbound;

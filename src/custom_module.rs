@@ -51,7 +51,7 @@ impl From<Address> for IP {
 }
 
 impl IP {
-    pub fn is_v4(&self) -> bool {
+    pub fn _is_v4(&self) -> bool {
         match self {
             IP::V4(_) => true,
             _ => false,

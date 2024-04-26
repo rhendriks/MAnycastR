@@ -231,7 +231,7 @@ pub fn perform_udp(
                         break
                     }, // An End task means the measurement has finished
                     Udp(udp) => udp,
-                    Trace(trace) => {
+                    Trace(_trace) => {
                         // perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, task_type as u8); TODO
                         continue
                     },
@@ -362,7 +362,7 @@ pub fn perform_tcp(
                         break
                     }, // An End task means the measurement has finished
                     Tcp(tcp) => tcp,
-                    Trace(trace) => {
+                    Trace(_trace) => {
                         // perform_trace(origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3);
                         continue
                     },
