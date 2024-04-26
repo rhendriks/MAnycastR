@@ -585,7 +585,7 @@ impl Controller for ControllerService {
                 }
                 // Each client gets its own chunk of the destination addresses
                 let chunk_size = dest_addresses.len() / number_of_clients as usize;
-                let mut start_index = t as usize * chunk_size;
+                let start_index = t as usize * chunk_size;
                 let mut end_index = start_index + chunk_size;
 
                 // Adjust end_index for the last client to include any remaining elements
