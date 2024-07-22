@@ -456,6 +456,8 @@ fn perform_trace(
     if task_type > 3 {
         panic!("Invalid task type")
     }
+
+    println!("performing trace from {:?} to {}", origins, dest_addr.to_string());
     for origin in origins {
         let source_address = IP::from(origin.source_address.expect("None IP address"));
         let port = origin.source_port as u16;

@@ -517,10 +517,15 @@ impl CliClient {
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
         for client in response.into_inner().clients {
+            let ip  = if client.metadata.clone().unwrap().origin.clone().unwrap().source_address.is_some() {
+                IP::from(client.metadata.clone().unwrap().origin.unwrap().source_address.unwrap()).to_string()
+            } else {
+                "Default".to_string()
+            };
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    IP::from(client.metadata.clone().unwrap().origin.clone().unwrap().source_address.unwrap()).to_string(), // Source address of this client
+                    ip, // Source address of this client
                     client.metadata.clone().unwrap().origin.unwrap().source_port, // Source port of this client
                     client.metadata.unwrap().origin.unwrap().destination_port // Destination port of this client
                 ));

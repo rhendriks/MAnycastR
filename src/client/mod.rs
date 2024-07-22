@@ -210,16 +210,16 @@ impl Client {
         // If this client has a specified source address use it, otherwise use the one from the task
         let source_addr: IP = if igreedy {
             let unicast_ip = if ipv6 {
-                // IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
+                IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
                 // Get the local unicast v6 address
-                let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
-                if let Some((_, ipaddr)) = ifas
-                    .iter()
-                    .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
-                    IP::from(ipaddr.to_string())
-                } else {
-                    panic!("Unable to find local unicast IPv6 address");
-                }
+                // let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
+                // if let Some((_, ipaddr)) = ifas
+                //     .iter()
+                //     .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
+                //     IP::from(ipaddr.to_string())
+                // } else {
+                //     panic!("Unable to find local unicast IPv6 address");
+                // }
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };

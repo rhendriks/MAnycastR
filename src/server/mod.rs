@@ -511,7 +511,8 @@ impl Controller for ControllerService {
                         // TODO when client IDs don't start at 1, this will fail
                         for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
                             // Sleep 1 second between each client to avoid rate limiting
-                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            // tokio::time::sleep(Duration::from_secs(1)).await;
+                            // TODO will fail when clients have been instructed to end
                             senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                         }
                     }
@@ -570,14 +571,24 @@ impl Controller for ControllerService {
         // Shared channel that clients will wait for till the last client has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
 
+        // TODO create chunks here (divide and conquer), instead of cloning dest_addresses for each client
+
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
-            let dest_addresses = dest_addresses.clone();
             let active = self.active.clone();
             // This client's unique ID
             let client_id = *client_list_u32.get(t as usize).unwrap();
             let clients = clients.clone();
+
+            // Determine whether this client is probing
+            let probing = if clients.len() == 0 {
+                true // All clients are probing
+            } else if clients.contains(&client_id) {
+                true // This client was selected to probe
+            } else {
+                false // This client was not selected to probe
+            };
 
             let dest_addresses = if divide {
                 if clients.len() != 0 {
@@ -595,8 +606,14 @@ impl Controller for ControllerService {
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
-                // All clients get the same destination addresses
-                dest_addresses.clone()
+                if probing {
+                    // All clients get the same destination addresses
+                    dest_addresses.clone()
+                } else {
+                    // This client does not probe
+                    // vec![]
+                    dest_addresses.clone() // TODO we can remove an empty vec here
+                }
             };
             t += 1;
 
@@ -613,25 +630,17 @@ impl Controller for ControllerService {
                     tokio::time::sleep(Duration::from_secs(t * clients_interval as u64)).await;
                 }
 
-                // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
-                let probing = if clients.clone().len() == 0 {
-                    true // All clients are probing
-                } else if clients.contains(&client_id) {
-                    true // This client was selected to probe
-                } else {
-                    false // This client was not selected to probe
-                };
-
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
+                // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
                 if probing {
                     println!("[Server] Streaming tasks to client with ID {}", client_id);
                 } else {
                     println!("[Server] Not streaming tasks to client with ID {}", client_id);
                 }
 
-                for chunk in dest_addresses.chunks(chunk_size) {
+                for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
                         println!("[Server] CLI disconnected during task distribution");

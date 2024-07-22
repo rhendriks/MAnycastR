@@ -744,9 +744,9 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
         // Initialize variables
         let mut sender_src;
         let mut sender_dest;
-        let mut sender_src_port: u32 = 0;
-        let mut sender_client_id = 0 as u32;
-        let mut transmit_time = 0;
+        let mut sender_src_port = 0u32;
+        let mut sender_client_id = 0u32;
+        let mut transmit_time = 0u64;
         let receive_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
