@@ -3,7 +3,7 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tonic::Request;
 use tonic::transport::Channel;
 use std::error::Error;
@@ -15,7 +15,7 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
 use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
-use local_ip_address::{list_afinet_netifas, local_ip, local_ipv6};
+use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
 mod outbound;
@@ -77,28 +77,23 @@ impl Client {
         };
 
         // Get the custom source port for this client (optional)
-        let source_port = if args.is_present("source_port") {
-            let source_port = args.value_of("source_port").unwrap();
-            let source_port = source_port.parse::<u16>().expect("Invalid source port");
-            if source_port < 61440 { // Minimum value for source port is 61440
-                panic!("Source port must be greater than 61440")
-            }
-            println!("[Client] Using custom source port: {}", source_port);
+        let s_port = if args.is_present("source_port") {
+            let s_port = args.value_of("source_port").unwrap().parse::<u16>().expect("Invalid source port value");
+            println!("[Client] Using custom source port: {}", s_port);
 
-            source_port
+            s_port
         } else {
-            println!("[Client] Using default source port 62321");
+            println!("[Client] Using default source port (62321)");
             62321
         };
 
 
         // Get the optional destination port for this client (optional)
-        let dest_port = if args.is_present("dest_port") {
-            let dest_port = args.value_of("dest_port").unwrap();
-            let dest_port = dest_port.parse::<u16>().expect("Invalid destination port");
-            println!("[Client] Using custom destination port: {}", dest_port);
+        let d_port = if args.is_present("dest_port") {
+            let d_port = args.value_of("dest_port").unwrap().parse::<u16>().expect("Invalid destination port");
+            println!("[Client] Using custom destination port: {}", d_port);
 
-            dest_port
+            d_port
         } else {
             println!("[Client] Using default destination port 63853");
             63853
@@ -116,8 +111,8 @@ impl Client {
             hostname: hostname.parse().unwrap(),
             origin: Some(Origin {
                 source_address: Some(Address::from(source_address.clone())),
-                source_port: source_port.into(),
-                destination_port: dest_port.into(),
+                source_port: s_port.into(),
+                destination_port: d_port.into(),
                 })
         };
 
@@ -126,8 +121,8 @@ impl Client {
             grpc_client: Self::connect(server_addr).await?,
             metadata,
             source_address,
-            source_port,
-            dest_port,
+            source_port: s_port,
+            dest_port: d_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -211,15 +206,6 @@ impl Client {
         let source_addr: IP = if igreedy {
             let unicast_ip = if ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
-                // Get the local unicast v6 address
-                // let ifas = list_afinet_netifas().expect("Unable to get local interfaces");
-                // if let Some((_, ipaddr)) = ifas
-                //     .iter()
-                //     .find(|(name, ipaddr)| (*name == "enp1s0") && matches!(ipaddr, IpAddr::V6(_)) && (!ipaddr.to_string().starts_with("2001:610:9000"))) {
-                //     IP::from(ipaddr.to_string())
-                // } else {
-                //     panic!("Unable to find local unicast IPv6 address");
-                // }
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
