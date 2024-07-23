@@ -14,7 +14,7 @@ use std::thread;
 use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
-use crate::client::outbound::{outbound, perform_ping, perform_tcp, perform_udp};
+use crate::client::outbound::outbound;
 use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
@@ -197,7 +197,7 @@ impl Client {
         };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        let rate: u32 = start.rate;
+        // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
         let task_id = start.task_id;
         let ipv6 = start.ipv6;
         let mut client_sources: Vec<Origin> = start.origins;
