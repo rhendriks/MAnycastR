@@ -4,8 +4,8 @@ use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
-use tonic::Request;
-use tonic::transport::Channel;
+use tonic::{Request, Status};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
@@ -117,9 +117,16 @@ impl Client {
                 })
         };
 
+        let tls = args.is_present("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
+
+
+
+
+
         // Initialize a client instance
         let mut client_class = Client {
-            grpc_client: Self::connect(server_addr).await?,
+            grpc_client: client,
             metadata,
             source_address,
             source_port: s_port,
@@ -142,19 +149,41 @@ impl Client {
     ///
     /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
     ///
+    /// * 'tls' - a boolean that indicates whether the connection should be secured with TLS
+    ///
     /// # Example
     ///
     /// ```
-    /// let grpc_client = connect("127.0.0.0:50001");
+    /// let grpc_client = connect("127.0.0.0:50001", true);
     /// ```
-    async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let addr = "https://".to_string().add(address);
-        println!("[Client] Connecting to Controller Server at address: {} ...", addr);
-        let client = ControllerClient::connect(addr).await?;
-        println!("[Client] Connected to the Controller Server");
+    async fn connect(address: String, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if tls {
+            // Secure connection
+            let addr = format!("https://{}", address);
+
+            let pem = std::fs::read_to_string("tls/ca.pem").expect("Unable to read CA certificate at ./tls/ca.pem");
+            let ca = Certificate::from_pem(pem);
+
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca);
+
+            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            builder
+                .tls_config(tls).expect("Unable to set TLS configuration")
+                .connect().await.expect("Unable to connect to server")
+        } else {
+            // Unsecure connection
+            let addr = format!("http://{}", address);
+
+            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
+                .connect().await.expect("Unable to connect to server")
+        };
+        // Create client with secret token that is used to authenticate client commands.
+        let client = ControllerClient::new(channel);
 
         Ok(client)
     }
+
 
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures tasks are sent back to the server.
     ///
