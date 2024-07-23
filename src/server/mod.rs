@@ -965,8 +965,13 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+// 1. Generate private key:
 // openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
-// openssl req -x509 -new -key server.key -sha256 -days 3650 -out server.pem
+// 2. Generate certificate signing request:
+// openssl req -new -key server.key -out server.csr
+// 3. Generate self-signed certificate:
+// openssl x509 -req -in server.csr -signkey server.key -out server.crt -days 3650
+// 4. Distribute server.crt to clients
 fn load_tls() -> Identity {
     // Load TLS certificate
     let cert = fs::read("tls/server.crt").expect("Unable to read certificate file at ./tls/server.crt");
