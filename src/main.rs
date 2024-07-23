@@ -206,6 +206,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Port to listen on [default: 50001]")
                         .required(false)
                 )
+                .arg(
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .required(false)
+                )
+
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
@@ -251,9 +259,17 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Enable multi-source probing")
                         .required(false)
                 )
+                .arg (
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
+                        .required(false)
+                )
+
         )
         .subcommand(
-            SubCommand::with_name("cli").about("Verfploeter CLI")
+            SubCommand::with_name("cli").about("Verfploeter CLI")// TODO TLS for CLI <-> Server
                 .arg(
                     Arg::with_name("server")
                         .short("s")
