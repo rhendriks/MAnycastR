@@ -15,6 +15,8 @@ use crate::net::netv6::IPv6Packet;
 use pcap::{Active, Capture, Device};
 
 
+// TODO combine listen_ping, listen_udp, and listen_tcp into a single function
+
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
 ///
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.

@@ -14,7 +14,7 @@ use std::thread;
 use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
-use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use crate::client::outbound::{outbound, perform_ping, perform_tcp, perform_udp};
 use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
@@ -78,7 +78,8 @@ impl Client {
 
         // Get the custom source port for this client (optional)
         let s_port = if args.is_present("source_port") {
-            let s_port = args.value_of("source_port").unwrap().parse::<u16>().expect("Invalid source port value");
+            let s_port = args.value_of("source_port").unwrap()
+                .parse::<u16>().expect("Invalid source port value");
             println!("[Client] Using custom source port: {}", s_port);
 
             s_port
@@ -90,7 +91,8 @@ impl Client {
 
         // Get the optional destination port for this client (optional)
         let d_port = if args.is_present("dest_port") {
-            let d_port = args.value_of("dest_port").unwrap().parse::<u16>().expect("Invalid destination port");
+            let d_port = args.value_of("dest_port").unwrap()
+                .parse::<u16>().expect("Invalid destination port");
             println!("[Client] Using custom destination port: {}", d_port);
 
             d_port
@@ -99,12 +101,11 @@ impl Client {
             63853
         };
 
-        let multi_probing = if args.is_present("multi-probing") {
-            println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
-            true
-        } else {
-            false
-        };
+        // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
+        let multi_probing = args.is_present("multi-probing");
+        if multi_probing {
+            println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
+        }
 
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
@@ -222,7 +223,7 @@ impl Client {
             unicast_ip
         } else if self.source_address == IP::None {
             // Use the 'default' anycast source address set by the CLI
-            IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
+            IP::from(start.source_address.unwrap())
         } else {
             // Add default address to client_sources such that this client will listen on the default address as well
             client_sources.append(&mut vec![
@@ -354,56 +355,12 @@ impl Client {
         match start.task_type {
             1 => { // ICMP
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
-
-                // all option to tell this client to use all possible origins
-                let origins = if self.multi_probing {
-                    // get the IPs out of client_sources
-                    client_sources
-                    // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
-                if probing {
-                    perform_ping(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
-                }
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                let origins = if self.multi_probing {
-                    client_sources
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
-
-                let task_type: u32 = start.task_type;
                 // Start listening thread
-                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter, traceroute);
-
-                // Start sending thread
-                if probing {
-                    perform_udp(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
-                }
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
             }
             3 => { // TCP
-                let origins = if self.multi_probing {
-                    client_sources
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
                     if ipv6 {
@@ -415,17 +372,30 @@ impl Client {
 
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
-
-                // Start sending thread
-                if probing {
-                    perform_tcp(origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id, igreedy);
-                }
             }
             _ => { () }
         };
 
+        // all option to tell this client to use all possible origins
+        let origins = if self.multi_probing {
+            // get the IPs out of client_sources
+            client_sources
+            // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
+        } else {
+            vec![Origin {
+                source_address: Some(Address::from(source_addr.clone())),
+                source_port: self.source_port.into(),
+                destination_port: self.dest_port.into(),
+            }]
+        };
+
+        // Start sending thread, if this client is probing
+        if probing {
+            outbound(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+        }
+
         // Thread that listens for task results from inbound and forwards them to the server
-        thread::spawn({
+        thread::spawn({  // TODO name the thread
             let mut self_clone = self.clone();
             move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
