@@ -7,7 +7,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use tonic::{Request};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
-use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
