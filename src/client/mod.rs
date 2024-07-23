@@ -4,7 +4,7 @@ use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
-use tonic::{Request, Status};
+use tonic::{Request};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
 use std::ops::Add;
