@@ -161,7 +161,7 @@ impl Client {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            //
+            // Load the CA certificate used to authenticate the server
             let pem = std::fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
             let ca = Certificate::from_pem(pem);
 
