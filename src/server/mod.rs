@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -11,6 +12,7 @@ use clap::ArgMatches;
 use futures_core::Stream;
 use rand::Rng;
 use tokio::spawn;
+use tonic::transport::{Identity, ServerTlsConfig};
 use crate::server::mpsc::Sender;
 use crate::custom_module;
 use custom_module::IP;
@@ -946,7 +948,29 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
     let svc = ControllerServer::new(controller);
 
-    Server::builder().add_service(svc).serve(addr).await?;
+    // if TLS is enabled create the server using a TLS configuration
+    if args.is_present("tls") {
+        Server::builder()
+            .tls_config(ServerTlsConfig::new().identity(load_tls())).expect("Failed to load TLS certificate")
+            .add_service(svc).serve(addr).await?;
+    } else {
+        Server::builder()
+            .add_service(svc).serve(addr).await?;
+    }
 
     Ok(())
 }
+
+// Create TLS config (openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt)
+fn load_tls() -> Identity {
+    // Load TLS certificate
+    let cert = fs::read("tls/server.crt").expect("Unable to read certificate file at ./tls/server.crt");
+    // Load TLS private key
+    let key = fs::read("tls/server.key").expect("Unable to read key file at ./tls/server.key");
+
+    // Create TLS configuration
+    let identity = Identity::from_pem(cert, key);
+
+    identity
+}
+
