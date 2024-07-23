@@ -965,10 +965,11 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-// Create TLS config (openssl x509 -req -days 365- -in server.csr -signkey server.key -out server.crt) TODO update this command
+// openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
+// openssl req -x509 -new -key server.key -sha256 -days 3650 -out server.pem
 fn load_tls() -> Identity {
     // Load TLS certificate
-    let cert = fs::read("tls/server.pem").expect("Unable to read certificate file at ./tls/server.pem");
+    let cert = fs::read("tls/server.crt").expect("Unable to read certificate file at ./tls/server.crt");
     // Load TLS private key
     let key = fs::read("tls/server.key").expect("Unable to read key file at ./tls/server.key");
 
