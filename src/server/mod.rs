@@ -38,7 +38,7 @@ use custom_module::verfploeter::{
 /// * 'interval' - the interval between clients sending out probes to the same target
 #[derive(Debug, Clone)]
 pub struct ControllerService {
-    clients: Arc<Mutex<ClientList>>,
+    clients: Arc<Mutex<ClientList>>, // TODO combine clients and senders into one struct
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -555,10 +555,17 @@ impl Controller for ControllerService {
             }
         }
 
-        println!("[Server] Distributing tasks");
         let mut t: u64 = 0;
-
         let number_of_clients = senders.len() as u64;
+        // Get number of active clients, client.len 0 -> all clients are probing
+        let active_clients = if clients.len() == 0 {
+            number_of_clients
+        } else {
+            clients.len() as u64
+        };
+        println!("[Server] Distributing tasks to {} out of {} clients", active_clients, number_of_clients);
+
+
         if !divide {
             println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, clients_interval);
         } else {
@@ -591,11 +598,13 @@ impl Controller for ControllerService {
             };
 
             let dest_addresses = if divide {
-                if clients.len() != 0 {
-                    panic!("[Server] Divide and conquer is not supported for client-selective probing")
-                }
                 // Each client gets its own chunk of the destination addresses
-                let chunk_size = dest_addresses.len() / number_of_clients as usize;
+                let chunk_size = if clients.len() == 0 {
+                    dest_addresses.len() / number_of_clients as usize
+                } else {
+                    dest_addresses.len() / active_clients as usize
+                };
+
                 let start_index = t as usize * chunk_size;
                 let mut end_index = start_index + chunk_size;
 
@@ -615,7 +624,11 @@ impl Controller for ControllerService {
                     dest_addresses.clone() // TODO we can remove an empty vec here
                 }
             };
-            t += 1;
+
+            if clients.len() == 0 || clients.contains(&client_id) {
+                t += 1; // increment if this client is sending probes
+            }
+
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
@@ -632,13 +645,6 @@ impl Controller for ControllerService {
 
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
-
-                // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
-                if probing {
-                    println!("[Server] Streaming tasks to client with ID {}", client_id);
-                } else {
-                    println!("[Server] Not streaming tasks to client with ID {}", client_id);
-                }
 
                 for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
                     // If the CLI disconnects during task distribution, abort
@@ -685,7 +691,7 @@ impl Controller for ControllerService {
                 if !abort {
                     clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                     if clients_finished.lock().unwrap().clone() == number_of_clients {
-                        println!("[Server] All clients have finished the measurement");
+                        println!("[Server] Measurement finished, notifying all clients");
                         // Send a message to the other sending threads to let them know the measurement is finished
                         tx_f.send(()).expect("Failed to send finished signal");
                         // tx_f.send(()).await.expect("Failed to send finished signal");
@@ -701,7 +707,6 @@ impl Controller for ControllerService {
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }
 
-                    println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
                     // Send a message to the client to let it know it has received everything for the current task
                     match sender.send(Ok(Task {
                         data: None,
