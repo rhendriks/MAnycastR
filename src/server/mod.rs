@@ -215,7 +215,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let request = request.into_inner();
         let task_id: u32 = request.task_id;
-        println!("[Server] Client with ID {} is finished", request.client_id);
+        println!("[Server] Client with ID {} is finished", request.client_id); // TODO spamming console
 
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -574,14 +574,11 @@ impl Controller for ControllerService {
 
         // Shared variable to keep track of the number of clients that have finished
         let clients_finished = Arc::new(Mutex::new(0));
-
         // Shared channel that clients will wait for till the last client has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
-
-        // TODO create chunks here (divide and conquer), instead of cloning dest_addresses for each client
-
         let mut t: u64 = 0; // Index for active clients
         let mut i = 0; // Index for the client list
+
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
@@ -633,7 +630,7 @@ impl Controller for ControllerService {
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
-                for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
+                for chunk in dest_addresses.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
