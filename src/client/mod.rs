@@ -515,7 +515,9 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id, unicast) = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
+                let (is_probing, task_id, unicast) = match task.clone().data.expect("None task") {
+                    // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
+                    // TODO None value when this client not probing and the CLI exits
                     Data::Start(start) => (start.active, start.task_id, start.unicast),
                     _ => { // First task is not a start task
                         println!("[Client] Received non-start packet for init");
