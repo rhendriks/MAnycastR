@@ -477,7 +477,7 @@ impl Client {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                             }
                             // Outbound threads gets exited by sending this None task to outbound
-                            // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
+                            // outbound_tx will be None if this client is not probing
                             if self.outbound_tx.is_some() {
                                 // Send the task to the prober
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
@@ -515,9 +515,7 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id, unicast) = match task.clone().data.expect("None task") {
-                    // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
-                    // TODO None value when this client not probing and the CLI exits
+                let (is_probing, task_id, unicast) = match task.clone().data.expect("None start task") {
                     Data::Start(start) => (start.active, start.task_id, start.unicast),
                     _ => { // First task is not a start task
                         println!("[Client] Received non-start packet for init");
