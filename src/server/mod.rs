@@ -591,14 +591,10 @@ impl Controller for ControllerService {
             i += 1;
             let clients = clients.clone();
 
-            // Determine whether this client is probing
-            let probing = if clients.len() == 0 {
-                true // All clients are probing
-            } else if clients.contains(&client_id) {
-                true // This client was selected to probe
-            } else {
-                false // This client was not selected to probe
-            };
+            // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
+            let probing = clients.len() == 0 || clients.contains(&client_id);
+            println!("Client {} is probing", client_id);
+
 
             let dest_addresses = if divide {
                 println!("t client {}", t);
@@ -636,10 +632,8 @@ impl Controller for ControllerService {
 
             println!("Client {} will probe {} targets", client_id, dest_addresses.len());
 
-            if clients.len() == 0 || clients.contains(&client_id) {
-                println!("Client {} is probing", client_id);
-                t += 1; // increment if this client is sending probes
-            }
+            // increment if this client is sending probes
+            if probing { t += 1; }
 
 
             let tx_f = tx_f.clone();
