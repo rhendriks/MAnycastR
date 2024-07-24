@@ -4,7 +4,6 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::{fs, io};
 use std::io::{BufRead, BufReader, Write};
-use std::ops::Add;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Local, Timelike};
@@ -279,7 +278,7 @@ impl CliClient {
             println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
             println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 10.0) / 60.0);
         } else {
-            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0); // TODO update when using divide-and-conquer
+            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0);
         }
 
         let request = Request::new(task.clone());
@@ -308,35 +307,16 @@ impl CliClient {
 
         // Get task type
         let type_str = match task_type {
-            1 => {
-                if ipv6 {
-                    "ICMPv6"
-                } else {
-                    "ICMPv4"
-                }
-            },
-            2 => {
-                if ipv6 {
-                    "UDPv6"
-                } else {
-                    "UDPv4"
-                }
-            },
-            3 => {
-                if ipv6 {
-                    "TCPv6"
-                } else {
-                    "TCPv4"
-                }
-            },
-            4 => {
-                if ipv6 {
-                    "UDP-CHAOSv6"
-                } else {
-                    "UDP-CHAOSv4"
-                }
-            },
-            _ => "ICMP"
+            1 => "ICMP",
+            2 => "UDP",
+            3 => "TCP",
+            4 => "UDP-CHAOS",
+            _ => "ICMP",
+        };
+        let type_str = if ipv6 {
+            format!("{}-v6", type_str)
+        } else {
+            format!("{}-v4", type_str)
         };
 
         // Temporary output file (for writing live results to)
@@ -386,7 +366,8 @@ impl CliClient {
         };
 
         // Output file // TODO add option to write as a compressed file
-        let mut file = File::create("./out/".to_string().add(measurement_type).add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
+        let mut file = File::create(format!("./out/{}{}{}.csv", measurement_type, type_str, timestamp_end_str)).expect("Unable to create file");
+
 
         // Write metadata of measurement
         if !graceful {
