@@ -632,7 +632,10 @@ impl Controller for ControllerService {
                 }
             };
 
+            println!("Client {} will probe {} targets", client_id, dest_addresses.len());
+
             if clients.len() == 0 || clients.contains(&client_id) {
+                println!("Client {} is probing", client_id);
                 t += 1; // increment if this client is sending probes
             }
 
@@ -711,6 +714,7 @@ impl Controller for ControllerService {
                     if traceroute {
                         tokio::time::sleep(Duration::from_secs(120)).await;
                     } else {
+                        println!("Sleeping for 10 seconds");
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }
 
