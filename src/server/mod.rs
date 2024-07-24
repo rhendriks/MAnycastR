@@ -687,7 +687,7 @@ impl Controller for ControllerService {
                         rx_f.recv().await.expect("Failed to receive finished signal");
 
                         // If the CLI disconnects whilst waiting for the finished signal, abort
-                        if abort {
+                        if *active.lock().unwrap() == false {
                             return
                         }
                     }
