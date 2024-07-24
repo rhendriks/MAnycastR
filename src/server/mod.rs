@@ -215,12 +215,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let request = request.into_inner();
         let task_id: u32 = request.task_id;
-        println!("[Server] Client with ID {} is finished", request.client_id); // TODO spamming console
-
-        let tx = {
-            let sender = self.cli_sender.lock().unwrap();
-            sender.clone().unwrap()
-        };
+        let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'task_finished' from all clients that executed this task
         let finished: bool;
@@ -239,10 +234,15 @@ impl Controller for ControllerService {
             }
             // If this is the last client we are finished
             if remaining == &(1u32) {
+                println!("{}", request.client_id);
+                println!("All clients finished");
+
                 open_tasks.remove(&task_id);
                 finished = true;
             // If this is not the last client, decrement the amount of remaining clients
             } else {
+                // Print the client ID that finished the task
+                print!("{}, ", request.client_id);
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 finished = false;
             }
@@ -334,7 +334,7 @@ impl Controller for ControllerService {
         &self,
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {
-        println!("[Server] Received do_task");
+        println!("[Server] Received CLI measurement request");
 
         // If there already is an active measurement, we skip
         {
@@ -639,7 +639,7 @@ impl Controller for ControllerService {
                             println!("[Server] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
-                        return
+                        return // abort
                     }
 
                     if probing {
@@ -674,17 +674,16 @@ impl Controller for ControllerService {
 
                 clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                 if clients_finished.lock().unwrap().clone() == number_of_clients {
-                    println!("[Server] Measurement finished, notifying all clients");
+                    println!("[Server] Measurement finished, awaiting clients: ");
                     // Send a message to the other sending threads to let them know the measurement is finished
                     tx_f.send(()).expect("Failed to send finished signal");
-                    // tx_f.send(()).await.expect("Failed to send finished signal");
                 } else {
                     // Wait for the last client to finish
                     rx_f.recv().await.expect("Failed to receive finished signal");
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
                     if *active.lock().unwrap() == false {
-                        return
+                        return // abort
                     }
                 }
 
@@ -721,7 +720,6 @@ impl Controller for ControllerService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<ClientList>, Status> {
-        println!("[Server] Received list_clients");
         Ok(Response::new(self.clients.lock().unwrap().clone()))
     }
 
