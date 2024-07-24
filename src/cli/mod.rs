@@ -47,7 +47,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // Create client connection with the Controller Server
     print!("[CLI] Connecting to Controller Server at address {} ... ", addr);
     let grpc_client = CliClient::connect(addr, tls).await.expect("Unable to connect to server");
-    println!("Success");
+    println!("Success"); // TODO unsuccessful connection is unclear
     let mut cli_client = CliClient { grpc_client, };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
@@ -142,21 +142,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
 
-        // TODO test default interval
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();
         let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).unwrap();
-        // let interval = if matches.is_present("INTERVAL") {
-        //     u32::from_str(matches.value_of("INTERVAL").unwrap()).unwrap()
-        // } else {
-        //     1 // Default interval
-        // };
-        // Get the rate for this task
-        // let rate = if matches.is_present("RATE") {
-        //     u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
-        // } else {
-        //     1000 // Default rate
-        // };
 
         let t_type = match task_type {
             1 => "ICMP/ping",
@@ -312,14 +300,13 @@ impl CliClient {
         let source_address = IP::from(task.clone().source_address.unwrap());
         let ipv6 = source_address.is_v6();
         let source_address = source_address.to_string();
-
         let task_type = task.task_type;
         let unicast = task.unicast;
         let traceroute = task.traceroute;
 
         // Obtain connected client information for metadata
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await?;
+        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
         let mut clients = HashMap::new();
         for client in response.into_inner().clients {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
@@ -558,7 +545,7 @@ impl CliClient {
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await?;
+        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
