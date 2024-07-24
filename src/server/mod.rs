@@ -612,7 +612,7 @@ impl Controller for ControllerService {
                 } else {
                     // This client does not probe
                     // vec![]
-                    dest_addresses.clone() // TODO we can remove an empty vec here
+                    dest_addresses.clone() // TODO we unnecessarily clone dest_addresses for clients that do not probe
                 }
             };
             t += 1;
@@ -643,6 +643,7 @@ impl Controller for ControllerService {
                 for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
+                        // TODO create a separate thread that listens for the CLI disconnecting
                         println!("[Server] CLI disconnected during task distribution");
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                         if clients_finished.lock().unwrap().clone() == number_of_clients {
