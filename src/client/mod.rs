@@ -119,10 +119,6 @@ impl Client {
         let tls = args.is_present("tls");
         let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
 
-
-
-
-
         // Initialize a client instance
         let mut client_class = Client {
             grpc_client: client,
