@@ -376,6 +376,7 @@ impl Into<Vec<u8>> for &UDPPacket {
 }
 
 /// DNS request body
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct DNSRecord {
     pub transaction_id: u16,
@@ -391,6 +392,7 @@ pub struct DNSRecord {
 }
 
 /// DNS answer body
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct DNSAnswer {
     pub domain: String,
@@ -402,6 +404,7 @@ pub struct DNSAnswer {
 }
 
 /// DNS TXT data record
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct TXTRecord {
     pub txt_length: u8,
