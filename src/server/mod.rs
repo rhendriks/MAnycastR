@@ -282,7 +282,6 @@ impl Controller for ControllerService {
         &self,
         request: Request<Metadata>,
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
-        println!("[Server] Received client_connect");
 
         let hostname = request.into_inner().hostname;
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
@@ -301,6 +300,9 @@ impl Controller for ControllerService {
             clients: self.clients.clone(),
             active: self.active.clone(),
         };
+
+        println!("[Server] Received client_connect");
+
 
         // Send the stream receiver to the client
         Ok(Response::new(rx))
@@ -618,7 +620,6 @@ impl Controller for ControllerService {
 
             let active = self.active.clone();
             spawn(async move {
-                let mut abort = false;
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
@@ -638,8 +639,7 @@ impl Controller for ControllerService {
                             println!("[Server] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
-                        abort = true;
-                        break
+                        return
                     }
 
                     if probing {
@@ -672,37 +672,35 @@ impl Controller for ControllerService {
                     interval.tick().await;
                 }
 
-                if !abort {
-                    clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
-                    if clients_finished.lock().unwrap().clone() == number_of_clients {
-                        println!("[Server] Measurement finished, notifying all clients");
-                        // Send a message to the other sending threads to let them know the measurement is finished
-                        tx_f.send(()).expect("Failed to send finished signal");
-                        // tx_f.send(()).await.expect("Failed to send finished signal");
-                    } else {
-                        // Wait for the last client to finish
-                        rx_f.recv().await.expect("Failed to receive finished signal");
+                clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                if clients_finished.lock().unwrap().clone() == number_of_clients {
+                    println!("[Server] Measurement finished, notifying all clients");
+                    // Send a message to the other sending threads to let them know the measurement is finished
+                    tx_f.send(()).expect("Failed to send finished signal");
+                    // tx_f.send(()).await.expect("Failed to send finished signal");
+                } else {
+                    // Wait for the last client to finish
+                    rx_f.recv().await.expect("Failed to receive finished signal");
 
-                        // If the CLI disconnects whilst waiting for the finished signal, abort
-                        if *active.lock().unwrap() == false {
-                            return
-                        }
+                    // If the CLI disconnects whilst waiting for the finished signal, abort
+                    if *active.lock().unwrap() == false {
+                        return
                     }
+                }
 
-                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
-                    if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120)).await;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                    }
+                // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
+                if traceroute {
+                    tokio::time::sleep(Duration::from_secs(120)).await;
+                } else {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
 
-                    // Send a message to the client to let it know it has received everything for the current task
-                    match sender.send(Ok(Task {
-                        data: None,
-                    })).await {
-                        Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
-                    }
+                // Send a message to the client to let it know it has received everything for the current task
+                match sender.send(Ok(Task {
+                    data: None,
+                })).await {
+                    Ok(_) => (),
+                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
                 }
             });
         }
