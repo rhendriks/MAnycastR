@@ -685,6 +685,11 @@ impl Controller for ControllerService {
                     } else {
                         // Wait for the last client to finish
                         rx_f.recv().await.expect("Failed to receive finished signal");
+
+                        // If the CLI disconnects whilst waiting for the finished signal, abort
+                        if abort {
+                            return
+                        }
                     }
 
                     // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
