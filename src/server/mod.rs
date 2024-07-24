@@ -639,8 +639,8 @@ impl Controller for ControllerService {
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if probing && !divide {
-                    println!("Sleeping for {} seconds", t * clients_interval as u64);
-                    tokio::time::sleep(Duration::from_secs(t * clients_interval as u64)).await;
+                    println!("Sleeping for {} seconds", (t - 1) * clients_interval as u64);
+                    tokio::time::sleep(Duration::from_secs((t - 1) * clients_interval as u64)).await;
                 }
 
                 // Send out packets at the required interval
@@ -678,7 +678,7 @@ impl Controller for ControllerService {
                             _ => Task::default(),
                         };
 
-                        println!("Sending task to client {}", client_id);
+                        println!("Sending task to client {} with chunk {:?}", client_id, task);
                         // Send packet to client
                         match sender.send(Ok(task.clone())).await {
                             Ok(_) => (),
