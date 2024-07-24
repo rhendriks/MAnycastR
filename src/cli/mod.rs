@@ -85,16 +85,30 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Get the clients that have to send out probes
         let client_ids = if matches.is_present("CLIENTS") {
-            let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
-                .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
-                .collect();
-
-            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
-            client_ids
+            let clients_str = matches.value_of("CLIENTS").unwrap();
+            clients_str.trim_matches(|c| c == '[' || c == ']')
+                .split(',')
+                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse client ID: {}", id)))
+                .collect::<Vec<u32>>()
         } else {
             println!("[CLI] Probes will be sent out from all clients");
-            vec![]
+            Vec::new()
         };
+        if client_ids.len() > 0 {
+            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
+            // TODO print client information
+        }
+        // let client_ids = if matches.is_present("CLIENTS") {
+        //     let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
+        //         .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
+        //         .collect();
+        //
+        //     println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
+        //     client_ids
+        // } else {
+        //     println!("[CLI] Probes will be sent out from all clients");
+        //     vec![]
+        // };
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
