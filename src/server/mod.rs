@@ -594,16 +594,16 @@ impl Controller for ControllerService {
             let probing = clients.len() == 0 || clients.contains(&client_id);
             println!("Client {} is probing {}", client_id, probing);
 
-            let dest_addresses = if divide {
-                println!("t client {}", t);
-
+            let dest_addresses = if !probing {
+                vec![]
+            } else if divide {
+                // TODO the server creates a chunk for clients that are not probing
                 // Each client gets its own chunk of the destination addresses
                 let chunk_size = dest_addresses.len() / active_clients as usize;
-                println!("Chunk size: {}", chunk_size);
 
                 // Get start and end index of targets to probe for this client
                 let start_index = t as usize * chunk_size;
-                let end_index = if t == active_clients - 1 {
+                let end_index = if t >= active_clients - 1 {
                     dest_addresses.len() // End of the list
                 } else {
                     start_index + chunk_size
@@ -613,14 +613,8 @@ impl Controller for ControllerService {
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
-                if probing {
-                    // All clients get the same destination addresses
-                    dest_addresses.clone()
-                } else {
-                    // This client does not probe
-                    // vec![]
-                    dest_addresses.clone() // TODO this clone is not necessary
-                }
+                // All clients get the same destination addresses
+                dest_addresses.clone()
             };
 
             // increment if this client is sending probes
