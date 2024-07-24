@@ -478,7 +478,6 @@ impl Controller for ControllerService {
                     tokio::time::sleep(cleanup_interval).await;
                     // Perform the cleanup
                     let mut map = targets.lock().await;
-
                     let mut traceroute_targets = HashMap::new();
 
                     for (target, (clients, timestamp, _, _)) in map.clone().iter() {
@@ -493,7 +492,7 @@ impl Controller for ControllerService {
 
                     for (target, (clients, _, ttl, origins)) in traceroute_targets {
                         // Get the upper bound TTL we should perform traceroute with
-                        let max_ttl: u32 = if ttl >= 128 {
+                        let max_ttl = if ttl >= 128 {
                             255 - ttl
                         } else if ttl >= 64 {
                             128 - ttl
@@ -600,20 +599,26 @@ impl Controller for ControllerService {
             };
 
             let dest_addresses = if divide {
+                println!("t client {}", t);
+
                 // Each client gets its own chunk of the destination addresses
                 let chunk_size = if clients.len() == 0 {
                     dest_addresses.len() / number_of_clients as usize
                 } else {
                     dest_addresses.len() / active_clients as usize
                 };
+                println!("Chunk size: {}", chunk_size);
 
                 let start_index = t as usize * chunk_size;
                 let mut end_index = start_index + chunk_size;
 
                 // Adjust end_index for the last client to include any remaining elements
-                if t == number_of_clients - 1 {
+                if t == active_clients - 1 {
                     end_index = dest_addresses.len();
                 }
+
+                println!("Start index: {}, End index: {}", start_index, end_index);
+
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
