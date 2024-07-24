@@ -14,7 +14,7 @@ use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::process::{Command, Stdio};
 use csv::Writer;
 
@@ -41,11 +41,13 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let addr = "https://".to_string().add(args.value_of("server").unwrap());
+    let addr = args.value_of("server").unwrap();
+    let tls = args.is_present("tls");
+
     // Create client connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server at address {}", addr);
-    let grpc_client = ControllerClient::connect(addr).await?;
-    println!("[CLI] Connected to Controller Server");
+    println!("[CLI] Connecting to Controller Server at address {} ...", addr);
+    let grpc_client = CliClient::connect(addr, tls).await?;
+    print!("Success");
     let mut cli_client = CliClient { grpc_client, };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
@@ -488,6 +490,36 @@ impl CliClient {
         io::copy(&mut temp_file, &mut file).expect("Unable to copy from temp to final"); // Copy live results to the output file
         fs::remove_file("temp").expect("Unable to remove temp file");
         Ok(())
+    }
+
+    async fn connect(address: &str, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if tls {
+            // Secure connection
+            let addr = format!("https://{}", address);
+
+            // Load the CA certificate used to authenticate the server
+            let pem = fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            let ca = Certificate::from_pem(pem);
+
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name("localhost");
+
+            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            builder
+                .tls_config(tls).expect("Unable to set TLS configuration")
+                .connect().await.expect("Unable to connect to server")
+        } else {
+            // Unsecure connection
+            let addr = format!("http://{}", address);
+
+            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
+                .connect().await.expect("Unable to connect to server")
+        };
+        // Create client with secret token that is used to authenticate client commands.
+        let client = ControllerClient::new(channel);
+
+        Ok(client)
     }
 
     /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
