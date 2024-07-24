@@ -636,9 +636,9 @@ impl Controller for ControllerService {
                 for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
-                        println!("[Server] CLI disconnected during task distribution");
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                         if clients_finished.lock().unwrap().clone() == number_of_clients {
+                            println!("[Server] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
                         abort = true;
