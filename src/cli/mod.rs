@@ -106,6 +106,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
 
+        if divide && unicast {
+            panic!("Divide-and-conquer is only supported for anycast-based measurements");
+        }
+
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();
         let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).unwrap();
@@ -314,9 +318,9 @@ impl CliClient {
             _ => "ICMP",
         };
         let type_str = if ipv6 {
-            format!("{}-v6", type_str)
+            format!("{}v6", type_str)
         } else {
-            format!("{}-v4", type_str)
+            format!("{}v4", type_str)
         };
 
         // Temporary output file (for writing live results to)
