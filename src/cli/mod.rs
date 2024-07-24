@@ -44,11 +44,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let addr = args.value_of("server").unwrap();
     let tls = args.is_present("tls");
 
-    println!("tls {}", tls);
-
     // Create client connection with the Controller Server
     print!("[CLI] Connecting to Controller Server at address {} ... ", addr);
-    let grpc_client = CliClient::connect(addr, tls).await?;
+    let grpc_client = CliClient::connect(addr, tls).await.expect("Unable to connect to server");
     println!("Success");
     let mut cli_client = CliClient { grpc_client, };
 
@@ -499,6 +497,33 @@ impl CliClient {
         Ok(())
     }
 
+    /// Connect to the server
+    ///
+    /// # Arguments
+    ///
+    /// * 'address' - the address of the server (e.g., 190.100.10.10:50051)
+    ///
+    /// * 'tls' - a boolean that determines whether the connection should be secure or not
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the ControllerClient and a Boxed Error if the connection fails
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let client = CliClient::connect("190.100.10.10:50051", true).await;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the connection fails
+    ///
+    /// # Remarks
+    ///
+    /// This function is async and should be awaited
+    ///
+    /// tls requires a certificate at ./tls/server.crt
     async fn connect(address: &str, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if tls {
             // Secure connection
