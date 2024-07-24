@@ -589,27 +589,22 @@ impl Controller for ControllerService {
             let client_id = *client_list_u32.get(i as usize).unwrap();
             i += 1;
             let clients = clients.clone();
-
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
             let probing = clients.len() == 0 || clients.contains(&client_id);
-            println!("Client {} is probing {}", client_id, probing);
 
             let dest_addresses = if !probing {
                 vec![]
             } else if divide {
-                // TODO the server creates a chunk for clients that are not probing
                 // Each client gets its own chunk of the destination addresses
                 let chunk_size = dest_addresses.len() / active_clients as usize;
 
                 // Get start and end index of targets to probe for this client
                 let start_index = t as usize * chunk_size;
-                let end_index = if t >= active_clients - 1 {
+                let end_index = if t == active_clients - 1 {
                     dest_addresses.len() // End of the list
                 } else {
                     start_index + chunk_size
                 };
-
-                println!("Start index: {}, End index: {}", start_index, end_index);
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
@@ -619,8 +614,6 @@ impl Controller for ControllerService {
 
             // increment if this client is sending probes
             if probing { t += 1; }
-
-            println!("Client {} will probe {} targets", client_id, dest_addresses.len());
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
