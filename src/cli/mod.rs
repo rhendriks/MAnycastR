@@ -105,7 +105,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let unicast = matches.is_present("UNICAST");
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
-
+        // Divide-and-conquer is only supported for anycast-based measurements
         if divide && unicast {
             panic!("Divide-and-conquer is only supported for anycast-based measurements");
         }
@@ -122,23 +122,24 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}", t_type,
-            ips.len().to_string()
-                .as_bytes()
-                .rchunks(3)
-                .rev()
-                .map(std::str::from_utf8)
-                .collect::<Result<Vec<&str>, _>>()
-                .unwrap()
-                .join(","),
-             source_ip.to_string(),
-             rate.to_string().as_bytes()
-                 .rchunks(3)
-                 .rev()
-                 .map(std::str::from_utf8)
-                 .collect::<Result<Vec<&str>, _>>()
-                 .unwrap()
-                 .join(","),
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}",
+                 t_type,
+                 ips.len().to_string()
+                     .as_bytes()
+                     .rchunks(3)
+                     .rev()
+                     .map(std::str::from_utf8)
+                     .collect::<Result<Vec<&str>, _>>()
+                     .expect("Unable to format hitlist length")
+                     .join(","),
+                 source_ip.to_string(),
+                 rate.to_string().as_bytes()
+                     .rchunks(3)
+                     .rev()
+                     .map(std::str::from_utf8)
+                     .collect::<Result<Vec<&str>, _>>()
+                     .expect("Unable to format rate")
+                     .join(","),
             interval
         );
 
