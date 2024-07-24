@@ -90,7 +90,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
-        let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
+        let file = File::open(ip_file).unwrap_or_else(|_| panic!("Unable to open file {}", ip_file));
         let buf_reader = BufReader::new(file);
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
@@ -141,17 +141,22 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let unicast = matches.is_present("UNICAST");
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
-        let interval = if matches.is_present("INTERVAL") {
-            u32::from_str(matches.value_of("INTERVAL").unwrap()).unwrap()
-        } else {
-            1 // Default interval
-        };
+
+        // TODO test default interval
+        // Get interval, rate. Default values are 1 and 1000 respectively
+        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();
+        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).unwrap();
+        // let interval = if matches.is_present("INTERVAL") {
+        //     u32::from_str(matches.value_of("INTERVAL").unwrap()).unwrap()
+        // } else {
+        //     1 // Default interval
+        // };
         // Get the rate for this task
-        let rate = if matches.is_present("RATE") {
-            u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
-        } else {
-            1000 // Default rate
-        };
+        // let rate = if matches.is_present("RATE") {
+        //     u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
+        // } else {
+        //     1000 // Default rate
+        // };
 
         let t_type = match task_type {
             1 => "ICMP/ping",
