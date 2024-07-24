@@ -581,12 +581,14 @@ impl Controller for ControllerService {
 
         // TODO create chunks here (divide and conquer), instead of cloning dest_addresses for each client
 
+        let mut i = 0;
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
             let active = self.active.clone();
             // This client's unique ID
-            let client_id = *client_list_u32.get(t as usize).unwrap();
+            let client_id = *client_list_u32.get(i as usize).unwrap();
+            i += 1;
             let clients = clients.clone();
 
             // Determine whether this client is probing
