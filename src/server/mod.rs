@@ -678,7 +678,6 @@ impl Controller for ControllerService {
                             _ => Task::default(),
                         };
 
-                        println!("Sending task to client {} with chunk {:?}", client_id, task);
                         // Send packet to client
                         match sender.send(Ok(task.clone())).await {
                             Ok(_) => (),
@@ -705,7 +704,6 @@ impl Controller for ControllerService {
                     if traceroute {
                         tokio::time::sleep(Duration::from_secs(120)).await;
                     } else {
-                        println!("Sleeping for 10 seconds");
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }
 
