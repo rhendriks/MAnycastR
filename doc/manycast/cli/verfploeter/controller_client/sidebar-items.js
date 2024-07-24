@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["ControllerClient","The controller which controls and is responsible for most communication"]]};
