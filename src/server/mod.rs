@@ -556,7 +556,6 @@ impl Controller for ControllerService {
             }
         }
 
-        let mut t: u64 = 0;
         let number_of_clients = senders.len() as u64;
         // Get number of active clients, client.len 0 -> all clients are probing
         let active_clients = if clients.len() == 0 {
@@ -581,11 +580,11 @@ impl Controller for ControllerService {
 
         // TODO create chunks here (divide and conquer), instead of cloning dest_addresses for each client
 
-        let mut i = 0;
+        let mut t: u64 = 0; // Index for active clients
+        let mut i = 0; // Index for the client list
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
-            let active = self.active.clone();
             // This client's unique ID
             let client_id = *client_list_u32.get(i as usize).unwrap();
             i += 1;
@@ -593,30 +592,24 @@ impl Controller for ControllerService {
 
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
             let probing = clients.len() == 0 || clients.contains(&client_id);
-            println!("Client {} is probing", client_id);
-
+            println!("Client {} is probing {}", client_id, probing);
 
             let dest_addresses = if divide {
                 println!("t client {}", t);
 
                 // Each client gets its own chunk of the destination addresses
-                let chunk_size = if clients.len() == 0 {
-                    dest_addresses.len() / number_of_clients as usize
-                } else {
-                    dest_addresses.len() / active_clients as usize
-                };
+                let chunk_size = dest_addresses.len() / active_clients as usize;
                 println!("Chunk size: {}", chunk_size);
 
+                // Get start and end index of targets to probe for this client
                 let start_index = t as usize * chunk_size;
-                let mut end_index = start_index + chunk_size;
-
-                // Adjust end_index for the last client to include any remaining elements
-                if t == active_clients - 1 {
-                    end_index = dest_addresses.len();
-                }
+                let end_index = if t == active_clients - 1 {
+                    dest_addresses.len() // End of the list
+                } else {
+                    start_index + chunk_size
+                };
 
                 println!("Start index: {}, End index: {}", start_index, end_index);
-
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
@@ -626,26 +619,27 @@ impl Controller for ControllerService {
                 } else {
                     // This client does not probe
                     // vec![]
-                    dest_addresses.clone() // TODO we can remove an empty vec here
+                    dest_addresses.clone() // TODO this clone is not necessary
                 }
             };
-
-            println!("Client {} will probe {} targets", client_id, dest_addresses.len());
 
             // increment if this client is sending probes
             if probing { t += 1; }
 
+            println!("Client {} will probe {} targets", client_id, dest_addresses.len());
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = clients_finished.clone();
 
+            let active = self.active.clone();
             spawn(async move {
                 let mut abort = false;
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if !divide {
+                    println!("Sleeping for {} seconds", t * clients_interval as u64);
                     tokio::time::sleep(Duration::from_secs(t * clients_interval as u64)).await;
                 }
 
