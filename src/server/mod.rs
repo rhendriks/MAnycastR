@@ -235,7 +235,7 @@ impl Controller for ControllerService {
             // If this is the last client we are finished
             if remaining == &(1u32) {
                 println!("{}", request.client_id);
-                println!("All clients finished");
+                println!("[Server] All clients finished");
 
                 open_tasks.remove(&task_id);
                 finished = true;
@@ -282,8 +282,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<Metadata>,
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
-
         let hostname = request.into_inner().hostname;
+        println!("[Server] New client connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
@@ -300,9 +300,6 @@ impl Controller for ControllerService {
             clients: self.clients.clone(),
             active: self.active.clone(),
         };
-
-        println!("[Server] Received client_connect");
-
 
         // Send the stream receiver to the client
         Ok(Response::new(rx))
@@ -855,8 +852,6 @@ impl Controller for ControllerService {
         &self,
         request: Request<Metadata>
     ) -> Result<Response<ClientId>, Status> {
-        println!("[Server] Received get_client_id");
-
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
         let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
