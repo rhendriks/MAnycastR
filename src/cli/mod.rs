@@ -4,18 +4,15 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::{fs, io};
 use std::io::{BufRead, BufReader, Write};
-use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
-use std::process::{Command, Stdio};
 use csv::Writer;
 
 use crate::custom_module;
@@ -53,38 +50,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
-        // Check if iGreedy is present, and has a valid path if so
-        let igreedy: Option<String> = if matches.is_present("LIVE") {
-            let path = matches.value_of("LIVE");
-
-            if let Ok(metadata) = fs::metadata(path.unwrap()) { // TODO igreedy
-                println!("metadata: {:?}", metadata);
-
-                println!("Path: {}", path.unwrap());
-
-                let output = Command::new("python3")
-                    .arg(path.unwrap())
-                    .stdout(Stdio::piped()) // Capture stdout
-                    .spawn().expect("Failed to spawn iGreedy")
-                    .wait_with_output().expect("Failed to execute iGreedy");
-
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    println!("Script output:\n{}", stdout);
-                } else {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    println!("Script output:\n{}", stdout);
-                    println!("The script executed but returned a non-zero exit status: {}", output.status);
-                    panic!("iGreedy did not get executed properly.")
-                }
-            } else {
-                panic!("Invalid iGreedy path: {}", path.unwrap());
-            }
-            Some(path.unwrap().to_owned())
-        } else {
-            None
-        };
-
         // Source IP for the measurement
         let source_ip = IP::from(matches.value_of("SOURCE_IP").unwrap().to_string());
 
@@ -177,7 +142,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let hitlist_length = ips.len();
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, igreedy).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length).await
     } else {
         panic!("Unrecognized command");
     }
@@ -285,7 +250,6 @@ impl CliClient {
     ///
     /// * 'hitlist' - the name of the hitlist file that was used for this measurement
     ///
-    /// * 'igreedy' - the path to the iGreedy script (to perform live checks on addresses) // TODO unimplemented
     async fn do_task_to_server(
         &mut self,
         task: ScheduleTask,
@@ -294,7 +258,6 @@ impl CliClient {
         hitlist: &str,
         divide: bool,
         hitlist_length: usize,
-        igreedy: Option<String>,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = IP::from(task.clone().source_address.unwrap());
@@ -340,16 +303,6 @@ impl CliClient {
         let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
         let mut stream = response.expect("Unable to obtain the server stream").into_inner();
-
-        let tx = if igreedy != None {
-            // Channel for address_feed
-            let (tx, rx) = unbounded_channel();
-            address_feed(rx,  Duration::from_secs((clients.len() * 2) as u64), igreedy.unwrap());
-            Some(tx)
-        } else {
-            None
-        };
-
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
@@ -399,10 +352,6 @@ impl CliClient {
                 tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
                 graceful = true;
                 break;
-            }
-
-            if let Some(tx) = &tx { // Send the results to the igreedy channel
-                tx.send(task_result.clone()).unwrap();
             }
 
             replies_count += task_result.result_list.len();
@@ -585,93 +534,6 @@ impl CliClient {
 
         Ok(())
     }
-}
-
-/// Check for Anycast addresses live, by keeping track of the number of unique clients receiving a response for all addresses.
-///
-/// # Arguments
-///
-/// * 'rx' - Receives task results to be analyzed
-///
-/// * 'cleanup_interval' - The interval at which results are cleaned up
-///
-/// * 'path' - The path to the iGreedy script
-fn address_feed( // TODO unimplemented
-    mut rx: UnboundedReceiver<TaskResult>,
-    cleanup_interval: Duration,
-    path: String
-) {
-    let map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
-
-    let map_clone = map.clone();
-    // Start the cleanup task in a separate Tokio task
-    tokio::spawn(async move {
-        loop {
-            // Sleep for the cleanup interval
-            tokio::time::sleep(cleanup_interval).await;
-
-            // Perform the cleanup
-            let mut map = map_clone.lock().unwrap();
-            map.retain(|_, &mut (_, timestamp)| {
-                Instant::now().duration_since(timestamp) <= cleanup_interval
-            });
-        }
-    });
-
-    tokio::spawn(async move {
-        // Receive tasks from the outbound channel
-        while let Some(task_result) = rx.recv().await {
-            // Get the client ID
-            let client_id: u8 = task_result.client_id.try_into().unwrap();
-
-            // Loop over all results
-            for result in task_result.result_list {
-                // Get the source address of this result
-                let address: u32 = match result.value.unwrap() { // TODO not v6 compatible
-                    ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultTrace(_) => continue, // We do not care about traceroute results when checking for anycast
-                };
-
-                let mut map = map.lock().unwrap();
-
-                if !map.contains_key(&address) {
-                    // If we have not yet recorded this address, make a new entry with current timestamp and the receiving client's ID
-                    map.insert(address, (client_id, Instant::now()));
-                } else {
-                    // If we have already recorded it retrieve the record
-                    let (client_id_old, timestamp) = map.get(&address).unwrap().clone();
-                    if (client_id_old == 0) | (client_id == client_id_old) {
-                        // If the client ID == 0 (already recorded as anycast suspect) or has the same client ID (still unicast suspect) do nothing
-                        continue;
-                    } else {
-                        // If this was also recorded at a different client, it is an anycast suspect
-                        // TODO currently spams the CLI
-                        println!("[CLI] Anycast suspect! {}", Ipv4Addr::from(address).to_string());
-                        igreedy(path.clone(), &Ipv4Addr::from(address).to_string());
-
-                        // TODO keep list of checked anycast targets, and make sure to not check targets multiple times
-                        // Set client ID to 0 (already checked)
-                        map.insert(address, (0, timestamp));
-                    }
-                }
-            }
-        }
-    });
-}
-
-/// Perform an iGreedy measurement on a given IP address
-fn igreedy(path: String, target: &str) {
-    let output = format!("igreedy/{}/{}", Local::now().format("%Y%m%d").to_string(), target);
-
-    Command::new("python3")
-        .arg(&path)
-        .arg("-m")
-        .arg(target)
-        .arg("-o")
-        .arg(&output)
-        .spawn().expect("iGreedy failed!");
 }
 
 /// Write the results to the command-line interface and a file
