@@ -44,10 +44,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let addr = args.value_of("server").unwrap();
     let tls = args.is_present("tls");
 
+    println!("tls {}", tls);
+
     // Create client connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server at address {} ...", addr);
+    print!("[CLI] Connecting to Controller Server at address {} ... ", addr);
     let grpc_client = CliClient::connect(addr, tls).await?;
-    print!("Success");
+    println!("Success");
     let mut cli_client = CliClient { grpc_client, };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command

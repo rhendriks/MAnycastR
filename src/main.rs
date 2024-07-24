@@ -277,6 +277,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("hostname/ip address:port of the server")
                         .default_value("[::1]:50001")
                 )
+                .arg(
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .required(false)
+                )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
                                 .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
@@ -328,13 +335,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                         .long("divide")
                                         .takes_value(false)
                                         .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
-                                        .required(false)
-                                )
-                                .arg(
-                                    Arg::with_name("tls")
-                                        .long("tls")
-                                        .takes_value(false)
-                                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                                         .required(false)
                                 )
 
