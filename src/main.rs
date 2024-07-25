@@ -231,34 +231,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("hostname/ip address:port of the server")
                         .default_value("[::1]:50001")
                 )
-                .arg(
-                    Arg::with_name("source")
-                        .short("a")
-                        .takes_value(true)
-                        .help("Source address for this client's probes")
-                        .required(false)
-                )
-                .arg(
-                    Arg::with_name("source_port")
-                        .short("p")
-                        .takes_value(true)
-                        .help("Source port for this client's probes (must be at least 61440)")
-                        .required(false)
-                )
-                .arg(
-                    Arg::with_name("dest_port")
-                        .short("dp")
-                        .takes_value(true)
-                        .help("Destination port for this client's probes (only used for TCP probing (UDP is always 53)")
-                        .required(false)
-                )
-                .arg(
-                    Arg::with_name("multi-probing")
-                        .long("multi-probing")
-                        .takes_value(false)
-                        .help("Enable multi-source probing")
-                        .required(false)
-                )
+                // .arg(
+                //     Arg::with_name("multi-probing")
+                //         .long("multi-probing")
+                //         .takes_value(false)
+                //         .help("Enable multi-source probing")
+                //         .required(false)
+                // )
                 .arg (
                     Arg::with_name("tls")
                         .long("tls")
@@ -269,7 +248,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
 
         )
         .subcommand(
-            SubCommand::with_name("cli").about("Verfploeter CLI")// TODO TLS for CLI <-> Server
+            SubCommand::with_name("cli").about("Verfploeter CLI")
                 .arg(
                     Arg::with_name("server")
                         .short("s")
@@ -286,7 +265,8 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
-                                .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
+                    // TODO allow for configuration file that contains the source address, ports used for each client
+                                .arg(Arg::with_name("SOURCE").help("The anycast IP to send the pings from (or .conf file)")
                                     .required(true)
                                     .index(1)
                                 )
@@ -339,6 +319,20 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                         .long("divide")
                                         .takes_value(false)
                                         .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
+                                        .required(false)
+                                )
+                                .arg(
+                                    Arg::with_name("SOURCE_PORT")
+                                        .short("sp")
+                                        .takes_value(true)
+                                        .help("Source port to use (default 62321)")
+                                        .required(false)
+                                )
+                                .arg(
+                                    Arg::with_name("DESTINATION_PORT")
+                                        .short("dp")
+                                        .takes_value(true)
+                                        .help("Destination port to use (default DNS: 53, TCP: 63853)")
                                         .required(false)
                                 )
 

@@ -51,7 +51,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
-        let source_ip = IP::from(matches.value_of("SOURCE_IP").unwrap().to_string());
+        let source_ip = IP::from(matches.value_of("SOURCE").unwrap().to_string());
+        // TODO allow for configuration file with origins (source address, source port, destination port) for each client
 
         // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
@@ -67,15 +68,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Panic if the source IP is not the same type as the addresses
         if source_ip.is_v6() != ipv6 {
-            panic!("Source IP and target addresses are not of the same type! (IPv4/IPv6)");
+            panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
 
         // Panic if the ips are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != ipv6) {
-            panic!("Target addresses are not all of the same type! (IPv4/IPv6)");
+            panic!("Target addresses are not all of the same type! (mixed IPv4 & IPv6)");
         }
-
-        debug!("Loaded [{}] IP addresses on _ips vector", ips.len());
 
         // Shuffle the hitlist, if desired
         let shuffle = matches.is_present("SHUFFLE");
@@ -432,8 +431,10 @@ impl CliClient {
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
-            file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
+            // let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+            // file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
+            file.write_all(format!("# \t * ID: {}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write client data");
+            // TODO retrieve configurations used for each client (source address, source port, destination port)
         }
 
         file.flush()?;
@@ -531,18 +532,20 @@ impl CliClient {
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
+
+        // TODO retrieve configurations used for each client (source address, source port, destination port)
         for client in response.into_inner().clients {
-            let ip  = if client.metadata.clone().unwrap().origin.clone().unwrap().source_address.is_some() {
-                IP::from(client.metadata.clone().unwrap().origin.unwrap().source_address.unwrap()).to_string()
-            } else {
-                "Default".to_string()
-            };
+            // let ip  = if client.metadata.clone().unwrap().origin.clone().unwrap().source_address.is_some() {
+            //     IP::from(client.metadata.clone().unwrap().origin.unwrap().source_address.unwrap()).to_string()
+            // } else {
+            //     "Default".to_string()
+            // };
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    ip, // Source address of this client
-                    client.metadata.clone().unwrap().origin.unwrap().source_port, // Source port of this client
-                    client.metadata.unwrap().origin.unwrap().destination_port // Destination port of this client
+                    // ip, // Source address of this client
+                    // client.metadata.clone().unwrap().origin.unwrap().source_port, // Source port of this client
+                    // client.metadata.unwrap().origin.unwrap().destination_port // Destination port of this client
                 ));
         }
         table.printstd();
