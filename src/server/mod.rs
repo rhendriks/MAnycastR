@@ -451,17 +451,18 @@ impl Controller for ControllerService {
         }
 
         // Create a list of origins used by clients
-        let mut listen_origins: Vec<Origin> = vec![];
-        for client in &self.clients.lock().unwrap().clients {
-            let mut origin = client.metadata.clone().unwrap().origin.unwrap();
-            if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
-                origin = probe_origins[0].clone();
-            }
-            // Avoid duplicate origins
-            if !listen_origins.contains(&origin) {
-                listen_origins.push(origin);
-            }
-        }
+        // let mut listen_origins: Vec<Origin> = vec![];
+        let listen_origins = probe_origins.clone(); // TODO support multiple listen origins
+        // for client in &self.clients.lock().unwrap().clients {
+        //     let mut origin = client.metadata.clone().unwrap().origin.unwrap();
+        //     if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
+        //         origin = probe_origins[0].clone();
+        //     }
+        //     // Avoid duplicate origins
+        //     if !listen_origins.contains(&origin) {
+        //         listen_origins.push(origin);
+        //     }
+        // }
 
         // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
         if traceroute {
@@ -852,9 +853,9 @@ impl Controller for ControllerService {
     ) -> Result<Response<ClientId>, Status> {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
-        let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
-        let source_port = metadata.origin.clone().unwrap().source_port;
-        let destination_port = metadata.origin.unwrap().destination_port;
+        // let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
+        // let source_port = metadata.origin.clone().unwrap().source_port;
+        // let destination_port = metadata.origin.unwrap().destination_port;
         let mut clients_list = self.clients.lock().unwrap();
 
         // Check if the hostname already exists
@@ -878,11 +879,11 @@ impl Controller for ControllerService {
             client_id,
             metadata: Some(Metadata {
                 hostname: hostname.clone(),
-                origin: Some(Origin {
-                    source_address: Some(source_address),
-                    source_port,
-                    destination_port,
-                })
+                // origin: Some(Origin {
+                //     source_address: Some(source_address),
+                //     source_port,
+                //     destination_port,
+                // })
             }),
         };
         clients_list.clients.push(new_client);

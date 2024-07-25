@@ -45,7 +45,7 @@ message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
   Origin origin = 3;
-//  Address source_address = 3; // TODO let CLI set the port numbers
+  // TODO client to origin map (client_id -> origin)
   uint32 task_type = 4;
   bool unicast = 5;
   bool ipv6 = 6;
@@ -73,7 +73,6 @@ message Client {
 // Metadata (as used in Client), contains a hostname, and the origin the client uses
 message Metadata {
   string hostname = 1;
-  Origin origin = 2;  // TODO make this configurable by the CLI
 }
 
 // Address message, can be either an IPv4 or IPv6 address
