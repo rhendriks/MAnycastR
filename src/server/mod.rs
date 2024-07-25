@@ -426,7 +426,7 @@ impl Controller for ControllerService {
 
         // TODO None value (origin)
         let probe_origins: Vec<Origin> = if unicast {
-            vec![]
+            vec![task.origin.clone().unwrap()] // Contains port values
         } else if task.configurations.len() != 0 {
             // TODO configurations
             vec![]
