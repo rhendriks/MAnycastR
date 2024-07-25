@@ -4,17 +4,16 @@ use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
-use tonic::Request;
-use tonic::transport::Channel;
+use tonic::{Request};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
-use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
-use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
+use crate::client::outbound::outbound;
 use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
@@ -78,7 +77,8 @@ impl Client {
 
         // Get the custom source port for this client (optional)
         let s_port = if args.is_present("source_port") {
-            let s_port = args.value_of("source_port").unwrap().parse::<u16>().expect("Invalid source port value");
+            let s_port = args.value_of("source_port").unwrap()
+                .parse::<u16>().expect("Invalid source port value");
             println!("[Client] Using custom source port: {}", s_port);
 
             s_port
@@ -90,7 +90,8 @@ impl Client {
 
         // Get the optional destination port for this client (optional)
         let d_port = if args.is_present("dest_port") {
-            let d_port = args.value_of("dest_port").unwrap().parse::<u16>().expect("Invalid destination port");
+            let d_port = args.value_of("dest_port").unwrap()
+                .parse::<u16>().expect("Invalid destination port");
             println!("[Client] Using custom destination port: {}", d_port);
 
             d_port
@@ -99,12 +100,11 @@ impl Client {
             63853
         };
 
-        let multi_probing = if args.is_present("multi-probing") {
-            println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
-            true
-        } else {
-            false
-        };
+        // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
+        let multi_probing = args.is_present("multi-probing");
+        if multi_probing {
+            println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
+        }
 
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
@@ -116,9 +116,12 @@ impl Client {
                 })
         };
 
+        let tls = args.is_present("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
+
         // Initialize a client instance
         let mut client_class = Client {
-            grpc_client: Self::connect(server_addr).await?,
+            grpc_client: client,
             metadata,
             source_address,
             source_port: s_port,
@@ -141,19 +144,43 @@ impl Client {
     ///
     /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
     ///
+    /// * 'tls' - a boolean that indicates whether the connection should be secured with TLS
+    ///
     /// # Example
     ///
     /// ```
-    /// let grpc_client = connect("127.0.0.0:50001");
+    /// let grpc_client = connect("127.0.0.0:50001", true);
     /// ```
-    async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let addr = "https://".to_string().add(address);
-        println!("[Client] Connecting to Controller Server at address: {} ...", addr);
-        let client = ControllerClient::connect(addr).await?;
-        println!("[Client] Connected to the Controller Server");
+    async fn connect(address: String, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if tls {
+            // Secure connection
+            let addr = format!("https://{}", address);
+
+            // Load the CA certificate used to authenticate the server
+            let pem = std::fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            let ca = Certificate::from_pem(pem);
+
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name("localhost");
+
+            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            builder
+                .tls_config(tls).expect("Unable to set TLS configuration")
+                .connect().await.expect("Unable to connect to server")
+        } else {
+            // Unsecure connection
+            let addr = format!("http://{}", address);
+
+            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
+                .connect().await.expect("Unable to connect to server")
+        };
+        // Create client with secret token that is used to authenticate client commands.
+        let client = ControllerClient::new(channel);
 
         Ok(client)
     }
+
 
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures tasks are sent back to the server.
     ///
@@ -196,7 +223,7 @@ impl Client {
         };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        let rate: u32 = start.rate;
+        // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
         let task_id = start.task_id;
         let ipv6 = start.ipv6;
         let mut client_sources: Vec<Origin> = start.origins;
@@ -222,7 +249,7 @@ impl Client {
             unicast_ip
         } else if self.source_address == IP::None {
             // Use the 'default' anycast source address set by the CLI
-            IP::from(start.source_address.unwrap()) // TODO will the BPF filter still include the default source address in this case
+            IP::from(start.source_address.unwrap())
         } else {
             // Add default address to client_sources such that this client will listen on the default address as well
             client_sources.append(&mut vec![
@@ -354,56 +381,12 @@ impl Client {
         match start.task_type {
             1 => { // ICMP
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
-
-                // all option to tell this client to use all possible origins
-                let origins = if self.multi_probing {
-                    // get the IPs out of client_sources
-                    client_sources
-                    // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
-                if probing {
-                    perform_ping(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_id);
-                }
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                let origins = if self.multi_probing {
-                    client_sources
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
-
-                let task_type: u32 = start.task_type;
                 // Start listening thread
-                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, task_type, filter, traceroute);
-
-                // Start sending thread
-                if probing {
-                    perform_udp(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
-                }
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
             }
             3 => { // TCP
-                let origins = if self.multi_probing {
-                    client_sources
-                } else {
-                    vec![Origin {
-                        source_address: Some(Address::from(source_addr.clone())),
-                        source_port: self.source_port.into(),
-                        destination_port: self.dest_port.into(),
-                    }]
-                };
-
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
                     if ipv6 {
@@ -415,17 +398,30 @@ impl Client {
 
                 // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
-
-                // Start sending thread
-                if probing {
-                    perform_tcp(origins, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, client_id, igreedy);
-                }
             }
             _ => { () }
         };
 
+        // all option to tell this client to use all possible origins
+        let origins = if self.multi_probing {
+            // get the IPs out of client_sources
+            client_sources
+            // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
+        } else {
+            vec![Origin {
+                source_address: Some(Address::from(source_addr.clone())),
+                source_port: self.source_port.into(),
+                destination_port: self.dest_port.into(),
+            }]
+        };
+
+        // Start sending thread, if this client is probing
+        if probing {
+            outbound(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+        }
+
         // Thread that listens for task results from inbound and forwards them to the server
-        thread::spawn({
+        thread::spawn({  // TODO name the thread
             let mut self_clone = self.clone();
             move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -481,7 +477,7 @@ impl Client {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                             }
                             // Outbound threads gets exited by sending this None task to outbound
-                            // outbound_tx will be None if this client is not probing TODO make sure the server is not streaming tasks to clients that are not probing
+                            // outbound_tx will be None if this client is not probing
                             if self.outbound_tx.is_some() {
                                 // Send the task to the prober
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
@@ -519,7 +515,7 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id, unicast) = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
+                let (is_probing, task_id, unicast) = match task.clone().data.expect("None start task") {
                     Data::Start(start) => (start.active, start.task_id, start.unicast),
                     _ => { // First task is not a start task
                         println!("[Client] Received non-start packet for init");

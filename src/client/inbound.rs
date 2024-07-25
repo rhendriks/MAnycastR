@@ -15,6 +15,8 @@ use crate::net::netv6::IPv6Packet;
 use pcap::{Active, Capture, Device};
 
 
+// TODO combine listen_ping, listen_udp, and listen_tcp into a single function
+
 /// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
 ///
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
@@ -971,7 +973,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 /// Attempts to parse the DNS A record from a UDP payload body.
 fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
-    let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org' // TODO will requesting such domains cause issues?
+    let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
     // Get the information from the domain, continue to the next packet if it does not follow the format
     return if ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();

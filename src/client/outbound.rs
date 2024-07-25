@@ -15,44 +15,242 @@ use tokio::sync::mpsc::error::TryRecvError;
 
 extern crate mac_address;
 use mac_address::get_mac_address;
-use crate::custom_module::verfploeter::Origin;
+use crate::custom_module::verfploeter::{Address, Origin};
 
-
-// TODO combine the perform_ping, perform_udp, and perform_tcp functions into one function that takes a task_type as an argument
-/// Performs a ping/ICMP task by sending out ICMP ECHO Requests with a custom payload.
-///
-/// This payload contains the client ID of this prober, transmission time, source and destination address, and the task ID of the current measurement.
+/// Creates a ping packet.
 ///
 /// # Arguments
 ///
+/// * 'source' - the source IP address of the ping packet
+///
 /// * 'client_id' - the unique client ID of this client
-///
-/// * 'origins' - the unique source addresses and port combinations we use for our probes
-///
-/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-///
-/// * 'finish_rx' - used to exit or abort the measurement
-///
-/// * 'rate' - the number of probes to send out each second // TODO implement rate limiting (taking into account the number of origins)
-///
-/// * 'ipv6' - whether we are using IPv6 or not
 ///
 /// * 'task_id' - the unique task ID of the current measurement
-pub fn perform_ping(
+///
+/// * 'origin' - the source address we use for our probes (dst port is used as the ICMP sequence number)
+///
+/// * 'dest_addr' - the destination address for the ping packet]
+///
+/// # Returns
+///
+/// A ping packet (including the IP header) as a byte vector.
+///
+/// # Panics
+///
+/// If the source address or destination address is None
+pub fn create_ping(
+    source: IP,
+    client_id: u8,
+    task_id: u32,
+    origin: Origin,
+    dest_addr: Address,
+) -> Vec<u8> {
+    let transmit_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    // Create ping payload
+    let payload = PingPayload {
+        transmit_time,
+        source_address: Some(source.clone().into()),
+        destination_address: Some(dest_addr.clone()),
+        sender_client_id: client_id as u32,
+    };
+
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
+    bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
+    bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
+    if let Some(source_address) = payload.source_address {
+        match source_address.value {
+            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
+            Some(V6(v6)) => {
+                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
+                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
+            },
+            None => panic!("Source address is None"),
+        }
+    }
+    if let Some(destination_address) = payload.destination_address {
+        match destination_address.value {
+            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
+            Some(V6(v6)) => {
+                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
+                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
+            },
+            None => panic!("Destination address is None"),
+        }
+    }
+
+    let ipv6 = source.is_v6();
+    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
+    return if ipv6 {
+        ICMPPacket::echo_request_v6(origin.destination_port as u16, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
+    } else {
+        ICMPPacket::echo_request(origin.destination_port as u16, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
+    }
+}
+
+/// Creates a UDP packet.
+///
+/// # Arguments
+///
+/// * 'source_address' - the source IP address of the UDP packet
+///
+/// * 'source_port' - the source port of the UDP packet
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'dest_addr' - the destination address for the UDP packet
+///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
+/// * 'task_type' - the type of task to perform (2 = UDP/DNS, 4 = UDP/CHAOS)
+///
+/// # Returns
+///
+/// A UDP packet (including the IP header) as a byte vector.
+///
+/// # Panics
+///
+/// If the task type is not 2 or 4
+pub fn create_udp(
+    source_address: IP,
+    source_port: u16,
+    client_id: u8,
+    dest_addr: IP,
+    ipv6: bool,
+    task_type: u8,
+) -> Vec<u8> {
+    let transmit_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    return if ipv6 {
+        let source = source_address.get_v6();
+        let dest = IP::from(dest_addr.clone()).get_v6();
+
+        if task_type == 2 {
+            UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
+        } else if task_type == 4 {
+            UDPPacket::chaos_request_v6(source.into(), dest.into(), source_port, client_id)
+        } else {
+            panic!("Invalid task type")
+        }
+    } else {
+        let source = source_address.get_v4();
+        let dest = IP::from(dest_addr.clone()).get_v4();
+
+        if task_type == 2 {
+            UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
+        } else if task_type == 4 {
+            UDPPacket::chaos_request(source.into(), dest.into(), source_port, client_id)
+        } else {
+            panic!("Invalid task type")
+        }
+    }
+}
+
+/// Creates a TCP packet.
+///
+/// # Arguments
+///
+/// * 'dest_addr' - the destination IP address of the TCP packet
+///
+/// * 'source_address' - the source IP address of the TCP packet
+///
+/// * 'source_port' - the source port of the TCP packet
+///
+/// * 'destination_port' - the destination port of the TCP packet
+///
+/// * 'is_ipv6' - whether we are using IPv6 or not
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'igreedy' - whether we are sending probes with unicast or anycast
+///
+/// # Returns
+///
+/// A TCP packet (including the IP header) as a byte vector.
+///
+/// # Panics
+///
+/// If the source address or destination address is None
+///
+/// If the task type is not 3
+pub fn create_tcp(
+    dest_addr: IP,
+    source_address: IP,
+    source_port: u16,
+    destination_port: u16,
+    is_ipv6: bool,
+    client_id: u8,
+    igreedy: bool,
+) -> Vec<u8> {
+    let transmit_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u32; // The least significant bits are kept
+
+    let seq = 0; // information in seq gets lost
+    // for MAnycast the ACK is the client ID, for iGreedy the ACK is the transmit time
+    let ack = if !igreedy {
+        client_id as u32
+    } else {
+        transmit_time
+    };
+
+    return if is_ipv6 {
+        let source = source_address.get_v6();
+        let dest = IP::from(dest_addr.clone()).get_v6();
+
+        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
+    } else {
+        let source = source_address.get_v4();
+        let dest = IP::from(dest_addr.clone()).get_v4();
+
+        TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
+    }
+}
+
+
+/// Spawns thread that sends out ICMP, UDP, or TCP probes.
+///
+/// # Arguments
+///
+/// * 'client_id' - the unique client ID of this client
+///
+/// * 'origins' - the unique source addresses and port combinations we use for our probes
+///
+/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
+///
+/// * 'finish_rx' - used to exit or abort the measurement
+///
+/// * 'ipv6' - whether we are using IPv6 or not
+///
+/// * 'igreedy' - whether we are sending probes with unicast or anycast
+///
+/// * 'task_id' - the unique task ID of the current measurement
+///
+/// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
+pub fn outbound(
     client_id: u8,
     origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
     finish_rx: futures::sync::oneshot::Receiver<()>,
-    _rate: u32,
     ipv6: bool,
-    task_id: u32
+    igreedy: bool,
+    task_id: u32,
+    task_type: u8,
 ) {
-    println!("[Client outbound] Started pinging thread");
+    println!("[Client outbound] Started outbound probing thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
-    thread::spawn({
-        move || {
+    thread::Builder::new().name("outbound".to_string())
+        .spawn(move || {
             let ethernet_header = get_ethernet_header(ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
@@ -80,345 +278,102 @@ pub fn perform_ping(
                     };
                 }
 
-                let ping_task = match task {
+                match task {
                     End(_) => {
                         break
                     }, // An End task means the measurement has finished
-                    Ping(ping) => ping,
+                    Ping(ping) => {
+                        if task_type != 1 {
+                            panic!("Non-matching task type")
+                        }
+
+                        for origin in &origins {
+                            let source = IP::from(origin.source_address.clone().expect("None IP address"));
+                            for dst_addr in &ping.destination_addresses {
+                                let icmp = create_ping(
+                                    source,
+                                    client_id,
+                                    task_id,
+                                    origin.clone(),
+                                    dst_addr.clone(),
+                                );
+                                let mut packet: Vec<u8> = Vec::new();
+                                packet.extend_from_slice(&ethernet_header);
+                                packet.extend_from_slice(&icmp); // ip header included
+                                cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                            }
+                        }
+                    },
+                    Udp(udp) => {
+                        if task_type != 2 && task_type != 4 {
+                            panic!("Non-matching task type")
+                        }
+                        for origin in &origins {
+                            let source = IP::from(origin.source_address.clone().expect("None IP address"));
+                            let source_port = origin.source_port as u16;
+                            for dst_addr in &udp.destination_addresses {
+                                let udp = create_udp(
+                                    source,
+                                    source_port,
+                                    client_id,
+                                    IP::from(dst_addr.clone()),
+                                    ipv6,
+                                    task_type
+                                );
+
+                                let mut packet: Vec<u8> = Vec::new();
+                                packet.extend_from_slice(&ethernet_header);
+                                packet.extend_from_slice(&udp); // ip header included
+                                cap.sendpacket(packet).expect("Failed to send UDP packet");
+                            }
+                        }
+                    },
+                    Tcp(tcp) => {
+                        if task_type != 3 {
+                            panic!("Non-matching task type")
+                        }
+                        for origin in &origins {
+                            let source = IP::from(origin.source_address.clone().expect("None IP address"));
+                            let source_port = origin.source_port as u16;
+                            let destination_port = origin.destination_port as u16;
+                            for dst_addr in &tcp.destination_addresses {
+                                let tcp = create_tcp(
+                                    IP::from(dst_addr.clone()),
+                                    source,
+                                    source_port,
+                                    destination_port,
+                                    ipv6,
+                                    client_id,
+                                    igreedy,
+                                );
+
+                                let mut packet: Vec<u8> = Vec::new();
+                                packet.extend_from_slice(&ethernet_header);
+                                packet.extend_from_slice(&tcp); // ip header included
+                                cap.sendpacket(packet).expect("Failed to send TCP packet");
+                            }
+                        }
+                    },
+
                     Trace(trace) => {
-                        perform_trace(trace.origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 1, 0);
+                        perform_trace(
+                            trace.origins,
+                            ipv6,
+                            ethernet_header.clone(),
+                            &mut cap,
+                            IP::from(trace.destination_address.expect("None IP address")),
+                            client_id,
+                            trace.max_ttl as u8,
+                            task_type,
+                            0 // TODO dst port
+                        );
                         continue
                     },
                     _ => continue, // Invalid task
                 };
-
-                let dest_addresses = ping_task.destination_addresses;
-
-                // Loop over the origins
-                for origin in &origins {
-                    let source = IP::from(origin.source_address.clone().expect("None IP address"));
-                    // Loop over the destination addresses
-                    for dest_addr in &dest_addresses {
-                        let transmit_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
-
-                        // Create ping payload
-                        let payload = PingPayload {
-                            transmit_time,
-                            source_address: Some(source.clone().into()),
-                            destination_address: Some(dest_addr.clone()),
-                            sender_client_id: client_id as u32,
-                        };
-
-                        let mut bytes: Vec<u8> = Vec::new();
-                        bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
-                        bytes.extend_from_slice(&payload.transmit_time.to_be_bytes()); // Bytes 4 - 11 *
-                        bytes.extend_from_slice(&payload.sender_client_id.to_be_bytes()); // Bytes 12 - 15 *
-                        if let Some(source_address) = payload.source_address {
-                            match source_address.value {
-                                Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
-                                Some(V6(v6)) => {
-                                    bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
-                                    bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
-                                },
-                                None => panic!("Source address is None"),
-                            }
-                        }
-                        if let Some(destination_address) = payload.destination_address {
-                            match destination_address.value {
-                                Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
-                                Some(V6(v6)) => {
-                                    bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
-                                    bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
-                                },
-                                None => panic!("Destination address is None"),
-                            }
-                        }
-
-                        // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
-                        let icmp = if ipv6 {
-                            ICMPPacket::echo_request_v6(origin.destination_port as u16, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
-                        } else {
-                            ICMPPacket::echo_request(origin.destination_port as u16, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
-                        };
-
-                        let mut packet: Vec<u8> = Vec::new();
-                        packet.extend_from_slice(&ethernet_header);
-                        packet.extend_from_slice(&icmp); // ip header included
-
-                        // Send out packet
-                        if let Err(e) = cap.sendpacket(packet) {
-                            println!("[Outbound] Failed to send ICMP packet: {:?}", e);
-                        }
-                        // cap.sendpacket(packet).expect("Failed to send ICMP packet");
-                    }
-                }
             }
-            debug!("finished ping");
             println!("[Client outbound] Outbound thread finished");
-        }
-    });
-}
-
-/// Performs a UDP DNS task by sending out DNS A Record requests with a custom domain name.
-///
-/// This domain name contains the transmission time, the client ID of the prober, the task ID of the current task, and the source and destination address of the probe.
-///
-/// # Arguments
-///
-/// * 'client_id' - the unique client ID of this client
-///
-/// * 'origins' - the unique source addresses and port combinations we use for our probes
-///
-/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-///
-/// * 'finish_rx' - used to exit or abort the measurement
-///
-/// * 'rate' - the number of probes to send out each second //TODO implement rate limiting (taking into account the number of origins)
-///
-/// * 'ipv6' - whether we are using IPv6 or not
-///
-/// * 'task_type' - the unique task ID of the current measurement
-pub fn perform_udp(
-    client_id: u8,
-    origins: Vec<Origin>,
-    mut outbound_channel_rx: Receiver<Data>,
-    finish_rx: futures::sync::oneshot::Receiver<()>,
-    _rate: u32,
-    ipv6: bool,
-    task_type: u32
-) {
-    println!("[Client outbound] Started UDP probing thread");
-
-    let abort = Arc::new(Mutex::new(false));
-    abort_handler(abort.clone(), finish_rx);
-
-    // Name this thread
-    thread::spawn({
-        move || {
-            let ethernet_header = get_ethernet_header(ipv6);
-            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-            'outer: loop {
-                if *abort.lock().unwrap() == true {
-                    println!("[Client outbound] ABORTING");
-                    break
-                }
-
-                let task;
-                // Receive tasks from the outbound channel
-                loop {
-                    match outbound_channel_rx.try_recv() {
-                        Ok(t) => {
-                            task = t;
-                            break;
-                        },
-                        Err(e) => {
-                            if e == TryRecvError::Disconnected {
-                                println!("[Client outbound] Channel disconnected");
-                                break 'outer
-                            }
-                            // wait some time and try again
-                            thread::sleep(Duration::from_millis(100));
-                        },
-                    };
-                }
-
-                let udp_task = match task {
-                    End(_) => {
-                        break
-                    }, // An End task means the measurement has finished
-                    Udp(udp) => udp,
-                    Trace(_trace) => {
-                        // perform_trace(source_address, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, task_type as u8); TODO
-                        continue
-                    },
-                    _ => continue, // Invalid task
-                };
-
-                let dest_addresses = udp_task.destination_addresses;
-
-                // Loop over the origins
-                for origin in &origins {
-                    let source_address = IP::from(origin.source_address.clone().expect("None IP address"));
-                    let source_port = origin.source_port as u16;
-                    // Loop over the destination addresses
-                    for dest_addr in &dest_addresses {
-                        let transmit_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
-
-                        let udp = if ipv6 {
-                            let source = source_address.get_v6();
-                            let dest = IP::from(dest_addr.clone()).get_v6();
-
-                            if task_type == 2 {
-                                UDPPacket::dns_request_v6(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
-                            } else if task_type == 4 {
-                                UDPPacket::chaos_request_v6(source.into(), dest.into(), source_port, client_id)
-                            } else {
-                                panic!("Invalid task type")
-                            }
-                        } else {
-                            let source = source_address.get_v4();
-                            let dest = IP::from(dest_addr.clone()).get_v4();
-
-                            if task_type == 2 {
-                                UDPPacket::dns_request(source.into(), dest.into(), source_port, "any.dnsjedi.org", transmit_time, client_id, 255)
-                            } else if task_type == 4 {
-                                UDPPacket::chaos_request(source.into(), dest.into(), source_port, client_id)
-                            } else {
-                                panic!("Invalid task type")
-                            }
-                        };
-
-                        let mut packet: Vec<u8> = Vec::new();
-                        packet.extend_from_slice(&ethernet_header);
-                        packet.extend_from_slice(&udp); // ip header included
-
-                        // Send out packet
-                        if let Err(e) = cap.sendpacket(packet) {
-                            println!("[Outbound] Failed to send UDP packet: {:?}", e);
-                        }
-                        // cap.sendpacket(packet).expect("Failed to send UDP packet");
-                    }
-                }
-            }
-            debug!("finished udp probing");
-
-            println!("[Client outbound] UDP Outbound thread finished");
-        }
-    });
-}
-
-/// Performs a TCP task by sending out TCP SYN/ACK probes with a custom port and ACK value.
-///
-/// The destination port uses a constant value with the client ID added, the ACK value has the current millis encoded into it.
-///
-/// # Arguments
-///
-/// * 'origins' - the unique source addresses and port combinations we use for our probes
-///
-/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-///
-/// * 'finish_rx' - used to exit or abort the measurement
-///
-/// * 'rate' - the number of probes to send out each second
-///
-/// * 'ipv6' - whether we are using IPv6 or not
-///
-/// * 'client_id' - the unique client ID of this client
-///
-/// * 'igreedy' - whether this is an igreedy measurement (if so, the ACK value is the transmit time instead of the client ID)
-pub fn perform_tcp(
-    origins: Vec<Origin>,
-    mut outbound_channel_rx: Receiver<Data>,
-    finish_rx: futures::sync::oneshot::Receiver<()>,
-    _rate: u32,
-    ipv6: bool,
-    client_id: u8,
-    igreedy: bool
-) {
-    println!("[Client outbound] Started TCP probing thread");
-
-    let abort = Arc::new(Mutex::new(false));
-    abort_handler(abort.clone(), finish_rx);
-
-    thread::spawn({
-        move || {
-            let ethernet_header = get_ethernet_header(ipv6);
-            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(1_000_000).open().expect("Failed to open capture");
-            'outer: loop {
-                if *abort.lock().unwrap() == true {
-                    println!("ABORTING");
-                    break
-                }
-
-                let task;
-                // Receive tasks from the outbound channel
-                loop {
-                    match outbound_channel_rx.try_recv() {
-                        Ok(t) => {
-                            task = t;
-                            break;
-                        },
-                        Err(e) => {
-                            if e == TryRecvError::Disconnected {
-                                println!("[Client outbound] Channel disconnected");
-                                break 'outer
-                            }
-                            // wait some time and try again
-                            thread::sleep(Duration::from_millis(100));
-                        },
-                    };
-                }
-
-                let tcp_task = match task {
-                    End(_) => {
-                        break
-                    }, // An End task means the measurement has finished
-                    Tcp(tcp) => tcp,
-                    Trace(_trace) => {
-                        // perform_trace(origins, ipv6, ethernet_header.clone(), &mut cap, IP::from(trace.destination_address.expect("None IP address")), client_id, trace.max_ttl as u8, 3);
-                        continue
-                    },
-                    _ => continue, // Invalid task
-                };
-
-                let dest_addresses = tcp_task.destination_addresses;
-
-                // Loop over the source addresses
-                for origin in &origins {
-                    let source_address = IP::from(origin.source_address.clone().expect("None IP address"));
-                    let source_port = origin.source_port as u16;
-                    let destination_port = origin.destination_port as u16;
-                    // Loop over the destination addresses
-                    for dest_addr in &dest_addresses {
-                        let transmit_time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u32; // The least significant bits are kept
-
-                        let seq = 0; // information in seq gets lost
-                        // for MAnycast the ACK is the client ID, for iGreedy the ACK is the transmit time
-                        let ack = if !igreedy {
-                            client_id as u32
-                        } else {
-                            transmit_time
-                        };
-
-                        let tcp = if ipv6 {
-                            let source = source_address.get_v6();
-                            let dest = IP::from(dest_addr.clone()).get_v6();
-
-                            TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
-                        } else {
-                            let source = source_address.get_v4();
-                            let dest = IP::from(dest_addr.clone()).get_v4();
-
-                            TCPPacket::tcp_syn_ack(source.into(), dest.into(), source_port, destination_port, seq, ack, 255)
-                        };
-
-                        let mut packet: Vec<u8> = Vec::new();
-                        packet.extend_from_slice(&ethernet_header);
-                        packet.extend_from_slice(&tcp); // ip header included
-
-                        // Send out packet
-                        if let Err(e) = cap.sendpacket(packet) {
-                            println!("[Outbound] Failed to send TCP packet: {:?}", e);
-                        }
-                    }
-                }
-            }
-            debug!("finished TCP probing");
-
-            println!("[Client outbound] TCP Outbound thread finished");
-        }
-    });
+        }).expect("Failed to spawn outbound thread");
 }
 
 /// Performs a trace task by sending out ICMP, UDP, or TCP probes with increasing TTLs.
