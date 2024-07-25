@@ -224,7 +224,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let hitlist_length = ips.len();
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(default_origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6).await
     } else {
         panic!("Unrecognized command");
     }
@@ -335,6 +335,11 @@ impl CliClient {
     ///
     /// * 'hitlist' - the name of the hitlist file that was used for this measurement
     ///
+    /// * 'divide' - a boolean that determines whether the task should be performed divide-and-conquer style
+    ///
+    /// * 'hitlist_length' - the length of the hitlist
+    ///
+    /// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
     async fn do_task_to_server(
         &mut self,
         task: ScheduleTask,
@@ -343,13 +348,23 @@ impl CliClient {
         hitlist: &str,
         divide: bool,
         hitlist_length: usize,
+        ipv6: bool
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
-        let source_address = IP::from(task.clone().origin.unwrap().source_address.unwrap());
-        let ipv6 = source_address.is_v6();
-        let source_address = source_address.to_string();
         let task_type = task.task_type;
         let unicast = task.unicast;
+
+        let source_address = if unicast {
+            "Unicast".to_string()
+        } else {
+            // TODO when configurations are used this makes no sense
+            if task.clone().origin.is_some() {
+                task.clone().origin.unwrap().source_address.unwrap().to_string()
+            } else {
+                "configuration-based".to_string()
+            }
+        };
+
         let traceroute = task.traceroute;
 
         // Obtain connected client information for metadata
