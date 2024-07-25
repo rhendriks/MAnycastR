@@ -420,7 +420,9 @@ impl Controller for ControllerService {
 
         // Create a Task from the ScheduleTask
         let dest_addresses;
-        let default_src_addr = task.source_address;
+        // let default_src_addr = task.source_address;
+        // let default_src_addr = task.origin.unwrap().source_address;
+        let probe_origins = vec![task.origin.clone().unwrap()];  // TODO support multiple probe origins
         let rate = task.rate;
         let task_type = task.task_type;
         let unicast = task.unicast;
@@ -449,19 +451,15 @@ impl Controller for ControllerService {
         }
 
         // Create a list of origins used by clients
-        let mut client_sources: Vec<Origin> = vec![];
+        let mut listen_origins: Vec<Origin> = vec![];
         for client in &self.clients.lock().unwrap().clients {
             let mut origin = client.metadata.clone().unwrap().origin.unwrap();
             if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
-                origin = Origin {
-                    source_address: default_src_addr.clone(),
-                    source_port: origin.source_port,
-                    destination_port: origin.destination_port,
-                }
+                origin = probe_origins[0].clone();
             }
             // Avoid duplicate origins
-            if !client_sources.contains(&origin) {
-                client_sources.push(origin);
+            if !listen_origins.contains(&origin) {
+                listen_origins.push(origin);
             }
         }
 
@@ -544,8 +542,8 @@ impl Controller for ControllerService {
                     unicast,
                     ipv6,
                     traceroute,
-                    source_address: default_src_addr.clone(),
-                    origins: client_sources.clone(),
+                    probe_origins: probe_origins.clone(),
+                    listen_origins: listen_origins.clone(),
                 }))
             };
 
