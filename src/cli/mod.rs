@@ -22,9 +22,8 @@ use custom_module::verfploeter::{
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     verfploeter_result::Value::Trace as ResultTrace,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos,
-    Origin,
+    Origin, trace_result::Value, Configuration
 };
-use crate::custom_module::verfploeter::trace_result::Value;
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -51,8 +50,56 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
-        let source_ip = IP::from(matches.value_of("SOURCE").unwrap().to_string());
-        // TODO allow for configuration file with origins (source address, source port, destination port) for each client
+        let unicast = matches.is_present("UNICAST");
+        let source_ip = if matches.is_present("ADDRESS") {
+            Some(IP::from(matches.value_of("ADDRESS").unwrap().to_string()))
+        } else {
+            None
+        };
+
+        // Read the configuration file (unnecessary for unicast)
+        let configurations = if args.is_present("CONF") && !unicast {
+            let conf_file = matches.value_of("CONF").unwrap();
+            let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
+            let buf_reader = BufReader::new(file);
+            Some(buf_reader // Create a vector of addresses from the file
+                .lines()
+                .filter_map(|l| {
+                    let line = l.expect("Unable to read configuration line");
+                    if line.starts_with("#") { return None; } // Skip comments
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() != 2 {
+                        return None;
+                    }
+                    let client_id = u32::from_str(parts[0]).expect("Unable to parse client ID");
+                    // TODO allow for client hostname
+                    let addr_ports: Vec<&str> = parts[1].split(',').collect();
+                    if addr_ports.len() != 3 {
+                        return None;
+                    }
+                    let source_address = Address::from(IP::from(addr_ports[0].to_string()));
+                    // Parse to u16 first, must fit in header
+                    let source_port = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
+                    let destination_port = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    Some(Configuration {
+                        client_id,
+                        origin: Some(Origin {
+                            source_address: Some(source_address),
+                            source_port: source_port.into(),
+                            destination_port: destination_port.into(),
+                        })
+                    })
+                })
+                .collect::<Vec<_>>())
+        } else {
+            None
+        };
+        println!("Configurations: {:?}", configurations);
+
+        // There must be a defined anycast source address, configuration, or unicast flag
+        if source_ip.is_none() && configurations.is_none() && !unicast {
+            panic!("No source address or configuration file provided!");
+        }
 
         // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
@@ -67,9 +114,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if source_ip.is_v6() != ipv6 {
+        if source_ip.is_some() && source_ip.unwrap().is_v6() != ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
+        // TODO make sure configurations are of the same type as the target addresses
 
         // Panic if the ips are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != ipv6) {
@@ -104,31 +152,35 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // We only accept task types 1, 2, 3, 4
         if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
 
-        // Obtain port values (read as u16 as is the port header size)
-        let source_port = if matches.is_present("SOURCE_PORT") {
-            u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
-        } else {
-            62321 // Default source port
-        };
-        let destination_port = if matches.is_present("DESTINATION_PORT") {
-            u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
-        } else {
-            if task_type == 2 || task_type == 4 {
-                53 // Default DNS destination port
+        // Origin for the tasks (unless configurations are specified or unicast is used)
+        let default_origin = if source_ip.is_some() {
+            // Obtain port values (read as u16 as is the port header size)
+            let source_port = if matches.is_present("SOURCE_PORT") {
+                u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
             } else {
-                63853 // Default destination port
-            }
-        };
+                62321 // Default source port
+            };
+            let destination_port = if matches.is_present("DESTINATION_PORT") {
+                u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
+            } else {
+                if task_type == 2 || task_type == 4 {
+                    53 // Default DNS destination port
+                } else {
+                    63853 // Default destination port
+                }
+            };
 
-        let origin = Origin {
-            source_address: Some(Address::from(source_ip.clone())),
-            source_port,
-            destination_port,
+            Some(Origin {
+                source_address: Some(Address::from(source_ip.unwrap())),
+                source_port,
+                destination_port,
+            })
+        } else {
+            None
         };
 
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
-        let unicast = matches.is_present("UNICAST");
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
         // Divide-and-conquer is only supported for anycast-based measurements
@@ -148,7 +200,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source address {}; source port {}; destination port {};, with a rate of {}, and an interval of {}",
+        println!("[CLI] Performing {} task targeting {} addresses, using Origin {:?};, with a rate of {}, and an interval of {}",
                  t_type,
                  ips.len().to_string()
                      .as_bytes()
@@ -158,9 +210,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .collect::<Result<Vec<&str>, _>>()
                      .expect("Unable to format hitlist length")
                      .join(","),
-                 source_ip.to_string(),
-                 source_port,
-                 destination_port,
+                 default_origin,
                  rate.to_string().as_bytes()
                      .rchunks(3)
                      .rev()
@@ -173,7 +223,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let hitlist_length = ips.len();
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
+        let schedule_task = create_schedule_task(default_origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
         cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length).await
     } else {
         panic!("Unrecognized command");
@@ -205,7 +255,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
 fn create_schedule_task(
-    origin: Origin,
+    origin: Option<Origin>,
     destination_addresses: Vec<Address>,
     task_type: u32,
     rate: u32,
@@ -215,13 +265,14 @@ fn create_schedule_task(
     divide: bool,
     interval: u32,
     traceroute: bool
-) -> ScheduleTask {
+) -> ScheduleTask { // TODO add configurations
     match task_type {
         1 => { // ICMP
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                origin: Some(origin),
+                origin,
+                configurations: vec![],
                 task_type,
                 unicast,
                 ipv6,
@@ -237,7 +288,8 @@ fn create_schedule_task(
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                origin: Some(origin),
+                origin,
+                configurations: vec![],
                 task_type,
                 unicast,
                 ipv6,
@@ -253,7 +305,8 @@ fn create_schedule_task(
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                origin: Some(origin),
+                origin,
+                configurations: vec![],
                 task_type,
                 unicast,
                 ipv6,

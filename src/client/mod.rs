@@ -360,13 +360,13 @@ impl Client {
 
         filter.push_str(&*filter_parts.join(" or"));
 
-        // Start listening thread and sending thread
+        // Start listening thread
+        // TODO listening threads are not needed for non-probing clients when using the local unicast address
         match start.task_type {
             1 => { // ICMP
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                // Start listening thread
                 listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
             }
             3 => { // TCP
@@ -378,8 +378,6 @@ impl Client {
                         filter.push_str(" or icmp");
                     }
                 }
-
-                // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
             _ => { () }

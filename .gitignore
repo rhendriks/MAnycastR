@@ -306,12 +306,9 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/macos,linux,clion,clion+all,clion+iml,windows
 
 
-/target
-/data/
-/data
-/out/
-/out
-/.idea
-/.idea/
+target/
+data/
+tls/
+confs/
 .idea/
 Cargo.lock
