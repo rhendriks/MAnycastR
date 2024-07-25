@@ -338,7 +338,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                         .required(false)
                                 )
                                 .arg(Arg::with_name("CONF")
-                                    .short("c")
+                                    .short("f")
                                     .long("conf")
                                     .takes_value(true)
                                     .help("Path to the configuration file")
