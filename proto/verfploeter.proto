@@ -44,18 +44,18 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Origin origin = 3;
-  // TODO client to origin map (client_id -> origin)
-  uint32 task_type = 4;
-  bool unicast = 5;
-  bool ipv6 = 6;
-  bool traceroute = 7;
-  uint32 interval = 8;
-  bool divide = 9;
+  Origin origin = 3; // Default origin to use (for all clients)
+  repeated Configuration configurations = 4; // Configuration of client and origin combinations
+  uint32 task_type = 5;
+  bool unicast = 6;
+  bool ipv6 = 7;
+  bool traceroute = 8;
+  uint32 interval = 9;
+  bool divide = 10;
   oneof data {
-    Ping ping = 10;
-    UDP udp = 11;
-    TCP tcp = 12;
+    Ping ping = 11;
+    UDP udp = 12;
+    TCP tcp = 13;
   }
 }
 
@@ -124,6 +124,12 @@ message Origin {
   Address source_address = 1;
   fixed32 source_port = 2;
   fixed32 destination_port = 3;
+}
+
+// Configuration: Configuration of client and origin combinations
+message Configuration {
+  Origin origin = 1;
+  uint32 client_id = 2;
 }
 
 // A traceroute task, which has a destination address, a max_ttl (expected number of hops to traceroute), and a list of flows (a unique flow for each receiving client)
