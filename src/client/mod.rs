@@ -232,23 +232,25 @@ impl Client {
         let destination_port = start.probe_origins[0].destination_port;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if igreedy {  // Use the local unicast address and CLI defined ports
+        let probe_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
             let unicast_ip = if ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
 
+            let unicast_origin = Origin {
+                source_address: Some(Address::from(unicast_ip.clone())), // Unicast IP
+                source_port: source_port.into(), // CLI defined source port
+                destination_port: destination_port.into(), // CLI defined destination port
+            };
+
             // We only listen to our own unicast address (each client has its own unicast address)
-            client_sources = vec![Origin {
-                source_address: Some(Address::from(unicast_ip.clone())),
-                source_port: source_port.into(),
-                destination_port: destination_port.into(),
-            }];
+            client_sources = vec![unicast_origin.clone()];
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
-            unicast_ip
+            vec![unicast_origin]
         } else {  // Use the Origin used by the CLI
             // Add default address to client_sources such that this client will listen on the default address as well
             // TODO must be added to listen_origins at the server
@@ -262,7 +264,7 @@ impl Client {
 
 
             // Use the 'custom' anycast source address set when launching this client
-            IP::from(start.probe_origins[0].source_address.clone().unwrap())
+            start.probe_origins
         };
 
         // Channel for sending from inbound to the server forwarder thread
@@ -312,11 +314,17 @@ impl Client {
         if probing {
             match start.task_type {
                 1 => {
-                    // TODO print ICMP identifier (destination port)
-                    println!("[Client] Sending on address: {}", source_addr.to_string());
+                    // Print all probe origin addresses
+                    for origin in probe_origins.iter() {
+                        println!("[Client] Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
+                        // TODO print ICMP identifier (destination port)
+                    }
                 },
                 2 | 3 | 4 => {
-                    println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), source_port, destination_port);
+                    // Print all probe origin addresses
+                    for origin in probe_origins.iter() {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                    }
                 },
                 _ => { () }
             }
@@ -377,12 +385,9 @@ impl Client {
             _ => { () }
         };
 
-        // origins to send probes from
-        let origins = start.probe_origins.clone();
-
         // Start sending thread, if this client is probing
         if probing {
-            outbound(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+            outbound(client_id, probe_origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
         }
 
         // Thread that listens for task results from inbound and forwards them to the server
