@@ -1,11 +1,11 @@
 pub(crate) mod netv6;
 
 extern crate byteorder;
-use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
-use std::net::Ipv4Addr;
-use crate::custom_module::IP;
-use crate::net::netv6::{calculate_checksum_v6, PseudoHeaderv6};
+use std::net::{Ipv4Addr, Ipv6Addr};
+use prost::bytes::Buf;
+use crate::net::netv6::{calculate_checksum_v6, IPv6Packet, PseudoHeaderv6};
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
@@ -13,19 +13,11 @@ const INFO_URL: &str = "edu.nl/9qt8h";
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
+    pub length: u16,
     pub ttl: u8,
     pub source_address: Ipv4Addr,
     pub destination_address: Ipv4Addr,
     pub payload: PacketPayload,
-}
-
-/// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
-#[derive(Debug)]
-pub enum PacketPayload {
-    ICMP { value: ICMPPacket },
-    UDP {value: UDPPacket },
-    TCP {value: TCPPacket },
-    Unimplemented,
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -44,6 +36,17 @@ impl From<&[u8]> for IPv4Packet {
         cursor.set_position(12); // Source IP Address
         let source_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap());
         let destination_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap()); // Destination IP Address
+
+        // If the header length is longer than the data, the packet is incomplete
+        if header_length > data.len() {
+            return IPv4Packet {
+                length: header_length as u16,
+                ttl,
+                source_address,
+                destination_address,
+                payload: PacketPayload::Unimplemented,
+            };
+        }
 
         let payload_bytes = &cursor.into_inner()[header_length..];
         let payload = match packet_type {
@@ -75,10 +78,70 @@ impl From<&[u8]> for IPv4Packet {
         };
 
         IPv4Packet {
+            length: header_length as u16,
             ttl,
             source_address,
             destination_address,
             payload,
+        }
+    }
+}
+
+/// Convert IPv4Packet into a vector of bytes
+impl Into<Vec<u8>> for &IPv4Packet {
+    fn into(self) -> Vec<u8> {
+        let (payload_type, payload) = match &self.payload {
+            PacketPayload::ICMP { value } => (1, value.into()),
+            PacketPayload::UDP { value } => (17, value.into()),
+            PacketPayload::TCP { value } => (6, value.into()),
+            PacketPayload::Unimplemented => (0, vec![]),
+        };
+
+        let mut wtr = vec![];
+        wtr.write_u8(0x45).expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
+        wtr.write_u8(0x00).expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
+        wtr.write_u16::<NetworkEndian>(self.length).expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Identification
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
+        wtr.write_u8(self.ttl).expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
+        wtr.write_u8(payload_type).expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
+        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
+        wtr.write_u32::<NetworkEndian>(self.source_address.into())
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
+        wtr.write_u32::<NetworkEndian>(self.destination_address.into())
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
+
+        // Calculate and write the checksum
+        let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
+        let mut cursor = Cursor::new(wtr);
+        cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
+        cursor.write_u16::<NetworkEndian>(checksum).unwrap();
+
+        // Add the payload
+        cursor.set_position(20); // Skip the header
+        cursor.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+
+        cursor.into_inner()
+    }
+}
+
+/// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
+#[derive(Debug)]
+pub enum PacketPayload {
+    ICMP { value: ICMPPacket },
+    UDP {value: UDPPacket },
+    TCP {value: TCPPacket },
+    Unimplemented,
+}
+
+/// Convert a packet payload to bytes
+impl Into<Vec<u8>> for PacketPayload {
+    fn into(self) -> Vec<u8> {
+        match self {
+            PacketPayload::ICMP { value } => (&value).into(),
+            PacketPayload::UDP { value } => (&value).into(),
+            PacketPayload::TCP { value } => (&value).into(),
+            PacketPayload::Unimplemented => vec![],
         }
     }
 }
@@ -207,7 +270,21 @@ impl ICMPPacket {
     /// * 'sequence_number' - the sequence number for the ICMP header
     ///
     /// * 'body' - the ICMP payload
-    pub fn echo_request(identifier: u16, sequence_number: u16, body: Vec<u8>) -> Vec<u8> {
+    ///
+    /// * 'source_address' - the source address of the packet
+    ///
+    /// * 'destination_address' - the destination address of the packet
+    ///
+    /// * 'ttl' - the time to live of the packet
+    pub fn echo_request(
+        identifier: u16,
+        sequence_number: u16,
+        body: Vec<u8>,
+        source_address: u32,
+        destination_address: u32,
+        ttl: u8
+    ) -> Vec<u8> {
+        let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 8,
             code: 0,
@@ -218,18 +295,22 @@ impl ICMPPacket {
         };
 
         // Turn everything into a vec of bytes and calculate checksum
-        let mut bytes: Vec<u8> = (&packet).into();
+        let mut icmp_bytes: Vec<u8> = (&packet).into();
+        icmp_bytes.extend(INFO_URL.bytes());
+        packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
+
+        let v4_packet = IPv4Packet {
+            length: 20 + 8 + body_len + INFO_URL.bytes().len() as u16,
+            ttl,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::ICMP { value: packet.into() },
+        };
+
+        let mut bytes: Vec<u8> = (&v4_packet).into();
         bytes.extend(INFO_URL.bytes());
-        packet.checksum = ICMPPacket::calc_checksum(&bytes);
 
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(2); // Skip icmp_type (1 byte) and code (1 byte)
-        cursor.write_u16::<LittleEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
+        bytes
     }
 
     /// Calculate the ICMP Checksum.
@@ -239,10 +320,10 @@ impl ICMPPacket {
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<LittleEndian>() {
+        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words
             sum += u32::from(word);
         }
-        if let Ok(byte) = cursor.read_u8() {
+        if let Ok(byte) = cursor.read_u8() { // If there is a byte left, sum it
             sum += u32::from(byte);
         }
         while sum >> 16 > 0 {
@@ -295,6 +376,7 @@ impl Into<Vec<u8>> for &UDPPacket {
 }
 
 /// DNS request body
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct DNSRecord {
     pub transaction_id: u16,
@@ -310,6 +392,7 @@ pub struct DNSRecord {
 }
 
 /// DNS answer body
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct DNSAnswer {
     pub domain: String,
@@ -321,19 +404,21 @@ pub struct DNSAnswer {
 }
 
 /// DNS TXT data record
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct TXTRecord {
     pub txt_length: u8,
     pub txt: String,
 }
 
-
-
 /// Read a DNS name that is contained in a DNS response.
 /// Returns the domain name string of the A record reply.
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     let mut result = String::new();
     loop {
+        if !data.has_remaining() {
+            break;
+        }
         let label_len = data.read_u8().unwrap();
         // If label length is 0, it is the end of the string
         if label_len == 0 {
@@ -375,24 +460,59 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
 impl From<&[u8]> for DNSRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+
+        let transaction_id = data.read_u16::<NetworkEndian>().unwrap();
+        let flags = data.read_u16::<NetworkEndian>().unwrap();
+        let questions = data.read_u16::<NetworkEndian>().unwrap();
+        let answer = data.read_u16::<NetworkEndian>().unwrap();
+        let authority = data.read_u16::<NetworkEndian>().unwrap();
+        let additional = data.read_u16::<NetworkEndian>().unwrap();
+        let domain = read_dns_name(&mut data);
+
+        let (record_type, class, body) = if data.remaining() >= 4 {
+            let record_type = data.read_u16::<NetworkEndian>().unwrap();
+            let class = data.read_u16::<NetworkEndian>().unwrap();
+            let body = data.clone().into_inner()[data.position() as usize..].to_vec();
+            (record_type, class, body)
+        } else {
+            let record_type = 0;
+            let class = 0;
+            let body = vec![];
+            (record_type, class, body)
+        };
+
+
         DNSRecord {
-            transaction_id: data.read_u16::<NetworkEndian>().unwrap(),
-            flags: data.read_u16::<NetworkEndian>().unwrap(),
-            questions: data.read_u16::<NetworkEndian>().unwrap(),
-            answer: data.read_u16::<NetworkEndian>().unwrap(),
-            authority: data.read_u16::<NetworkEndian>().unwrap(),
-            additional: data.read_u16::<NetworkEndian>().unwrap(),
-            domain: read_dns_name(&mut data),
-            record_type: data.read_u16::<NetworkEndian>().unwrap(),
-            class: data.read_u16::<NetworkEndian>().unwrap(),
-            body: data.clone().into_inner()[data.position() as usize..].to_vec(),
+            transaction_id,
+            flags,
+            questions,
+            answer,
+            authority,
+            additional,
+            domain,
+            record_type,
+            class,
+            body,
         }
     }
 }
 
+/// Parsing from bytes into a DNS A record
 impl From<&[u8]> for DNSAnswer {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+
+        // Make sure data has the required length
+        if data.remaining() < 10 {
+            return DNSAnswer {
+                domain: "Invalid DNS record".to_string(),
+                record_type: 0,
+                class: 0,
+                ttl: 0,
+                data_length: 0,
+                data: vec![],
+            };
+        }
 
         DNSAnswer {
             domain: data.read_u16::<NetworkEndian>().unwrap().to_string(), //read_dns_name(&mut data), // Two bytes that are a pointer to the domain name of the request record
@@ -405,29 +525,47 @@ impl From<&[u8]> for DNSAnswer {
     }
 }
 
+/// Parsing from bytes into a DNS TXT record
 impl From<&[u8]> for TXTRecord {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
+        // Make sure txt_length is not out of bounds
+        if data.remaining() < 1 {
+            return TXTRecord {
+                txt_length: 0,
+                txt: "Invalid TXT record".to_string(),
+            };
+        }
 
         let txt_length = data.read_u8().unwrap();
+
+        // Make sure txt_length is not out of bounds
+        if txt_length as usize > data.remaining() {
+            return TXTRecord {
+                txt_length,
+                txt: "Invalid TXT record".to_string(),
+            };
+        }
+
         TXTRecord {
             txt_length,
+            // txt: read_dns_name(&mut data),
             txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
         }
     }
 }
 
 impl UDPPacket {
-    /// Create a basic UDP packet with checksum.
+    /// Create a basic UDP packet with checksum (v4 only).
     pub fn udp_request(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
 
-        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
+        let length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
 
         let mut packet = Self {
             source_port,
             destination_port,
-            length: udp_length,
+            length,
             checksum: 0,
             body,
         };
@@ -440,7 +578,7 @@ impl UDPPacket {
             destination_address,
             zeroes: 0,
             protocol: 17,
-            length: udp_length,
+            length,
         };
 
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
@@ -461,30 +599,26 @@ impl UDPPacket {
         source_address: u32,
         destination_address: u32,
         source_port: u16,
-        body: Vec<u8>,
         domain_name: &str,
         transmit_time: u64,
-        client_id: u8
+        client_id: u8,
+        ttl: u8,
     ) -> Vec<u8> {
-        let destination_port = 53u16;
+        let destination_port = 53u16; // DNS port
+        let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
+                                                       source_address, destination_address, client_id, source_port);
+        let udp_length = (8 + dns_packet.len()) as u16;
 
-        let dns_body = Self::create_a_record_request(domain_name, transmit_time,
-                                                     source_address, destination_address, client_id, source_port);
-
-        let udp_length = (8 + body.len() + dns_body.len()) as u16;
-
-        let mut packet = Self {
+        let mut udp_packet = Self {
             source_port,
             destination_port,
             length: udp_length,
             checksum: 0,
-            body,
+            body: dns_packet,
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-
-        bytes.extend(dns_body);
-
+        // Calculate the UDP checksum (using a pseudo header)
+        let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -492,16 +626,17 @@ impl UDPPacket {
             protocol: 17,
             length: udp_length,
         };
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
-
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
+        // Create the IPv4 packet
+        let v4_packet = IPv4Packet {
+            length: 20 + udp_length,
+            ttl,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: udp_packet.into() },
+        };
+        (&v4_packet).into()
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
@@ -544,57 +679,89 @@ impl UDPPacket {
     }
 
     /// Create a UDP packet with a CHAOS TXT record request.
-    pub fn chaos_request(source_address: IP, destination_address: IP,
-                         source_port: u16, body: Vec<u8>, client_id: u8) -> Vec<u8> { // TODO test
+    pub fn chaos_request(
+        source_address: u32,
+        destination_address: u32,
+        source_port: u16,
+        client_id: u8
+    ) -> Vec<u8> {
         let destination_port = 53u16;
-
         let dns_body = Self::create_chaos_request(client_id);
+        let udp_length = 8 + dns_body.len() as u32;
 
-        let udp_length = 8 + body.len() + dns_body.len();
-
-        let mut packet = Self {
+        let mut udp_packet = Self {
             source_port,
             destination_port,
             length: udp_length as u16,
             checksum: 0,
-            body,
+            body: dns_body,
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-
-        bytes.extend(dns_body);
-
-
-        packet.checksum = if source_address.is_v4() {
-            let pseudo_header = PseudoHeader {
-                source_address: source_address.get_v4().into(),
-                destination_address: destination_address.get_v4().into(),
-                zeroes: 0,
-                protocol: 17,
-                length: udp_length as u16,
-            };
-
-            calculate_checksum(&bytes, &pseudo_header)
-        } else {
-            let pseudo_header = PseudoHeaderv6 {
-                source_address: source_address.get_v6().into(),
-                destination_address: destination_address.get_v6().into(),
-                length: udp_length as u32,
-                next_header: 17,
-            };
-
-            calculate_checksum_v6(&bytes, &pseudo_header)
+        let udp_bytes: Vec<u8> = (&udp_packet).into();
+        let pseudo_header = PseudoHeader {
+            source_address,
+            destination_address,
+            zeroes: 0,
+            protocol: 17,
+            length: udp_length as u16,
         };
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        // Return the vec
-        cursor.into_inner()
+        // Create the IPv4 packet
+        let v4_packet = IPv4Packet {
+            length: 20 + udp_length as u16,
+            ttl: 255,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: udp_packet.into() },
+        };
+        (&v4_packet).into()
     }
 
+    /// Create a UDP packet with a CHAOS TXT record request.
+    pub fn chaos_request_v6(
+        source_address: u128,
+        destination_address: u128,
+        source_port: u16,
+        client_id: u8
+    ) -> Vec<u8> {
+        let destination_port = 53u16;
+        let dns_body = Self::create_chaos_request(client_id);
+        let udp_length = 8 + dns_body.len() as u32;
+
+        let mut udp_packet = Self {
+            source_port,
+            destination_port,
+            length: udp_length as u16,
+            checksum: 0,
+            body: dns_body,
+        };
+
+        let udp_bytes: Vec<u8> = (&udp_packet).into();
+
+        let pseudo_header = PseudoHeaderv6 {
+            source_address,
+            destination_address,
+            zeros: 0,
+            length: udp_length,
+            next_header: 17,
+        };
+
+        udp_packet.checksum = calculate_checksum_v6(udp_bytes.clone(), pseudo_header);
+
+        // Create the IPv6 packet
+        let v6_packet = IPv6Packet {
+            payload_length: udp_length as u16,
+            next_header: 17, // UDP
+            hop_limit: 255,
+            source_address: Ipv6Addr::from(source_address),
+            destination_address: Ipv6Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: udp_packet.into(), },
+        };
+
+        v6_packet.into()
+    }
     /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(client_id: u8) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
@@ -610,14 +777,14 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question (id.server)
-        let domain = "id.server";
+        let domain = "hostname.bind";
         for label in domain.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
         }
-        dns_body.push(0); // Terminate the QNAME //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record) //TODO
-        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS) //TODO
+        dns_body.push(0); // Terminate the QNAME
+        dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record)
+        dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS)
 
 
         dns_body
@@ -689,8 +856,15 @@ impl Into<Vec<u8>> for &TCPPacket {
 
 impl TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
-    pub fn tcp_syn_ack(source_address: u32, destination_address: u32,
-                       source_port: u16, destination_port: u16, seq: u32, ack:u32, body: Vec<u8>) -> Vec<u8> {
+    pub fn tcp_syn_ack(
+        source_address: u32,
+        destination_address: u32,
+        source_port: u16,
+        destination_port: u16,
+        seq: u32,
+        ack:u32,
+        ttl: u8
+    ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
             destination_port,
@@ -700,13 +874,12 @@ impl TCPPacket {
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body,
+            body: INFO_URL.bytes().collect(),
             window_size: 0
         };
 
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
-
+        // Turn everything into a vec of bytes and calculate checksum
+        let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeader {
             source_address,
             destination_address,
@@ -714,15 +887,16 @@ impl TCPPacket {
             protocol: 6, // TCP
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
         };
-
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
 
-        // Put the checksum at the right position in the packet
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(16); // Skip source port (2 bytes), destination port (2 bytes), seq (4 bytes), ack (4 bytes), offset/reserved (1 byte), flags (1 bytes), window (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
+        let v4_packet = IPv4Packet {
+            length: 20 + bytes.len() as u16,
+            ttl,
+            source_address: Ipv4Addr::from(source_address),
+            destination_address: Ipv4Addr::from(destination_address),
+            payload: PacketPayload::TCP { value: packet.into() },
+        };
 
-        // Return the vec
-        cursor.into_inner()
+        (&v4_packet).into()
     }
 }

@@ -15,11 +15,13 @@ log = "0.4.17"
 prettytable-rs = "0.10.0"
 prost = "0.11.6"
 ratelimit_meter = "5.0.0"
-socket2 = "~0.3"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tonic = "0.8.3"
+tonic = { version = "0.8.3", features = ["tls"] }
 rand = "0.8"
 gethostname = "0.4.2"
+pcap = "2.0.0"
+local-ip-address = "0.6.1"
+mac_address = "1.1.5"
 
 [build-dependencies]
 tonic-build = "0.8.4"

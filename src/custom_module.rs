@@ -1,9 +1,30 @@
+use std::fmt::Display;
 use std::net::{Ipv4Addr, Ipv6Addr};
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
-#[derive(Clone, Copy)]
-#[derive(PartialEq)]
+impl Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match &self.value {
+            Some(V4(v4)) => v4.to_string(),
+            Some(V6(v6)) => v6.to_string(),
+            None => String::from("None"),
+        };
+        write!(f, "{}", str)
+    }
+}
+
+impl Address {
+    pub fn is_v6(&self) -> bool {
+        match &self.value {
+            Some(V6(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[derive(Eq, Hash, PartialEq)]
 pub enum IP {
     V4(Ipv4Addr),
     V6(Ipv6Addr),
@@ -30,7 +51,7 @@ impl From<Address> for IP {
 }
 
 impl IP {
-    pub fn is_v4(&self) -> bool {
+    pub fn _is_v4(&self) -> bool {
         match self {
             IP::V4(_) => true,
             _ => false,
@@ -84,13 +105,14 @@ impl From<IP> for Address {
     }
 }
 
-impl ToString for IP {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for IP {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
             IP::V4(v4) => v4.to_string(),
             IP::V6(v6) => v6.to_string(),
             IP::None => String::from("None"),
-        }
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -106,29 +128,20 @@ impl From<String> for IP {
     }
 }
 
-impl ToString for IPv6 {
-    fn to_string(&self) -> String {
-        format!(
-            "{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}",
-            self.p1 >> 48,
-            self.p1 >> 32,
-            self.p1 >> 16,
-            self.p1,
-            self.p2 >> 48,
-            self.p2 >> 32,
-            self.p2 >> 16,
-            self.p2
-        )
+impl Display for IPv6 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = ((self.p1 as u128) << 64 | self.p2 as u128).to_string();
+        write!(f, "{}", str)
     }
 }
 
 impl IpResult {
     pub fn get_source_address_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => Ipv4Addr::from(v4.source_address).to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.source_address.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
                 let source_address = v6.source_address.clone().expect("None IPv6 data type");
-                Ipv6Addr::from((source_address.p1 as u128) << 64 | source_address.p2 as u128).to_string()
+                ((source_address.p1 as u128) << 64 | source_address.p2 as u128).to_string()
             },
             None => String::from("None"),
         }
@@ -136,10 +149,10 @@ impl IpResult {
 
     pub fn get_dest_address_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => Ipv4Addr::from(v4.destination_address).to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.destination_address.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
                 let destination_address = v6.destination_address.clone().expect("None IPv6 data type");
-                Ipv6Addr::from((destination_address.p1 as u128) << 64 | destination_address.p2 as u128).to_string()
+                ((destination_address.p1 as u128) << 64 | destination_address.p2 as u128).to_string()
             },
             None => String::from("None"),
         }

@@ -25,7 +25,7 @@
 //!
 //! When creating a task you can specify:
 //! * **Source address** - the source address from which the probes are to be sent out
-//! * **Destination addresses** - the target addresses that will be probed (e.g. a hitlist)
+//! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
 //! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
@@ -46,7 +46,7 @@
 //! ```
 //! client -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
 //! ```
-//! Server address has format IPv4:port (e.g. 187.0.0.0:50001), '-a SOURCE IP' is optional.
+//! Server address has format IPv4:port (e.g., 187.0.0.0:50001), '-a SOURCE IP' is optional.
 //!
 //! To confirm that the clients are connected, you can run the client-list command on the CLI.
 //! ```
@@ -62,6 +62,22 @@
 //! The hitlist can be shuffled by using the --shuffle option in the command.
 //!
 //! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
+//!
+//! # Additional CLI options
+//!
+//! * --live - Check results for Anycast targets as they come in live (unimplemented)
+//!
+//! * --unicast - Probe the targets using the unicast address of each client
+//!
+//! * --traceroute - Probe the targets using traceroute (broken)
+//!
+//! * --divide - Divide the hitlist into equal separate parts for each client (divide and conquer)
+//!
+//! * --i - Interval between separate client's probes to the same target [default: 1s]
+//!
+//! # Additional client options
+//!
+//! * --multi-probing - Enable multi-source probing, i.e., the client will send out probes from all addresses
 //!
 //! # Measurement details
 //!
@@ -125,7 +141,9 @@
 extern crate env_logger;
 #[macro_use]
 extern crate log;
+
 use clap::{App, Arg, ArgMatches, SubCommand};
+
 mod cli;
 mod server;
 mod client;
@@ -151,7 +169,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { client::Client::new(client_matches).await.unwrap() });
+        let _ = rt.block_on(async { client::Client::new(client_matches).await.expect("Unable to create a client (make sure the Server address is correct, and that the Server is running)") });
 
         return;
     }
@@ -161,11 +179,8 @@ fn main() {
 
         let _ = cli::execute(cli_matches);
         return;
-    }
-
-    else if let Some(server_matches) = matches.subcommand_matches("server") {
-        println!("[Main] Executing server version {}", env!("GIT_HASH"));
-        debug!("Selected SERVER_MODE!");
+    } else if let Some(server_matches) = matches.subcommand_matches("server") {
+        println!("[Main] Executing server");
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -176,15 +191,28 @@ fn main() {
     }
 }
 
-/// Parse $ verfploeter to start server, client, CLI or help (--help)
 fn parse_cmd<'a>() -> ArgMatches<'a> {
-    App::new("Verfploeter")
+    App::new("MAnycastR")
         .version(env!("GIT_HASH"))
-        //.author(" Wouter B. de Vries <w.b.devries@utwente.nl> and Leandro Bertholdo <l.m.bertholdo@utwente.nl>")
-        .author(env!("CARGO_PKG_AUTHORS"))
+        .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs measurements")
-        .subcommand(SubCommand::with_name("server").about("Launches the verfploeter server")
-            .arg(Arg::with_name("port").short("p").takes_value(true).help("Port to listen on").required(false))
+        .subcommand(
+            SubCommand::with_name("server").about("Launches the verfploeter server")
+                .arg(
+                    Arg::with_name("port")
+                        .short("p")
+                        .takes_value(true)
+                        .help("Port to listen on [default: 50001]")
+                        .required(false)
+                )
+                .arg(
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .required(false)
+                )
+
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
@@ -193,7 +221,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("h")
                         .takes_value(true)
                         .help("hostname for this client")
-                        .required(true)
+                        .required(false)
                 )
                 .arg(
                     Arg::with_name("server")
@@ -216,9 +244,31 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Source port for this client's probes (must be at least 61440)")
                         .required(false)
                 )
+                .arg(
+                    Arg::with_name("dest_port")
+                        .short("dp")
+                        .takes_value(true)
+                        .help("Destination port for this client's probes (only used for TCP probing (UDP is always 53)")
+                        .required(false)
+                )
+                .arg(
+                    Arg::with_name("multi-probing")
+                        .long("multi-probing")
+                        .takes_value(false)
+                        .help("Enable multi-source probing")
+                        .required(false)
+                )
+                .arg (
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
+                        .required(false)
+                )
+
         )
         .subcommand(
-            SubCommand::with_name("cli").about("Verfploeter CLI")
+            SubCommand::with_name("cli").about("Verfploeter CLI")// TODO TLS for CLI <-> Server
                 .arg(
                     Arg::with_name("server")
                         .short("s")
@@ -226,42 +276,74 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("hostname/ip address:port of the server")
                         .default_value("[::1]:50001")
                 )
+                .arg(
+                    Arg::with_name("tls")
+                        .long("tls")
+                        .takes_value(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .required(false)
+                )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
-                    .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
-                        .required(true)
-                        .index(1))
-                    .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
-                        .required(true)
-                        .index(2))
-                    .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
-                        .required(true)
-                        .index(3))
-                    .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
-                        .required(false)
-                        .index(4)
-                        .default_value("1000"))
-                    .arg(Arg::with_name("CLIENTS").help("Specify which clients have to send out probes (all connected clients will listen for packets)")
-                        .required(false)
-                        .index(5)
-                        .multiple(true))
-                    .arg(Arg::with_name("STREAM").help("Stream results to stdout")
-                        .takes_value(false)
-                        .long("stream")
-                        .required(false))
-                    .arg(Arg::with_name("SHUFFLE").help("Randomly shuffle the ip file")
-                        .takes_value(false)
-                        .long("shuffle")
-                        .required(false))
-                    .arg(Arg::with_name("LIVE").help("Check results for Anycast targets as they come in live")
-                        .takes_value(true)
-                        .long("live")
-                        .required(false))
+                                .arg(Arg::with_name("SOURCE_IP").help("The IP to send the pings from")
+                                    .required(true)
+                                    .index(1)
+                                )
+                                .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
+                                    .required(true)
+                                    .index(2)
+                                )
+                                .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                                    .required(true)
+                                    .index(3)
+                                )
+                                .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
+                                    .required(false)
+                                    .index(4)
+                                    .default_value("1000")
+                                )
+                                .arg(Arg::with_name("CLIENTS").help("Specify which clients have to send out probes (all connected clients will listen for packets) [client_id1,client_id2,...]")
+                                    .required(false)
+                                    .index(5)
+                                )
+                                .arg(Arg::with_name("STREAM").help("Stream results to stdout")
+                                    .takes_value(false)
+                                    .long("stream")
+                                    .required(false)
+                                )
+                                .arg(Arg::with_name("SHUFFLE").help("Randomly shuffle the ip file")
+                                    .takes_value(false)
+                                    .long("shuffle")
+                                    .required(false)
+                                )
+                                .arg(Arg::with_name("UNICAST").help("Probe the targets using the unicast address of each client")
+                                    .takes_value(false)
+                                    .long("unicast")
+                                    .required(false)
+                                )
+                                .arg(Arg::with_name("TRACEROUTE").help("Probe the targets using traceroute")
+                                    .takes_value(false)
+                                    .long("traceroute")
+                                    .required(false)
+                                )
+                                .arg(
+                                    Arg::with_name("INTERVAL")
+                                        .short("i")
+                                        .takes_value(true)
+                                        .help("Interval between separate client's probes to the same target [default: 1s]")
+                                        .required(false)
+                                )
+                                .arg(
+                                    Arg::with_name("DIVIDE")
+                                        .long("divide")
+                                        .takes_value(false)
+                                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
+                                        .required(false)
+                                )
 
-                    // TODO option to perform manycast for all 3 protocols on a hitlist
-                    // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
-                    // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
-
+                            // TODO option to perform manycast for all 3 protocols on a hitlist
+                            // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
+                            // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
                 )
         )
         .get_matches()
