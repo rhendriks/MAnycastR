@@ -323,7 +323,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                     .required(false)
                                     .long("address")
                                     .short("a")
-                                    .index(1)
                                     .help("Source IP to use for the probes")
                                 )
                                 .arg(Arg::with_name("SOURCE_PORT")
