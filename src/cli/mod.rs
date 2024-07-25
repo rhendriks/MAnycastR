@@ -4,18 +4,14 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::{fs, io};
 use std::io::{BufRead, BufReader, Write};
-use std::net::Ipv4Addr;
-use std::ops::Add;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
-use tonic::transport::Channel;
-use std::process::{Command, Stdio};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use csv::Writer;
 
 use crate::custom_module;
@@ -41,54 +37,24 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let addr = "https://".to_string().add(args.value_of("server").unwrap());
+    let addr = args.value_of("server").unwrap();
+    let tls = args.is_present("tls");
+
     // Create client connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server at address {}", addr);
-    let grpc_client = ControllerClient::connect(addr).await?;
-    println!("[CLI] Connected to Controller Server");
+    print!("[CLI] Connecting to Controller Server at address {} ... ", addr);
+    let grpc_client = CliClient::connect(addr, tls).await.expect("Unable to connect to server");
+    println!("Success"); // TODO unsuccessful connection is unclear
     let mut cli_client = CliClient { grpc_client, };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
-        // Check if iGreedy is present, and has a valid path if so
-        let igreedy: Option<String> = if matches.is_present("LIVE") {
-            let path = matches.value_of("LIVE");
-
-            if let Ok(metadata) = fs::metadata(path.unwrap()) { // TODO igreedy
-                println!("metadata: {:?}", metadata);
-
-                println!("Path: {}", path.unwrap());
-
-                let output = Command::new("python3")
-                    .arg(path.unwrap())
-                    .stdout(Stdio::piped()) // Capture stdout
-                    .spawn().expect("Failed to spawn iGreedy")
-                    .wait_with_output().expect("Failed to execute iGreedy");
-
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    println!("Script output:\n{}", stdout);
-                } else {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    println!("Script output:\n{}", stdout);
-                    println!("The script executed but returned a non-zero exit status: {}", output.status);
-                    panic!("iGreedy did not get executed properly.")
-                }
-            } else {
-                panic!("Invalid iGreedy path: {}", path.unwrap());
-            }
-            Some(path.unwrap().to_owned())
-        } else {
-            None
-        };
-
         // Source IP for the measurement
         let source_ip = IP::from(matches.value_of("SOURCE_IP").unwrap().to_string());
 
         // Get the target IP addresses
         let ip_file = matches.value_of("IP_FILE").unwrap();
-        let file = File::open("./data/".to_string().add(ip_file)).unwrap_or_else(|_| panic!("Unable to open file {}", "./data/".to_string().add(ip_file)));
+        let file = File::open(ip_file).unwrap_or_else(|_| panic!("Unable to open file {}", ip_file));
         let buf_reader = BufReader::new(file);
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
@@ -119,16 +85,30 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Get the clients that have to send out probes
         let client_ids = if matches.is_present("CLIENTS") {
-            let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
-                .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
-                .collect();
-
-            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
-            client_ids
+            let clients_str = matches.value_of("CLIENTS").unwrap();
+            clients_str.trim_matches(|c| c == '[' || c == ']')
+                .split(',')
+                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse client ID: {}", id)))
+                .collect::<Vec<u32>>()
         } else {
             println!("[CLI] Probes will be sent out from all clients");
-            vec![]
+            Vec::new()
         };
+        if client_ids.len() > 0 {
+            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
+            // TODO print client information
+        }
+        // let client_ids = if matches.is_present("CLIENTS") {
+        //     let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
+        //         .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
+        //         .collect();
+        //
+        //     println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
+        //     client_ids
+        // } else {
+        //     println!("[CLI] Probes will be sent out from all clients");
+        //     vec![]
+        // };
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
@@ -139,17 +119,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let unicast = matches.is_present("UNICAST");
         let traceroute = matches.is_present("TRACEROUTE");
         let divide = matches.is_present("DIVIDE");
-        let interval = if matches.is_present("INTERVAL") {
-            u32::from_str(matches.value_of("INTERVAL").unwrap()).unwrap()
-        } else {
-            1 // Default interval
-        };
-        // Get the rate for this task
-        let rate = if matches.is_present("RATE") {
-            u32::from_str(matches.value_of("RATE").unwrap()).unwrap()
-        } else {
-            1000 // Default rate
-        };
+        // Divide-and-conquer is only supported for anycast-based measurements
+        if divide && unicast {
+            panic!("Divide-and-conquer is only supported for anycast-based measurements");
+        }
+
+        // Get interval, rate. Default values are 1 and 1000 respectively
+        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();
+        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).unwrap();
 
         let t_type = match task_type {
             1 => "ICMP/ping",
@@ -159,30 +136,31 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}", t_type,
-            ips.len().to_string()
-                .as_bytes()
-                .rchunks(3)
-                .rev()
-                .map(std::str::from_utf8)
-                .collect::<Result<Vec<&str>, _>>()
-                .unwrap()
-                .join(","),
-             source_ip.to_string(),
-             rate.to_string().as_bytes()
-                 .rchunks(3)
-                 .rev()
-                 .map(std::str::from_utf8)
-                 .collect::<Result<Vec<&str>, _>>()
-                 .unwrap()
-                 .join(","),
+        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}",
+                 t_type,
+                 ips.len().to_string()
+                     .as_bytes()
+                     .rchunks(3)
+                     .rev()
+                     .map(std::str::from_utf8)
+                     .collect::<Result<Vec<&str>, _>>()
+                     .expect("Unable to format hitlist length")
+                     .join(","),
+                 source_ip.to_string(),
+                 rate.to_string().as_bytes()
+                     .rchunks(3)
+                     .rev()
+                     .map(std::str::from_utf8)
+                     .collect::<Result<Vec<&str>, _>>()
+                     .expect("Unable to format rate")
+                     .join(","),
             interval
         );
 
         let hitlist_length = ips.len();
         // Create the task and send it to the server
         let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, igreedy).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length).await
     } else {
         panic!("Unrecognized command");
     }
@@ -290,7 +268,6 @@ impl CliClient {
     ///
     /// * 'hitlist' - the name of the hitlist file that was used for this measurement
     ///
-    /// * 'igreedy' - the path to the iGreedy script (to perform live checks on addresses) // TODO unimplemented
     async fn do_task_to_server(
         &mut self,
         task: ScheduleTask,
@@ -299,20 +276,18 @@ impl CliClient {
         hitlist: &str,
         divide: bool,
         hitlist_length: usize,
-        igreedy: Option<String>,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let source_address = IP::from(task.clone().source_address.unwrap());
         let ipv6 = source_address.is_v6();
         let source_address = source_address.to_string();
-
         let task_type = task.task_type;
         let unicast = task.unicast;
         let traceroute = task.traceroute;
 
         // Obtain connected client information for metadata
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await?;
+        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
         let mut clients = HashMap::new();
         for client in response.into_inner().clients {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
@@ -322,7 +297,7 @@ impl CliClient {
             println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
             println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 10.0) / 60.0);
         } else {
-            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0); // TODO update when using divide-and-conquer
+            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0);
         }
 
         let request = Request::new(task.clone());
@@ -346,50 +321,21 @@ impl CliClient {
         let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
         let mut stream = response.expect("Unable to obtain the server stream").into_inner();
-
-        let tx = if igreedy != None {
-            // Channel for address_feed
-            let (tx, rx) = unbounded_channel();
-            address_feed(rx,  Duration::from_secs((clients.len() * 2) as u64), igreedy.unwrap());
-            Some(tx)
-        } else {
-            None
-        };
-
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get task type
         let type_str = match task_type {
-            1 => {
-                if ipv6 {
-                    "ICMPv6"
-                } else {
-                    "ICMPv4"
-                }
-            },
-            2 => {
-                if ipv6 {
-                    "UDPv6"
-                } else {
-                    "UDPv4"
-                }
-            },
-            3 => {
-                if ipv6 {
-                    "TCPv6"
-                } else {
-                    "TCPv4"
-                }
-            },
-            4 => {
-                if ipv6 {
-                    "UDP-CHAOSv6"
-                } else {
-                    "UDP-CHAOSv4"
-                }
-            },
-            _ => "ICMP"
+            1 => "ICMP",
+            2 => "UDP",
+            3 => "TCP",
+            4 => "UDP-CHAOS",
+            _ => "ICMP",
+        };
+        let type_str = if ipv6 {
+            format!("{}v6", type_str)
+        } else {
+            format!("{}v4", type_str)
         };
 
         // Temporary output file (for writing live results to)
@@ -405,10 +351,6 @@ impl CliClient {
                 tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
                 graceful = true;
                 break;
-            }
-
-            if let Some(tx) = &tx { // Send the results to the igreedy channel
-                tx.send(task_result.clone()).unwrap();
             }
 
             replies_count += task_result.result_list.len();
@@ -443,7 +385,8 @@ impl CliClient {
         };
 
         // Output file // TODO add option to write as a compressed file
-        let mut file = File::create("./out/".to_string().add(measurement_type).add(type_str).add(&*timestamp_end_str).add(".csv")).expect("Unable to create file");
+        let mut file = File::create(format!("./out/{}{}{}.csv", measurement_type, type_str, timestamp_end_str)).expect("Unable to create file");
+
 
         // Write metadata of measurement
         if !graceful {
@@ -490,11 +433,68 @@ impl CliClient {
         Ok(())
     }
 
+    /// Connect to the server
+    ///
+    /// # Arguments
+    ///
+    /// * 'address' - the address of the server (e.g., 190.100.10.10:50051)
+    ///
+    /// * 'tls' - a boolean that determines whether the connection should be secure or not
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the ControllerClient and a Boxed Error if the connection fails
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let client = CliClient::connect("190.100.10.10:50051", true).await;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the connection fails
+    ///
+    /// # Remarks
+    ///
+    /// This function is async and should be awaited
+    ///
+    /// tls requires a certificate at ./tls/server.crt
+    async fn connect(address: &str, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if tls {
+            // Secure connection
+            let addr = format!("https://{}", address);
+
+            // Load the CA certificate used to authenticate the server
+            let pem = fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            let ca = Certificate::from_pem(pem);
+
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name("localhost");
+
+            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            builder
+                .tls_config(tls).expect("Unable to set TLS configuration")
+                .connect().await.expect("Unable to connect to server")
+        } else {
+            // Unsecure connection
+            let addr = format!("http://{}", address);
+
+            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
+                .connect().await.expect("Unable to connect to server")
+        };
+        // Create client with secret token that is used to authenticate client commands.
+        let client = ControllerClient::new(channel);
+
+        Ok(client)
+    }
+
     /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Sending list clients to server");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await?;
+        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
@@ -534,93 +534,6 @@ impl CliClient {
 
         Ok(())
     }
-}
-
-/// Check for Anycast addresses live, by keeping track of the number of unique clients receiving a response for all addresses.
-///
-/// # Arguments
-///
-/// * 'rx' - Receives task results to be analyzed
-///
-/// * 'cleanup_interval' - The interval at which results are cleaned up
-///
-/// * 'path' - The path to the iGreedy script
-fn address_feed( // TODO unimplemented
-    mut rx: UnboundedReceiver<TaskResult>,
-    cleanup_interval: Duration,
-    path: String
-) {
-    let map: Arc<Mutex<HashMap<u32, (u8, Instant)>>> = Arc::new(Mutex::new(HashMap::new())); // {Address: (client_ID, timestamp)}
-
-    let map_clone = map.clone();
-    // Start the cleanup task in a separate Tokio task
-    tokio::spawn(async move {
-        loop {
-            // Sleep for the cleanup interval
-            tokio::time::sleep(cleanup_interval).await;
-
-            // Perform the cleanup
-            let mut map = map_clone.lock().unwrap();
-            map.retain(|_, &mut (_, timestamp)| {
-                Instant::now().duration_since(timestamp) <= cleanup_interval
-            });
-        }
-    });
-
-    tokio::spawn(async move {
-        // Receive tasks from the outbound channel
-        while let Some(task_result) = rx.recv().await {
-            // Get the client ID
-            let client_id: u8 = task_result.client_id.try_into().unwrap();
-
-            // Loop over all results
-            for result in task_result.result_list {
-                // Get the source address of this result
-                let address: u32 = match result.value.unwrap() { // TODO not v6 compatible
-                    ResultPing(ping_result) => u32::from_str(&ping_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultUdp(udp_result) => u32::from_str(&udp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultTcp(tcp_result) => u32::from_str(&tcp_result.ip_result.unwrap().get_source_address_str()).expect("Unable to parse address"),
-                    ResultTrace(_) => continue, // We do not care about traceroute results when checking for anycast
-                };
-
-                let mut map = map.lock().unwrap();
-
-                if !map.contains_key(&address) {
-                    // If we have not yet recorded this address, make a new entry with current timestamp and the receiving client's ID
-                    map.insert(address, (client_id, Instant::now()));
-                } else {
-                    // If we have already recorded it retrieve the record
-                    let (client_id_old, timestamp) = map.get(&address).unwrap().clone();
-                    if (client_id_old == 0) | (client_id == client_id_old) {
-                        // If the client ID == 0 (already recorded as anycast suspect) or has the same client ID (still unicast suspect) do nothing
-                        continue;
-                    } else {
-                        // If this was also recorded at a different client, it is an anycast suspect
-                        // TODO currently spams the CLI
-                        println!("[CLI] Anycast suspect! {}", Ipv4Addr::from(address).to_string());
-                        igreedy(path.clone(), &Ipv4Addr::from(address).to_string());
-
-                        // TODO keep list of checked anycast targets, and make sure to not check targets multiple times
-                        // Set client ID to 0 (already checked)
-                        map.insert(address, (0, timestamp));
-                    }
-                }
-            }
-        }
-    });
-}
-
-/// Perform an iGreedy measurement on a given IP address
-fn igreedy(path: String, target: &str) {
-    let output = format!("igreedy/{}/{}", Local::now().format("%Y%m%d").to_string(), target);
-
-    Command::new("python3")
-        .arg(&path)
-        .arg("-m")
-        .arg(target)
-        .arg("-o")
-        .arg(&output)
-        .spawn().expect("iGreedy failed!");
 }
 
 /// Write the results to the command-line interface and a file

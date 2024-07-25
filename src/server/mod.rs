@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -11,6 +12,7 @@ use clap::ArgMatches;
 use futures_core::Stream;
 use rand::Rng;
 use tokio::spawn;
+use tonic::transport::{Identity, ServerTlsConfig};
 use crate::server::mpsc::Sender;
 use crate::custom_module;
 use custom_module::IP;
@@ -38,7 +40,7 @@ use custom_module::verfploeter::{
 /// * 'interval' - the interval between clients sending out probes to the same target
 #[derive(Debug, Clone)]
 pub struct ControllerService {
-    clients: Arc<Mutex<ClientList>>,
+    clients: Arc<Mutex<ClientList>>, // TODO combine clients and senders into one struct
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -213,12 +215,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let request = request.into_inner();
         let task_id: u32 = request.task_id;
-        println!("[Server] Client with ID {} is finished", request.client_id);
-
-        let tx = {
-            let sender = self.cli_sender.lock().unwrap();
-            sender.clone().unwrap()
-        };
+        let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'task_finished' from all clients that executed this task
         let finished: bool;
@@ -237,10 +234,15 @@ impl Controller for ControllerService {
             }
             // If this is the last client we are finished
             if remaining == &(1u32) {
+                println!("{}", request.client_id);
+                println!("[Server] All clients finished");
+
                 open_tasks.remove(&task_id);
                 finished = true;
             // If this is not the last client, decrement the amount of remaining clients
             } else {
+                // Print the client ID that finished the task
+                print!("{}, ", request.client_id);
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 finished = false;
             }
@@ -280,9 +282,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<Metadata>,
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
-        println!("[Server] Received client_connect");
-
         let hostname = request.into_inner().hostname;
+        println!("[Server] New client connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
@@ -330,7 +331,7 @@ impl Controller for ControllerService {
         &self,
         request: Request<ScheduleTask>,
     ) -> Result<Response<Self::DoTaskStream>, Status> {
-        println!("[Server] Received do_task");
+        println!("[Server] Received CLI measurement request");
 
         // If there already is an active measurement, we skip
         {
@@ -476,7 +477,6 @@ impl Controller for ControllerService {
                     tokio::time::sleep(cleanup_interval).await;
                     // Perform the cleanup
                     let mut map = targets.lock().await;
-
                     let mut traceroute_targets = HashMap::new();
 
                     for (target, (clients, timestamp, _, _)) in map.clone().iter() {
@@ -491,7 +491,7 @@ impl Controller for ControllerService {
 
                     for (target, (clients, _, ttl, origins)) in traceroute_targets {
                         // Get the upper bound TTL we should perform traceroute with
-                        let max_ttl: u32 = if ttl >= 128 {
+                        let max_ttl = if ttl >= 128 {
                             255 - ttl
                         } else if ttl >= 64 {
                             128 - ttl
@@ -555,10 +555,16 @@ impl Controller for ControllerService {
             }
         }
 
-        println!("[Server] Distributing tasks");
-        let mut t: u64 = 0;
-
         let number_of_clients = senders.len() as u64;
+        // Get number of active clients, client.len 0 -> all clients are probing
+        let active_clients = if clients.len() == 0 {
+            number_of_clients
+        } else {
+            clients.len() as u64
+        };
+        println!("[Server] Distributing tasks to {} out of {} clients", active_clients, number_of_clients);
+
+
         if !divide {
             println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, clients_interval);
         } else {
@@ -567,90 +573,70 @@ impl Controller for ControllerService {
 
         // Shared variable to keep track of the number of clients that have finished
         let clients_finished = Arc::new(Mutex::new(0));
-
         // Shared channel that clients will wait for till the last client has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
-
-        // TODO create chunks here (divide and conquer), instead of cloning dest_addresses for each client
+        let mut t: u64 = 0; // Index for active clients
+        let mut i = 0; // Index for the client list
 
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
-            let active = self.active.clone();
             // This client's unique ID
-            let client_id = *client_list_u32.get(t as usize).unwrap();
+            let client_id = *client_list_u32.get(i as usize).unwrap();
+            i += 1;
             let clients = clients.clone();
+            // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
+            let probing = clients.len() == 0 || clients.contains(&client_id);
 
-            // Determine whether this client is probing
-            let probing = if clients.len() == 0 {
-                true // All clients are probing
-            } else if clients.contains(&client_id) {
-                true // This client was selected to probe
-            } else {
-                false // This client was not selected to probe
-            };
-
-            let dest_addresses = if divide {
-                if clients.len() != 0 {
-                    panic!("[Server] Divide and conquer is not supported for client-selective probing")
-                }
+            let dest_addresses = if !probing {
+                vec![]
+            } else if divide {
                 // Each client gets its own chunk of the destination addresses
-                let chunk_size = dest_addresses.len() / number_of_clients as usize;
-                let start_index = t as usize * chunk_size;
-                let mut end_index = start_index + chunk_size;
+                let chunk_size = dest_addresses.len() / active_clients as usize;
 
-                // Adjust end_index for the last client to include any remaining elements
-                if t == number_of_clients - 1 {
-                    end_index = dest_addresses.len();
-                }
+                // Get start and end index of targets to probe for this client
+                let start_index = t as usize * chunk_size;
+                let end_index = if t == active_clients - 1 {
+                    dest_addresses.len() // End of the list
+                } else {
+                    start_index + chunk_size
+                };
 
                 dest_addresses[start_index..end_index].to_vec()
             } else {
-                if probing {
-                    // All clients get the same destination addresses
-                    dest_addresses.clone()
-                } else {
-                    // This client does not probe
-                    // vec![]
-                    dest_addresses.clone() // TODO we unnecessarily clone dest_addresses for clients that do not probe
-                }
+                // All clients get the same destination addresses
+                dest_addresses.clone()
             };
-            t += 1;
+
+            // increment if this client is sending probes
+            if probing { t += 1; }
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = clients_finished.clone();
 
+            let active = self.active.clone();
             spawn(async move {
-                let mut abort = false;
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if !divide {
-                    tokio::time::sleep(Duration::from_secs(t * clients_interval as u64)).await;
+                if probing && !divide {
+                    println!("Sleeping for {} seconds", (t - 1) * clients_interval as u64);
+                    tokio::time::sleep(Duration::from_secs((t - 1) * clients_interval as u64)).await;
                 }
 
                 // Send out packets at the required interval
                 let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
 
-                // If this client is actively probing stream tasks, else just sleep the measurement time then send the end measurement packet
-                if probing {
-                    println!("[Server] Streaming tasks to client with ID {}", client_id);
-                } else {
-                    println!("[Server] Not streaming tasks to client with ID {}", client_id);
-                }
-
-                for chunk in dest_addresses.chunks(chunk_size) { // TODO change this loop to not depend on dest_addresses (we check for disconnections in this loop)
+                for chunk in dest_addresses.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
                     if *active.lock().unwrap() == false {
-                        // TODO create a separate thread that listens for the CLI disconnecting
-                        println!("[Server] CLI disconnected during task distribution");
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                         if clients_finished.lock().unwrap().clone() == number_of_clients {
+                            println!("[Server] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
-                        abort = true;
-                        break
+                        return // abort
                     }
 
                     if probing {
@@ -683,33 +669,34 @@ impl Controller for ControllerService {
                     interval.tick().await;
                 }
 
-                if !abort {
-                    clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
-                    if clients_finished.lock().unwrap().clone() == number_of_clients {
-                        println!("[Server] All clients have finished the measurement");
-                        // Send a message to the other sending threads to let them know the measurement is finished
-                        tx_f.send(()).expect("Failed to send finished signal");
-                        // tx_f.send(()).await.expect("Failed to send finished signal");
-                    } else {
-                        // Wait for the last client to finish
-                        rx_f.recv().await.expect("Failed to receive finished signal");
-                    }
+                clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                if clients_finished.lock().unwrap().clone() == number_of_clients {
+                    println!("[Server] Measurement finished, awaiting clients: ");
+                    // Send a message to the other sending threads to let them know the measurement is finished
+                    tx_f.send(()).expect("Failed to send finished signal");
+                } else {
+                    // Wait for the last client to finish
+                    rx_f.recv().await.expect("Failed to receive finished signal");
 
-                    // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
-                    if traceroute {
-                        tokio::time::sleep(Duration::from_secs(120)).await;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    // If the CLI disconnects whilst waiting for the finished signal, abort
+                    if *active.lock().unwrap() == false {
+                        return // abort
                     }
+                }
 
-                    println!("[Server] Letting client with ID {} know the measurement is finished", client_id);
-                    // Send a message to the client to let it know it has received everything for the current task
-                    match sender.send(Ok(Task {
-                        data: None,
-                    })).await {
-                        Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
-                    }
+                // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
+                if traceroute {
+                    tokio::time::sleep(Duration::from_secs(120)).await;
+                } else {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+
+                // Send a message to the client to let it know it has received everything for the current task
+                match sender.send(Ok(Task {
+                    data: None,
+                })).await {
+                    Ok(_) => (),
+                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
                 }
             });
         }
@@ -730,7 +717,6 @@ impl Controller for ControllerService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<ClientList>, Status> {
-        println!("[Server] Received list_clients");
         Ok(Response::new(self.clients.lock().unwrap().clone()))
     }
 
@@ -866,8 +852,6 @@ impl Controller for ControllerService {
         &self,
         request: Request<Metadata>
     ) -> Result<Response<ClientId>, Status> {
-        println!("[Server] Received get_client_id");
-
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
         let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
@@ -942,7 +926,39 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
     let svc = ControllerServer::new(controller);
 
-    Server::builder().add_service(svc).serve(addr).await?;
+    // if TLS is enabled create the server using a TLS configuration
+    if args.is_present("tls") {
+        Server::builder()
+            .tls_config(ServerTlsConfig::new().identity(load_tls())).expect("Failed to load TLS certificate")
+            .add_service(svc)
+            .serve(addr)
+            .await?;
+    } else {
+        Server::builder()
+            .add_service(svc)
+            .serve(addr)
+            .await?;
+    }
 
     Ok(())
 }
+
+// 1. Generate private key:
+// openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
+// 2. Generate certificate signing request:
+// openssl req -new -key server.key -out server.csr
+// 3. Generate self-signed certificate:
+// openssl x509 -req -in server.csr -signkey server.key -out server.crt -days 3650
+// 4. Distribute server.crt to clients
+fn load_tls() -> Identity {
+    // Load TLS certificate
+    let cert = fs::read("tls/server.crt").expect("Unable to read certificate file at ./tls/server.crt");
+    // Load TLS private key
+    let key = fs::read("tls/server.key").expect("Unable to read key file at ./tls/server.key");
+
+    // Create TLS configuration
+    let identity = Identity::from_pem(cert, key);
+
+    identity
+}
+
