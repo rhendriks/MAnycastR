@@ -422,10 +422,20 @@ impl Controller for ControllerService {
         let dest_addresses;
         // let default_src_addr = task.source_address;
         // let default_src_addr = task.origin.unwrap().source_address;
-        let probe_origins = vec![task.origin.clone().unwrap()];  // TODO support multiple probe origins
+        let unicast = task.unicast;
+
+        // TODO None value (origin)
+        let probe_origins: Vec<Origin> = if unicast {
+            vec![]
+        } else if task.configurations.len() != 0 {
+            // TODO configurations
+            vec![]
+        } else {
+            vec![task.origin.clone().unwrap()]
+        };
+
         let rate = task.rate;
         let task_type = task.task_type;
-        let unicast = task.unicast;
         let ipv6 = task.ipv6;
         let traceroute = task.traceroute;
         let divide = task.divide;
