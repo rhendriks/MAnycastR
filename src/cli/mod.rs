@@ -52,7 +52,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Source IP for the measurement
         let unicast = matches.is_present("UNICAST");
         let source_ip = if matches.is_present("ADDRESS") {
-            Some(IP::from(matches.value_of("ADDRESS").unwrap().to_string()))
+            Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
         } else {
             None
         };
@@ -114,7 +114,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if source_ip.is_some() && source_ip.unwrap().is_v6() != ipv6 {
+        if source_ip.is_some() && source_ip.clone().unwrap().is_v6() != ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
         // TODO make sure configurations are of the same type as the target addresses
@@ -152,8 +152,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // We only accept task types 1, 2, 3, 4
         if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
 
-        // Origin for the tasks (unless configurations are specified or unicast is used)
-        let default_origin = if source_ip.is_some() {
+        // Origin for the tasks
+        let default_origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
             let source_port = if matches.is_present("SOURCE_PORT") {
                 u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
@@ -171,7 +171,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
 
             Some(Origin {
-                source_address: Some(Address::from(source_ip.unwrap())),
+                source_address: source_ip,
                 source_port,
                 destination_port,
             })
