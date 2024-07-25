@@ -1,22 +1,21 @@
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    TaskId, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address
+    Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use socket2::{Domain, Protocol, Socket, Type};
-use tonic::Request;
-use tonic::transport::Channel;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use tonic::{Request};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
-use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use clap::ArgMatches;
 use futures::sync::oneshot;
 use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
-use crate::client::outbound::{perform_ping, perform_tcp, perform_udp};
 use gethostname::gethostname;
+use crate::client::outbound::outbound;
+use local_ip_address::{local_ip, local_ipv6};
 
 mod inbound;
 mod outbound;
@@ -28,20 +27,25 @@ mod outbound;
 /// * 'grpc_client' - the client connection with the server
 /// * 'metadata' - used to store this client's hostname and unique client ID
 /// * 'source_address' - contains the source address this client will use for outgoing probes (optional value that can be defined when creating this client)
+/// * 'source_port' - contains the source port this client will use for outgoing probes (optional value that can be defined when creating this client)
+/// * 'dest_port' - contains the destination port (OR ICMP identifier value) this client will use for outgoing probes (optional value that can be defined when creating this client)
 /// * 'active' - boolean value that is set to true when the client is currently doing a measurement
 /// * 'current_task' - contains the task ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
+/// * 'multi_probing' - boolean value that is set to true when the client is configured to send probes from all configured origins (i.e., address/port combinations)
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     source_address: IP,
     source_port: u16,
+    dest_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
-    outbound_tx: Option<tokio::sync::mpsc::Sender<Task>>,
+    outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
+    multi_probing: bool,
 }
 
 impl Client {
@@ -78,36 +82,61 @@ impl Client {
         };
 
         // Get the custom source port for this client (optional)
-        let source_port = if args.is_present("source_port") {
-            let source_port = args.value_of("source_port").unwrap();
-            let source_port = source_port.parse::<u16>().expect("Invalid source port");
-            if source_port < 61440 { // Minimum value for source port is 61440
-                panic!("Source port must be greater than 61440")
-            }
-            println!("[Client] Using custom source port: {}", source_port);
+        let s_port = if args.is_present("source_port") {
+            let s_port = args.value_of("source_port").unwrap()
+                .parse::<u16>().expect("Invalid source port value");
+            println!("[Client] Using custom source port: {}", s_port);
 
-            source_port
+            s_port
         } else {
-            println!("[Client] Using default source port 62321");
+            println!("[Client] Using default source port (62321)");
             62321
         };
 
+
+        // Get the optional destination port for this client (optional)
+        let d_port = if args.is_present("dest_port") {
+            let d_port = args.value_of("dest_port").unwrap()
+                .parse::<u16>().expect("Invalid destination port");
+            println!("[Client] Using custom destination port: {}", d_port);
+
+            d_port
+        } else {
+            println!("[Client] Using default destination port 63853");
+            63853
+        };
+
+        // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
+        let multi_probing = args.is_present("multi-probing");
+        if multi_probing {
+            println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
+        }
+
+        // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            source_address: Some(Address::from(source_address.clone())),
-            source_port: source_port.into(),
+            origin: Some(Origin {
+                source_address: Some(Address::from(source_address.clone())),
+                source_port: s_port.into(),
+                destination_port: d_port.into(),
+                })
         };
+
+        let tls = args.is_present("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
 
         // Initialize a client instance
         let mut client_class = Client {
-            grpc_client: Self::connect(server_addr).await?,
+            grpc_client: client,
             metadata,
             source_address,
-            source_port,
+            source_port: s_port,
+            dest_port: d_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
+            multi_probing,
         };
 
         client_class.connect_to_server().await?;
@@ -121,19 +150,43 @@ impl Client {
     ///
     /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
     ///
+    /// * 'tls' - a boolean that indicates whether the connection should be secured with TLS
+    ///
     /// # Example
     ///
     /// ```
-    /// let grpc_client = connect("127.0.0.0:50001");
+    /// let grpc_client = connect("127.0.0.0:50001", true);
     /// ```
-    async fn connect(address: &str) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let addr = "https://".to_string().add(address);
-        println!("[Client] Connecting to Controller Server at address: {} ...", addr);
-        let client = ControllerClient::connect(addr).await?;
-        println!("[Client] Connected to the Controller Server");
+    async fn connect(address: String, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if tls {
+            // Secure connection
+            let addr = format!("https://{}", address);
+
+            // Load the CA certificate used to authenticate the server
+            let pem = std::fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            let ca = Certificate::from_pem(pem);
+
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name("localhost");
+
+            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            builder
+                .tls_config(tls).expect("Unable to set TLS configuration")
+                .connect().await.expect("Unable to connect to server")
+        } else {
+            // Unsecure connection
+            let addr = format!("http://{}", address);
+
+            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
+                .connect().await.expect("Unable to connect to server")
+        };
+        // Create client with secret token that is used to authenticate client commands.
+        let client = ControllerClient::new(channel);
 
         Ok(client)
     }
+
 
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures tasks are sent back to the server.
     ///
@@ -147,12 +200,19 @@ impl Client {
     ///
     /// * 'client_id' - the unique ID of this client
     ///
-    /// * 'outbound_rx' - the channel that's passed on to outbound for sending all future tasks of this measurement
-    ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
-    fn init(&mut self, task: Task, client_id: u8, outbound_f: Option<oneshot::Receiver<()>>, probing: bool) {
+    ///
+    /// * 'igreedy' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
+    fn init(
+        &mut self,
+        task: Task,
+        client_id: u8,
+        outbound_f: Option<oneshot::Receiver<()>>,
+        probing: bool,
+        igreedy: bool,
+    ) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
             println!("[Client] Received an empty task, skipping measurement");
@@ -169,15 +229,44 @@ impl Client {
         };
 
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        let rate: u32 = start.rate;
-        let task_id = task.task_id;
-        let mut client_sources: Vec<Address> =  start.client_sources;
+        // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
+        let task_id = start.task_id;
+        let ipv6 = start.ipv6;
+        let mut client_sources: Vec<Origin> = start.origins;
+        let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if self.source_address == IP::None {
+        let source_addr: IP = if igreedy {
+            let unicast_ip = if ipv6 {
+                IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
+            } else {
+                IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
+            };
+
+            // We only listen to our own unicast address (each client has its own unicast address)
+            client_sources = vec![Origin {
+                source_address: Some(Address::from(unicast_ip.clone())),
+                source_port: self.source_port.into(),
+                destination_port: self.dest_port.into(),
+            }];
+
+            println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
+            // Use the local unicast address
+            unicast_ip
+        } else if self.source_address == IP::None {
+            // Use the 'default' anycast source address set by the CLI
             IP::from(start.source_address.unwrap())
         } else {
-            client_sources.append(&mut vec![start.source_address.unwrap()]); // Add default address to client_sources such that this client will listen on the default address as well
+            // Add default address to client_sources such that this client will listen on the default address as well
+            client_sources.append(&mut vec![
+                Origin {
+                    source_address: Some(start.source_address.unwrap()),
+                    source_port: self.source_port.into(),
+                    destination_port: self.dest_port.into(),
+                }
+            ]);
+
+            // Use the 'custom' anycast source address set when launching this client
             self.source_address.clone()
         };
 
@@ -188,133 +277,157 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        let ipv6;
-        let mut bind_address;
+        let mut filter = String::new();
 
-        let domain = if source_addr.to_string().contains(':') {
+        if ipv6 {
             println!("[Client] Using IPv6");
-            ipv6 = true;
-            bind_address = format!("[{}]", source_addr.to_string());
-            Domain::ipv6()
+            filter.push_str("ip6");
         } else {
             println!("[Client] Using IPv4");
-            bind_address = format!("{}", source_addr.to_string());
-            ipv6 = false;
-            Domain::ipv4()
+            filter.push_str("ip");
         };
 
-        let protocol = match start.task_type {
+        // With these traceroute probes we need to encode the TTL used in the probe in the payload
+        // TODO this listener needs to capture ICMP TTL expired for all protocols
+        match start.task_type {
             1 => {
-                bind_address = format!("{}:{}", bind_address, "0");
                 if ipv6 {
-                    Protocol::icmpv6()
+                    filter.push_str(" and icmp6");
                 } else {
-                    Protocol::icmpv4()
+                    filter.push_str(" and icmp");
                 }
             },
             2 | 4 =>  { // DNS A record, DNS CHAOS TXT
-                bind_address = format!("{}:{}", bind_address, self.source_port);
-                Protocol::udp()
+                // if ipv6 {
+                //     filter.push_str(" and (icmp6 or ip6[6] == 17)");
+                // } else {
+                //     filter.push_str(" and (udp or icmp)");
+                // }
             },
             3 => {
-                bind_address = format!("{}:{}", bind_address, self.source_port);
-                Protocol::tcp()
+                if ipv6 {
+                    filter.push_str(" and ip6[6] == 6");
+                } else {
+                    filter.push_str(" and tcp");
+                }
             },
             _ => panic!("Invalid task type"),
         };
 
-        // TODO current socket does not forward ipv6 header (future: implement pcap for rust sockets https://lib.rs/crates/pcap)
-        // Create the socket to send and receive to/from
-        let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap()); // TODO try Domain::unix()
-        socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
-        println!("[Client] Sending and listening on address: {}", bind_address);
-
-        // Create a socket for each client_address // TODO do we need a socket for each client_address, source_port combination?
-        let mut sockets = Vec::new();
-        for client_address in client_sources {
-            let address = IP::from(client_address).to_string();
-            if source_addr.to_string() == address { // Skip our own address (we already have a socket for it)
-                continue
+        // Print how this client will probe
+        if self.multi_probing {
+            if probing {
+                println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
+                // Print all origins
+                for origin in client_sources.iter() {
+                    match start.task_type {
+                        1 => {
+                            println!("* Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
+                        },
+                        2 | 4 => {
+                            println!("* Sending on address: {}, from src port {}, to dst port 53", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port);
+                        },
+                        3 => {
+                            println!("* Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                        },
+                        _ => { () }
+                    }
+                }
+            } else {
+                println!("[Client] Not sending probes");
             }
-
-            println!("[Client] Listening on custom address: {}", address);
-            sockets.append(&mut vec![create_socket(address, ipv6, protocol, self.source_port)]);
+        } else {
+            if probing {
+                match start.task_type {
+                    1 => {
+                        println!("[Client] Sending on address: {}", source_addr.to_string());
+                    },
+                    2 | 4 => {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port 53", source_addr.to_string(), self.source_port);
+                    },
+                    3 => {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), self.source_port, self.dest_port);
+                    },
+                    _ => { () }
+                }
+            } else {
+                println!("[Client] Not sending probes");
+            }
         }
+
+        // Add filter for each address/port combination
+        filter.push_str(" and");
+        let filter_parts: Vec<String> = match start.task_type {
+            1 => { // ICMP has no port numbers
+                client_sources.iter()
+                    .map(|origin| format!(" dst host {}", IP::from(origin.clone().source_address.unwrap()).to_string()))
+                    .collect()
+            },
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
+                if ipv6 {
+                    client_sources.iter()
+                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                        .collect()
+                } else {
+                    client_sources.iter()
+                        .map(|origin| format!(" (udp and dst host {} and src port 53) or (icmp and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                        .collect()
+                }
+            },
+            _ => { // TCP
+                client_sources.iter()
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port))
+                    .collect()
+            }
+        };
+
+        filter.push_str(&*filter_parts.join(" or"));
 
         // Start listening thread and sending thread
         match start.task_type {
-            1 => {
-                listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-
-                // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                    listen_ping(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-                }
-
-                if probing {
-                    perform_ping(socket, client_id, source_addr, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
-                }
+            1 => { // ICMP
+                listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
-            2 | 4 => {
-                // Create ICMP socket
-                let socket_icmp = if ipv6 {
-                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv6())).unwrap())
-                } else {
-                    Arc::new(Socket::new(domain, Type::raw(), Some(Protocol::icmpv4())).unwrap())
-                };
-                socket_icmp.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
-                let task_type: u32 = start.task_type;
-
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
                 // Start listening thread
-                listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
-
-                // // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-
-                    let socket_icmp = if ipv6 {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet6().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv6(), 0)
+                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
+            }
+            3 => { // TCP
+                // When tracerouting we need to listen to ICMP for TTL expired messages
+                if traceroute {
+                    if ipv6 {
+                        filter.push_str(" or icmp6");
                     } else {
-                        create_socket(socket.local_addr().expect("Unable get socket address").as_inet().expect("Unexpected IP type").ip().to_string(), ipv6, Protocol::icmpv4(), 0)
-                    };
-
-                    listen_udp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, socket_icmp, ipv6, task_type);
+                        filter.push_str(" or icmp");
+                    }
                 }
-
-                // Start sending thread
-                if probing {
-                    perform_udp(socket, client_id, source_addr, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6, task_type);
-                }
-            }
-            3 => {
-                // Destination port is a high number to prevent causing open states on the target
-                let dest_port = 63853 + client_id as u16;
 
                 // Start listening thread
-                listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-
-                // Start listening thread for other source addresses used during this measurement
-                for socket in sockets {
-                    let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
-                    self.inbound_tx_f.as_mut().unwrap().push(inbound_tx_f);
-                    listen_tcp(self.metadata.clone(), socket.clone(), tx.clone(), inbound_rx_f, task_id, client_id, ipv6);
-                }
-
-                // Start sending thread
-                if probing {
-                    perform_tcp(socket, source_addr, dest_port, self.source_port, outbound_rx.unwrap(), outbound_f.unwrap(), rate, ipv6);
-                }
+                listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
             _ => { () }
         };
 
+        // all option to tell this client to use all possible origins
+        let origins = if self.multi_probing {
+            // get the IPs out of client_sources
+            client_sources
+            // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
+        } else {
+            vec![Origin {
+                source_address: Some(Address::from(source_addr.clone())),
+                source_port: self.source_port.into(),
+                destination_port: self.dest_port.into(),
+            }]
+        };
+
+        // Start sending thread, if this client is probing
+        if probing {
+            outbound(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+        }
+
         // Thread that listens for task results from inbound and forwards them to the server
-        thread::spawn({
+        thread::spawn({  // TODO name the thread
             let mut self_clone = self.clone();
             move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -325,8 +438,9 @@ impl Client {
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
-                            self_clone.task_finished_to_server(TaskId {
-                                task_id
+                            self_clone.task_finished_to_server(Finished {
+                                task_id,
+                                client_id: client_id.into(),
                             }).await.unwrap();
 
                             break;
@@ -356,70 +470,78 @@ impl Client {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            let task_id = task.task_id;
             // If we already have an active task
             if *self.active.lock().unwrap() == true {
                 // If the CLI disconnected we will receive this message
-                if *self.current_task.lock().unwrap() + 1000 == task_id {
-                    // Send finish signal
-                    println!("[Client] CLI disconnected, aborting measurement");
-                    // Close the inbound threads
-                    for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                        inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                match task.clone().data {
+                    None => {
+                        // A task with data None identifies the end of a measurement
+                        if task.data == None { // TODO use the end message with an abort/finished flag
+                            println!("[Client] Received measurement finished from Server");
+                            // Close the inbound threads
+                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
+                                inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                            }
+                            // Outbound threads gets exited by sending this None task to outbound
+                            // outbound_tx will be None if this client is not probing
+                            if self.outbound_tx.is_some() {
+                                // Send the task to the prober
+                                self.outbound_tx.clone().unwrap().send(Data::End(End {
+                                })).await.expect("Unable to send task_finished to outbound thread");
+                            }
+                        }
                     }
-                    // f_tx will be None if this client is not probing
-                    if f_tx.is_some() {
-                        // Close outbound threads
-                        f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
-                    }
-                // If the received task is part of the active task
-                } else if *self.current_task.lock().unwrap() == task_id {
-                    // A task with data None identifies the end of a measurement
-                    if task.data == None {
-                        println!("[Client] Received measurement finished from Server");
+                    Some(Data::Start(_)) => {
+                        println!("[Client] Received new measurement during an active measurement, skipping");
+                        continue
+                    },
+                    Some(Data::End(_)) => {
+                        // Send finish signal
+                        println!("[Client] CLI disconnected, aborting measurement");
                         // Close the inbound threads
                         for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                             inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                         }
-                        // Outbound threads gets exited by sending this None task to outbound
+                        // f_tx will be None if this client is not probing
+                        if f_tx.is_some() {
+                            // Close outbound threads
+                            f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
+                        }
                     }
+                    Some(task) => {
+                        // outbound_tx will be None if this client is not probing
+                        if self.outbound_tx.is_some() {
+                            // Send the task to the prober
+                            self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
+                        }
+                    },
+                };
 
-                    // outbound_tx will be None if this client is not probing
-                    if self.outbound_tx.is_some() {
-                        // Send the task to the prober
-                        self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
-                    }
-                } else {
-                    // If we received a new task during a measurement
-                    println!("[Client] Received new measurement during an active measurement, skipping")
-                }
             // If we don't have an active measurement
             } else {
                 println!("[Client] Starting new measurement");
 
-                // Faulty task
-                if task.clone().data == None {
-                    continue // First task must be a Start task
-                }
-
-                let task_active = match task.clone().data.unwrap() { // TODO encountered None value when exiting CLI during a measurement and starting a new one soon after
-                    Data::Start(start) => start.active,
-                    _ => continue, // First task must be a Start task
+                let (is_probing, task_id, unicast) = match task.clone().data.expect("None start task") {
+                    Data::Start(start) => (start.active, start.task_id, start.unicast),
+                    _ => { // First task is not a start task
+                        println!("[Client] Received non-start packet for init");
+                        continue
+                    },
                 };
 
                 *self.active.lock().unwrap() = true;
                 *self.current_task.lock().unwrap() = task_id;
 
-                if task_active { // This client is probing
+                if is_probing { // This client is probing
                     // Initialize signal finish channel
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
-                    self.init(task, client_id, Some(outbound_rx_f), true);
+                    self.init(task, client_id, Some(outbound_rx_f), true, unicast);
                 } else { // This client is not probing
                     f_tx = None;
                     self.outbound_tx = None;
-                    self.init(task, client_id, None, false);
+                    self.init(task, client_id, None, false, unicast);
                 }
             }
         }
@@ -450,28 +572,13 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * 'task_id' - the task ID of the current measurement
-    async fn task_finished_to_server(&mut self, task_id: TaskId) -> Result<(), Box<dyn Error>> {
+    /// * 'finished' - the 'Finished' message to send to the server
+    async fn task_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
         println!("[Client] Sending task finished to server");
         *self.active.lock().unwrap() = false;
-        let request = Request::new(task_id);
+        let request = Request::new(finished);
         self.grpc_client.task_finished(request).await?;
 
         Ok(())
     }
-}
-
-/// Create a socket for a certain address, domain, protocol, and port
-fn create_socket(address: String, v6: bool, protocol: Protocol, port: u16) -> Arc<Socket> {
-    let (bind_address, domain) = if v6 == true {
-        (format!("[{}]:{}", address, port), Domain::ipv6())
-    } else {
-        (format!("{}:{}", address, port), Domain::ipv4())
-    };
-
-    // Create the socket to send and receive to/from
-    let socket = Arc::new(Socket::new(domain, Type::raw(), Some(protocol)).unwrap());
-    socket.bind(&bind_address.parse::<SocketAddr>().unwrap().into()).unwrap();
-
-    return socket
 }
