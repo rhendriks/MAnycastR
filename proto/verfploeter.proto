@@ -44,7 +44,8 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Address source_address = 3; // TODO let CLI set the port numbers
+  Origin origin = 3;
+//  Address source_address = 3; // TODO let CLI set the port numbers
   uint32 task_type = 4;
   bool unicast = 5;
   bool ipv6 = 6;
@@ -72,7 +73,7 @@ message Client {
 // Metadata (as used in Client), contains a hostname, and the origin the client uses
 message Metadata {
   string hostname = 1;
-  Origin origin = 2;
+  Origin origin = 2;  // TODO make this configurable by the CLI
 }
 
 // Address message, can be either an IPv4 or IPv6 address
@@ -108,11 +109,11 @@ message Start {
   bool active = 2;
   uint32 task_id = 3;
   uint32 task_type = 4;
-  Address source_address = 5; // TODO remove this and add the CLI's source address to origins
+  repeated Origin probe_origins = 5; // origins to send with
   bool unicast = 6;
   bool ipv6 = 7;
   bool traceroute = 8;
-  repeated Origin origins = 9;
+  repeated Origin listen_origins = 9; // origins to listen for
 }
 
 // An end message, indicates the client should stop sending out probes

@@ -21,7 +21,8 @@ use custom_module::verfploeter::{
     schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     verfploeter_result::Value::Trace as ResultTrace,
-    udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos
+    udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos,
+    Origin,
 };
 use crate::custom_module::verfploeter::trace_result::Value;
 
@@ -37,12 +38,12 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let addr = args.value_of("server").unwrap();
-    let tls = args.is_present("tls");
+    let server_address = args.value_of("server").unwrap();
+    let is_tls = args.is_present("tls");
 
     // Create client connection with the Controller Server
-    print!("[CLI] Connecting to Controller Server at address {} ... ", addr);
-    let grpc_client = CliClient::connect(addr, tls).await.expect("Unable to connect to server");
+    print!("[CLI] Connecting to Controller Server at address {} ... ", server_address);
+    let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
     println!("Success"); // TODO unsuccessful connection is unclear
     let mut cli_client = CliClient { grpc_client, };
 
@@ -98,22 +99,34 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
             // TODO print client information
         }
-        // let client_ids = if matches.is_present("CLIENTS") {
-        //     let client_ids: Vec<u32> = matches.values_of("CLIENTS").unwrap()
-        //         .map(|id| u32::from_str(id).expect(&format!("Unable to parse client ID: {}", id)))
-        //         .collect();
-        //
-        //     println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
-        //     client_ids
-        // } else {
-        //     println!("[CLI] Probes will be sent out from all clients");
-        //     vec![]
-        // };
 
         // Get the type of task
         let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
         // We only accept task types 1, 2, 3, 4
         if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
+
+        // Obtain port values (read as u16 as is the port header size)
+        let source_port = if matches.is_present("SOURCE_PORT") {
+            u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
+        } else {
+            62321 // Default source port
+        };
+        let destination_port = if matches.is_present("DESTINATION_PORT") {
+            u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
+        } else {
+            if task_type == 2 || task_type == 4 {
+                53 // Default DNS destination port
+            } else {
+                63853 // Default destination port
+            }
+        };
+
+        let origin = Origin {
+            source_address: Some(Address::from(source_ip.clone())),
+            source_port,
+            destination_port,
+        };
+
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
         let unicast = matches.is_present("UNICAST");
@@ -136,7 +149,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => "Undefined (defaulting to ICMP/ping)"
         };
 
-        println!("[CLI] Performing {} task targeting {} addresses, from source {}, with a rate of {}, and an interval of {}",
+        println!("[CLI] Performing {} task targeting {} addresses, from source address {}; source port {}; destination port {};, with a rate of {}, and an interval of {}",
                  t_type,
                  ips.len().to_string()
                      .as_bytes()
@@ -147,6 +160,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .expect("Unable to format hitlist length")
                      .join(","),
                  source_ip.to_string(),
+                 source_port,
+                 destination_port,
                  rate.to_string().as_bytes()
                      .rchunks(3)
                      .rev()
@@ -159,7 +174,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let hitlist_length = ips.len();
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(source_ip, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
+        let schedule_task = create_schedule_task(origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
         cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length).await
     } else {
         panic!("Unrecognized command");
@@ -191,7 +206,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
 /// ```
 fn create_schedule_task(
-    source_address: IP,
+    origin: Origin,
     destination_addresses: Vec<Address>,
     task_type: u32,
     rate: u32,
@@ -207,7 +222,7 @@ fn create_schedule_task(
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address: Some(Address::from(source_address)),
+                origin: Some(origin),
                 task_type,
                 unicast,
                 ipv6,
@@ -223,7 +238,7 @@ fn create_schedule_task(
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address: Some(Address::from(source_address)),
+                origin: Some(origin),
                 task_type,
                 unicast,
                 ipv6,
@@ -239,7 +254,7 @@ fn create_schedule_task(
             return ScheduleTask {
                 rate,
                 clients: client_ids,
-                source_address: Some(Address::from(source_address)),
+                origin: Some(origin),
                 task_type,
                 unicast,
                 ipv6,
@@ -278,7 +293,7 @@ impl CliClient {
         hitlist_length: usize,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
-        let source_address = IP::from(task.clone().source_address.unwrap());
+        let source_address = IP::from(task.clone().origin.unwrap().source_address.unwrap());
         let ipv6 = source_address.is_v6();
         let source_address = source_address.to_string();
         let task_type = task.task_type;

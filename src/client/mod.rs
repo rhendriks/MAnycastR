@@ -83,8 +83,8 @@ impl Client {
 
             s_port
         } else {
-            println!("[Client] Using default source port (62321)");
-            62321
+            println!("[Client] Using source port from task");
+            0
         };
 
 
@@ -96,8 +96,8 @@ impl Client {
 
             d_port
         } else {
-            println!("[Client] Using default destination port 63853");
-            63853
+            println!("[Client] Using destination port from task");
+            0
         };
 
         // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
@@ -109,15 +109,15 @@ impl Client {
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            origin: Some(Origin {
+            origin: Some(Origin {  // TODO remove this, the CLI must define origins used
                 source_address: Some(Address::from(source_address.clone())),
                 source_port: s_port.into(),
                 destination_port: d_port.into(),
                 })
         };
 
-        let tls = args.is_present("tls");
-        let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
+        let is_tls = args.is_present("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), is_tls).await?;
 
         // Initialize a client instance
         let mut client_class = Client {
@@ -226,7 +226,7 @@ impl Client {
         // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
         let task_id = start.task_id;
         let ipv6 = start.ipv6;
-        let mut client_sources: Vec<Origin> = start.origins;
+        let mut client_sources: Vec<Origin> = start.listen_origins;
         let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
@@ -248,17 +248,19 @@ impl Client {
             // Use the local unicast address
             unicast_ip
         } else if self.source_address == IP::None {
-            // Use the 'default' anycast source address set by the CLI
-            IP::from(start.source_address.unwrap())
+            // Use the anycast source address set by the CLI
+            IP::from(start.probe_origins[0].source_address.clone().unwrap())
         } else {
             // Add default address to client_sources such that this client will listen on the default address as well
-            client_sources.append(&mut vec![
-                Origin {
-                    source_address: Some(start.source_address.unwrap()),
-                    source_port: self.source_port.into(),
-                    destination_port: self.dest_port.into(),
-                }
-            ]);
+            // TODO must be added to listen_origins at the server
+            client_sources.append(&mut start.probe_origins.clone());
+            // client_sources.append(&mut vec![
+            //     Origin {
+            //         source_address: Some(start.source_address.unwrap()),
+            //         source_port: self.source_port.into(),
+            //         destination_port: self.dest_port.into(),
+            //     }
+            // ]);
 
             // Use the 'custom' anycast source address set when launching this client
             self.source_address.clone()
