@@ -411,8 +411,6 @@ pub struct TXTRecord {
     pub txt: String,
 }
 
-
-
 /// Read a DNS name that is contained in a DNS response.
 /// Returns the domain name string of the A record reply.
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
