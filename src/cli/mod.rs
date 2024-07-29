@@ -252,7 +252,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'unicast' - a boolean that determines whether the clients must use their unicast source address
 ///
-/// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not // TODO useless ?
+/// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
 ///
 /// * 'traceroute' - a boolean that determines whether the clients must perform traceroute measurements
 /// # Examples
