@@ -542,7 +542,6 @@ impl Controller for ControllerService {
                     }
                 }
             }
-            i = i + 1;
 
             let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
@@ -555,6 +554,7 @@ impl Controller for ControllerService {
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
+            i = i + 1;
 
             let start_task = Task {
                 data: Some(TaskStart(Start {
