@@ -3,11 +3,9 @@ use custom_module::IP;
 use custom_module::verfploeter::{
     Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
 };
-use std::net::{Ipv4Addr, Ipv6Addr};
 use tonic::{Request};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use clap::ArgMatches;
@@ -38,14 +36,13 @@ mod outbound;
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
-    source_address: IP,
-    source_port: u16,
-    dest_port: u16,
+    // source_address: IP,
+    // source_port: u16,
+    // dest_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
-    multi_probing: bool,
 }
 
 impl Client {
@@ -66,77 +63,76 @@ impl Client {
 
         let server_addr = args.value_of("server").unwrap();
 
-        // Get the custom source address for this client (optional)
-        let source_address = if args.is_present("source") {
-            let source = args.value_of("source").unwrap();
-            println!("[Client] Using custom source address: {}", source);
+        // // Get the custom source address for this client (optional)
+        // let source_address = if args.is_present("source") {
+        //     let source = args.value_of("source").unwrap();
+        //     println!("[Client] Using custom source address: {}", source);
+        //
+        //     if source.contains(':') {
+        //         IP::V6(Ipv6Addr::from_str(source).expect("Invalid IPv6 address"))
+        //     } else {
+        //         IP::V4(Ipv4Addr::from_str(source).expect("Invalid IPv4 address"))
+        //     }
+        // } else {
+        //     println!("[Client] Using source address from task");
+        //     IP::None
+        // };
 
-            if source.contains(':') {
-                IP::V6(Ipv6Addr::from_str(source).expect("Invalid IPv6 address"))
-            } else {
-                IP::V4(Ipv4Addr::from_str(source).expect("Invalid IPv4 address"))
-            }
-        } else {
-            println!("[Client] Using source address from task");
-            IP::None
-        };
-
-        // Get the custom source port for this client (optional)
-        let s_port = if args.is_present("source_port") {
-            let s_port = args.value_of("source_port").unwrap()
-                .parse::<u16>().expect("Invalid source port value");
-            println!("[Client] Using custom source port: {}", s_port);
-
-            s_port
-        } else {
-            println!("[Client] Using default source port (62321)");
-            62321
-        };
-
-
-        // Get the optional destination port for this client (optional)
-        let d_port = if args.is_present("dest_port") {
-            let d_port = args.value_of("dest_port").unwrap()
-                .parse::<u16>().expect("Invalid destination port");
-            println!("[Client] Using custom destination port: {}", d_port);
-
-            d_port
-        } else {
-            println!("[Client] Using default destination port 63853");
-            63853
-        };
+        // // Get the custom source port for this client (optional)
+        // let s_port = if args.is_present("source_port") {
+        //     let s_port = args.value_of("source_port").unwrap()
+        //         .parse::<u16>().expect("Invalid source port value");
+        //     println!("[Client] Using custom source port: {}", s_port);
+        //
+        //     s_port
+        // } else {
+        //     println!("[Client] Using source port from task");
+        //     0
+        // };
+        //
+        //
+        // // Get the optional destination port for this client (optional)
+        // let d_port = if args.is_present("dest_port") {
+        //     let d_port = args.value_of("dest_port").unwrap()
+        //         .parse::<u16>().expect("Invalid destination port");
+        //     println!("[Client] Using custom destination port: {}", d_port);
+        //
+        //     d_port
+        // } else {
+        //     println!("[Client] Using destination port from task");
+        //     0
+        // };
 
         // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
-        let multi_probing = args.is_present("multi-probing");
-        if multi_probing {
-            println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
-        }
+        // let multi_probing = args.is_present("multi-probing");
+        // if multi_probing {
+        //     println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
+        // }
 
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            origin: Some(Origin {
-                source_address: Some(Address::from(source_address.clone())),
-                source_port: s_port.into(),
-                destination_port: d_port.into(),
-                })
+            // origin: Some(Origin {  // TODO remove this, the CLI must define origins used
+            //     source_address: Some(Address::from(source_address.clone())),
+            //     source_port: s_port.into(),
+            //     destination_port: d_port.into(),
+            //     })
         };
 
-        let tls = args.is_present("tls");
-        let client = Client::connect(server_addr.parse().unwrap(), tls).await?;
+        let is_tls = args.is_present("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), is_tls).await?;
 
         // Initialize a client instance
         let mut client_class = Client {
             grpc_client: client,
             metadata,
-            source_address,
-            source_port: s_port,
-            dest_port: d_port,
+            // source_address,
+            // source_port: s_port,
+            // dest_port: d_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
-            multi_probing,
         };
 
         client_class.connect_to_server().await?;
@@ -232,42 +228,46 @@ impl Client {
         // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
         let task_id = start.task_id;
         let ipv6 = start.ipv6;
-        let mut client_sources: Vec<Origin> = start.origins;
+        let mut client_sources: Vec<Origin> = start.listen_origins;
         let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let source_addr: IP = if igreedy {
+        let probe_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
+            let source_port = start.probe_origins[0].source_port;
+            let destination_port = start.probe_origins[0].destination_port;
+
             let unicast_ip = if ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
 
+            let unicast_origin = Origin {
+                source_address: Some(Address::from(unicast_ip.clone())), // Unicast IP
+                source_port: source_port.into(), // CLI defined source port
+                destination_port: destination_port.into(), // CLI defined destination port
+            };
+
             // We only listen to our own unicast address (each client has its own unicast address)
-            client_sources = vec![Origin {
-                source_address: Some(Address::from(unicast_ip.clone())),
-                source_port: self.source_port.into(),
-                destination_port: self.dest_port.into(),
-            }];
+            client_sources = vec![unicast_origin.clone()];
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
-            unicast_ip
-        } else if self.source_address == IP::None {
-            // Use the 'default' anycast source address set by the CLI
-            IP::from(start.source_address.unwrap())
-        } else {
+            vec![unicast_origin]
+        } else {  // Use the Origin used by the CLI
             // Add default address to client_sources such that this client will listen on the default address as well
-            client_sources.append(&mut vec![
-                Origin {
-                    source_address: Some(start.source_address.unwrap()),
-                    source_port: self.source_port.into(),
-                    destination_port: self.dest_port.into(),
-                }
-            ]);
+            // TODO must be added to listen_origins at the server
+            // client_sources.append(&mut vec![
+            //     Origin {
+            //         source_address: Some(start.source_address.unwrap()),
+            //         source_port: self.source_port.into(),
+            //         destination_port: self.dest_port.into(),
+            //     }
+            // ]);
+
 
             // Use the 'custom' anycast source address set when launching this client
-            self.source_address.clone()
+            start.probe_origins
         };
 
         // Channel for sending from inbound to the server forwarder thread
@@ -314,45 +314,25 @@ impl Client {
             _ => panic!("Invalid task type"),
         };
 
-        // Print how this client will probe
-        if self.multi_probing {
-            if probing {
-                println!("[Client] Using multi-probing (this client will send probes using all configured origins)");
-                // Print all origins
-                for origin in client_sources.iter() {
-                    match start.task_type {
-                        1 => {
-                            println!("* Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
-                        },
-                        2 | 4 => {
-                            println!("* Sending on address: {}, from src port {}, to dst port 53", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port);
-                        },
-                        3 => {
-                            println!("* Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
-                        },
-                        _ => { () }
+        if probing {
+            match start.task_type {
+                1 => {
+                    // Print all probe origin addresses
+                    for origin in probe_origins.iter() {
+                        println!("[Client] Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
+                        // TODO print ICMP identifier (destination port)
                     }
-                }
-            } else {
-                println!("[Client] Not sending probes");
+                },
+                2 | 3 | 4 => {
+                    // Print all probe origin addresses
+                    for origin in probe_origins.iter() {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                    }
+                },
+                _ => { () }
             }
         } else {
-            if probing {
-                match start.task_type {
-                    1 => {
-                        println!("[Client] Sending on address: {}", source_addr.to_string());
-                    },
-                    2 | 4 => {
-                        println!("[Client] Sending on address: {}, from src port {}, to dst port 53", source_addr.to_string(), self.source_port);
-                    },
-                    3 => {
-                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", source_addr.to_string(), self.source_port, self.dest_port);
-                    },
-                    _ => { () }
-                }
-            } else {
-                println!("[Client] Not sending probes");
-            }
+            println!("[Client] Not sending probes");
         }
 
         // Add filter for each address/port combination
@@ -383,13 +363,13 @@ impl Client {
 
         filter.push_str(&*filter_parts.join(" or"));
 
-        // Start listening thread and sending thread
+        // Start listening thread
+        // TODO listening threads are not needed for non-probing clients when using the local unicast address
         match start.task_type {
             1 => { // ICMP
                 listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                // Start listening thread
                 listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
             }
             3 => { // TCP
@@ -401,29 +381,14 @@ impl Client {
                         filter.push_str(" or icmp");
                     }
                 }
-
-                // Start listening thread
                 listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
             }
             _ => { () }
         };
 
-        // all option to tell this client to use all possible origins
-        let origins = if self.multi_probing {
-            // get the IPs out of client_sources
-            client_sources
-            // client_sources.iter().map(|origin| IP::from(origin.clone().source_address.unwrap())).collect()
-        } else {
-            vec![Origin {
-                source_address: Some(Address::from(source_addr.clone())),
-                source_port: self.source_port.into(),
-                destination_port: self.dest_port.into(),
-            }]
-        };
-
         // Start sending thread, if this client is probing
         if probing {
-            outbound(client_id, origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+            outbound(client_id, probe_origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
         }
 
         // Thread that listens for task results from inbound and forwards them to the server

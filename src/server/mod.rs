@@ -161,22 +161,20 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        println!("[Server] CLI receiver has been dropped");
         let mut active = self.active.lock().unwrap();
 
         // If there is an active task we need to cancel it and notify the clients
         if *active == true {
+            println!("[Server] CLI dropped during an active measurement, terminating task");
+
             // Create termination 'task'
             let task = Task {
                 data: Some(TaskEnd(End {
             })),
             };
 
-            let senders = self.senders.clone();
-            let task = task.clone();
-
             // Tell each client to terminate the task
-            for client in senders.lock().unwrap().iter() {
+            for client in self.senders.lock().unwrap().iter() {
                 let client = client.clone();
                 let task = task.clone();
 
@@ -242,13 +240,13 @@ impl Controller for ControllerService {
             // If this is not the last client, decrement the amount of remaining clients
             } else {
                 // Print the client ID that finished the task
-                print!("{}, ", request.client_id);
+                print!("{},", request.client_id);
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 finished = false;
             }
         }
         if finished {
-            println!("[Server] Sending default value to CLI, notifying the task is finished");
+            println!("[Server] Notifying CLI that task {} is finished", task_id);
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
 
@@ -277,7 +275,7 @@ impl Controller for ControllerService {
     ///
     /// # Arguments
     ///
-    /// * 'request' - a Metadata message containing the hostname and client ID of the client
+    /// * 'request' - a Metadata message containing the hostname of the client
     async fn client_connect(
         &self,
         request: Request<Metadata>,
@@ -420,10 +418,20 @@ impl Controller for ControllerService {
 
         // Create a Task from the ScheduleTask
         let dest_addresses;
-        let default_src_addr = task.source_address;
+        let unicast = task.unicast;
+
+        // Get the probe origins
+        let probe_origins: Vec<Origin> = if unicast {
+            vec![task.origin.clone().unwrap()] // Contains port values
+        } else if task.configurations.len() > 0 {
+            vec![]
+        }
+        else {
+            vec![task.origin.clone().unwrap()]
+        };
+
         let rate = task.rate;
         let task_type = task.task_type;
-        let unicast = task.unicast;
         let ipv6 = task.ipv6;
         let traceroute = task.traceroute;
         let divide = task.divide;
@@ -449,19 +457,15 @@ impl Controller for ControllerService {
         }
 
         // Create a list of origins used by clients
-        let mut client_sources: Vec<Origin> = vec![];
-        for client in &self.clients.lock().unwrap().clients {
-            let mut origin = client.metadata.clone().unwrap().origin.unwrap();
-            if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
-                origin = Origin {
-                    source_address: default_src_addr.clone(),
-                    source_port: origin.source_port,
-                    destination_port: origin.destination_port,
-                }
-            }
+        // let mut listen_origins: Vec<Origin> = vec![];
+        let mut listen_origins = probe_origins.clone(); // TODO support multiple listen origins
+
+        // Add all configuration origins to the listen origins
+        for configuration in task.configurations.clone() {
+            let origin = configuration.origin.unwrap();
             // Avoid duplicate origins
-            if !client_sources.contains(&origin) {
-                client_sources.push(origin);
+            if !listen_origins.contains(&origin) {
+                listen_origins.push(origin);
             }
         }
 
@@ -526,12 +530,29 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
+            let mut client_probe_origins = probe_origins.clone();
+
+            // TODO add configuration origins assigned to this client to probe_origins
+            for configuration in task.configurations.clone() {
+                if (configuration.client_id == *client_list_u32.get(i).unwrap()) | (configuration.client_id == u32::MAX) {
+                    let origin = configuration.origin.unwrap();
+                    // Avoid duplicate origins
+                    if !client_probe_origins.contains(&origin) {
+                        client_probe_origins.push(origin);
+                    }
+                }
+            }
+
             let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
-                true
+                if client_probe_origins.len() == 0 {
+                    false // No probe origins -> not probing
+                } else {
+                    true
+                }
             } else {
                 // Make sure the current client is selected to perform the task
-                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i))) // TODO client ids are not guaranteed to be in order
+                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
             i = i + 1;
 
@@ -544,8 +565,8 @@ impl Controller for ControllerService {
                     unicast,
                     ipv6,
                     traceroute,
-                    source_address: default_src_addr.clone(),
-                    origins: client_sources.clone(),
+                    probe_origins: client_probe_origins.clone(),
+                    listen_origins: listen_origins.clone(),
                 }))
             };
 
@@ -562,13 +583,13 @@ impl Controller for ControllerService {
         } else {
             clients.len() as u64
         };
-        println!("[Server] Distributing tasks to {} out of {} clients", active_clients, number_of_clients);
 
+        // TODO active_clients is not correct when configurations are used
 
         if !divide {
-            println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, clients_interval);
+            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, clients_interval);
         } else {
-            println!("[Server] Each client will send out probes to a different chunk of the destination addresses");
+            println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, active_clients);
         }
 
         // Shared variable to keep track of the number of clients that have finished
@@ -621,7 +642,6 @@ impl Controller for ControllerService {
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if probing && !divide {
-                    println!("Sleeping for {} seconds", (t - 1) * clients_interval as u64);
                     tokio::time::sleep(Duration::from_secs((t - 1) * clients_interval as u64)).await;
                 }
 
@@ -671,7 +691,7 @@ impl Controller for ControllerService {
 
                 clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                 if clients_finished.lock().unwrap().clone() == number_of_clients {
-                    println!("[Server] Measurement finished, awaiting clients: ");
+                    print!("[Server] Measurement finished, awaiting clients... ");
                     // Send a message to the other sending threads to let them know the measurement is finished
                     tx_f.send(()).expect("Failed to send finished signal");
                 } else {
@@ -707,7 +727,6 @@ impl Controller for ControllerService {
             senders: self.senders.clone(),
         };
 
-        println!("[Server] Sending task stream receiver to CLI");
         Ok(Response::new(rx))
     }
     /// Handle the list_clients command from the CLI.
@@ -854,9 +873,6 @@ impl Controller for ControllerService {
     ) -> Result<Response<ClientId>, Status> {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
-        let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
-        let source_port = metadata.origin.clone().unwrap().source_port;
-        let destination_port = metadata.origin.unwrap().destination_port;
         let mut clients_list = self.clients.lock().unwrap();
 
         // Check if the hostname already exists
@@ -880,11 +896,11 @@ impl Controller for ControllerService {
             client_id,
             metadata: Some(Metadata {
                 hostname: hostname.clone(),
-                origin: Some(Origin {
-                    source_address: Some(source_address),
-                    source_port,
-                    destination_port,
-                })
+                // origin: Some(Origin {
+                //     source_address: Some(source_address),
+                //     source_port,
+                //     destination_port,
+                // })
             }),
         };
         clients_list.clients.push(new_client);
