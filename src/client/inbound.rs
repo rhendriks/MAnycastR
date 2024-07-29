@@ -17,12 +17,9 @@ use pcap::{Active, Capture, Device};
 
 // TODO combine listen_ping, listen_udp, and listen_tcp into a single function
 
-/// Listen for incoming ping/ICMP packets, these packets must have our payload to be considered valid replies.
-///
+/// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
-///
-/// For a received packet to be considered a reply, it must be an ICMP packet with the current task ID in the first 4 bytes of the ICMP payload.
-/// From these replies it creates task results that are put in a result queue, which get sent to the server.
+/// Makes sure that the received packets are valid and belong to the current task.
 ///
 /// # Arguments
 ///
@@ -39,7 +36,9 @@ use pcap::{Active, Capture, Device};
 /// * 'filter' - the pcap filter to use
 ///
 /// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
-pub fn listen_ping(
+///
+/// * 'task_type' - the type of task that is being executed
+pub fn listen(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
     task_id: u32,
@@ -47,18 +46,18 @@ pub fn listen_ping(
     v6: bool,
     filter: String,
     traceroute: bool,
+    task_type: u32,
 ) {
-    println!("[Client inbound] Started ICMP listener with filter {}", filter);
+    println!("[Client inbound] Started listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
-    let result_queue_r = rq.clone();
-    let exit_flag_r = Arc::clone(&exit_flag);
+    let rq_r = rq.clone();
+    let exit_flag_r = exit_flag.clone();
     thread::Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
-            println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             let mut cap = get_pcap(filter);
 
             // Listen for incoming ICMP packets
@@ -74,11 +73,49 @@ pub fn listen_ping(
                     },
                 };
 
-                // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-                let mut result = if v6 {
-                    parse_icmpv6(&packet.data[14..], task_id)
+                let mut result = if task_type == 1 { // ICMP
+                    // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
+                    let icmp_result = if v6 {
+                        parse_icmpv6(&packet.data[14..], task_id)
+                    } else {
+                        parse_icmpv4(&packet.data[14..], task_id)
+                    };
+
+                    icmp_result
+                } else if task_type == 2 || task_type == 4 { // DNS A
+                    let udp_result = if v6 {
+                        if packet.data[20] == 17 { // 17 is the protocol number for UDP
+                            parse_udpv6(&packet.data[14..], task_type)
+                        } else {
+                            if task_type == 2 { // We only parse icmp responses to DNS requests for A records
+                                parse_icmp_dest_unreachable(&packet.data[14..], true)
+                            } else {
+                                None
+                            }
+                        }
+                    } else {
+                        if packet.data[23] == 17 { // 17 is the protocol number for UDP
+                            parse_udpv4(&packet.data[14..], task_type)
+                        } else {
+                            if task_type == 2 { // We only parse icmp responses to DNS requests for A records
+                                parse_icmp_dest_unreachable(&packet.data[14..], false)
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    udp_result
+                } else if task_type == 3 { // TCP
+                    let tcp_result = if v6 {
+                        parse_tcpv6(&packet.data[14..])
+                    } else {
+                        parse_tcpv4(&packet.data[14..])
+                    };
+
+                    tcp_result
                 } else {
-                    parse_icmpv4(&packet.data[14..], task_id)
+                    panic!("Invalid task type");
                 };
 
                 // Attempt to parse the packet as an ICMP time exceeded packet
@@ -86,14 +123,14 @@ pub fn listen_ping(
                     result = parse_icmp_time_exceeded(&packet.data[14..], v6);
                 }
 
-                // Invalid ICMP packets have value None
+                // Invalid packets have value None
                 if result == None {
                     continue
                 }
 
                 // Put result in transmission queue
                 {
-                    let mut rq_opt = result_queue_r.lock().unwrap();
+                    let mut rq_opt = rq_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
                     }
@@ -116,234 +153,6 @@ pub fn listen_ping(
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             println!("[Client inbound] Stopped listening for ICMP packets");
-    }).expect("Failed to spawn result_sender_thread");
-}
-
-/// Listen for incoming UDP DNS packets,
-/// these packets must have a DNS A record reply and use the correct port numbers to be considered a reply.
-///
-/// Additionally listens for ICMP port unreachable packets, and will parse the request if it is contained in the ICMP payload.
-///
-/// Creates three threads, two that listen on the sockets and another that forwards results to the server and shuts down the receiving socket when appropriate.
-///
-/// For a received UDP packet to be considered a reply, it must be an UDP DNS packet that contains an A record that follows a specific format.
-/// From these replies it creates task results that are put in a result queue, which get sent to the server.
-///
-/// # Arguments
-///
-/// * 'tx' - sender to put task results in
-///
-/// * 'rx_f' - channel that is used to signal the end of the measurement
-///
-/// * 'task_id' - the task_id of the current measurement
-///
-/// * 'client_id' - the unique client ID of this client
-///
-/// * 'v6' - whether to parse the packets as IPv6 or IPv4
-///
-/// * 'task_type' - the type of task that is being executed
-///
-/// * 'filter' - the pcap filter to use
-///
-/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
-pub fn listen_udp(
-    tx: UnboundedSender<TaskResult>,
-    rx_f: Receiver<()>,
-    task_id: u32,
-    client_id: u8,
-    v6: bool,
-    task_type: u32,
-    filter: String,
-    traceroute: bool,
-) {
-    println!("[Client inbound] Started UDP listener with filter {}", filter);
-
-    // Queue to store incoming UDP packets, and take them out when sending the TaskResults to the server
-    let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
-    // Exit flag for pcap listener
-    let exit_flag = Arc::new(Mutex::new(false));
-    let result_queue_r = result_queue.clone();
-    let exit_flag_r = Arc::clone(&exit_flag);
-    thread::Builder::new()
-        .name("listener_thread".to_string())
-        .spawn(move || {
-            println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
-
-            let mut cap = get_pcap(filter);
-
-            loop {
-                let packet = match cap.next_packet() {
-                    Ok(packet) => packet,
-                    Err(_) => {
-                        if *exit_flag_r.lock().unwrap() {
-                            break
-                        }
-                        sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
-                        continue
-                    },
-                };
-
-
-                // UDP
-                let mut result = if v6 {
-                    if packet.data[20] == 17 { // 17 is the protocol number for UDP
-                        parse_udpv6(&packet.data[14..], task_type)
-                    } else {
-                        if task_type == 2 { // We only parse icmp responses to DNS requests for A records
-                            parse_icmp_dest_unreachable(&packet.data[14..], true)
-                        } else {
-                            None
-                        }
-                    }
-                } else {
-                    if packet.data[23] == 17 { // 17 is the protocol number for UDP
-                        parse_udpv4(&packet.data[14..], task_type)
-                    } else {
-                        if task_type == 2 { // We only parse icmp responses to DNS requests for A records
-                            parse_icmp_dest_unreachable(&packet.data[14..], false)
-                        } else {
-                            None
-                        }
-                    }
-                };
-
-                // Attempt to parse the packet as an ICMP time exceeded packet
-                if traceroute && (result == None) {
-                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
-                }
-
-                // Invalid packets have value None
-                if result == None {
-                    continue
-                }
-
-                // Put result in transmission queue
-                {
-                    let mut rq_opt = result_queue_r.lock().unwrap();
-                    if let Some(ref mut x) = *rq_opt {
-                        x.push(result.unwrap());
-                    }
-                }
-            }
-
-            let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped UDP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
-        }).expect("Failed to spawn listener_thread");
-
-    // Thread for sending the received replies to the server as TaskResult
-    thread::Builder::new()
-        .name("result_sender_thread".to_string())
-        .spawn(move || {
-            handle_results(&tx, rx_f, client_id, result_queue);
-
-            // Close the pcap listener
-            *exit_flag.lock().unwrap() = true;
-
-            // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            println!("[Client inbound] Stopped listening for UDP packets");
-    }).expect("Failed to spawn result_sender_thread");
-}
-
-/// Listen for incoming TCP/RST packets, these packets must have the correct destination port,
-/// have the right flags set (RST), and have ACK == 0 for it to be considered a reply.
-///
-/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
-///
-/// For a received packet to be considered a reply, it must be a TCP packet with the RST flag set and using the correct port numbers.
-/// From these replies it creates task results that are put in a result queue, which get sent to the server.
-///
-/// # Arguments
-///
-/// * 'tx' - sender to put task results in
-///
-/// * 'rx_f' - channel that is used to signal the end of the measurement
-///
-/// * 'task_id' - the task_id of the current measurement
-///
-/// * 'client_id' - the unique client ID of this client
-///
-/// * 'v6' - whether to parse the packets as IPv6 or IPv4
-///
-/// * 'filter' - the pcap filter to use
-///
-/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
-pub fn listen_tcp(
-    tx: UnboundedSender<TaskResult>,
-    rx_f: Receiver<()>,
-    task_id: u32,
-    client_id: u8,
-    v6: bool,
-    filter: String,
-    traceroute: bool,
-) {
-    println!("[Client inbound] Started TCP listener with filter {}", filter);
-    // Queue to store incoming TCP packets, and take them out when sending the TaskResults to the server
-    let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
-    // Exit flag for pcap listener
-    let exit_flag = Arc::new(Mutex::new(false));
-    let result_queue_r = result_queue.clone();
-    let exit_flag_r = Arc::clone(&exit_flag);
-    thread::Builder::new()
-        .name("listener_thread".to_string())
-        .spawn(move || {
-            println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
-
-            let mut cap = get_pcap(filter);
-
-            loop {
-                let packet = match cap.next_packet() {
-                    Ok(packet) => packet,
-                    Err(_) => {
-                        if *exit_flag_r.lock().unwrap() {
-                            break
-                        }
-                        sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
-                        continue
-                    },
-                };
-
-                // TCP
-                let mut result = if v6 {
-                    parse_tcpv6(&packet.data[14..])
-                } else {
-                    parse_tcpv4(&packet.data[14..])
-                };
-
-                // Attempt to parse the packet as an ICMP time exceeded packet
-                if traceroute && (result == None) {
-                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
-                }
-
-                // Invalid TCP packets have value None
-                if result == None {
-                    continue
-                }
-
-                // Put result in transmission queue
-                {
-                    let mut rq_opt = result_queue_r.lock().unwrap();
-                    if let Some(ref mut x) = *rq_opt {
-                        x.push(result.unwrap());
-                    }
-                }
-            }
-            let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped TCP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
-        }).expect("Failed to spawn listener_thread");
-
-    // Thread for sending the received replies to the server as TaskResult
-    thread::Builder::new()
-        .name("result_sender_thread".to_string())
-        .spawn(move || {
-            handle_results(&tx, rx_f, client_id, result_queue);
-
-            // Close the pcap listener
-            *exit_flag.lock().unwrap() = true;
-
-            // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            println!("[Client inbound] Stopped listening for TCP packets");
         }).expect("Failed to spawn result_sender_thread");
 }
 

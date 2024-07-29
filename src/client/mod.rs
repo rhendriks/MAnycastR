@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use clap::ArgMatches;
 use futures::sync::oneshot;
-use crate::client::inbound::{listen_ping, listen_tcp, listen_udp};
+use crate::client::inbound::listen;
 use gethostname::gethostname;
 use crate::client::outbound::outbound;
 use local_ip_address::{local_ip, local_ipv6};
@@ -367,10 +367,10 @@ impl Client {
         // TODO listening threads are not needed for non-probing clients when using the local unicast address
         match start.task_type {
             1 => { // ICMP
-                listen_ping(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                listen_udp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, start.task_type, filter, traceroute);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
             }
             3 => { // TCP
                 // When tracerouting we need to listen to ICMP for TTL expired messages
@@ -381,7 +381,7 @@ impl Client {
                         filter.push_str(" or icmp");
                     }
                 }
-                listen_tcp(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
             }
             _ => { () }
         };
