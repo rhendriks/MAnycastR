@@ -51,6 +51,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
         let unicast = matches.is_present("UNICAST");
+        let divide = matches.is_present("DIVIDE");
+        // Divide-and-conquer is only supported for anycast-based measurements
+        if divide && unicast {
+            panic!("Divide-and-conquer is only supported for anycast-based measurements");
+        }
+
         let source_ip = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
         } else {
@@ -59,6 +65,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.is_present("CONF") && !unicast {
+            if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
             let conf_file = matches.value_of("CONF").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
@@ -187,11 +194,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.is_present("STREAM");
         let traceroute = matches.is_present("TRACEROUTE");
-        let divide = matches.is_present("DIVIDE");
-        // Divide-and-conquer is only supported for anycast-based measurements
-        if divide && unicast {
-            panic!("Divide-and-conquer is only supported for anycast-based measurements");
-        }
 
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();

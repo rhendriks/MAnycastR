@@ -583,13 +583,13 @@ impl Controller for ControllerService {
         } else {
             clients.len() as u64
         };
-        println!("[Server] Distributing tasks to {} out of {} clients", active_clients, number_of_clients);
 
+        // TODO active_clients is not correct when configurations are used
 
         if !divide {
-            println!("[Server] {} clients will send out probes to the same target {} seconds after each other", number_of_clients, clients_interval);
+            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, clients_interval);
         } else {
-            println!("[Server] Each client will send out probes to a different chunk of the destination addresses");
+            println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, active_clients);
         }
 
         // Shared variable to keep track of the number of clients that have finished
