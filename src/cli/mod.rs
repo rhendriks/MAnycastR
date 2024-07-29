@@ -58,7 +58,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if args.is_present("CONF") && !unicast {
+        let configurations = if matches.is_present("CONF") && !unicast {
             let conf_file = matches.value_of("CONF").unwrap();
             println!("Reading configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));

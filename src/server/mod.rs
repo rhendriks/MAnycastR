@@ -277,7 +277,7 @@ impl Controller for ControllerService {
     ///
     /// # Arguments
     ///
-    /// * 'request' - a Metadata message containing the hostname and client ID of the client
+    /// * 'request' - a Metadata message containing the hostname of the client
     async fn client_connect(
         &self,
         request: Request<Metadata>,
