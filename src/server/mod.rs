@@ -425,7 +425,10 @@ impl Controller for ControllerService {
         // Get the probe origins
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
-        } else {
+        } else if task.configurations.len() > 0 {
+            vec![]
+        }
+        else {
             vec![task.origin.clone().unwrap()]
         };
 
