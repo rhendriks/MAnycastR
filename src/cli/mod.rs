@@ -63,6 +63,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             None
         };
 
+        // TODO invalid client IDs can be set in the configuration file
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.is_present("CONF") && !unicast {
             if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }

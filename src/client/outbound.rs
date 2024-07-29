@@ -501,13 +501,15 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
     };
 
     // Run the sudo arp command (for the destination MAC addresses)
-    let output = Command::new("cat")
+    let mut child = Command::new("cat")
         .arg("/proc/net/arp")
         .stdout(Stdio::piped())
         .spawn()
-        .expect("Failed to run command")
-        .stdout
-        .expect("Failed to capture stdout");
+        .expect("Failed to run command");
+        // .stdout
+        // .expect("Failed to capture stdout");
+
+    let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
     let mut mac_dest = vec![];
@@ -523,6 +525,10 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
             }
         }
     }
+
+    println!("waiting for child");
+    child.wait().expect("Failed to wait on child");
+    println!("child done");
 
     // TODO rotate the destination MAC address (when we have multiple next hops)
 
