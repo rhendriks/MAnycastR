@@ -263,7 +263,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
-                    // TODO allow for configuration file that contains the source address, ports used for each client
                                 .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                                     .required(true)
                                     .index(1)
