@@ -60,6 +60,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Read the configuration file (unnecessary for unicast)
         let configurations = if args.is_present("CONF") && !unicast {
             let conf_file = matches.value_of("CONF").unwrap();
+            println!("Reading configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
             Some(buf_reader // Create a vector of addresses from the file
@@ -357,7 +358,6 @@ impl CliClient {
         let source_address = if unicast {
             "Unicast".to_string()
         } else {
-            // TODO when configurations are used this makes no sense
             if task.clone().origin.is_some() {
                 task.clone().origin.unwrap().source_address.unwrap().to_string()
             } else {
@@ -645,9 +645,13 @@ fn write_results(
     // CSV writer to command-line interface
     let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
     // Traceroute writer
-    let mut wtr_file_traceroute = if traceroute { Some(Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"))) } else { None }; // TODO file name
-
-    // TODO write traceroute header
+    let mut wtr_file_traceroute = if traceroute {
+        let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
+        wtr_file.write_record("recv_client_id, reply_src_addr, reply_dest_addr, ttl, receive_time, transmit_time, sender_client_id, reply_src_port, reply_dest_port, seq, ack").expect("Failed to write traceroute header");
+        Some(wtr_file)
+    } else {
+        None
+    };
 
     // Results file
     let mut wtr_file = Writer::from_writer(file);
