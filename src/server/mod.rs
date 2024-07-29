@@ -540,7 +540,7 @@ impl Controller for ControllerService {
 
             // TODO add configuration origins assigned to this client to probe_origins
             for configuration in task.configurations.clone() {
-                if configuration.client_id == *client_list_u32.get(i).unwrap() {
+                if (configuration.client_id == *client_list_u32.get(i).unwrap()) | (configuration.client_id == u32::MAX) {
                     let origin = configuration.origin.unwrap();
                     // Avoid duplicate origins
                     if !client_probe_origins.contains(&origin) {
