@@ -647,7 +647,8 @@ fn write_results(
     // Traceroute writer
     let mut wtr_file_traceroute = if traceroute {
         let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
-        wtr_file.write_record("recv_client_id, reply_src_addr, reply_dest_addr, ttl, receive_time, transmit_time, sender_client_id, reply_src_port, reply_dest_port, seq, ack").expect("Failed to write traceroute header");
+        // Write header
+        wtr_file.write_record(vec!["recv_client_id", "reply_src_addr", "reply_dest_addr", "ttl", "receive_time", "transmit_time", "sender_client_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
         Some(wtr_file)
     } else {
         None

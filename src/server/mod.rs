@@ -420,14 +420,13 @@ impl Controller for ControllerService {
 
         // Create a Task from the ScheduleTask
         let dest_addresses;
-        // let default_src_addr = task.source_address;
-        // let default_src_addr = task.origin.unwrap().source_address;
         let unicast = task.unicast;
 
-        // TODO None value (origin)
+        // Get the
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
         } else if task.configurations.len() != 0 {
+            println!("Configurations are not supported yet");
             // TODO configurations
             vec![]
         } else {
@@ -462,17 +461,16 @@ impl Controller for ControllerService {
 
         // Create a list of origins used by clients
         // let mut listen_origins: Vec<Origin> = vec![];
-        let listen_origins = probe_origins.clone(); // TODO support multiple listen origins
-        // for client in &self.clients.lock().unwrap().clients {
-        //     let mut origin = client.metadata.clone().unwrap().origin.unwrap();
-        //     if origin.source_address.clone().unwrap().value.is_none() { // If this client has no source address specified, give it the CLI default one
-        //         origin = probe_origins[0].clone();
-        //     }
-        //     // Avoid duplicate origins
-        //     if !listen_origins.contains(&origin) {
-        //         listen_origins.push(origin);
-        //     }
-        // }
+        let mut listen_origins = probe_origins.clone(); // TODO support multiple listen origins
+
+        // Add all configuration origins to the listen origins
+        for configuration in task.configurations {
+            let origin = configuration.origin.unwrap();
+            // Avoid duplicate origins
+            if !listen_origins.contains(&origin) {
+                listen_origins.push(origin);
+            }
+        }
 
         // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
         if traceroute {
