@@ -422,13 +422,9 @@ impl Controller for ControllerService {
         let dest_addresses;
         let unicast = task.unicast;
 
-        // Get the
+        // Get the probe origins
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
-        } else if task.configurations.len() != 0 {
-            println!("Configurations are not supported yet");
-            // TODO configurations
-            vec![]
         } else {
             vec![task.origin.clone().unwrap()]
         };
@@ -464,7 +460,7 @@ impl Controller for ControllerService {
         let mut listen_origins = probe_origins.clone(); // TODO support multiple listen origins
 
         // Add all configuration origins to the listen origins
-        for configuration in task.configurations {
+        for configuration in task.configurations.clone() {
             let origin = configuration.origin.unwrap();
             // Avoid duplicate origins
             if !listen_origins.contains(&origin) {
@@ -533,6 +529,7 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         for sender in senders.iter() {
+            let mut client_probe_origins = probe_origins.clone();
             let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
                 true
@@ -540,6 +537,17 @@ impl Controller for ControllerService {
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i))) // TODO client ids are not guaranteed to be in order
             };
+
+            // TODO add configuration origins assigned to this client to probe_origins
+            for configuration in task.configurations.clone() {
+                if configuration.client_id == *client_list_u32.get(i).unwrap() {
+                    let origin = configuration.origin.unwrap();
+                    // Avoid duplicate origins
+                    if !client_probe_origins.contains(&origin) {
+                        client_probe_origins.push(origin);
+                    }
+                }
+            }
             i = i + 1;
 
             let start_task = Task {
@@ -551,7 +559,7 @@ impl Controller for ControllerService {
                     unicast,
                     ipv6,
                     traceroute,
-                    probe_origins: probe_origins.clone(),
+                    probe_origins: client_probe_origins.clone(),
                     listen_origins: listen_origins.clone(),
                 }))
             };
@@ -861,9 +869,6 @@ impl Controller for ControllerService {
     ) -> Result<Response<ClientId>, Status> {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
-        // let source_address = metadata.origin.clone().unwrap().source_address.unwrap();
-        // let source_port = metadata.origin.clone().unwrap().source_port;
-        // let destination_port = metadata.origin.unwrap().destination_port;
         let mut clients_list = self.clients.lock().unwrap();
 
         // Check if the hostname already exists
