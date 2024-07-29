@@ -72,7 +72,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     if parts.len() != 2 {
                         return None;
                     }
-                    let client_id = u32::from_str(parts[0]).expect("Unable to parse client ID");
+                    let client_id = if parts[0] == "ALL" { // All clients probe this configuration
+                        u32::MAX
+                    } else {
+                        u32::from_str(parts[0]).expect("Unable to parse configuration client ID")
+                    };
+
+                    let client_id = u32::from_str(parts[0]).expect("Unable to parse configuration client ID");
                     // TODO allow for client hostname
                     let addr_ports: Vec<&str> = parts[1].split(',').collect();
                     if addr_ports.len() != 3 {
