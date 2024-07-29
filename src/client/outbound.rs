@@ -479,7 +479,7 @@ fn abort_handler(
 ) {
     thread::Builder::new()
         .name("abort_thread".to_string())
-        .spawn(move || {        // TODO does this thread get killed when the main thread finishes gracefully (i.e., no abort signal)?
+        .spawn(move || {
             finish_rx.wait().ok();
             *abort.lock().unwrap() = true;
         }).expect("Failed to spawn abort thread");
