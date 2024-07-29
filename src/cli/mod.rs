@@ -68,7 +68,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .filter_map(|l| {
                     let line = l.expect("Unable to read configuration line");
                     if line.starts_with("#") { return None; } // Skip comments
-                    let parts: Vec<&str> = line.split(':').collect();
+                    let parts: Vec<&str> = line.split(':').map(|s| s.trim()).collect();
                     if parts.len() != 2 {
                         return None;
                     }
@@ -80,7 +80,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     let client_id = u32::from_str(parts[0]).expect("Unable to parse configuration client ID");
                     // TODO allow for client hostname
-                    let addr_ports: Vec<&str> = parts[1].split(',').collect();
+                    let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
                         return None;
                     }
