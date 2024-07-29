@@ -727,7 +727,6 @@ impl Controller for ControllerService {
             senders: self.senders.clone(),
         };
 
-        println!("[Server] Sending task stream receiver to CLI");
         Ok(Response::new(rx))
     }
     /// Handle the list_clients command from the CLI.
