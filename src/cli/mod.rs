@@ -53,9 +53,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let unicast = matches.is_present("UNICAST");
         let divide = matches.is_present("DIVIDE");
         // Divide-and-conquer is only supported for anycast-based measurements
-        if divide && unicast {
-            panic!("Divide-and-conquer is only supported for anycast-based measurements");
-        }
+        // if divide && unicast {
+        //     panic!("Divide-and-conquer is only supported for anycast-based measurements");
+        // }
 
         let source_ip = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
