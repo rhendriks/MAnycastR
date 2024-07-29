@@ -225,12 +225,11 @@ impl Client {
         let mut client_sources: Vec<Origin> = start.listen_origins;
         let traceroute = start.traceroute;
 
-        // TODO support multiple origins for the client
-        let source_port = start.probe_origins[0].source_port;
-        let destination_port = start.probe_origins[0].destination_port;
-
         // If this client has a specified source address use it, otherwise use the one from the task
         let probe_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
+            let source_port = start.probe_origins[0].source_port;
+            let destination_port = start.probe_origins[0].destination_port;
+
             let unicast_ip = if ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
             } else {
