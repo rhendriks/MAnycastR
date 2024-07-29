@@ -229,7 +229,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let hitlist_length = ips.len();
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(default_origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute);
+        let schedule_task = create_schedule_task(default_origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute, configurations.unwrap_or_default());
         cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6).await
     } else {
         panic!("Unrecognized command");
@@ -254,12 +254,22 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 ///
 /// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
 ///
-/// * 'traceroute' - a boolean that determines whether the clients must perform traceroute measurements
-/// # Examples
+/// * 'divide' - a boolean that determines whether the task should be performed divide-and-conquer style
 ///
-/// ```
-/// let task = create_schedule_task(124.0.0.0, vec![1.1.1.1, 8.8.8.8], 1, 1400, vec![]);
-/// ```
+/// * 'interval' - the interval (seconds) at which clients will send out probes (default: 1)
+///
+/// * 'traceroute' - a boolean that determines whether the clients must perform traceroute measurements
+///
+/// * 'configurations' - a vector of configurations that will be used for the measurement (only used for anycast-based measurements)
+///
+/// # Returns
+///
+/// A ScheduleTask message that can be sent to the server
+///
+/// # Panics
+///
+/// If the task type is not recognized
+///
 fn create_schedule_task(
     origin: Option<Origin>,
     destination_addresses: Vec<Address>,
@@ -270,15 +280,16 @@ fn create_schedule_task(
     ipv6: bool,
     divide: bool,
     interval: u32,
-    traceroute: bool
-) -> ScheduleTask { // TODO add configurations
+    traceroute: bool,
+    configurations: Vec<Configuration>
+) -> ScheduleTask {
     match task_type {
         1 => { // ICMP
             return ScheduleTask {
                 rate,
                 clients: client_ids,
                 origin,
-                configurations: vec![],
+                configurations,
                 task_type,
                 unicast,
                 ipv6,
@@ -295,7 +306,7 @@ fn create_schedule_task(
                 rate,
                 clients: client_ids,
                 origin,
-                configurations: vec![],
+                configurations,
                 task_type,
                 unicast,
                 ipv6,
@@ -312,7 +323,7 @@ fn create_schedule_task(
                 rate,
                 clients: client_ids,
                 origin,
-                configurations: vec![],
+                configurations,
                 task_type,
                 unicast,
                 ipv6,
