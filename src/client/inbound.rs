@@ -53,13 +53,11 @@ pub fn listen_ping(
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
-
-    // TODO listening thread cannot keep up with high probing rates (CPU utilization is 100%)
-    thread::spawn({
-        let rq_receiver = rq.clone();
-        let exit_flag = Arc::clone(&exit_flag);
-
-        move || {
+    let result_queue_r = rq.clone();
+    let exit_flag_r = Arc::clone(&exit_flag);
+    thread::Builder::new()
+        .name("listener_thread".to_string())
+        .spawn(move || {
             println!("[Client inbound] Listening for ICMP packets for task - {}", task_id);
             let mut cap = get_pcap(filter);
 
@@ -68,7 +66,7 @@ pub fn listen_ping(
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(_) => {
-                        if *exit_flag.lock().unwrap() {
+                        if *exit_flag_r.lock().unwrap() {
                             break
                         }
                         sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
@@ -95,7 +93,7 @@ pub fn listen_ping(
 
                 // Put result in transmission queue
                 {
-                    let mut rq_opt = rq_receiver.lock().unwrap();
+                    let mut rq_opt = result_queue_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
                     }
@@ -104,8 +102,7 @@ pub fn listen_ping(
 
             let stats = cap.stats().expect("Failed to get pcap stats");
             println!("[Client inbound] Stopped ICMP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
-        }
-    });
+        }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the server as TaskResult
     thread::Builder::new()
@@ -165,12 +162,11 @@ pub fn listen_udp(
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
-
-    thread::spawn({
-        let rq_receiver = result_queue.clone();
-        let exit_flag = Arc::clone(&exit_flag);
-
-        move || {
+    let result_queue_r = result_queue.clone();
+    let exit_flag_r = Arc::clone(&exit_flag);
+    thread::Builder::new()
+        .name("listener_thread".to_string())
+        .spawn(move || {
             println!("[Client inbound] Listening for UDP packets for task - {}", task_id);
 
             let mut cap = get_pcap(filter);
@@ -179,7 +175,7 @@ pub fn listen_udp(
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(_) => {
-                        if *exit_flag.lock().unwrap() {
+                        if *exit_flag_r.lock().unwrap() {
                             break
                         }
                         sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
@@ -223,7 +219,7 @@ pub fn listen_udp(
 
                 // Put result in transmission queue
                 {
-                    let mut rq_opt = rq_receiver.lock().unwrap();
+                    let mut rq_opt = result_queue_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap());
                     }
@@ -232,8 +228,7 @@ pub fn listen_udp(
 
             let stats = cap.stats().expect("Failed to get pcap stats");
             println!("[Client inbound] Stopped UDP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
-        }
-    });
+        }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the server as TaskResult
     thread::Builder::new()
@@ -287,12 +282,11 @@ pub fn listen_tcp(
     let result_queue = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
-
-    thread::spawn({
-        let result_queue_receiver = result_queue.clone();
-        let exit_flag = Arc::clone(&exit_flag);
-
-        move || {
+    let result_queue_r = result_queue.clone();
+    let exit_flag_r = Arc::clone(&exit_flag);
+    thread::Builder::new()
+        .name("listener_thread".to_string())
+        .spawn(move || {
             println!("[Client inbound] Listening for TCP packets for task - {}", task_id);
 
             let mut cap = get_pcap(filter);
@@ -301,7 +295,7 @@ pub fn listen_tcp(
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(_) => {
-                        if *exit_flag.lock().unwrap() {
+                        if *exit_flag_r.lock().unwrap() {
                             break
                         }
                         sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
@@ -328,7 +322,7 @@ pub fn listen_tcp(
 
                 // Put result in transmission queue
                 {
-                    let mut rq_opt = result_queue_receiver.lock().unwrap();
+                    let mut rq_opt = result_queue_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap());
                     }
@@ -336,8 +330,7 @@ pub fn listen_tcp(
             }
             let stats = cap.stats().expect("Failed to get pcap stats");
             println!("[Client inbound] Stopped TCP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
-        }
-    });
+        }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the server as TaskResult
     thread::Builder::new()
