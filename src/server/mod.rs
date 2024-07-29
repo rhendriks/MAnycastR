@@ -914,9 +914,7 @@ impl Controller for ControllerService {
 /// * 'args' - the parsed command-line arguments
 pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
     let port = args.value_of("port").expect("No port specified");
-    let addr: SocketAddr = "0.0.0.0:".to_string().add(port).parse().unwrap();
-
-    println!("[Server] Controller server listening on: {}", addr);
+    let addr: SocketAddr = "[::]:".to_string().add(port).parse().unwrap();
 
     // Get a random task ID
     let random_task_id = rand::thread_rng().gen_range(0..u32::MAX);
