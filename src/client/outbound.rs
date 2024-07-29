@@ -525,10 +525,7 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
             }
         }
     }
-
-    println!("waiting for child");
     child.wait().expect("Failed to wait on child");
-    println!("child done");
 
     // TODO rotate the destination MAC address (when we have multiple next hops)
 
