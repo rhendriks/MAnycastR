@@ -53,9 +53,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let unicast = matches.is_present("UNICAST");
         let divide = matches.is_present("DIVIDE");
         // Divide-and-conquer is only supported for anycast-based measurements
-        // if divide && unicast {
-        //     panic!("Divide-and-conquer is only supported for anycast-based measurements");
-        // }
+        if divide && unicast {
+            panic!("Divide-and-conquer is only supported for anycast-based measurements");
+        }
 
         let source_ip = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
@@ -65,7 +65,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.is_present("CONF") && !unicast {
-            if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
+            // if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
             let conf_file = matches.value_of("CONF").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
@@ -103,7 +103,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         })
                     })
                 })
-                .collect::<Vec<_>>())
+                .collect())
         } else {
             None
         };
@@ -122,7 +122,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .map(|l| {
                 Address::from(IP::from(l.unwrap()))
             })
-            .collect::<Vec<_>>();
+            .collect();
         let ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
