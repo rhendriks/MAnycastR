@@ -173,11 +173,8 @@ impl<T> Drop for CLIReceiver<T> {
             })),
             };
 
-            let senders = self.senders.clone();
-            let task = task.clone();
-
             // Tell each client to terminate the task
-            for client in senders.lock().unwrap().iter() {
+            for client in self.senders.lock().unwrap().iter() {
                 let client = client.clone();
                 let task = task.clone();
 
@@ -547,12 +544,13 @@ impl Controller for ControllerService {
             }
             i = i + 1;
 
-            let mut active = if clients.is_empty() {
+            let active = if clients.is_empty() {
                 // If no client list was specified, all clients will perform the task
                 if client_probe_origins.len() == 0 {
                     false // No probe origins -> not probing
+                } else {
+                    true
                 }
-                true
             } else {
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
