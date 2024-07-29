@@ -161,11 +161,12 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        println!("[Server] CLI receiver has been dropped");
         let mut active = self.active.lock().unwrap();
 
         // If there is an active task we need to cancel it and notify the clients
         if *active == true {
+            println!("[Server] CLI dropped during an active measurement, terminating task");
+
             // Create termination 'task'
             let task = Task {
                 data: Some(TaskEnd(End {
@@ -242,13 +243,13 @@ impl Controller for ControllerService {
             // If this is not the last client, decrement the amount of remaining clients
             } else {
                 // Print the client ID that finished the task
-                print!("{}, ", request.client_id);
+                print!("{},", request.client_id);
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 finished = false;
             }
         }
         if finished {
-            println!("[Server] Sending default value to CLI, notifying the task is finished");
+            println!("[Server] Notifying CLI that task {} is finished", task_id);
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
 
@@ -422,8 +423,6 @@ impl Controller for ControllerService {
         let dest_addresses;
         let unicast = task.unicast;
 
-        println!("configurations: {:?}", task.configurations);
-
         // Get the probe origins
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
@@ -535,13 +534,6 @@ impl Controller for ControllerService {
         let mut i = 0;
         for sender in senders.iter() {
             let mut client_probe_origins = probe_origins.clone();
-            let active = if clients.is_empty() {
-                // If no client list was specified, all clients will perform the task
-                true
-            } else {
-                // Make sure the current client is selected to perform the task
-                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i))) // TODO client ids are not guaranteed to be in order
-            };
 
             // TODO add configuration origins assigned to this client to probe_origins
             for configuration in task.configurations.clone() {
@@ -554,6 +546,17 @@ impl Controller for ControllerService {
                 }
             }
             i = i + 1;
+
+            let mut active = if clients.is_empty() {
+                // If no client list was specified, all clients will perform the task
+                if client_probe_origins.len() == 0 {
+                    false // No probe origins -> not probing
+                }
+                true
+            } else {
+                // Make sure the current client is selected to perform the task
+                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
+            };
 
             let start_task = Task {
                 data: Some(TaskStart(Start {
@@ -641,7 +644,6 @@ impl Controller for ControllerService {
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if probing && !divide {
-                    println!("Sleeping for {} seconds", (t - 1) * clients_interval as u64);
                     tokio::time::sleep(Duration::from_secs((t - 1) * clients_interval as u64)).await;
                 }
 
@@ -691,7 +693,7 @@ impl Controller for ControllerService {
 
                 clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                 if clients_finished.lock().unwrap().clone() == number_of_clients {
-                    println!("[Server] Measurement finished, awaiting clients: ");
+                    print!("[Server] Measurement finished, awaiting clients... ");
                     // Send a message to the other sending threads to let them know the measurement is finished
                     tx_f.send(()).expect("Failed to send finished signal");
                 } else {
