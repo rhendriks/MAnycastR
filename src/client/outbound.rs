@@ -83,9 +83,7 @@ pub fn create_ping(
         }
     }
 
-    let ipv6 = source.is_v6();
-    // TODO can we re-use the same v4/v6 headers like we do for the ethernet header (only requiring a recalculation of the checksum)?
-    return if ipv6 {
+   return if source.is_v6() {
         ICMPPacket::echo_request_v6(origin.destination_port as u16, 2, bytes, source.get_v6().into(), IP::from(dest_addr.clone()).get_v6().into(), 255)
     } else {
         ICMPPacket::echo_request(origin.destination_port as u16, 2, bytes, source.get_v4().into(), IP::from(dest_addr.clone()).get_v4().into(), 255)
@@ -462,10 +460,6 @@ fn perform_trace(
     }
 }
 
-
-
-
-
 /// Spawns a thread that waits for a possible abort signal.
 ///
 /// # Arguments
@@ -526,8 +520,6 @@ fn get_ethernet_header(v6: bool) -> Vec<u8> {
         }
     }
     child.wait().expect("Failed to wait on child");
-
-    // TODO rotate the destination MAC address (when we have multiple next hops)
 
     // Construct the ethernet header
     let ether_type = if v6 {
