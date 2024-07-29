@@ -122,7 +122,7 @@ impl<T> Drop for ClientReceiver<T> {
                         Ok(_) => (),
                         Err(_) => println!("[Server] Failed to send task_finished to CLI")
                     }
-                // If there are more clients still performing this task
+                    // If there are more clients still performing this task
                 } else {
                     // The server no longer has to wait for this client
                     *open_tasks.get_mut(&task_id).unwrap() -= 1;
@@ -170,7 +170,7 @@ impl<T> Drop for CLIReceiver<T> {
             // Create termination 'task'
             let task = Task {
                 data: Some(TaskEnd(End {
-            })),
+                })),
             };
 
             // Tell each client to terminate the task
@@ -237,7 +237,7 @@ impl Controller for ControllerService {
 
                 open_tasks.remove(&task_id);
                 finished = true;
-            // If this is not the last client, decrement the amount of remaining clients
+                // If this is not the last client, decrement the amount of remaining clients
             } else {
                 // Print the client ID that finished the task
                 print!("{},", request.client_id);
@@ -529,6 +529,7 @@ impl Controller for ControllerService {
         println!("[Server] Letting {} clients know a measurement is starting", senders.len());
         // Notify all senders that a new measurement is starting
         let mut i = 0;
+        let mut active_clients = 0;
         for sender in senders.iter() {
             let mut client_probe_origins = probe_origins.clone();
 
@@ -544,7 +545,7 @@ impl Controller for ControllerService {
             }
 
             let active = if clients.is_empty() {
-                // If no client list was specified, all clients will perform the task
+                // No client-selective probing
                 if client_probe_origins.len() == 0 {
                     false // No probe origins -> not probing
                 } else {
@@ -554,6 +555,7 @@ impl Controller for ControllerService {
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
+            if active { active_clients += 1; }
             i = i + 1;
 
             let start_task = Task {
@@ -577,14 +579,6 @@ impl Controller for ControllerService {
         }
 
         let number_of_clients = senders.len() as u64;
-        // Get number of active clients, client.len 0 -> all clients are probing
-        let active_clients = if clients.len() == 0 {
-            number_of_clients
-        } else {
-            clients.len() as u64
-        };
-
-        // TODO active_clients is not correct when configurations are used
 
         if !divide {
             println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, clients_interval);
@@ -803,7 +797,6 @@ impl Controller for ControllerService {
                     source_port,
                     destination_port,
                 };
-
                 // TODO we need to keep track of the flow per /24 (or /48 for ipv6)
 
                 let ttl = match value {
@@ -819,23 +812,23 @@ impl Controller for ControllerService {
                     _ => 0,
                 } as u8;
 
-                 if probed_address == IP::None {
-                     continue
+                if probed_address == IP::None {
+                    continue
                 }
-                 if map.contains_key(&probed_address) {
-                     let (clients, _, ttl_old, origins) = map.get_mut(&probed_address).unwrap();
-                     // We want to keep track of the lowest TTL recorded
-                     if ttl < ttl_old.clone() {
-                         *ttl_old = ttl;
-                     }
-                     // Keep track of all clients that have received probe replies for this target
-                     if !clients.contains(&client_id) {
-                         clients.push(client_id);
-                         origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
-                     }
-                 } else {
-                     map.insert(probed_address, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
-                 }
+                if map.contains_key(&probed_address) {
+                    let (clients, _, ttl_old, origins) = map.get_mut(&probed_address).unwrap();
+                    // We want to keep track of the lowest TTL recorded
+                    if ttl < ttl_old.clone() {
+                        *ttl_old = ttl;
+                    }
+                    // Keep track of all clients that have received probe replies for this target
+                    if !clients.contains(&client_id) {
+                        clients.push(client_id);
+                        origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
+                    }
+                } else {
+                    map.insert(probed_address, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
+                }
             }
         }
 
