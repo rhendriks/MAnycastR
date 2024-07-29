@@ -217,7 +217,7 @@ impl Controller for ControllerService {
 
         // Wait till we have received 'task_finished' from all clients that executed this task
         let finished: bool;
-        { // TODO if a client disconnects during a measurement, this will hang
+        {
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
             let remaining: &u32;
@@ -457,8 +457,7 @@ impl Controller for ControllerService {
         }
 
         // Create a list of origins used by clients
-        // let mut listen_origins: Vec<Origin> = vec![];
-        let mut listen_origins = probe_origins.clone(); // TODO support multiple listen origins
+        let mut listen_origins = probe_origins.clone();
 
         // Add all configuration origins to the listen origins
         for configuration in task.configurations.clone() {
@@ -526,7 +525,6 @@ impl Controller for ControllerService {
             });
         }
 
-        println!("[Server] Letting {} clients know a measurement is starting", senders.len());
         // Notify all senders that a new measurement is starting
         let mut i = 0;
         let mut active_clients = 0;
@@ -676,7 +674,7 @@ impl Controller for ControllerService {
                         // Send packet to client
                         match sender.send(Ok(task.clone())).await {
                             Ok(_) => (),
-                            Err(e) => println!("[Server] Failed to send task to client {:?}", e),
+                            Err(e) => println!("[Server] Failed to send task to client {:?}", e), // TODO spams console when client disconnects
                         }
                     }
 
@@ -889,11 +887,6 @@ impl Controller for ControllerService {
             client_id,
             metadata: Some(Metadata {
                 hostname: hostname.clone(),
-                // origin: Some(Origin {
-                //     source_address: Some(source_address),
-                //     source_port,
-                //     destination_port,
-                // })
             }),
         };
         clients_list.clients.push(new_client);
