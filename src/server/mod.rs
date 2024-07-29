@@ -422,6 +422,8 @@ impl Controller for ControllerService {
         let dest_addresses;
         let unicast = task.unicast;
 
+        println!("configurations: {:?}", task.configurations);
+
         // Get the probe origins
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
