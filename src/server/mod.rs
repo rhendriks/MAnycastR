@@ -533,7 +533,7 @@ impl Controller for ControllerService {
         for sender in senders.iter() {
             let mut client_probe_origins = probe_origins.clone();
 
-            // TODO add configuration origins assigned to this client to probe_origins
+            // Add all configuration probing origins assigned to this client
             for configuration in task.configurations.clone() {
                 if (configuration.client_id == *client_list_u32.get(i).unwrap()) | (configuration.client_id == u32::MAX) {
                     let origin = configuration.origin.unwrap();
@@ -601,7 +601,7 @@ impl Controller for ControllerService {
             i += 1;
             let clients = clients.clone();
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
-            let probing = clients.len() == 0 || clients.contains(&client_id);
+            let probing = clients.len() == 0 || clients.contains(&client_id);  // TODO this fails when using configurations
 
             let dest_addresses = if !probing {
                 vec![]
