@@ -60,7 +60,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.is_present("CONF") && !unicast {
             let conf_file = matches.value_of("CONF").unwrap();
-            println!("Reading configuration file: {}", conf_file);
+            println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
             Some(buf_reader // Create a vector of addresses from the file
@@ -100,7 +100,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         } else {
             None
         };
-        println!("Configurations: {:?}", configurations);
 
         // There must be a defined anycast source address, configuration, or unicast flag
         if source_ip.is_none() && configurations.is_none() && !unicast {
