@@ -477,14 +477,12 @@ fn abort_handler(
     abort: Arc<Mutex<bool>>,
     finish_rx: futures::sync::oneshot::Receiver<()>
 ) {
-    thread::spawn({ // TODO does this thread get killed when the main thread finishes gracefully (i.e., no abort signal)?
-        let abort = abort.clone();
-
-        move || {
+    thread::Builder::new()
+        .name("abort_thread".to_string())
+        .spawn(move || {        // TODO does this thread get killed when the main thread finishes gracefully (i.e., no abort signal)?
             finish_rx.wait().ok();
             *abort.lock().unwrap() = true;
-        }
-    });
+        }).expect("Failed to spawn abort thread");
 }
 
 /// Returns the ethernet header to use for the outbound packets.
