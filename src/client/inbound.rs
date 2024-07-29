@@ -108,10 +108,10 @@ pub fn listen_ping(
     });
 
     // Thread for sending the received replies to the server as TaskResult
-    thread::spawn({
-        let rq_sender = rq.clone();
-        move || {
-            handle_results(&tx, rx_f, client_id, rq_sender);
+    thread::Builder::new()
+        .name("result_sender_thread".to_string())
+        .spawn(move || {
+            handle_results(&tx, rx_f, client_id, rq);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -119,8 +119,7 @@ pub fn listen_ping(
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             println!("[Client inbound] Stopped listening for ICMP packets");
-        }
-    });
+    }).expect("Failed to spawn result_sender_thread");
 }
 
 /// Listen for incoming UDP DNS packets,
@@ -237,11 +236,10 @@ pub fn listen_udp(
     });
 
     // Thread for sending the received replies to the server as TaskResult
-    thread::spawn({
-        let result_queue_sender = result_queue.clone();
-
-        move || {
-            handle_results(&tx, rx_f, client_id, result_queue_sender);
+    thread::Builder::new()
+        .name("result_sender_thread".to_string())
+        .spawn(move || {
+            handle_results(&tx, rx_f, client_id, result_queue);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -249,8 +247,7 @@ pub fn listen_udp(
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             println!("[Client inbound] Stopped listening for UDP packets");
-        }
-    });
+    }).expect("Failed to spawn result_sender_thread");
 }
 
 /// Listen for incoming TCP/RST packets, these packets must have the correct destination port,
@@ -343,11 +340,10 @@ pub fn listen_tcp(
     });
 
     // Thread for sending the received replies to the server as TaskResult
-    thread::spawn({
-        let result_queue_sender = result_queue.clone();
-
-        move || {
-            handle_results(&tx, rx_f, client_id, result_queue_sender);
+    thread::Builder::new()
+        .name("result_sender_thread".to_string())
+        .spawn(move || {
+            handle_results(&tx, rx_f, client_id, result_queue);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -355,8 +351,7 @@ pub fn listen_tcp(
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
             println!("[Client inbound] Stopped listening for TCP packets");
-        }
-    });
+        }).expect("Failed to spawn result_sender_thread");
 }
 
 /// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main client class.

@@ -155,8 +155,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             Vec::new()
         };
         if client_ids.len() > 0 {
-            println!("[CLI] Probes will be sent out from these clients: {:?}", client_ids);
-            // TODO print client information
+            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids);
         }
 
         // Get the type of task
@@ -217,7 +216,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .collect::<Result<Vec<&str>, _>>()
                      .expect("Unable to format hitlist length")
                      .join(","),
-                 default_origin,
+                 default_origin,  // TODO print this in a more readable format
                  rate.to_string().as_bytes()
                      .rchunks(3)
                      .rev()

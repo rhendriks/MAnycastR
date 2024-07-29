@@ -391,10 +391,11 @@ impl Client {
             outbound(client_id, probe_origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
         }
 
+        let mut self_clone = self.clone();  // TODO remove clone
         // Thread that listens for task results from inbound and forwards them to the server
-        thread::spawn({  // TODO name the thread
-            let mut self_clone = self.clone();
-            move || {
+        thread::Builder::new()
+            .name("forwarder_thread".to_string())
+            .spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 let _enter = rt.enter();
 
@@ -415,8 +416,7 @@ impl Client {
                     };
                     rx.close();
                 });
-            }
-        });
+            }).expect("Unable to start forwarder thread");
     }
 
     /// Establish a formal connection with the server.
