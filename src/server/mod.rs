@@ -418,7 +418,7 @@ impl Controller for ControllerService {
         // Create a Task from the ScheduleTask
         let unicast = task.unicast;
         // Get the probe origins
-        let probe_origins: Vec<Origin> = if unicast {
+        let tx_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
         } else if task.configurations.len() > 0 {
             vec![]
@@ -429,12 +429,12 @@ impl Controller for ControllerService {
 
         let rate = task.rate;
         let task_type = task.task_type;
-        let ipv6 = task.ipv6;
+        let is_ipv6 = task.ipv6;
         let traceroute = task.traceroute;
         let divide = task.divide;
-        let clients_interval = task.interval;
+        let interval = task.interval;
         *self.traceroute.lock().unwrap() = traceroute;
-        let dest_addresses = task.targets.expect("No destination addresses specified").destination_addresses;
+        let dst_addresses = task.targets.expect("No destination addresses specified").dst_addresses;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -444,14 +444,14 @@ impl Controller for ControllerService {
         }
 
         // Create a list of origins used by clients
-        let mut listen_origins = probe_origins.clone();
+        let mut rx_origins = tx_origins.clone();
 
         // Add all configuration origins to the listen origins
         for configuration in task.configurations.clone() {
             let origin = configuration.origin.unwrap();
             // Avoid duplicate origins
-            if !listen_origins.contains(&origin) {
-                listen_origins.push(origin);
+            if !rx_origins.contains(&origin) {
+                rx_origins.push(origin);
             }
         }
 
@@ -492,7 +492,7 @@ impl Controller for ControllerService {
                         let traceroute_task = Task {
                             data: Some(TaskTrace(Trace {
                                 max_ttl,
-                                destination_address: Some(Address::from(target.clone())),
+                                dst: Some(Address::from(target.clone())),
                                 origins,
                             }))
                         };
@@ -516,22 +516,22 @@ impl Controller for ControllerService {
         let mut i = 0;
         let mut active_clients = 0;
         for sender in senders.iter() {
-            let mut client_probe_origins = probe_origins.clone();
+            let mut client_tx_origins = tx_origins.clone();
 
             // Add all configuration probing origins assigned to this client
             for configuration in task.configurations.clone() {
                 if (configuration.client_id == *client_list_u32.get(i).unwrap()) | (configuration.client_id == u32::MAX) {
                     let origin = configuration.origin.unwrap();
                     // Avoid duplicate origins
-                    if !client_probe_origins.contains(&origin) {
-                        client_probe_origins.push(origin);
+                    if !client_tx_origins.contains(&origin) {
+                        client_tx_origins.push(origin);
                     }
                 }
             }
 
             let active = if clients.is_empty() {
                 // No client-selective probing
-                if client_probe_origins.len() == 0 {
+                if client_tx_origins.len() == 0 {
                     false // No probe origins -> not probing
                 } else {
                     true
@@ -550,10 +550,10 @@ impl Controller for ControllerService {
                     active,
                     task_type,
                     unicast,
-                    ipv6,
+                    ipv6: is_ipv6,
                     traceroute,
-                    probe_origins: client_probe_origins.clone(),
-                    listen_origins: listen_origins.clone(),
+                    tx_origins: client_tx_origins.clone(),
+                    rx_origins: rx_origins.clone(),
                 }))
             };
 
@@ -566,7 +566,7 @@ impl Controller for ControllerService {
         let number_of_clients = senders.len() as u64;
 
         if !divide {
-            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, clients_interval);
+            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, interval);
         } else {
             println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, active_clients);
         }
@@ -592,20 +592,20 @@ impl Controller for ControllerService {
                 vec![]
             } else if divide {
                 // Each client gets its own chunk of the destination addresses
-                let chunk_size = dest_addresses.len() / active_clients as usize;
+                let chunk_size = dst_addresses.len() / active_clients as usize;
 
                 // Get start and end index of targets to probe for this client
                 let start_index = t as usize * chunk_size;
                 let end_index = if t == active_clients - 1 {
-                    dest_addresses.len() // End of the list
+                    dst_addresses.len() // End of the list
                 } else {
                     start_index + chunk_size
                 };
 
-                dest_addresses[start_index..end_index].to_vec()
+                dst_addresses[start_index..end_index].to_vec()
             } else {
                 // All clients get the same destination addresses
-                dest_addresses.clone()
+                dst_addresses.clone()
             };
 
             // increment if this client is sending probes
@@ -621,7 +621,7 @@ impl Controller for ControllerService {
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if probing && !divide {
-                    tokio::time::sleep(Duration::from_secs((t - 1) * clients_interval as u64)).await;
+                    tokio::time::sleep(Duration::from_secs((t - 1) * interval as u64)).await;
                 }
 
                 // Send out packets at the required interval
@@ -641,7 +641,7 @@ impl Controller for ControllerService {
                     if probing {
                         let task = Task {
                             data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
-                                destination_addresses: chunk.to_vec(),
+                                dst_addresses: chunk.to_vec(),
                             })),
                         };
 
@@ -724,26 +724,26 @@ impl Controller for ControllerService {
             for result in task_result.clone().result_list {
 
                 let value = result.value.unwrap();
-                let (probed_address, anycast_address) = match value.clone() {
+                let (probe_dst, probe_src) = match value.clone() {
                     PingResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
                     },
                     UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
                     },
                     TcpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.source_address)), IP::V4(Ipv4Addr::from(v4.destination_address))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.source_address.clone().unwrap().p1 as u128) << 64) | v6.source_address.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.destination_address.clone().unwrap().p1 as u128) << 64) | v6.destination_address.unwrap().p2 as u128))),
+                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
+                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
+                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
                     },
                     _ => (IP::None, IP::None),
@@ -765,9 +765,9 @@ impl Controller for ControllerService {
 
                 // Create origin flows (i.e., a single flow for each client that has received probe replies)
                 let origin_flow = Origin {
-                    source_address: Some(Address::from(anycast_address)),
-                    source_port: probe_sport,
-                    destination_port: probe_dport,
+                    src: Some(Address::from(probe_src)),
+                    sport: probe_sport,
+                    dport: probe_dport,
                 };
                 // TODO we need to keep track of the flow per /24 (or /48 for ipv6)
 
@@ -784,11 +784,11 @@ impl Controller for ControllerService {
                     _ => 0,
                 } as u8;
 
-                if probed_address == IP::None {
+                if probe_dst == IP::None {
                     continue
                 }
-                if map.contains_key(&probed_address) {
-                    let (clients, _, ttl_old, origins) = map.get_mut(&probed_address).unwrap();
+                if map.contains_key(&probe_dst) {
+                    let (clients, _, ttl_old, origins) = map.get_mut(&probe_dst).unwrap();
                     // We want to keep track of the lowest TTL recorded
                     if ttl < ttl_old.clone() {
                         *ttl_old = ttl;
@@ -799,7 +799,7 @@ impl Controller for ControllerService {
                         origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
                     }
                 } else {
-                    map.insert(probed_address, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
+                    map.insert(probe_dst, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
                 }
             }
         }

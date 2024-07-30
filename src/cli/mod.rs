@@ -57,7 +57,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             panic!("Divide-and-conquer is only supported for anycast-based measurements");
         }
 
-        let source_ip = if matches.is_present("ADDRESS") {
+        let src = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
         } else {
             None
@@ -87,16 +87,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
-                    let source_address = Address::from(IP::from(addr_ports[0].to_string()));
+                    let src = Address::from(IP::from(addr_ports[0].to_string()));
                     // Parse to u16 first, must fit in header
-                    let source_port = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let destination_port = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
+                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
                     Some(Configuration {
                         client_id,
                         origin: Some(Origin {
-                            source_address: Some(source_address),
-                            source_port: source_port.into(),
-                            destination_port: destination_port.into(),
+                            src: Some(src),
+                            sport: sport.into(),
+                            dport: dport.into(),
                         })
                     })
                 })
@@ -106,8 +106,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
 
             // Make sure all configurations have the same IP type
-            let ipv6 = configurations.first().unwrap().origin.clone().unwrap().source_address.unwrap().is_v6();
-            if configurations.iter().any(|conf| conf.origin.clone().unwrap().source_address.unwrap().is_v6() != ipv6) {
+            let is_ipv6 = configurations.first().unwrap().origin.clone().unwrap().src.unwrap().is_v6();
+            if configurations.iter().any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6) {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
             Some(configurations)
@@ -116,7 +116,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // There must be a defined anycast source address, configuration, or unicast flag
-        if source_ip.is_none() && configurations.is_none() && !unicast {
+        if src.is_none() && configurations.is_none() && !unicast {
             panic!("No source address or configuration file provided!");
         }
 
@@ -130,18 +130,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 Address::from(IP::from(l.unwrap()))
             })
             .collect();
-        let ipv6 = ips.first().unwrap().is_v6();
+        let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
         if configurations.is_some()  {
-            if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().source_address.unwrap().is_v6() != ipv6 {
+            if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6 {
                 panic!("Configurations are not all of the same type as the target addresses! (IPv4 & IPv6)");
             }
-        } else if source_ip.is_some() && source_ip.clone().unwrap().is_v6() != ipv6 {
+        } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
         // Panic if the ips in the hitlist are not all the same type
-        if ips.iter().any(|ip| ip.is_v6() != ipv6) {
+        if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
             panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
         }
 
@@ -175,8 +175,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the tasks
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let source_port = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
-            let destination_port = if matches.is_present("DESTINATION_PORT") {
+            let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
+            let dport = if matches.is_present("DESTINATION_PORT") {
                 u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
             } else {
                 if task_type == 2 || task_type == 4 {
@@ -196,9 +196,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             // }]);
 
             Some(Origin {
-                source_address: source_ip,
-                source_port,
-                destination_port,
+                src,
+                sport,
+                dport,
             })
         } else {
             None
@@ -250,12 +250,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
             task_type,
             unicast,
-            ipv6,
+            ipv6: is_ipv6,
             traceroute,
             divide,
             interval,
             targets: Some(Targets {
-                destination_addresses: ips,
+                dst_addresses: ips,
             }),
         };
         cli_client.do_task_to_server(schedule_task, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
@@ -290,22 +290,22 @@ impl CliClient {
         configurations: Vec<Configuration>,
     ) -> Result<(), Box<dyn Error>> {
         let divide = task.divide;
-        let ipv6 = task.ipv6;
+        let is_ipv6 = task.ipv6;
         let rate = task.rate;
         let task_type = task.task_type;
         let unicast = task.unicast;
         let traceroute = task.traceroute;
         let interval = task.interval;
         let origin = if unicast {
-            let source_port = task.origin.clone().unwrap().source_port;
-            let destination_port = task.origin.clone().unwrap().destination_port;
-            format!("Unicast (source port: {}, destination port: {})", source_port, destination_port)
+            let sport = task.origin.clone().unwrap().sport;
+            let dport = task.origin.clone().unwrap().dport;
+            format!("Unicast (source port: {}, destination port: {})", sport, dport)
         } else {
             if task.clone().origin.is_some() {
-                let source_address = IP::from(task.clone().origin.unwrap().source_address.unwrap()).to_string();
-                let source_port = task.origin.clone().unwrap().source_port;
-                let destination_port = task.origin.clone().unwrap().destination_port;
-                format!("Anycast (source IP: {}, source port: {}, destination port: {})", source_address, source_port, destination_port)
+                let src = IP::from(task.clone().origin.unwrap().src.unwrap()).to_string();
+                let sport = task.origin.clone().unwrap().sport;
+                let dport = task.origin.clone().unwrap().dport;
+                format!("Anycast (source IP: {}, source port: {}, destination port: {})", src, sport, dport)
             } else {
                 "Anycast configuration-based".to_string()
             }
@@ -358,7 +358,7 @@ impl CliClient {
             4 => "UDP-CHAOS",
             _ => "ICMP",
         };
-        let type_str = if ipv6 {
+        let type_str = if is_ipv6 {
             format!("{}v6", type_str)
         } else {
             format!("{}v4", type_str)
@@ -457,13 +457,13 @@ impl CliClient {
         if !configurations.is_empty() {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
-                let source_addr = IP::from(configuration.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+                let src = IP::from(configuration.origin.clone().unwrap().src.expect("Invalid source address")).to_string();
                 let client_id = if configuration.client_id == u32::MAX {
                     "ALL".to_string()
                 } else {
                     configuration.client_id.to_string()
                 };
-                file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, source_addr, configuration.origin.clone().unwrap().source_port, configuration.origin.unwrap().destination_port).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
@@ -694,7 +694,7 @@ fn get_result(
     match result.value.unwrap() {
         ResultTrace(trace) => {
             let ip_result = trace.ip_result.unwrap();
-            let source_mb = ip_result.get_source_address_str();
+            let source_mb = ip_result.get_src_str();
             let ttl = trace.ttl;
             let rx_time = trace.rx_time.to_string();
             let tx_time = trace.tx_time.to_string();
@@ -703,15 +703,15 @@ fn get_result(
             return match trace.value.unwrap() {
                 Value::Ping(ping) => {
                     let inner_ip = ping.ip_result.unwrap();
-                    let source = inner_ip.get_source_address_str();
-                    let destination = inner_ip.get_dest_address_str();
+                    let source = inner_ip.get_src_str();
+                    let destination = inner_ip.get_dst_str();
 
                     vec![rx_client_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time]
                 }
                 Value::Udp(udp) => {
                     let inner_ip = udp.ip_result.unwrap();
-                    let src = inner_ip.get_source_address_str();
-                    let dst = inner_ip.get_dest_address_str();
+                    let src = inner_ip.get_src_str();
+                    let dst = inner_ip.get_dst_str();
                     let sport = udp.sport.to_string();
                     let dport = udp.dport.to_string();
 
@@ -719,8 +719,8 @@ fn get_result(
                 }
                 Value::Tcp(tcp) => {
                     let inner_ip = tcp.ip_result.unwrap();
-                    let src = inner_ip.get_source_address_str();
-                    let dst = inner_ip.get_dest_address_str();
+                    let src = inner_ip.get_src_str();
+                    let dst = inner_ip.get_dst_str();
                     let sport = tcp.sport.to_string();
                     let dport = tcp.dport.to_string();
                     let seq = tcp.seq.to_string();
@@ -734,8 +734,8 @@ fn get_result(
             let rx_time = ping.rx_time.to_string();
 
             let ip_result = ping.ip_result.unwrap();
-            let reply_src = ip_result.get_source_address_str();
-            let reply_dst = ip_result.get_dest_address_str();
+            let reply_src = ip_result.get_src_str();
+            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
             // Ping payload
@@ -754,8 +754,8 @@ fn get_result(
             let reply_code = udp.code.to_string();
 
             let ip_result = udp.ip_result.unwrap();
-            let reply_src = ip_result.get_source_address_str();
-            let reply_dst = ip_result.get_dest_address_str();
+            let reply_src = ip_result.get_src_str();
+            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
             if udp.payload == None { // ICMP reply
@@ -806,8 +806,8 @@ fn get_result(
         ResultTcp(tcp) => {
             let rx_time = tcp.rx_time.to_string();
             let ip_result = tcp.ip_result.unwrap();
-            let reply_src = ip_result.get_source_address_str();
-            let reply_dst = ip_result.get_dest_address_str();
+            let reply_src = ip_result.get_src_str();
+            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
             let reply_sport = tcp.sport.to_string();
             let reply_dport = tcp.dport.to_string();
