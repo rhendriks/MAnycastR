@@ -83,7 +83,7 @@
 //!
 //! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
 //! * Each client probes a target address, approximately 1 second after the previous client sent out theirs.
-//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI) [UNIMPLEMENTED].
+//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
 //! * The rate of the measurements is adjustable.
 //! * The clients that have to send out probes can be specified.
 //!
