@@ -165,7 +165,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
 
         // Origin for the tasks
-        let default_origin = if configurations.is_none() {
+        let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
             let source_port = if matches.is_present("SOURCE_PORT") {
                 u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
@@ -217,7 +217,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .collect::<Result<Vec<&str>, _>>()
                      .expect("Unable to format hitlist length")
                      .join(","),
-                 default_origin,  // TODO print this in a more readable format
+                 origin,  // TODO print this in a more readable format
                  rate.to_string().as_bytes()
                      .rchunks(3)
                      .rev()
@@ -225,118 +225,29 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .collect::<Result<Vec<&str>, _>>()
                      .expect("Unable to format rate")
                      .join(","),
-            interval
+                 interval
         );
 
         let hitlist_length = ips.len();
         // Create the task and send it to the server
-        let schedule_task = create_schedule_task(default_origin, ips, task_type, rate, client_ids, unicast, ipv6, divide, interval, traceroute, configurations.unwrap_or_default());
+        let schedule_task = ScheduleTask {
+            rate,
+            clients: client_ids,
+            origin,
+            configurations: configurations.unwrap_or_default(),
+            task_type,
+            unicast,
+            ipv6,
+            traceroute,
+            divide,
+            interval,
+            targets: Some(Targets {
+                destination_addresses: ips,
+            }),
+        };
         cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6).await
     } else {
         panic!("Unrecognized command");
-    }
-}
-
-/// Create a Verfploeter ScheduleTask message that can be sent to the server.
-///
-/// # Arguments
-///
-/// * 'source_address' - the source address to be used for this task (will be overwritten by the clients if they have a source address specified locally)
-///
-/// * 'destination_addresses' - a vector of destination addresses that will be probed in this task (e.g., the hitlist)
-///
-/// * 'task_type' - the type of task, can be 1: ICMP/ping, 2: UDP/A, 3: TCP, 4: UDP/CHAOS
-///
-/// * 'rate' - the rate (packets / second) at which clients will send out probes (default: 1000)
-///
-/// * 'client_ids' - the list of clients (by IDs) who participate in the measurement (empty list means all clients participate)
-///
-/// * 'unicast' - a boolean that determines whether the clients must use their unicast source address
-///
-/// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
-///
-/// * 'divide' - a boolean that determines whether the task should be performed divide-and-conquer style
-///
-/// * 'interval' - the interval (seconds) at which clients will send out probes (default: 1)
-///
-/// * 'traceroute' - a boolean that determines whether the clients must perform traceroute measurements
-///
-/// * 'configurations' - a vector of configurations that will be used for the measurement (only used for anycast-based measurements)
-///
-/// # Returns
-///
-/// A ScheduleTask message that can be sent to the server
-///
-/// # Panics
-///
-/// If the task type is not recognized
-///
-fn create_schedule_task(
-    origin: Option<Origin>,
-    destination_addresses: Vec<Address>,
-    task_type: u32,
-    rate: u32,
-    client_ids: Vec<u32>,
-    unicast: bool,
-    ipv6: bool,
-    divide: bool,
-    interval: u32,
-    traceroute: bool,
-    configurations: Vec<Configuration>
-) -> ScheduleTask {
-    match task_type {
-        1 => { // ICMP
-            return ScheduleTask {
-                rate,
-                clients: client_ids,
-                origin,
-                configurations,
-                task_type,
-                unicast,
-                ipv6,
-                traceroute,
-                divide,
-                interval,
-                targets: Some(Targets {
-                    destination_addresses,
-                }),
-            }
-        }
-        2 | 4 => { // UDP
-            return ScheduleTask {
-                rate,
-                clients: client_ids,
-                origin,
-                configurations,
-                task_type,
-                unicast,
-                ipv6,
-                traceroute,
-                divide,
-                interval,
-                targets: Some(Targets {
-                    destination_addresses,
-                }),
-            }
-        }
-        3 => { // TCP
-            return ScheduleTask {
-                rate,
-                clients: client_ids,
-                origin,
-                configurations,
-                task_type,
-                unicast,
-                ipv6,
-                traceroute,
-                divide,
-                interval,
-                targets: Some(Targets {
-                    destination_addresses,
-                }),
-            }
-        }
-        _ => panic!("Undefined type.")
     }
 }
 
