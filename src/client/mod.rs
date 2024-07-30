@@ -200,14 +200,14 @@ impl Client {
     ///
     /// * 'probing' - a boolean that indicates whether this client has to send out probes
     ///
-    /// * 'igreedy' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
+    /// * 'gcd' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
     fn init(
         &mut self,
         task: Task,
         client_id: u8,
         outbound_f: Option<oneshot::Receiver<()>>,
         probing: bool,
-        igreedy: bool,
+        gcd: bool,
     ) {
         // If the task is empty, we don't do a measurement
         if let Data::Empty(_) = task.data.clone().unwrap() {
@@ -232,7 +232,7 @@ impl Client {
         let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let tx_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
+        let tx_origins: Vec<Origin> = if gcd {  // Use the local unicast address and CLI defined ports
             let sport = start.tx_origins[0].sport;
             let dport = start.tx_origins[0].dport;
 
@@ -377,7 +377,7 @@ impl Client {
 
         // Start sending thread, if this client is probing
         if probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, igreedy, task_id, start.task_type as u8)
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, gcd, task_id, start.task_type as u8)
         }
 
         let mut self_clone = self.clone();  // TODO remove clone
