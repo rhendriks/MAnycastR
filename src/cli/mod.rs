@@ -431,10 +431,8 @@ impl CliClient {
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if task.clients.is_empty() {
-            file.write_all(b"# Clients that are probing: all\n")?;
-        } else {
-            file.write_all(format!("# Clients that are probing: {:?}\n", task.clients).as_ref())?;
+        if !task.clients.is_empty() {
+            file.write_all(format!("# Client-selective probing using the following clients: {:?}\n", task.clients).as_ref())?;
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
