@@ -336,7 +336,7 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02};{:02};{:02}",
+        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
                                           timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
                                           timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
 
@@ -397,7 +397,7 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
-        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
+        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
                                         timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
 
