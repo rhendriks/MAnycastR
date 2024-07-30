@@ -384,6 +384,7 @@ fn perform_trace(
     destination_port: u16,
 ) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
     if task_type > 3 {
+        // Traceroute supported for ICMP, UDP, and TCP
         panic!("Invalid task type")
     }
 
