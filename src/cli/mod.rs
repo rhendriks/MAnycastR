@@ -238,7 +238,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             rate,
             clients: client_ids,
             origin,
-            configurations: configurations.unwrap_or_default(), // default is empty vector
+            configurations: configurations.clone().unwrap_or_default(), // default is empty vector
             task_type,
             unicast,
             ipv6,
@@ -249,7 +249,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 destination_addresses: ips,
             }),
         };
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6, configurations.unwrap_or_default()).await
     } else {
         panic!("Unrecognized command");
     }
@@ -273,6 +273,8 @@ impl CliClient {
     /// * 'hitlist_length' - the length of the hitlist
     ///
     /// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
+    ///
+    /// * 'configuration' - a vector of configurations that are used for the measurement
     async fn do_task_to_server(
         &mut self,
         task: ScheduleTask,
@@ -281,12 +283,13 @@ impl CliClient {
         hitlist: &str,
         divide: bool,
         hitlist_length: usize,
-        ipv6: bool
+        ipv6: bool,
+        configurations: Vec<Configuration>,
     ) -> Result<(), Box<dyn Error>> {
         let rate = task.rate;
         let task_type = task.task_type;
         let unicast = task.unicast;
-
+        let traceroute = task.traceroute;
         let source_address = if unicast {
             "Unicast".to_string()
         } else {
@@ -296,8 +299,6 @@ impl CliClient {
                 "configuration-based".to_string()
             }
         };
-
-        let traceroute = task.traceroute;
 
         // Obtain connected client information for metadata
         let request = Request::new(Empty::default());
@@ -434,10 +435,19 @@ impl CliClient {
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            // let source_addr = IP::from(metadata.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
-            // file.write_all(format!("# \t * ID: {}, hostname: {}, source IP: {}, source port: {}\n", id, metadata.hostname, source_addr, metadata.origin.clone().unwrap().source_port).as_ref()).expect("Failed to write client data");
             file.write_all(format!("# \t * ID: {}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write client data");
-            // TODO retrieve configurations used for each client (source address, source port, destination port)
+        }
+
+        // Write configurations used for the measurement
+        file.write_all(b"# Configurations:\n")?;
+        for configuration in configurations {
+            let source_addr = IP::from(configuration.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+            let client_id = if configuration.client_id == u32::MAX {
+                "ALL".to_string()
+            } else {
+                configuration.client_id.to_string()
+            };
+            file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, source_addr, configuration.origin.clone().unwrap().source_port, configuration.origin.unwrap().destination_port).as_ref()).expect("Failed to write configuration data");
         }
 
         file.flush()?;
