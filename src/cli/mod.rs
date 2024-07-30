@@ -121,7 +121,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the target IP addresses
-        let ip_file = matches.value_of("IP_FILE").unwrap();
+        let ip_file = matches.value_of("IP_FILE").expect("No hitlist file provided!");
         let file = File::open(ip_file).unwrap_or_else(|_| panic!("Unable to open file {}", ip_file));
         let buf_reader = BufReader::new(file);
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
@@ -140,8 +140,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         } else if source_ip.is_some() && source_ip.clone().unwrap().is_v6() != ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
-
-        // Panic if the ips are not all the same type
+        // Panic if the ips in the hitlist are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != ipv6) {
             panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
         }
