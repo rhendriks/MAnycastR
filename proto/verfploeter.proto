@@ -44,7 +44,7 @@ message ClientId {uint32 client_id = 1;}
 message ScheduleTask {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Origin origin = 3; // Default origin to use (for all clients)
+  Origin origin = 3; // Default origin to use (for all clients)  // TODO combine 3 and 4 into one
   repeated Configuration configurations = 4; // Configuration of client and origin combinations
   uint32 task_type = 5;
   bool unicast = 6;
@@ -52,11 +52,7 @@ message ScheduleTask {
   bool traceroute = 8;
   uint32 interval = 9;
   bool divide = 10;
-  oneof data {
-    Ping ping = 11;
-    UDP udp = 12;
-    TCP tcp = 13;
-  }
+  Targets targets = 11;
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)
@@ -70,7 +66,7 @@ message Client {
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname, and the origin the client uses
+// Metadata (as used in Client), contains a hostname
 message Metadata {
   string hostname = 1;
 }
@@ -83,7 +79,7 @@ message Address {
   }
 }
 
-// IPv6 address message (since protobuf does not support 128 bit values)
+// IPv6 address message (protobuf does not support 128 bit values)
 message IPv6 {
   fixed64 p1 = 1;
   fixed64 p2 = 2;
@@ -94,11 +90,9 @@ message Task {
   oneof data {
     End end = 1;
     Start start = 2;
-    Ping ping = 3;
-    UDP udp = 4;
-    TCP tcp = 5;
-    Empty empty = 6;
-    Trace trace = 7;
+    Targets targets = 3;
+    Empty empty = 4;
+    Trace trace = 5;
   }
 }
 
@@ -126,7 +120,7 @@ message Origin {
   fixed32 destination_port = 3;
 }
 
-// Configuration: Configuration of client and origin combinations
+// Configuration: mapping of client ID to origin
 message Configuration {
   Origin origin = 1;
   uint32 client_id = 2;
@@ -139,18 +133,8 @@ message Trace {
   repeated Origin origins = 3;
 }
 
-// A Ping, which has a list of destination addresses
-message Ping {
-  repeated Address destination_addresses = 1;
-}
-
-// UDP, which has a list of destination addresses
-message UDP {
-  repeated Address destination_addresses = 1;
-}
-
-// TCP, which has a list of destination addresses
-message TCP {
+// Target task, which has a list of target addresses to probe
+message Targets {
   repeated Address destination_addresses = 1;
 }
 

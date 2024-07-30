@@ -17,11 +17,10 @@ use crate::server::mpsc::Sender;
 use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
-    Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, schedule_task::Data, Origin,
+    Ack, Finished, ScheduleTask, ClientList, Task, TaskResult, ClientId, Origin,
     verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Udp as UdpResult, verfploeter_result::Value::Tcp as TcpResult,
     controller_server::Controller, controller_server::ControllerServer, Address, task::Data::End as TaskEnd, End,
-    task::Data::Trace as TaskTrace, Trace, task::Data::Start as TaskStart, Start, task::Data::Ping as TaskPing, Ping,
-    task::Data::Udp as TaskUdp, Udp, task::Data::Tcp as TaskTcp, Tcp,
+    task::Data::Trace as TaskTrace, Trace, task::Data::Start as TaskStart, Start, Targets,
     Metadata, Client, Empty, ip_result::Value::Ipv6, ip_result::Value::Ipv4
 };
 /// Struct for the Server service
@@ -417,9 +416,7 @@ impl Controller for ControllerService {
         }
 
         // Create a Task from the ScheduleTask
-        let dest_addresses;
         let unicast = task.unicast;
-
         // Get the probe origins
         let probe_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
@@ -437,17 +434,7 @@ impl Controller for ControllerService {
         let divide = task.divide;
         let clients_interval = task.interval;
         *self.traceroute.lock().unwrap() = traceroute;
-        match task.data.unwrap() {
-            Data::Ping(ping) => {
-                dest_addresses = ping.destination_addresses;
-            }
-            Data::Udp(udp) => {
-                dest_addresses = udp.destination_addresses;
-            }
-            Data::Tcp(tcp) => {
-                dest_addresses = tcp.destination_addresses;
-            }
-        };
+        let dest_addresses = task.targets.expect("No destination addresses specified").destination_addresses;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -652,23 +639,10 @@ impl Controller for ControllerService {
                     }
 
                     if probing {
-                        let task = match task_type {
-                            1 => Task {
-                                data: Some(TaskPing(Ping {
-                                    destination_addresses: chunk.to_vec(),
-                                })),
-                            },
-                            2 | 4 => Task {
-                                data: Some(TaskUdp(Udp {
-                                    destination_addresses: chunk.to_vec(),
-                                })),
-                            },
-                            3 => Task {
-                                data: Some(TaskTcp(Tcp {
-                                    destination_addresses: chunk.to_vec(),
-                                })),
-                            },
-                            _ => Task::default(),
+                        let task = Task {
+                            data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                                destination_addresses: chunk.to_vec(),
+                            })),
                         };
 
                         // Send packet to client
