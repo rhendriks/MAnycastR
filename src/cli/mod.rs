@@ -303,7 +303,7 @@ impl CliClient {
             "Unicast".to_string()
         } else {
             if task.clone().origin.is_some() {
-                task.clone().origin.unwrap().source_address.unwrap().to_string()
+                IP::from(task.clone().origin.unwrap().source_address.unwrap()).to_string()
             } else {
                 "configuration-based".to_string()
             }
