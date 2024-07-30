@@ -1,17 +1,14 @@
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::sleep;
+use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedSender, Receiver};
-use crate::custom_module;
-use custom_module::verfploeter::{
+use crate::custom_module::verfploeter::{
     Address, ip_result, IPv4Result, IPv6Result, IpResult, PingPayload, PingResult, TaskResult,
     TcpResult, UdpPayload, UdpResult, verfploeter_result::Value, VerfploeterResult,
     address::Value::V4, address::Value::V6, IPv6, DnsChaos, DnsARecord, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
-    TraceResult
+    TraceResult, trace_result, udp_payload
 };
-use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
-use crate::net::netv6::IPv6Packet;
+use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord, netv6::IPv6Packet};
 use pcap::{Active, Capture, Device};
 
 /// Listen for incoming packets
@@ -52,7 +49,7 @@ pub fn listen(
     let exit_flag = Arc::new(Mutex::new(false));
     let rq_r = rq.clone();
     let exit_flag_r = exit_flag.clone();
-    thread::Builder::new()
+    Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
             let mut cap = get_pcap(filter);
@@ -139,7 +136,7 @@ pub fn listen(
         }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the server as TaskResult
-    thread::Builder::new()
+    Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
             handle_results(&tx, rx_f, client_id, rq);
@@ -425,7 +422,7 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                             .as_nanos() as u64,
                         transmit_time,
                         sender_client_id,
-                        value: Some(custom_module::verfploeter::trace_result::Value::Udp(UdpResult {
+                        value: Some(trace_result::Value::Udp(UdpResult {
                             receive_time: 0,
                             source_port: udp_header.source_port as u32,
                             destination_port: udp_header.destination_port as u32,
@@ -456,7 +453,7 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                             .as_nanos() as u64,
                         transmit_time,
                         sender_client_id,
-                        value: Some(custom_module::verfploeter::trace_result::Value::Tcp(TcpResult {
+                        value: Some(trace_result::Value::Tcp(TcpResult {
                             receive_time: 0,
                             source_port: tcp_header.source_port as u32,
                             destination_port: tcp_header.destination_port as u32,
@@ -485,7 +482,7 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                             .as_nanos() as u64,
                         transmit_time,
                         sender_client_id,
-                        value: Some(custom_module::verfploeter::trace_result::Value::Ping(PingResult {
+                        value: Some(trace_result::Value::Ping(PingResult {
                             receive_time: 0,
                             ip_result: Some(ip_result_probe),
                             payload: None,
@@ -606,7 +603,7 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
             };
 
             udp_payload = Some(UdpPayload {
-                value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                value: Some(udp_payload::Value::DnsARecord(DnsARecord {
                     transmit_time: 0,
                     source_address,
                     destination_address,
@@ -750,7 +747,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
         };
 
         Some(UdpPayload {
-            value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+            value: Some(udp_payload::Value::DnsARecord(DnsARecord {
                 transmit_time,
                 source_address: Some(Address {
                     value: Some(V6(IPv6 {
@@ -795,7 +792,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
         };
 
         Some(UdpPayload {
-            value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+            value: Some(udp_payload::Value::DnsARecord(DnsARecord {
                 transmit_time,
                 source_address: Some(Address {
                     value: Some(V4(sender_src)),
@@ -819,7 +816,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 
     if record.answer == 0 {
         return Some(UdpPayload {
-            value: Some(custom_module::verfploeter::udp_payload::Value::DnsChaos(DnsChaos {
+            value: Some(udp_payload::Value::DnsChaos(DnsChaos {
                 sender_client_id,
                 chaos_data: "Not implemented".to_string(),
             })),
@@ -831,7 +828,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let chaos_data = txt.txt;
 
     return Some(UdpPayload {
-        value: Some(custom_module::verfploeter::udp_payload::Value::DnsChaos(DnsChaos {
+        value: Some(udp_payload::Value::DnsChaos(DnsChaos {
             sender_client_id,
             chaos_data,
         })),
