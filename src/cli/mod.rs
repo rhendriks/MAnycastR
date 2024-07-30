@@ -610,7 +610,7 @@ fn write_results(
     let mut wtr_file_traceroute = if traceroute {
         let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
         // Write header
-        wtr_file.write_record(vec!["recv_client_id", "reply_src_addr", "reply_dest_addr", "ttl", "receive_time", "transmit_time", "sender_client_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
+        wtr_file.write_record(vec!["rx_client_id", "reply_src_addr", "reply_dest_addr", "ttl", "rx_time", "tx_time", "sender_client_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
         Some(wtr_file)
     } else {
         None
@@ -663,14 +663,14 @@ fn write_results(
 /// Creates the appropriate header for the results file (based on the task type)
 fn get_header(task_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
-    let mut header = vec!["recv_client_id"];
+    let mut header = vec!["rx_client_id"];
     // Information contained in IPv4 header
-    header.append(&mut vec!["reply_src_addr", "reply_dest_addr", "ttl"]);
+    header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
     header.append(&mut match task_type {
-        1 => vec!["receive_time", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id"], // ICMP
-        2 => vec!["receive_time", "reply_src_port", "reply_dest_port", "code", "transmit_time", "request_src_addr", "request_dest_addr", "sender_client_id", "request_src_port", "request_dest_port"], // UDP/DNS
-        3 => vec!["receive_time", "reply_src_port", "reply_dest_port", "seq", "ack"], // TCP
-        4 => vec!["receive_time", "reply_src_port", "reply_dest_port", "code", "sender_client_id", "chaos_data"], // UDP/CHAOS
+        1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_client_id"], // ICMP
+        2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "sender_client_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
+        3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
+        4 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "sender_client_id", "chaos_data"], // UDP/CHAOS
         _ => panic!("Undefined type.")
     });
 
@@ -688,17 +688,17 @@ fn get_header(task_type: u32) -> Vec<&'static str> {
 /// * 'task_type' - The type of task that is being performed
 fn get_result(
     result: VerfploeterResult,
-    receiver_client_id: u32,
+    rx_client_id: u32,
     task_type: u32
 ) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
-            let ipresult = trace.ip_result.unwrap();
-            let source_mb = ipresult.get_source_address_str();
+            let ip_result = trace.ip_result.unwrap();
+            let source_mb = ip_result.get_source_address_str();
             let ttl = trace.ttl;
-            let receive_time = trace.receive_time.to_string();
-            let transmit_time = trace.transmit_time.to_string();
-            let sender_client_id = trace.sender_client_id.to_string();
+            let rx_time = trace.rx_time.to_string();
+            let tx_time = trace.tx_time.to_string();
+            let tx_client_id = trace.tx_client_id.to_string();
 
             return match trace.value.unwrap() {
                 Value::Ping(ping) => {
@@ -706,73 +706,73 @@ fn get_result(
                     let source = inner_ip.get_source_address_str();
                     let destination = inner_ip.get_dest_address_str();
 
-                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time]
+                    vec![rx_client_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time]
                 }
                 Value::Udp(udp) => {
                     let inner_ip = udp.ip_result.unwrap();
-                    let source = inner_ip.get_source_address_str();
-                    let destination = inner_ip.get_dest_address_str();
-                    let source_port = udp.source_port.to_string();
-                    let destination_port = udp.destination_port.to_string();
+                    let src = inner_ip.get_source_address_str();
+                    let dst = inner_ip.get_dest_address_str();
+                    let sport = udp.sport.to_string();
+                    let dport = udp.dport.to_string();
 
-                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time, source_port, destination_port]
+                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport]
                 }
                 Value::Tcp(tcp) => {
                     let inner_ip = tcp.ip_result.unwrap();
-                    let source = inner_ip.get_source_address_str();
-                    let destination = inner_ip.get_dest_address_str();
-                    let source_port = tcp.source_port.to_string();
-                    let destination_port = tcp.destination_port.to_string();
+                    let src = inner_ip.get_source_address_str();
+                    let dst = inner_ip.get_dest_address_str();
+                    let sport = tcp.sport.to_string();
+                    let dport = tcp.dport.to_string();
                     let seq = tcp.seq.to_string();
                     let ack = tcp.ack.to_string();
 
-                    vec![receiver_client_id.to_string(), source, destination, ttl.to_string(), source_mb, sender_client_id, receive_time, transmit_time, source_port, destination_port, seq, ack]
+                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport, seq, ack]
                 }
             }
         }
         ResultPing(ping) => {
-            let recv_time = ping.receive_time.to_string();
+            let rx_time = ping.rx_time.to_string();
 
             let ip_result = ping.ip_result.unwrap();
             let reply_src = ip_result.get_source_address_str();
-            let reply_dest = ip_result.get_dest_address_str();
+            let reply_dst = ip_result.get_dest_address_str();
             let ttl = ip_result.ttl.to_string();
 
             // Ping payload
             let payload = ping.payload.unwrap();
-            let transmit_time = payload.transmit_time.to_string();
-            let request_src = payload.source_address.unwrap().to_string();
-            let request_dest = payload.destination_address.unwrap().to_string();
-            let sender_client_id = payload.sender_client_id.to_string();
+            let tx_time = payload.tx_time.to_string();
+            let probe_src = payload.src.unwrap().to_string();
+            let probe_dst = payload.dst.unwrap().to_string();
+            let tx_client_id = payload.tx_client_id.to_string();
 
-            return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, transmit_time, request_src, request_dest, sender_client_id];
+            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, tx_time, probe_src, probe_dst, tx_client_id];
         }
         ResultUdp(udp) => {
-            let recv_time = udp.receive_time.to_string();
-            let reply_source_port = udp.source_port.to_string();
-            let reply_destination_port = udp.destination_port.to_string();
+            let rx_time = udp.rx_time.to_string();
+            let reply_sport = udp.sport.to_string();
+            let reply_dport = udp.dport.to_string();
             let reply_code = udp.code.to_string();
 
             let ip_result = udp.ip_result.unwrap();
             let reply_src = ip_result.get_source_address_str();
-            let reply_dest = ip_result.get_dest_address_str();
+            let reply_dst = ip_result.get_dest_address_str();
             let ttl = ip_result.ttl.to_string();
 
             if udp.payload == None { // ICMP reply
                 if task_type == 2 {
-                    let transmit_time = "-1".to_string();
-                    let request_src = "-1".to_string();
-                    let request_dest = "-1".to_string();
-                    let sender_client_id = "-1".to_string();
-                    let request_src_port = "-1".to_string();
-                    let request_dest_port = "-1".to_string();
+                    let tx_time = "-1".to_string();
+                    let probe_src = "-1".to_string();
+                    let probe_dst = "-1".to_string();
+                    let tx_client_id = "-1".to_string();
+                    let probe_sport = "-1".to_string();
+                    let probe_dport = "-1".to_string();
 
-                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port];
+                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
                 } else if task_type == 4 {
                     let sender_client_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
-                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos];
+                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, sender_client_id, chaos];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -782,21 +782,21 @@ fn get_result(
 
             match payload.value {
                 Some(DnsARecord(dns_a_record)) => {
-                    let transmit_time = dns_a_record.transmit_time.to_string();
+                    let tx_time = dns_a_record.tx_time.to_string();
                     // IP::from(payload.source_address.unwrap()).to_string()
-                    let request_src = dns_a_record.source_address.unwrap().to_string();
-                    let request_dest = dns_a_record.destination_address.unwrap().to_string();
-                    let sender_client_id = dns_a_record.sender_client_id.to_string();
-                    let request_src_port = dns_a_record.source_port.to_string();
-                    let request_dest_port = "53".to_string();
+                    let probe_src = dns_a_record.src.unwrap().to_string();
+                    let probe_dst = dns_a_record.dst.unwrap().to_string();
+                    let tx_client_id = dns_a_record.tx_client_id.to_string();
+                    let probe_sport = dns_a_record.sport.to_string();
+                    let probe_dport = "53".to_string();
 
-                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, transmit_time, request_src, request_dest, sender_client_id, request_src_port, request_dest_port];
+                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
                 },
                 Some(DnsChaos(dns_chaos)) => {
-                    let sender_client_id = dns_chaos.sender_client_id.to_string();
+                    let tx_client_id = dns_chaos.tx_client_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
-                    return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, reply_code, sender_client_id, chaos];
+                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_client_id, chaos];
                 },
                 None => {
                     panic!("No payload found for UDP result!");
@@ -804,20 +804,17 @@ fn get_result(
             }
         },
         ResultTcp(tcp) => {
-            let recv_time = tcp.receive_time.to_string();
-
+            let rx_time = tcp.rx_time.to_string();
             let ip_result = tcp.ip_result.unwrap();
             let reply_src = ip_result.get_source_address_str();
-            let reply_dest = ip_result.get_dest_address_str();
+            let reply_dst = ip_result.get_dest_address_str();
             let ttl = ip_result.ttl.to_string();
-
-            let reply_source_port = tcp.source_port.to_string();
-            let reply_destination_port = tcp.destination_port.to_string();
-
+            let reply_sport = tcp.sport.to_string();
+            let reply_dport = tcp.dport.to_string();
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            return vec![receiver_client_id.to_string(), reply_src, reply_dest, ttl, recv_time, reply_source_port, reply_destination_port, seq, ack];
+            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
         }
     }
 }
