@@ -77,9 +77,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let line = l.expect("Unable to read configuration line");
                     if line.starts_with("#") { return None; } // Skip comments
                     let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
-                    if parts.len() != 2 {
-                        panic!("Invalid configuration format: {}", line);
-                    }
+                    if parts.len() != 2 { panic!("Invalid configuration format: {}", line); }
                     let client_id = if parts[0] == "ALL" { // All clients probe this configuration
                         u32::MAX
                     } else {
@@ -88,9 +86,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                    if addr_ports.len() != 3 {
-                        panic!("Invalid configuration format: {}", line);
-                    }
+                    if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
                     let source_address = Address::from(IP::from(addr_ports[0].to_string()));
                     // Parse to u16 first, must fit in header
                     let source_port = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
@@ -108,11 +104,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             if configurations.len() == 0 {
                 panic!("No valid configurations found in file {}", conf_file);
             }
+
+            // Make sure all configurations have the same IP type
+            let ipv6 = configurations.first().unwrap().origin.clone().unwrap().source_address.unwrap().is_v6();
+            if configurations.iter().any(|conf| conf.origin.clone().unwrap().source_address.unwrap().is_v6() != ipv6) {
+                panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
+            }
             Some(configurations)
         } else {
             None
         };
-        // TODO make sure all configurations are of the same type as the target addresses
 
         // There must be a defined anycast source address, configuration, or unicast flag
         if source_ip.is_none() && configurations.is_none() && !unicast {
@@ -132,14 +133,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if source_ip.is_some() && source_ip.clone().unwrap().is_v6() != ipv6 {
+        if configurations.is_some()  {
+            if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().source_address.unwrap().is_v6() != ipv6 {
+                panic!("Configurations are not all of the same type as the target addresses! (IPv4 & IPv6)");
+            }
+        } else if source_ip.is_some() && source_ip.clone().unwrap().is_v6() != ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
         }
-        // TODO make sure configurations are of the same type as the target addresses
 
         // Panic if the ips are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != ipv6) {
-            panic!("Target addresses are not all of the same type! (mixed IPv4 & IPv6)");
+            panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
         }
 
         // Shuffle the hitlist, if desired
