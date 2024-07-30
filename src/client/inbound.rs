@@ -273,12 +273,12 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
             return None;
         }
 
-        let transmit_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-        let sender_client_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
-        let source_address = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
-        let destination_address = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+        let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
+        let tx_client_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
+        let src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
+        let dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
-        let receive_time = SystemTime::now()
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -286,17 +286,17 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         // Create a VerfploeterResult for the received ping reply
         Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {
-                receive_time,
+                rx_time,
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
-                    transmit_time,
-                    source_address: Some(Address {
-                        value: Some(V4(source_address)),
+                    tx_time,
+                    src: Some(Address {
+                        value: Some(V4(src)),
                     }),
-                    destination_address: Some(Address {
-                        value: Some(V4(destination_address)),
+                    dst: Some(Address {
+                        value: Some(V4(dst)),
                     }),
-                    sender_client_id,
+                    tx_client_id,
                 }),
             })),
         })
@@ -325,12 +325,12 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
             return None;
         }
 
-        let transmit_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let sender_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-        let source_address = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
-        let destination_address = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
+        let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
+        let tx_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+        let probe_src = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
+        let probe_dst = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
 
-        let receive_time = SystemTime::now()
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -338,23 +338,23 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
         // Create a VerfploeterResult for the received ping reply
         Some(VerfploeterResult {
             value: Some(Value::Ping(PingResult {
-                receive_time,
+                rx_time,
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
-                    transmit_time,
-                    source_address: Some(Address {
+                    tx_time,
+                    src: Some(Address {
                         value: Some(V6(IPv6 {
-                            p1: (source_address >> 64) as u64,
-                            p2: source_address as u64,
+                            p1: (probe_src >> 64) as u64,
+                            p2: probe_src as u64,
                         })),
                     }),
-                    destination_address: Some(Address {
+                    dst: Some(Address {
                         value: Some(V6(IPv6 {
-                            p1: (destination_address >> 64) as u64,
-                            p2: destination_address as u64,
+                            p1: (probe_dst >> 64) as u64,
+                            p2: probe_dst as u64,
                         })),
                     }),
-                    sender_client_id,
+                    tx_client_id,
                 }),
             })),
         })
@@ -408,24 +408,24 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                 let inner_payload = udp_header.body.as_slice();
                 if inner_payload.len() < 10 { return None }
 
-                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let sender_client_id = u32::from(inner_payload[8]);
-                let ttl = u32::from(inner_payload[9]);
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_client_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
                     value: Some(Value::Trace(TraceResult {
                         ip_result,
-                        ttl,
-                        receive_time: SystemTime::now()
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_nanos() as u64,
-                        transmit_time,
-                        sender_client_id,
+                        tx_time,
+                        tx_client_id,
                         value: Some(trace_result::Value::Udp(UdpResult {
-                            receive_time: 0,
-                            source_port: udp_header.source_port as u32,
-                            destination_port: udp_header.destination_port as u32,
+                            rx_time: 0,
+                            sport: udp_header.source_port as u32,
+                            dport: udp_header.destination_port as u32,
                             code: 16,
                             ip_result: Some(ip_result_probe),
                             payload: Some(UdpPayload {
@@ -439,24 +439,24 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                 let inner_payload = tcp_header.body.as_slice();
                 if inner_payload.len() < 10 { return None }
 
-                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let sender_client_id = u32::from(inner_payload[8]);
-                let ttl = u32::from(inner_payload[9]);
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_client_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
                     value: Some(Value::Trace(TraceResult {
                         ip_result,
-                        ttl,
-                        receive_time: SystemTime::now()
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_nanos() as u64,
-                        transmit_time,
-                        sender_client_id,
+                        tx_time,
+                        tx_client_id,
                         value: Some(trace_result::Value::Tcp(TcpResult {
-                            receive_time: 0,
-                            source_port: tcp_header.source_port as u32,
-                            destination_port: tcp_header.destination_port as u32,
+                            rx_time: 0,
+                            sport: tcp_header.source_port as u32,
+                            dport: tcp_header.destination_port as u32,
                             seq: tcp_header.seq,
                             ip_result: Some(ip_result_probe),
                             ack: tcp_header.ack,
@@ -468,22 +468,22 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfpl
                 let inner_payload = icmp_header.body.as_slice();
                 if inner_payload.len() < 10 { return None }
 
-                let transmit_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let sender_client_id = u32::from(inner_payload[8]);
-                let ttl = u32::from(inner_payload[9]);
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_client_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
                     value: Some(Value::Trace(TraceResult {
                         ip_result,
-                        ttl,
-                        receive_time: SystemTime::now()
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_nanos() as u64,
-                        transmit_time,
-                        sender_client_id,
+                        tx_time,
+                        tx_client_id,
                         value: Some(trace_result::Value::Ping(PingResult {
-                            receive_time: 0,
+                            rx_time: 0,
                             ip_result: Some(ip_result_probe),
                             payload: None,
                         })),
@@ -520,12 +520,12 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
         } else if is_ipv6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
             return None;
         }
-        let code = icmp_packet.code as u32;
-        let identifier = icmp_packet.identifier as u32;
-        let mut probe_src_port = 0u32;
+        let reply_code = icmp_packet.code as u32;
+        let reply_identifier = icmp_packet.identifier as u32;
+        let mut probe_sport = 0u32;
         let mut udp_payload = None;
-        let sender_client_id = 0u32;
-        let receive_time = SystemTime::now()
+        let tx_client_id = 0u32;
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -543,10 +543,10 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
             // Create a VerfploeterResult for the received ping reply
             return Some(VerfploeterResult {
                 value: Some(Value::Udp(UdpResult {
-                    receive_time,
-                    source_port: 0,
-                    destination_port: 0,
-                    code,
+                    rx_time,
+                    sport: 0,
+                    dport: 0,
+                    code: reply_code,
                     ip_result,
                     payload: None,
                 })),
@@ -557,7 +557,7 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
 
         // 3.2 UDP header in ICMP body
         if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
-            probe_src_port = udp_header.source_port as u32;
+            probe_sport = udp_header.source_port as u32;
 
             // 3.3 DNS header
             if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
@@ -568,47 +568,47 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
         // If the ICMP payload does not contain the full DNS packet, we create a VerfploeterResult with the ICMP information
         if udp_payload.is_none() {
             // Get the source and destination addresses from the IP header in the ICMP body
-            let (source_address, destination_address) = if is_ipv6 {
-                let source_address = Some(Address {
+            let (probe_src, probe_dst) = if is_ipv6 {
+                let probe_src = Some(Address {
                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
                         ip_IPv6(ipv6) => ipv6.source_address.unwrap(),
                     })),
                 });
 
-                let destination_address = Some(Address {
+                let probe_dst = Some(Address {
                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
                         ip_IPv6(ipv6) => ipv6.destination_address.unwrap(),
                     })),
                 });
 
-                (source_address, destination_address)
+                (probe_src, probe_dst)
             } else {
-                let source_address = Some(Address {
+                let probe_src = Some(Address {
                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(ipv4) => ipv4.source_address,
                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                     })),
                 });
 
-                let destination_address = Some(Address {
+                let probe_dst = Some(Address {
                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(ipv4) => ipv4.destination_address,
                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                     })),
                 });
 
-                (source_address, destination_address)
+                (probe_src, probe_dst)
             };
 
             udp_payload = Some(UdpPayload {
                 value: Some(udp_payload::Value::DnsARecord(DnsARecord {
-                    transmit_time: 0,
-                    source_address,
-                    destination_address,
-                    sender_client_id,
-                    source_port: probe_src_port,
+                    tx_time: 0,
+                    src: probe_src,
+                    dst: probe_dst,
+                    tx_client_id,
+                    sport: probe_sport,
                 })),
             })
         }
@@ -616,10 +616,10 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
         // Create a VerfploeterResult for the received ping reply
         Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
-                receive_time,
-                source_port: 0, // ICMP replies have no port numbers
-                destination_port: identifier, // ICMP replies use the destination port value of a measurement as identifier
-                code,
+                rx_time,
+                sport: 0, // ICMP replies have no port numbers
+                dport: reply_identifier, // ICMP replies use the destination port value of a measurement as identifier
+                code: reply_code,
                 ip_result,
                 payload: udp_payload,
             })),
@@ -643,11 +643,10 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             return None
         }
 
-        let receive_time = SystemTime::now()
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-
         let payload = if task_type == 2 {
             parse_dns_a_record(udp_packet.body.as_slice(), false)
         } else if task_type == 4 {
@@ -659,9 +658,9 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
         // Create a VerfploeterResult for the received UDP reply
         return Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
-                receive_time,
-                source_port: udp_packet.source_port as u32,
-                destination_port: udp_packet.destination_port as u32,
+                rx_time,
+                sport: udp_packet.source_port as u32,
+                dport: udp_packet.destination_port as u32,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
@@ -686,11 +685,10 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             return None
         }
 
-        let receive_time = SystemTime::now()
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-
         let payload = if task_type == 2 {
             parse_dns_a_record(value.body.as_slice(), true)
         } else if task_type == 4 {
@@ -702,9 +700,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
         // Create a VerfploeterResult for the received UDP reply
         Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
-                receive_time,
-                source_port: value.source_port as u32,
-                destination_port: value.destination_port as u32,
+                rx_time,
+                sport: value.source_port as u32,
+                dport: value.destination_port as u32,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
@@ -725,44 +723,44 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
         // Our domains have 8 'parts' separated by 7 dots
         if parts.len() != 8 { return None }
 
-        let transmit_time = match parts[0].parse::<u64>() {
+        let tx_time = match parts[0].parse::<u64>() {
             Ok(t) => t,
             Err(_) => return None,
         };
-        let sender_src = match parts[1].parse::<u128>() {
+        let probe_src = match parts[1].parse::<u128>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_dest = match parts[2].parse::<u128>() {
+        let probe_dst = match parts[2].parse::<u128>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_client_id = match parts[3].parse::<u8>() {
+        let tx_client_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_src_port = match parts[4].parse::<u16>() {
+        let probe_sport = match parts[4].parse::<u16>() {
             Ok(s) => s,
             Err(_) => return None,
         };
 
         Some(UdpPayload {
             value: Some(udp_payload::Value::DnsARecord(DnsARecord {
-                transmit_time,
-                source_address: Some(Address {
+                tx_time,
+                src: Some(Address {
                     value: Some(V6(IPv6 {
-                        p1: (sender_src >> 64) as u64,
-                        p2: sender_src as u64,
+                        p1: (probe_src >> 64) as u64,
+                        p2: probe_src as u64,
                     })),
                 }),
-                destination_address: Some(Address {
+                dst: Some(Address {
                     value: Some(V6(IPv6 {
-                        p1: (sender_dest >> 64) as u64,
-                        p2: sender_dest as u64,
+                        p1: (probe_dst >> 64) as u64,
+                        p2: probe_dst as u64,
                     })),
                 }),
-                sender_client_id: sender_client_id as u32,
-                source_port: sender_src_port as u32,
+                tx_client_id: tx_client_id as u32,
+                sport: probe_sport as u32,
             })),
         })
     } else {
@@ -770,38 +768,38 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
         // Our domains have 5 'parts' separated by 4 dashes
         if parts.len() != 5 { return None }
 
-        let transmit_time = match parts[0].parse::<u64>() {
+        let tx_time = match parts[0].parse::<u64>() {
             Ok(t) => t,
             Err(_) => return None,
         };
-        let sender_src = match parts[1].parse::<u32>() {
+        let probe_src = match parts[1].parse::<u32>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_dest = match parts[2].parse::<u32>() {
+        let probe_dst = match parts[2].parse::<u32>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_client_id = match parts[3].parse::<u8>() {
+        let tx_client_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let sender_src_port = match parts[4].parse::<u16>() {
+        let probe_sport = match parts[4].parse::<u16>() {
             Ok(s) => s,
             Err(_) => return None,
         };
 
         Some(UdpPayload {
             value: Some(udp_payload::Value::DnsARecord(DnsARecord {
-                transmit_time,
-                source_address: Some(Address {
-                    value: Some(V4(sender_src)),
+                tx_time,
+                src: Some(Address {
+                    value: Some(V4(probe_src)),
                 }),
-                destination_address: Some(Address {
-                    value: Some(V4(sender_dest)),
+                dst: Some(Address {
+                    value: Some(V4(probe_dst)),
                 }),
-                sender_client_id: sender_client_id as u32,
-                source_port: sender_src_port as u32,
+                tx_client_id: tx_client_id as u32,
+                sport: probe_sport as u32,
             })),
         })
     }
@@ -812,12 +810,12 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
 
     // 8 right most bits are the client_id
-    let sender_client_id = ((record.transaction_id >> 8) & 0xFF) as u32;
+    let tx_client_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {
         return Some(UdpPayload {
             value: Some(udp_payload::Value::DnsChaos(DnsChaos {
-                sender_client_id,
+                tx_client_id,
                 chaos_data: "Not implemented".to_string(),
             })),
         });
@@ -829,7 +827,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 
     return Some(UdpPayload {
         value: Some(udp_payload::Value::DnsChaos(DnsChaos {
-            sender_client_id,
+            tx_client_id,
             chaos_data,
         })),
     });
@@ -843,18 +841,18 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
             return None
         }
 
-        let receive_time = SystemTime::now()
+        let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
 
         Some(VerfploeterResult {
             value: Some(Value::Tcp(TcpResult {
-                source_port: u32::from(tcp_packet.source_port),
-                destination_port: tcp_packet.destination_port as u32,
+                sport: u32::from(tcp_packet.source_port),
+                dport: tcp_packet.destination_port as u32,
                 seq: tcp_packet.seq,
                 ip_result: Some(ip_result),
-                receive_time,
+                rx_time,
                 ack: tcp_packet.ack,
             })),
         })

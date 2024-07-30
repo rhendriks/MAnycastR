@@ -190,7 +190,7 @@ fn main() {
     }
 }
 
-fn parse_cmd<'a>() -> ArgMatches<'a> {
+fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO structure order of args
     App::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
@@ -229,13 +229,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("hostname/ip address:port of the server")
                         .default_value("[::1]:50001")
                 )
-                // .arg(
-                //     Arg::with_name("multi-probing")
-                //         .long("multi-probing")
-                //         .takes_value(false)
-                //         .help("Enable multi-source probing")
-                //         .required(false)
-                // )
                 .arg (
                     Arg::with_name("tls")
                         .long("tls")
