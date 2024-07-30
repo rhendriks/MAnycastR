@@ -71,14 +71,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
-            Some(buf_reader // Create a vector of addresses from the file
+            let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
                 .lines()
                 .filter_map(|l| {
                     let line = l.expect("Unable to read configuration line");
                     if line.starts_with("#") { return None; } // Skip comments
                     let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
                     if parts.len() != 2 {
-                        return None;
+                        panic!("Invalid configuration format: {}", line);
                     }
                     let client_id = if parts[0] == "ALL" { // All clients probe this configuration
                         u32::MAX
@@ -89,7 +89,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
-                        return None;
+                        panic!("Invalid configuration format: {}", line);
                     }
                     let source_address = Address::from(IP::from(addr_ports[0].to_string()));
                     // Parse to u16 first, must fit in header
@@ -104,7 +104,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         })
                     })
                 })
-                .collect())
+                .collect();
+            if configurations.len() == 0 {
+                panic!("No valid configurations found in file {}", conf_file);
+            }
+            Some(configurations)
         } else {
             None
         };
