@@ -9,7 +9,7 @@ use crate::custom_module;
 use custom_module::IP;
 use tokio::sync::mpsc::Receiver;
 use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
-use custom_module::verfploeter::task::Data::{Ping, Tcp, Udp, End, Trace};
+use custom_module::verfploeter::task::Data::{Targets, End, Trace};
 use std::process::{Command, Stdio};
 use tokio::sync::mpsc::error::TryRecvError;
 
@@ -280,79 +280,56 @@ pub fn outbound(
                     End(_) => {
                         break
                     }, // An End task means the measurement has finished
-                    Ping(ping) => {
-                        if task_type != 1 {
-                            panic!("Non-matching task type")
-                        }
-
+                    Targets(targets) => {
                         for origin in &origins {
                             let source = IP::from(origin.source_address.clone().expect("None IP address"));
-                            for dst_addr in &ping.destination_addresses {
-                                let icmp = create_ping(
-                                    source,
-                                    client_id,
-                                    task_id,
-                                    origin.clone(),
-                                    dst_addr.clone(),
-                                );
-                                let mut packet: Vec<u8> = Vec::new();
-                                packet.extend_from_slice(&ethernet_header);
-                                packet.extend_from_slice(&icmp); // ip header included
-                                cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                            match task_type {
+                                1 => {
+                                    for dst_addr in &targets.destination_addresses {
+                                        let mut packet = ethernet_header.clone();
+                                        packet.extend_from_slice(&create_ping(
+                                            source,
+                                            client_id,
+                                            task_id,
+                                            origin.clone(),
+                                            dst_addr.clone(),
+                                        ));
+                                        cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                                    }
+                                },
+                                2 | 4 => {
+                                    for dst_addr in &targets.destination_addresses {
+                                        let mut packet = ethernet_header.clone();
+                                        packet.extend_from_slice(&create_udp(
+                                            source,
+                                            origin.source_port as u16,
+                                            client_id,
+                                            IP::from(dst_addr.clone()),
+                                            ipv6,
+                                            task_type,
+                                        ));
+                                        cap.sendpacket(packet).expect("Failed to send UDP packet");
+                                    }
+                                },
+                                3 => {
+                                    for dst_addr in &targets.destination_addresses {
+                                        let mut packet = ethernet_header.clone();
+                                        packet.extend_from_slice(&create_tcp(
+                                            IP::from(dst_addr.clone()),
+                                            source,
+                                            origin.source_port as u16,
+                                            origin.destination_port as u16,
+                                            ipv6,
+                                            client_id,
+                                            igreedy,
+                                        ));
+                                        cap.sendpacket(packet).expect("Failed to send TCP packet");
+                                    }
+                                },
+                                _ => panic!("Invalid task type"), // Invalid task
                             }
                         }
                     },
-                    Udp(udp) => {
-                        if task_type != 2 && task_type != 4 {
-                            panic!("Non-matching task type")
-                        }
-                        for origin in &origins {
-                            let source = IP::from(origin.source_address.clone().expect("None IP address"));
-                            let source_port = origin.source_port as u16;
-                            for dst_addr in &udp.destination_addresses {
-                                let udp = create_udp(
-                                    source,
-                                    source_port,
-                                    client_id,
-                                    IP::from(dst_addr.clone()),
-                                    ipv6,
-                                    task_type
-                                );
-
-                                let mut packet: Vec<u8> = Vec::new();
-                                packet.extend_from_slice(&ethernet_header);
-                                packet.extend_from_slice(&udp); // ip header included
-                                cap.sendpacket(packet).expect("Failed to send UDP packet");
-                            }
-                        }
-                    },
-                    Tcp(tcp) => {
-                        if task_type != 3 {
-                            panic!("Non-matching task type")
-                        }
-                        for origin in &origins {
-                            let source = IP::from(origin.source_address.clone().expect("None IP address"));
-                            let source_port = origin.source_port as u16;
-                            let destination_port = origin.destination_port as u16;
-                            for dst_addr in &tcp.destination_addresses {
-                                let tcp = create_tcp(
-                                    IP::from(dst_addr.clone()),
-                                    source,
-                                    source_port,
-                                    destination_port,
-                                    ipv6,
-                                    client_id,
-                                    igreedy,
-                                );
-
-                                let mut packet: Vec<u8> = Vec::new();
-                                packet.extend_from_slice(&ethernet_header);
-                                packet.extend_from_slice(&tcp); // ip header included
-                                cap.sendpacket(packet).expect("Failed to send TCP packet");
-                            }
-                        }
-                    },
-
                     Trace(trace) => {
                         perform_trace(
                             trace.origins,

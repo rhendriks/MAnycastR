@@ -18,7 +18,7 @@ use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{
     VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
-    schedule_task, Ping, Udp, Tcp, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
+    Targets, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     verfploeter_result::Value::Trace as ResultTrace,
     udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos,
@@ -297,9 +297,9 @@ fn create_schedule_task(
                 traceroute,
                 divide,
                 interval,
-                data: Some(schedule_task::Data::Ping(Ping {
+                targets: Some(Targets {
                     destination_addresses,
-                }))
+                }),
             }
         }
         2 | 4 => { // UDP
@@ -314,9 +314,9 @@ fn create_schedule_task(
                 traceroute,
                 divide,
                 interval,
-                data: Some(schedule_task::Data::Udp(Udp {
+                targets: Some(Targets {
                     destination_addresses,
-                }))
+                }),
             }
         }
         3 => { // TCP
@@ -331,9 +331,9 @@ fn create_schedule_task(
                 traceroute,
                 divide,
                 interval,
-                data: Some(schedule_task::Data::Tcp(Tcp {
+                targets: Some(Targets {
                     destination_addresses,
-                }))
+                }),
             }
         }
         _ => panic!("Undefined type.")
