@@ -299,13 +299,19 @@ impl CliClient {
         let task_type = task.task_type;
         let unicast = task.unicast;
         let traceroute = task.traceroute;
-        let source_address = if unicast {
-            "Unicast".to_string()
+        let interval = task.interval;
+        let origin = if unicast {
+            let source_port = task.origin.clone().unwrap().source_port;
+            let destination_port = task.origin.clone().unwrap().destination_port;
+            format!("Unicast (source port: {}, destination port: {})", source_port, destination_port)
         } else {
             if task.clone().origin.is_some() {
-                IP::from(task.clone().origin.unwrap().source_address.unwrap()).to_string()
+                let source_address = IP::from(task.clone().origin.unwrap().source_address.unwrap()).to_string();
+                let source_port = task.origin.clone().unwrap().source_port;
+                let destination_port = task.origin.clone().unwrap().destination_port;
+                format!("Anycast (source IP: {}, source port: {}, destination port: {})", source_address, source_port, destination_port)
             } else {
-                "configuration-based".to_string()
+                "Anycast configuration-based".to_string()
             }
         };
 
@@ -418,7 +424,7 @@ impl CliClient {
             file.write_all(b"# Completed measurement\n")?;
         }
 
-        file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
+        file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
 
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
@@ -427,7 +433,15 @@ impl CliClient {
         }
         file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
         // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
+        let rate = rate.to_string().as_bytes()
+            .rchunks(3)
+            .rev()
+            .map(std::str::from_utf8)
+            .collect::<Result<Vec<&str>, _>>()
+            .expect("Unable to format rate")
+            .join(",");
         file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
+        file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
