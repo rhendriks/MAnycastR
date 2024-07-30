@@ -421,7 +421,14 @@ impl Controller for ControllerService {
         let tx_origins: Vec<Origin> = if unicast {
             vec![task.origin.clone().unwrap()] // Contains port values
         } else if task.configurations.len() > 0 {
-            vec![]
+            // Make sure no unknown clients are in the list
+            if task.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id)) {
+                println!("[Server] Unknown client in configuration list, terminating task.");
+                *self.active.lock().unwrap() = false;
+                return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"))
+            }
+
+            vec![]  // Return an empty list, as we will add the origins per client
         }
         else {
             vec![task.origin.clone().unwrap()]
