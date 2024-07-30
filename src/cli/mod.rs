@@ -258,7 +258,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 destination_addresses: ips,
             }),
         };
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, hitlist_path, divide, hitlist_length, ipv6, configurations.unwrap_or_default()).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
     } else {
         panic!("Unrecognized command");
     }
@@ -277,11 +277,7 @@ impl CliClient {
     ///
     /// * 'hitlist' - the name of the hitlist file that was used for this measurement
     ///
-    /// * 'divide' - a boolean that determines whether the task should be performed divide-and-conquer style
-    ///
     /// * 'hitlist_length' - the length of the hitlist
-    ///
-    /// * 'ipv6' - a boolean that determines whether the addresses are IPv6 or not
     ///
     /// * 'configuration' - a vector of configurations that are used for the measurement
     async fn do_task_to_server(
@@ -290,11 +286,11 @@ impl CliClient {
         cli: bool,
         shuffle: bool,
         hitlist: &str,
-        divide: bool,
         hitlist_length: usize,
-        ipv6: bool,
         configurations: Vec<Configuration>,
     ) -> Result<(), Box<dyn Error>> {
+        let divide = task.divide;
+        let ipv6 = task.ipv6;
         let rate = task.rate;
         let task_type = task.task_type;
         let unicast = task.unicast;
@@ -424,6 +420,10 @@ impl CliClient {
             file.write_all(b"# Completed measurement\n")?;
         }
 
+        if divide {
+            file.write_all(b"# Divide-and-conquer measurement\n")?;
+        }
+
         file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
 
         if shuffle {
@@ -454,15 +454,17 @@ impl CliClient {
         }
 
         // Write configurations used for the measurement
-        file.write_all(b"# Configurations:\n")?;
-        for configuration in configurations {
-            let source_addr = IP::from(configuration.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
-            let client_id = if configuration.client_id == u32::MAX {
-                "ALL".to_string()
-            } else {
-                configuration.client_id.to_string()
-            };
-            file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, source_addr, configuration.origin.clone().unwrap().source_port, configuration.origin.unwrap().destination_port).as_ref()).expect("Failed to write configuration data");
+        if !configurations.is_empty() {
+            file.write_all(b"# Configurations:\n")?;
+            for configuration in configurations {
+                let source_addr = IP::from(configuration.origin.clone().unwrap().source_address.expect("Invalid source address")).to_string();
+                let client_id = if configuration.client_id == u32::MAX {
+                    "ALL".to_string()
+                } else {
+                    configuration.client_id.to_string()
+                };
+                file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, source_addr, configuration.origin.clone().unwrap().source_port, configuration.origin.unwrap().destination_port).as_ref()).expect("Failed to write configuration data");
+            }
         }
 
         file.flush()?;
