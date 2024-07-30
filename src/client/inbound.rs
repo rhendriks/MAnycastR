@@ -14,9 +14,6 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 use crate::net::netv6::IPv6Packet;
 use pcap::{Active, Capture, Device};
 
-
-// TODO combine listen_ping, listen_udp, and listen_tcp into a single function
-
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
 /// Makes sure that the received packets are valid and belong to the current task.
@@ -31,7 +28,7 @@ use pcap::{Active, Capture, Device};
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'v6' - whether to parse the packets as IPv6 or IPv4
+/// * 'is_ipv6' - whether to parse the packets as IPv6 or IPv4
 ///
 /// * 'filter' - the pcap filter to use
 ///
@@ -43,7 +40,7 @@ pub fn listen(
     rx_f: Receiver<()>,
     task_id: u32,
     client_id: u8,
-    v6: bool,
+    is_ipv6: bool,
     filter: String,
     traceroute: bool,
     task_type: u32,
@@ -75,7 +72,7 @@ pub fn listen(
 
                 let mut result = if task_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-                    let icmp_result = if v6 {
+                    let icmp_result = if is_ipv6 {
                         parse_icmpv6(&packet.data[14..], task_id)
                     } else {
                         parse_icmpv4(&packet.data[14..], task_id)
@@ -83,7 +80,7 @@ pub fn listen(
 
                     icmp_result
                 } else if task_type == 2 || task_type == 4 { // DNS A
-                    let udp_result = if v6 {
+                    let udp_result = if is_ipv6 {
                         if packet.data[20] == 17 { // 17 is the protocol number for UDP
                             parse_udpv6(&packet.data[14..], task_type)
                         } else {
@@ -107,7 +104,7 @@ pub fn listen(
 
                     udp_result
                 } else if task_type == 3 { // TCP
-                    let tcp_result = if v6 {
+                    let tcp_result = if is_ipv6 {
                         parse_tcpv6(&packet.data[14..])
                     } else {
                         parse_tcpv4(&packet.data[14..])
@@ -120,7 +117,7 @@ pub fn listen(
 
                 // Attempt to parse the packet as an ICMP time exceeded packet
                 if traceroute && (result == None) {
-                    result = parse_icmp_time_exceeded(&packet.data[14..], v6);
+                    result = parse_icmp_time_exceeded(&packet.data[14..], is_ipv6);
                 }
 
                 // Invalid packets have value None
@@ -370,9 +367,9 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 }
 
 /// ICMP Time exceeded parser, used for traceroute
-fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
+fn parse_icmp_time_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
-    let (ip_result, payload) = if v6 {
+    let (ip_result, payload) = if is_ipv6 {
         match parse_ipv6(packet_bytes) { //v6
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
@@ -386,12 +383,12 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
 
     // 2. ICMP time exceeded header
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        if (!v6 & (icmp_packet.icmp_type != 11)) | (v6 & (icmp_packet.icmp_type != 3)) { // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
+        if (!is_ipv6 & (icmp_packet.icmp_type != 11)) | (is_ipv6 & (icmp_packet.icmp_type != 3)) { // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
             return None;
         }
 
         // 3. IP header of the probe that caused the time exceeded
-        let (ip_result_probe, ip_payload_probe) = if v6 {
+        let (ip_result_probe, ip_payload_probe) = if is_ipv6 {
             // Get the ipv6 header from the probe out of the ICMP body
             let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
 
@@ -436,13 +433,6 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
                             ip_result: Some(ip_result_probe),
                             payload: Some(UdpPayload {
                                 value: None,
-                                // Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
-                                //     transmit_time: 0,
-                                //     source_address: None,
-                                //     destination_address: None,
-                                //     sender_client_id: 0,
-                                //     source_port: 0,
-                                // })),
                             }),
                         })),
                     })),
@@ -499,12 +489,6 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
                             receive_time: 0,
                             ip_result: Some(ip_result_probe),
                             payload: None,
-                            // Some(PingPayload {
-                            //     transmit_time: 0,
-                            //     source_address: None,
-                            //     destination_address: None,
-                            //     sender_client_id: 0,
-                            // }),
                         })),
                     })),
                 })
@@ -517,9 +501,9 @@ fn parse_icmp_time_exceeded(packet_bytes: &[u8], v6: bool) -> Option<Verfploeter
 }
 
 /// ICMP Destination unreachable parser, used for DNS A record probing
-fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<VerfploeterResult> {
+fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
-    let (ip_result, payload) = if v6 {
+    let (ip_result, payload) = if is_ipv6 {
         match parse_ipv6(packet_bytes) {
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
@@ -534,9 +518,9 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
     // 2. Parse ICMP header
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
         // Make sure that this packet belongs to this task (if not we discard and continue)
-        if !v6 & (icmp_packet.icmp_type != 3) { // Code 3 (v4) => destination unreachable
+        if !is_ipv6 & (icmp_packet.icmp_type != 3) { // Code 3 (v4) => destination unreachable
             return None;
-        } else if v6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
+        } else if is_ipv6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
             return None;
         }
         let code = icmp_packet.code as u32;
@@ -551,7 +535,7 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
 
         // 3. Parse ICMP body
         // 3.1 IP header in ICMP body
-        let icmp_body_result = if v6 {
+        let icmp_body_result = if is_ipv6 {
             parse_ipv6(icmp_packet.body.as_slice())
         } else {
             parse_ipv4(icmp_packet.body.as_slice())
@@ -580,14 +564,14 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
 
             // 3.3 DNS header
             if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
-                udp_payload = parse_dns_a_record(udp_header.body.as_slice(), v6);
+                udp_payload = parse_dns_a_record(udp_header.body.as_slice(), is_ipv6);
             }
         }
 
         // If the ICMP payload does not contain the full DNS packet, we create a VerfploeterResult with the ICMP information
         if udp_payload.is_none() {
             // Get the source and destination addresses from the IP header in the ICMP body
-            let (source_address, destination_address) = if v6 {
+            let (source_address, destination_address) = if is_ipv6 {
                 let source_address = Some(Address {
                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
@@ -735,11 +719,11 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
-fn parse_dns_a_record(packet_bytes: &[u8], ipv6: bool) -> Option<UdpPayload> {
+fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
     // Get the information from the domain, continue to the next packet if it does not follow the format
-    return if ipv6 {
+    return if is_ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();
         // Our domains have 8 'parts' separated by 7 dots
         if parts.len() != 8 { return None }
