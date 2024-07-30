@@ -338,8 +338,8 @@ fn parse_cmd<'a>() -> ArgMatches<'a> { // TODO structure order of args
                                 )
 
                             // TODO option to perform manycast for all 3 protocols on a hitlist
-                            // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
-                            // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
+                            // TODO this command would then work with gcd, but make sure to run gcd once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by gcd)
+                            // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, gcd -> move on to next, etc..)
                 )
         )
         .get_matches()
