@@ -222,8 +222,8 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // Create a VerfploeterResult for the received ping reply
     return Some((IpResult {
         value: Some(ip_result::Value::Ipv4(IPv4Result {
-            source_address: u32::from(packet.source_address),
-            destination_address: u32::from(packet.destination_address),
+            src: u32::from(packet.source_address),
+            dst: u32::from(packet.destination_address),
         })),
         ttl: packet.ttl as u32,
     }, packet.payload));
@@ -240,11 +240,11 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // Create a VerfploeterResult for the received ping reply
     return Some((IpResult {
         value: Some(ip_result::Value::Ipv6(IPv6Result {
-            source_address: Some(IPv6 {
+            src: Some(IPv6 {
                 p1: (u128::from(packet.source_address) >> 64) as u64,
                 p2: u128::from(packet.source_address) as u64,
             }),
-            destination_address: Some(IPv6 {
+            dst: Some(IPv6 {
                 p1: (u128::from(packet.destination_address) >> 64) as u64,
                 p2: u128::from(packet.destination_address) as u64,
             }),
@@ -572,14 +572,14 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
                 let probe_src = Some(Address {
                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                        ip_IPv6(ipv6) => ipv6.source_address.unwrap(),
+                        ip_IPv6(ipv6) => ipv6.src.unwrap(),
                     })),
                 });
 
                 let probe_dst = Some(Address {
                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                        ip_IPv6(ipv6) => ipv6.destination_address.unwrap(),
+                        ip_IPv6(ipv6) => ipv6.dst.unwrap(),
                     })),
                 });
 
@@ -587,14 +587,14 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Ver
             } else {
                 let probe_src = Some(Address {
                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(ipv4) => ipv4.source_address,
+                        ip_IPv4(ipv4) => ipv4.src,
                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                     })),
                 });
 
                 let probe_dst = Some(Address {
                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(ipv4) => ipv4.destination_address,
+                        ip_IPv4(ipv4) => ipv4.dst,
                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                     })),
                 });

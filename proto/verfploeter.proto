@@ -102,11 +102,11 @@ message Start {
   bool active = 2;
   uint32 task_id = 3;
   uint32 task_type = 4;
-  repeated Origin probe_origins = 5; // origins to send with
+  repeated Origin tx_origins = 5; // origins to send with
   bool unicast = 6;
   bool ipv6 = 7;
   bool traceroute = 8;
-  repeated Origin listen_origins = 9; // origins to listen for
+  repeated Origin rx_origins = 9; // origins to listen for
 }
 
 // An end message, indicates the client should stop sending out probes
@@ -115,9 +115,9 @@ message End {
 
 // Origin: the source address and port combinations used by clients in a task
 message Origin {
-  Address source_address = 1;
-  fixed32 source_port = 2;
-  fixed32 destination_port = 3;
+  Address src = 1;
+  fixed32 sport = 2;
+  fixed32 dport = 3;
 }
 
 // Configuration: mapping of client ID to origin
@@ -128,14 +128,14 @@ message Configuration {
 
 // A traceroute task, which has a destination address, a max_ttl (expected number of hops to traceroute), and a list of flows (a unique flow for each receiving client)
 message Trace {
-  Address destination_address = 1;
+  Address dst = 1;
   uint32 max_ttl = 2;
   repeated Origin origins = 3;
 }
 
 // Target task, which has a list of target addresses to probe
 message Targets {
-  repeated Address destination_addresses = 1;
+  repeated Address dst_addresses = 1;
 }
 
 // A TaskResult, contains the Client that executed the task, and a list of results
@@ -165,14 +165,14 @@ message IPResult {
 
 // IPv4Result, contains all information extracted from the IPv4 header: source, destination addresses and TTL
 message IPv4Result {
-  fixed32 source_address = 1;
-  fixed32 destination_address = 2;
+  fixed32 src = 1;
+  fixed32 dst = 2;
 }
 
 // IPv6Result, contains all information extracted from the IPv6 header: source, destination addresses
 message IPv6Result {
-  IPv6 source_address = 1;
-  IPv6 destination_address = 2;
+  IPv6 src = 1;
+  IPv6 dst = 2;
 }
 
 // TraceResult, contains the IP result, TTL, receive time, transmit time, and the sender client ID

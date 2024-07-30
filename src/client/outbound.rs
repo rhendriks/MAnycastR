@@ -84,9 +84,9 @@ pub fn create_ping(
     }
 
    return if src.is_v6() {
-        ICMPPacket::echo_request_v6(origin.destination_port as u16, 2, bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
+        ICMPPacket::echo_request_v6(origin.sport as u16, 2, bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
     } else {
-        ICMPPacket::echo_request(origin.destination_port as u16, 2, bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
+        ICMPPacket::echo_request(origin.dport as u16, 2, bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
     }
 }
 
@@ -229,7 +229,7 @@ pub fn create_tcp( // TODO inconsistent argument order
 /// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
 pub fn outbound(
     client_id: u8,
-    origins: Vec<Origin>,
+    tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
     finish_rx: futures::sync::oneshot::Receiver<()>,
     is_ipv6: bool,
@@ -275,11 +275,11 @@ pub fn outbound(
                         break
                     }, // An End task means the measurement has finished
                     Targets(targets) => {
-                        for origin in &origins {
-                            let src = IP::from(origin.source_address.clone().expect("None IP address"));
+                        for origin in &tx_origins {
+                            let src = IP::from(origin.src.clone().expect("None IP address"));
                             match task_type {
                                 1 => {
-                                    for dst in &targets.destination_addresses {
+                                    for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
                                             src,
@@ -292,11 +292,11 @@ pub fn outbound(
                                     }
                                 },
                                 2 | 4 => {
-                                    for dst in &targets.destination_addresses {
+                                    for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
                                             src,
-                                            origin.source_port as u16,
+                                            origin.sport as u16,
                                             client_id,
                                             IP::from(dst.clone()),
                                             is_ipv6,
@@ -306,13 +306,13 @@ pub fn outbound(
                                     }
                                 },
                                 3 => {
-                                    for dst in &targets.destination_addresses {
+                                    for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
                                             IP::from(dst.clone()),
                                             src,
-                                            origin.source_port as u16,
-                                            origin.destination_port as u16,
+                                            origin.sport as u16,
+                                            origin.dport as u16,
                                             is_ipv6,
                                             client_id,
                                             igreedy,
@@ -330,7 +330,7 @@ pub fn outbound(
                             is_ipv6,
                             ethernet_header.clone(),
                             &mut cap,
-                            IP::from(trace.destination_address.expect("None IP address")),
+                            IP::from(trace.dst.expect("None IP address")),
                             client_id,
                             trace.max_ttl as u8,
                             task_type,
@@ -384,8 +384,8 @@ fn perform_trace(
 
     println!("performing trace from {:?} to {}", origins, dst.to_string());
     for origin in origins {
-        let src = IP::from(origin.source_address.expect("None IP address"));
-        let sport = origin.source_port as u16;
+        let src = IP::from(origin.src.expect("None IP address"));
+        let sport = origin.sport as u16;
 
         // Send traceroutes to hops 5 to max_ttl + 10 (starting at 5 to avoid the first 4 vultr hops, and adding 10 to the max_ttl in case of false RTTs)
         // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different client may receive the destination's response)

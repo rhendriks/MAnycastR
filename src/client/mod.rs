@@ -227,47 +227,36 @@ impl Client {
         let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
         // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
         let task_id = start.task_id;
-        let ipv6 = start.ipv6;
-        let mut client_sources: Vec<Origin> = start.listen_origins;
+        let is_ipv6 = start.ipv6;
+        let mut rx_origins: Vec<Origin> = start.rx_origins;
         let traceroute = start.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let probe_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
-            let source_port = start.probe_origins[0].source_port;
-            let destination_port = start.probe_origins[0].destination_port;
+        let tx_origins: Vec<Origin> = if igreedy {  // Use the local unicast address and CLI defined ports
+            let sport = start.tx_origins[0].sport;
+            let dport = start.tx_origins[0].dport;
 
-            let unicast_ip = if ipv6 {
+            let unicast_ip = if is_ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
             } else {
                 IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
             };
 
             let unicast_origin = Origin {
-                source_address: Some(Address::from(unicast_ip.clone())), // Unicast IP
-                source_port: source_port.into(), // CLI defined source port
-                destination_port: destination_port.into(), // CLI defined destination port
+                src: Some(Address::from(unicast_ip.clone())), // Unicast IP
+                sport: sport.into(), // CLI defined source port
+                dport: dport.into(), // CLI defined destination port
             };
 
             // We only listen to our own unicast address (each client has its own unicast address)
-            client_sources = vec![unicast_origin.clone()];
+            rx_origins = vec![unicast_origin.clone()];
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
             vec![unicast_origin]
-        } else {  // Use the Origin used by the CLI
-            // Add default address to client_sources such that this client will listen on the default address as well
-            // TODO must be added to listen_origins at the server
-            // client_sources.append(&mut vec![
-            //     Origin {
-            //         source_address: Some(start.source_address.unwrap()),
-            //         source_port: self.source_port.into(),
-            //         destination_port: self.dest_port.into(),
-            //     }
-            // ]);
-
-
-            // Use the 'custom' anycast source address set when launching this client
-            start.probe_origins
+        } else {
+            // Use the sender origins set by the server
+            start.tx_origins
         };
 
         // Channel for sending from inbound to the server forwarder thread
@@ -279,7 +268,7 @@ impl Client {
 
         let mut filter = String::new();
 
-        if ipv6 {
+        if is_ipv6 {
             println!("[Client] Using IPv6");
             filter.push_str("ip6");
         } else {
@@ -291,7 +280,7 @@ impl Client {
         // TODO this listener needs to capture ICMP TTL expired for all protocols
         match start.task_type {
             1 => {
-                if ipv6 {
+                if is_ipv6 {
                     filter.push_str(" and icmp6");
                 } else {
                     filter.push_str(" and icmp");
@@ -305,7 +294,7 @@ impl Client {
                 // }
             },
             3 => {
-                if ipv6 {
+                if is_ipv6 {
                     filter.push_str(" and ip6[6] == 6");
                 } else {
                     filter.push_str(" and tcp");
@@ -318,15 +307,15 @@ impl Client {
             match start.task_type {
                 1 => {
                     // Print all probe origin addresses
-                    for origin in probe_origins.iter() {
-                        println!("[Client] Sending on address: {}", IP::from(origin.clone().source_address.unwrap()).to_string());
+                    for origin in tx_origins.iter() {
+                        println!("[Client] Sending on address: {}", IP::from(origin.clone().src.unwrap()).to_string());
                         // TODO print ICMP identifier (destination port)
                     }
                 },
                 2 | 3 | 4 => {
                     // Print all probe origin addresses
-                    for origin in probe_origins.iter() {
-                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port);
+                    for origin in tx_origins.iter() {
+                        println!("[Client] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport);
                     }
                 },
                 _ => { () }
@@ -339,24 +328,24 @@ impl Client {
         filter.push_str(" and");
         let filter_parts: Vec<String> = match start.task_type {
             1 => { // ICMP has no port numbers
-                client_sources.iter()
-                    .map(|origin| format!(" dst host {}", IP::from(origin.clone().source_address.unwrap()).to_string()))
+                rx_origins.iter()
+                    .map(|origin| format!(" dst host {}", IP::from(origin.clone().src.unwrap()).to_string()))
                     .collect()
             },
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                if ipv6 {
-                    client_sources.iter()
-                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                if is_ipv6 {
+                    rx_origins.iter()
+                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), IP::from(origin.clone().src.unwrap()).to_string()))
                         .collect()
                 } else {
-                    client_sources.iter()
-                        .map(|origin| format!(" (udp and dst host {} and src port 53) or (icmp and dst host {})", IP::from(origin.clone().source_address.unwrap()).to_string(), IP::from(origin.clone().source_address.unwrap()).to_string()))
+                    rx_origins.iter()
+                        .map(|origin| format!(" (udp and dst host {} and src port 53) or (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), IP::from(origin.clone().src.unwrap()).to_string()))
                         .collect()
                 }
             },
             _ => { // TCP
-                client_sources.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().source_address.unwrap()).to_string(), origin.source_port, origin.destination_port))
+                rx_origins.iter()
+                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
                     .collect()
             }
         };
@@ -367,28 +356,28 @@ impl Client {
         // TODO listening threads are not needed for non-probing clients when using the local unicast address
         match start.task_type {
             1 => { // ICMP
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
             }
             3 => { // TCP
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if traceroute {
-                    if ipv6 {
+                    if is_ipv6 {
                         filter.push_str(" or icmp6");
                     } else {
                         filter.push_str(" or icmp");
                     }
                 }
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, ipv6, filter, traceroute, start.task_type);
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
             }
             _ => { () }
         };
 
         // Start sending thread, if this client is probing
         if probing {
-            outbound(client_id, probe_origins, outbound_rx.unwrap(), outbound_f.unwrap(), ipv6, igreedy, task_id, start.task_type as u8)
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, igreedy, task_id, start.task_type as u8)
         }
 
         let mut self_clone = self.clone();  // TODO remove clone
