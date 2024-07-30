@@ -121,8 +121,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the target IP addresses
-        let ip_file = matches.value_of("IP_FILE").expect("No hitlist file provided!");
-        let file = File::open(ip_file).unwrap_or_else(|_| panic!("Unable to open file {}", ip_file));
+        let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
+        let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
@@ -185,6 +185,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     63853 // Default destination port
                 }
             };
+
+            // configurations.unwrap().append(&mut vec![Configuration {
+            //     client_id: u32::MAX,
+            //     origin: Some(Origin {
+            //         source_address: source_ip,
+            //         source_port,
+            //         destination_port,
+            //     })
+            // }]);
 
             Some(Origin {
                 source_address: source_ip,
@@ -249,7 +258,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 destination_addresses: ips,
             }),
         };
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, ip_file, divide, hitlist_length, ipv6, configurations.unwrap_or_default()).await
+        cli_client.do_task_to_server(schedule_task, cli, shuffle, hitlist_path, divide, hitlist_length, ipv6, configurations.unwrap_or_default()).await
     } else {
         panic!("Unrecognized command");
     }
@@ -410,12 +419,6 @@ impl CliClient {
         }
 
         file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
-
-        if unicast {
-            file.write_all("# Default source address: Unicast\n".as_ref())?;
-        } else {
-            file.write_all(format!("# Default source address: {}\n", source_address).as_ref())?;
-        }
 
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
