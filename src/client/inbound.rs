@@ -541,172 +541,95 @@ fn parse_icmp_dest_unreachable(packet_bytes: &[u8], v6: bool) -> Option<Verfploe
         }
         let code = icmp_packet.code as u32;
         let identifier = icmp_packet.identifier as u32;
-        // Initialize variables
-        // let mut sender_src;
-        // let mut sender_dest;
-        let mut sender_src_port = 0u32;
-        let probe_ip_header;
-        let ip_payload_probe;
+        let mut probe_src_port = 0u32;
         let mut udp_payload = None;
         let sender_client_id = 0u32;
-        let transmit_time = 0u64;
         let receive_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
 
         // 3. Parse ICMP body
-        // 3.1 IP header
-        (probe_ip_header, ip_payload_probe) = if v6 {
-            // Get the ipv6 header from the probe out of the ICMP body
-            let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
-
-            // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv6_header.is_none() {
-                // Create a VerfploeterResult for the received ping reply
-                return Some(VerfploeterResult {
-                    value: Some(Value::Udp(UdpResult {
-                        receive_time,
-                        source_port: 0,
-                        destination_port: 0,
-                        code,
-                        ip_result,
-                        payload: None,
-                    })),
-                });
-            }
-            let (ip_result_probe, ip_payload_probe) = ipv6_header.unwrap();
-
-            // sender_src = match ip_result_probe.value.clone().unwrap() { // TODO save full u128 for ip_resultv6
-            //     ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-            //     ip_IPv6(ipv6) => (ipv6.source_address.unwrap().p2 & 0xFFFFFFFF) as u32,
-            // };
-            //
-            // sender_dest = match ip_result_probe.value.clone().unwrap() { // TODO save full u128 for ip_resultv6
-            //     ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-            //     ip_IPv6(ipv6) => (ipv6.destination_address.unwrap().p2 & 0xFFFFFFFF) as u32,
-            // };
-
-
-            (ip_result_probe, ip_payload_probe)
+        // 3.1 IP header in ICMP body
+        let icmp_body_result = if v6 {
+            parse_ipv6(icmp_packet.body.as_slice())
         } else {
-            // Get the ipv4 header from the probe out of the ICMP body
-            let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
-
-            // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv4_header.is_none() {
-                // Create a VerfploeterResult for the received ping reply
-                return Some(VerfploeterResult {
-                    value: Some(Value::Udp(UdpResult {
-                        receive_time,
-                        source_port: 0,
-                        destination_port: 0,
-                        code,
-                        ip_result,
-                        payload: None,
-                    })),
-                });
-            }
-            let (ip_result_probe, ip_payload_probe) = ipv4_header.unwrap();
-
-            // sender_src = match ip_result_probe.value.clone().unwrap() {
-            //     ip_IPv4(ipv4) => ipv4.source_address,
-            //     ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-            // };
-            //
-            // sender_dest = match ip_result_probe.value.clone().unwrap() {
-            //     ip_IPv4(ipv4) => ipv4.destination_address,
-            //     ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-            // };
-
-            (ip_result_probe, ip_payload_probe)
+            parse_ipv4(icmp_packet.body.as_slice())
         };
 
-        // 3.2 UDP header
+        // If we are unable to retrieve an IP header out of the ICMP payload
+        if icmp_body_result.is_none() {
+            // Create a VerfploeterResult for the received ping reply
+            return Some(VerfploeterResult {
+                value: Some(Value::Udp(UdpResult {
+                    receive_time,
+                    source_port: 0,
+                    destination_port: 0,
+                    code,
+                    ip_result,
+                    payload: None,
+                })),
+            });
+        }
+        // Get the IP header from the ICMP body
+        let (probe_ip_header, ip_payload_probe) = icmp_body_result.unwrap();
+
+        // 3.2 UDP header in ICMP body
         if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
-            sender_src_port = udp_header.source_port as u32;
+            probe_src_port = udp_header.source_port as u32;
 
             // 3.3 DNS header
             if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
                 udp_payload = parse_dns_a_record(udp_header.body.as_slice(), v6);
-                // let dns_record = DNSRecord::from(udp_header.body.as_slice());
-                // sender_client_id = ((dns_record.transaction_id >> 8) & 0xFF) as u32;
-                // // 3.4 DNS body
-                // let parts: Vec<&str> = dns_record.domain.split('.').next().expect("DNS answer did not contain dots").split('-').collect();
-                // // Our domains have 5 'parts' separated by 4 dashes
-                // if parts.len() == 5 {
-                //     transmit_time = match parts[0].parse::<u64>() {
-                //         Ok(t) => t,
-                //         Err(_) => return None,
-                //     };
-                //     sender_src = match parts[1].parse::<u32>() {
-                //         Ok(s) => s,
-                //         Err(_) => return None,
-                //     };
-                //     sender_dest = match parts[2].parse::<u32>() {
-                //         Ok(s) => s,
-                //         Err(_) => return None,
-                //     };
-                //     sender_client_id = match parts[3].parse::<u8>() {
-                //         Ok(s) => s,
-                //         Err(_) => return None,
-                //     } as u32;
-                //     sender_src_port = match parts[4].parse::<u16>() {
-                //         Ok(s) => s,
-                //         Err(_) => return None,
-                //     } as u32;
-                // }
             }
         }
 
-        // let sender_src = probe_ip_header.value.clone().unwrap();
-
+        // If the ICMP payload does not contain the full DNS packet, we create a VerfploeterResult with the ICMP information
         if udp_payload.is_none() {
-            if v6 {
-                let sender_src = match probe_ip_header.value.clone().unwrap() {
-                    ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                    ip_IPv6(ipv6) => ipv6.source_address.unwrap(),
-                };
-                let sender_dest = match probe_ip_header.value.clone().unwrap() {
-                    ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                    ip_IPv6(ipv6) => ipv6.destination_address.unwrap(),
-                };
-                udp_payload = Some(UdpPayload {
-                    value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
-                        transmit_time,
-                        source_address: Some(Address {
-                            value: Some(V6(sender_src)),
-                        }),
-                        destination_address: Some(Address {
-                            value: Some(V6(sender_dest)),
-                        }),
-                        sender_client_id,
-                        source_port: sender_src_port,
+            // Get the source and destination addresses from the IP header in the ICMP body
+            let (source_address, destination_address) = if v6 {
+                let source_address = Some(Address {
+                    value: Some(V6(match probe_ip_header.value.clone().unwrap() {
+                        ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
+                        ip_IPv6(ipv6) => ipv6.source_address.unwrap(),
                     })),
-                })
+                });
+
+                let destination_address = Some(Address {
+                    value: Some(V6(match probe_ip_header.value.clone().unwrap() {
+                        ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
+                        ip_IPv6(ipv6) => ipv6.destination_address.unwrap(),
+                    })),
+                });
+
+                (source_address, destination_address)
             } else {
-                let sender_src = match probe_ip_header.value.clone().unwrap() {
-                    ip_IPv4(ipv4) => ipv4.source_address,
-                    ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-                };
-                let sender_dest = match probe_ip_header.value.clone().unwrap() {
-                    ip_IPv4(ipv4) => ipv4.destination_address,
-                    ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-                };
-                udp_payload = Some(UdpPayload {
-                    value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
-                        transmit_time,
-                        source_address: Some(Address {
-                            value: Some(V4(sender_src)),
-                        }),
-                        destination_address: Some(Address {
-                            value: Some(V4(sender_dest)),
-                        }),
-                        sender_client_id,
-                        source_port: sender_src_port,
+                let source_address = Some(Address {
+                    value: Some(V4(match probe_ip_header.value.clone().unwrap() {
+                        ip_IPv4(ipv4) => ipv4.source_address,
+                        ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
                     })),
-                })
-            }
+                });
+
+                let destination_address = Some(Address {
+                    value: Some(V4(match probe_ip_header.value.clone().unwrap() {
+                        ip_IPv4(ipv4) => ipv4.destination_address,
+                        ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
+                    })),
+                });
+
+                (source_address, destination_address)
+            };
+
+            udp_payload = Some(UdpPayload {
+                value: Some(custom_module::verfploeter::udp_payload::Value::DnsARecord(DnsARecord {
+                    transmit_time: 0,
+                    source_address,
+                    destination_address,
+                    sender_client_id,
+                    source_port: probe_src_port,
+                })),
+            })
         }
 
         // Create a VerfploeterResult for the received ping reply
