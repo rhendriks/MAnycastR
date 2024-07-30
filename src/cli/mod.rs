@@ -43,7 +43,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // Create client connection with the Controller Server
     print!("[CLI] Connecting to Controller Server at address {} ... ", server_address);
     let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
-    println!("Success"); // TODO unsuccessful connection is unclear
     let mut cli_client = CliClient { grpc_client, };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
@@ -63,7 +62,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             None
         };
 
-        // TODO invalid client IDs can be set in the configuration file
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.is_present("CONF") && !unicast {
             if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
@@ -405,7 +403,7 @@ impl CliClient {
 
         // Determine the type of measurement
         let measurement_type = if unicast {
-            "iGreedy"
+            "GCD"
         } else {
             "MAnycast"
         };

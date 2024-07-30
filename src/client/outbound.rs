@@ -161,7 +161,7 @@ pub fn create_udp(
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'igreedy' - whether we are sending probes with unicast or anycast
+/// * 'gcd' - whether we are sending probes with unicast or anycast
 ///
 /// # Returns
 ///
@@ -173,13 +173,13 @@ pub fn create_udp(
 ///
 /// If the task type is not 3
 pub fn create_tcp( // TODO inconsistent argument order
-    dst: IP,
-    src: IP,
-    sport: u16,
-    dport: u16,
-    is_ipv6: bool,
-    client_id: u8,
-    igreedy: bool,
+                   dst: IP,
+                   src: IP,
+                   sport: u16,
+                   dport: u16,
+                   is_ipv6: bool,
+                   client_id: u8,
+                   gcd: bool,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -187,8 +187,8 @@ pub fn create_tcp( // TODO inconsistent argument order
         .as_millis() as u32; // The least significant bits are kept
 
     let seq = 0; // information in seq gets lost
-    // for MAnycast the ACK is the client ID, for iGreedy the ACK is the transmit time
-    let ack = if !igreedy {
+    // for MAnycast the ACK is the client ID, for GCD the ACK is the transmit time
+    let ack = if !gcd {
         client_id as u32
     } else {
         transmit_time
@@ -222,7 +222,7 @@ pub fn create_tcp( // TODO inconsistent argument order
 ///
 /// * 'ipv6' - whether we are using IPv6 or not
 ///
-/// * 'igreedy' - whether we are sending probes with unicast or anycast
+/// * 'gcd' - whether we are sending probes with unicast or anycast
 ///
 /// * 'task_id' - the unique task ID of the current measurement
 ///
@@ -233,7 +233,7 @@ pub fn outbound(
     mut outbound_channel_rx: Receiver<Data>,
     finish_rx: futures::sync::oneshot::Receiver<()>,
     is_ipv6: bool,
-    igreedy: bool,
+    gcd: bool,
     task_id: u32,
     task_type: u8,
 ) {
@@ -315,7 +315,7 @@ pub fn outbound(
                                             origin.dport as u16,
                                             is_ipv6,
                                             client_id,
-                                            igreedy,
+                                            gcd,
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send TCP packet");
                                     }
