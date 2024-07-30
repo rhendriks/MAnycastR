@@ -76,7 +76,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .filter_map(|l| {
                     let line = l.expect("Unable to read configuration line");
                     if line.starts_with("#") { return None; } // Skip comments
-                    let parts: Vec<&str> = line.split(':').map(|s| s.trim()).collect();
+                    let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
                     if parts.len() != 2 {
                         return None;
                     }
@@ -108,6 +108,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         } else {
             None
         };
+        // TODO make sure all configurations are of the same type as the target addresses
 
         // There must be a defined anycast source address, configuration, or unicast flag
         if source_ip.is_none() && configurations.is_none() && !unicast {
@@ -167,11 +168,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the tasks
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let source_port = if matches.is_present("SOURCE_PORT") {
-                u16::from_str(matches.value_of("SOURCE_PORT").unwrap()).expect("Unable to parse source port") as u32
-            } else {
-                62321 // Default source port
-            };
+            let source_port = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
             let destination_port = if matches.is_present("DESTINATION_PORT") {
                 u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
             } else {
@@ -196,8 +193,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let traceroute = matches.is_present("TRACEROUTE");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).unwrap();
-        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).unwrap();
+        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).expect("Unable to parse interval");
+        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).expect("Unable to parse rate");
 
         let t_type = match task_type {
             1 => "ICMP/ping",
@@ -234,7 +231,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             rate,
             clients: client_ids,
             origin,
-            configurations: configurations.unwrap_or_default(),
+            configurations: configurations.unwrap_or_default(), // default is empty vector
             task_type,
             unicast,
             ipv6,
