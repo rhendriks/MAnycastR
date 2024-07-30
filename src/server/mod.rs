@@ -544,13 +544,6 @@ impl Controller for ControllerService {
                     true
                 }
             } else {
-                // Refuse client-selective measurements with unknown clients
-                if clients.iter().any(|client| !client_list_u32.contains(client)) {
-                    println!("[Server] Unknown client in client list, terminating task.");
-                    *self.active.lock().unwrap() = false;
-                    return Err(Status::new(tonic::Code::Cancelled, "Unknown client in client list"))
-                }
-
                 // Make sure the current client is selected to perform the task
                 clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
             };
