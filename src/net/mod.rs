@@ -3,9 +3,8 @@ pub(crate) mod netv6;
 extern crate byteorder;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 use prost::bytes::Buf;
-use crate::net::netv6::{calculate_checksum_v6, IPv6Packet, PseudoHeaderv6};
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
@@ -13,11 +12,11 @@ const INFO_URL: &str = "edu.nl/9qt8h";
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,
-    pub ttl: u8,
-    pub source_address: Ipv4Addr,
-    pub destination_address: Ipv4Addr,
-    pub payload: PacketPayload,
+    pub length: u16,                    // 16-bit Total Length
+    pub ttl: u8,                        // 8-bit Time To Live
+    pub source_address: Ipv4Addr,       // 32-bit Source IP Address
+    pub destination_address: Ipv4Addr,  // 32-bit Destination IP Address
+    pub payload: PacketPayload,         // Payload
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -719,49 +718,6 @@ impl UDPPacket {
         (&v4_packet).into()
     }
 
-    /// Create a UDP packet with a CHAOS TXT record request.
-    pub fn chaos_request_v6(
-        source_address: u128,
-        destination_address: u128,
-        source_port: u16,
-        client_id: u8
-    ) -> Vec<u8> {
-        let destination_port = 53u16;
-        let dns_body = Self::create_chaos_request(client_id);
-        let udp_length = 8 + dns_body.len() as u32;
-
-        let mut udp_packet = Self {
-            source_port,
-            destination_port,
-            length: udp_length as u16,
-            checksum: 0,
-            body: dns_body,
-        };
-
-        let udp_bytes: Vec<u8> = (&udp_packet).into();
-
-        let pseudo_header = PseudoHeaderv6 {
-            source_address,
-            destination_address,
-            zeros: 0,
-            length: udp_length,
-            next_header: 17,
-        };
-
-        udp_packet.checksum = calculate_checksum_v6(udp_bytes.clone(), pseudo_header);
-
-        // Create the IPv6 packet
-        let v6_packet = IPv6Packet {
-            payload_length: udp_length as u16,
-            next_header: 17, // UDP
-            hop_limit: 255,
-            source_address: Ipv6Addr::from(source_address),
-            destination_address: Ipv6Addr::from(destination_address),
-            payload: PacketPayload::UDP { value: udp_packet.into(), },
-        };
-
-        v6_packet.into()
-    }
     /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(client_id: u8) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
