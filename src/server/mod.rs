@@ -35,11 +35,10 @@ use custom_module::verfploeter::{
 /// * 'current_client_id' - keeps track of the last used client ID and is used to assign a unique client ID to a new connecting client
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 /// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
-/// * 'traceroute' - a boolean value that is set to true when traceroute is enabled
-/// * 'interval' - the interval between clients sending out probes to the same target
+/// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
 #[derive(Debug, Clone)]
 pub struct ControllerService {
-    clients: Arc<Mutex<ClientList>>, // TODO combine clients and senders into one struct
+    clients: Arc<Mutex<ClientList>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_tasks: Arc<Mutex<HashMap<u32, u32>>>,
@@ -60,15 +59,10 @@ pub struct ControllerService {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the client
-///
 /// * 'open_tasks' - a list of the current open tasks, and the number of clients that are currently working on it
-///
 /// * 'cli_sender' - the sender that connects to the CLI
-///
 /// * 'hostname' - the hostname of the client
-///
 /// * 'clients' - a ClientList that contains all connected clients (hostname and client ID)
-///
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
@@ -140,9 +134,7 @@ impl<T> Drop for ClientReceiver<T> {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the CLI
-///
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-///
 /// * 'senders' - a list of senders that connect to the clients
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
@@ -167,18 +159,17 @@ impl<T> Drop for CLIReceiver<T> {
             println!("[Server] CLI dropped during an active measurement, terminating task");
 
             // Create termination 'task'
-            let task = Task {
+            let end_task = Task {
                 data: Some(TaskEnd(End {
                 })),
             };
 
             // Tell each client to terminate the task
-            for client in self.senders.lock().unwrap().iter() {
-                let client = client.clone();
-                let task = task.clone();
+            for client in self.senders.lock().unwrap().iter().cloned() {
+                let end_task = end_task.clone();
 
                 spawn(async move {
-                    if let Err(e) = client.send(Ok(task)).await {
+                    if let Err(e) = client.send(Ok(end_task)).await {
                         println!("[Server] ERROR - Failed to terminate task {}", e);
                     } else {
                         println!("[Server] Terminated task at client");
@@ -201,54 +192,51 @@ impl Controller for ControllerService {
     ///
     /// # Arguments
     ///
-    /// * 'request' - A TaskId message
+    /// * 'request' - a Finished message containing the task ID of the task that has finished
     ///
     /// # Errors
     ///
-    /// Returns an error if the task ID of task finished does not match an active task, or if the CLI has disconnected.
+    /// Returns an error if the task ID is unknown.
     async fn task_finished(
         &self,
         request: Request<Finished>,
     ) -> Result<Response<Ack>, Status> {
-        let request = request.into_inner();
-        let task_id: u32 = request.task_id;
+        let finished_task = request.into_inner();
+        let task_id: u32 = finished_task.task_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'task_finished' from all clients that executed this task
-        let finished: bool;
-        {
+        let is_finished = {
             let mut open_tasks = self.open_tasks.lock().unwrap();
 
-            let remaining: &u32;
-            if let Some(value) = open_tasks.get(&task_id) {
-                remaining = value;
+            // Number of clients that still have to finish this task
+            let remaining = if let Some(remaining) = open_tasks.get(&task_id) {
+                remaining
             } else {
                 println!("[Server] Received task_finished for non-existent task {}", &task_id);
                 return Ok(Response::new(Ack {
                     success: false,
                     error_message: "Task unknown".to_string(),
-                }))
-            }
-            // If this is the last client we are finished
-            if remaining == &(1u32) {
-                println!("{}", request.client_id);
+                }));
+            };
+            if remaining == &(1u32) { // If this is the last client we are finished
+                println!("{}", finished_task.client_id);
                 println!("[Server] All clients finished");
 
                 open_tasks.remove(&task_id);
-                finished = true;
-                // If this is not the last client, decrement the amount of remaining clients
-            } else {
-                // Print the client ID that finished the task
-                print!("{},", request.client_id);
+                true // Finished
+            } else { // If this is not the last client, decrement the amount of remaining clients
+                print!("{},", finished_task.client_id);
                 *open_tasks.get_mut(&task_id).unwrap() -= 1;
-                finished = false;
+                false // Not finished yet
             }
-        }
-        if finished {
+        };
+        if is_finished {
             println!("[Server] Notifying CLI that task {} is finished", task_id);
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
 
+            // Send an ack to the client that it has finished
             return match tx.send(Ok(TaskResult::default())).await {
                 Ok(_) => Ok(Response::new(Ack {
                     success: true,
@@ -259,11 +247,13 @@ impl Controller for ControllerService {
                     error_message: "CLI disconnected".to_string(),
                 })),
             }
+        } else {
+            // Send an ack to the client that it has finished
+            Ok(Response::new(Ack {
+                success: true,
+                error_message: "".to_string(),
+            }))
         }
-        Ok(Response::new(Ack {
-            success: true,
-            error_message: "".to_string(),
-        }))
     }
 
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
@@ -284,12 +274,10 @@ impl Controller for ControllerService {
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
-        {
-            let mut senders = self.senders.lock().unwrap();
-            senders.push(tx);
-        }
+        self.senders.lock().unwrap().push(tx);
 
-        let rx = ClientReceiver {
+        // Create stream receiver for the client
+        let client_rx = ClientReceiver {
             inner: rx,
             open_tasks: self.open_tasks.clone(),
             cli_sender: self.cli_sender.clone(),
@@ -299,7 +287,7 @@ impl Controller for ControllerService {
         };
 
         // Send the stream receiver to the client
-        Ok(Response::new(rx))
+        Ok(Response::new(client_rx))
     }
     type DoTaskStream = CLIReceiver<Result<TaskResult, Status>>;
 
@@ -339,11 +327,8 @@ impl Controller for ControllerService {
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
             }
 
-            // If a client is still working on another measurement
-            let open_tasks = self.open_tasks.lock().unwrap();
-
             // For every open task
-            for (_, open) in open_tasks.iter() {
+            for (_, open) in self.open_tasks.lock().expect("No open tasks map").iter() {
                 // If there are still clients who are working on a different measurement
                 if open > &0 {
                     println!("[Server] There is already an active task, returning");
@@ -356,22 +341,16 @@ impl Controller for ControllerService {
 
         // Get the list of Senders (that connect to the clients)
         let senders = {
-            // Make sure all clients still have an open connection
-            let mut i = 0;
-            let mut senders = self.senders.lock().unwrap();
-            // Temporary clone to loop over (as we will be changing the senders during this loop)
-            let senders_temp = senders.clone();
-
-            for sender in senders_temp {
-                // If the sender is closed
+            // Lock the senders mutex and remove closed senders
+            let senders = self.senders.lock().unwrap();
+            self.senders.lock().unwrap().retain(|sender| {
                 if sender.is_closed() {
                     println!("[Server] Client unavailable, connection closed. Client removed.");
-                    // Remove this sender
-                    senders.remove(i);
+                    false
                 } else {
-                    i += 1
+                    true
                 }
-            }
+            });
             senders
         };
 
@@ -382,47 +361,43 @@ impl Controller for ControllerService {
             return Err(Status::new(tonic::Code::Cancelled, "No connected clients"));
         }
 
-        // Obtain task id
-        let task_id: u32;
-        {
+        // Assign a unique task ID to the measurement and increment the task ID counter
+        let task_id = {
             let mut current_task_id = self.current_task_id.lock().unwrap();
-            task_id = *current_task_id;
+            let id = *current_task_id;
             *current_task_id = current_task_id.wrapping_add(1);
-        }
+            id
+        };
 
-        let task = request.into_inner();
+        // The task that the CLI wants to perform
+        let schedule_task = request.into_inner();
         // Create a list of the connected clients' IDs
-        let mut client_list_u32: Vec<u32> = vec![];
-        for client in &self.clients.lock().unwrap().clients {
-            client_list_u32.push(client.client_id);
+        let client_list_u32: Vec<u32> = self.clients.lock().unwrap().clients
+            .iter()
+            .map(|client| client.client_id)
+            .collect();
+
+        // Check if the CLI requested a client-selective probing task
+        let task_clients: Vec<u32> = schedule_task.clients;
+
+        // Make sure all client IDs are valid
+        if task_clients.iter().any(|client| !client_list_u32.contains(client)) {
+            println!("[Server] Client ID requested that is not connected, terminating task.");
+            *self.active.lock().unwrap() = false;
+            return Err(Status::new(tonic::Code::Cancelled, "One or more client IDs are not connected."));
         }
 
-        // Check if there is a list of clients specified
-        let clients: Vec<u32> = task.clients;
-        if clients.len() != 0 {
-            // Make sure all client IDs are valid
-            for client in clients.clone() {
-                if !client_list_u32.contains(&client) {
-                    println!("[Server] Client ID requested that is not connected, terminating task.");
-                    *self.active.lock().unwrap() = false;
-                    return Err(Status::new(tonic::Code::Cancelled, format!("There is no client with ID {}", client)))
-                }
-            }
-        }
         // Store the number of clients that will perform this task
-        {
-            let mut open_tasks = self.open_tasks.lock().unwrap();
-            open_tasks.insert(task_id, senders.len() as u32);
-        }
+        self.open_tasks.lock().unwrap().insert(task_id, senders.len() as u32);
 
         // Create a Task from the ScheduleTask
-        let unicast = task.unicast;
+        let is_unicast = schedule_task.unicast;
         // Get the probe origins
-        let tx_origins: Vec<Origin> = if unicast {
-            vec![task.origin.clone().unwrap()] // Contains port values
-        } else if task.configurations.len() > 0 {
+        let tx_origins: Vec<Origin> = if is_unicast {
+            vec![schedule_task.origin.clone().unwrap()] // Contains port values
+        } else if schedule_task.configurations.len() > 0 {
             // Make sure no unknown clients are in the list
-            if task.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id)) {
+            if schedule_task.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id)) {
                 println!("[Server] Unknown client in configuration list, terminating task.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"))
@@ -431,39 +406,37 @@ impl Controller for ControllerService {
             vec![]  // Return an empty list, as we will add the origins per client
         }
         else {
-            vec![task.origin.clone().unwrap()]
+            vec![schedule_task.origin.clone().unwrap()]
         };
 
-        let rate = task.rate;
-        let task_type = task.task_type;
-        let is_ipv6 = task.ipv6;
-        let traceroute = task.traceroute;
-        let divide = task.divide;
-        let interval = task.interval;
-        *self.traceroute.lock().unwrap() = traceroute;
-        let dst_addresses = task.targets.expect("No destination addresses specified").dst_addresses;
+        let rate = schedule_task.rate;
+        let task_type = schedule_task.task_type;
+        let is_ipv6 = schedule_task.ipv6;
+        let is_traceroute = schedule_task.traceroute;
+        let is_divide = schedule_task.divide;
+        let interval = schedule_task.interval;
+        *self.traceroute.lock().unwrap() = is_traceroute;
+        let dst_addresses = schedule_task.targets.expect("Received measurement with no targets").dst_addresses;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
-        {
-            let mut sender = self.cli_sender.lock().unwrap();
-            let _ = sender.insert(tx);
-        }
+        // Store the CLI sender
+        let _ = self.cli_sender.lock().unwrap().insert(tx);
 
         // Create a list of origins used by clients
         let mut rx_origins = tx_origins.clone();
-
         // Add all configuration origins to the listen origins
-        for configuration in task.configurations.clone() {
-            let origin = configuration.origin.unwrap();
-            // Avoid duplicate origins
-            if !rx_origins.contains(&origin) {
-                rx_origins.push(origin);
+        for configuration in &schedule_task.configurations {
+            if let Some(origin) = &configuration.origin {
+                // Avoid duplicate origins
+                if !rx_origins.contains(origin) {
+                    rx_origins.push(origin.clone());
+                }
             }
         }
 
         // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
-        if traceroute {
+        if is_traceroute { // TODO move this to a separate function
             let targets = self.traceroute_targets.clone();
             let senders = self.senders.clone();
             // Thread that cleans up the targets map and instruct traceroute
@@ -520,23 +493,25 @@ impl Controller for ControllerService {
         }
 
         // Notify all senders that a new measurement is starting
-        let mut i = 0;
-        let mut active_clients = 0;
+        let mut current_client = 0;
+        let mut current_active_client = 0;
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
-
             // Add all configuration probing origins assigned to this client
-            for configuration in task.configurations.clone() {
-                if (configuration.client_id == *client_list_u32.get(i).unwrap()) | (configuration.client_id == u32::MAX) {
-                    let origin = configuration.origin.unwrap();
-                    // Avoid duplicate origins
-                    if !client_tx_origins.contains(&origin) {
-                        client_tx_origins.push(origin);
+            for configuration in &schedule_task.configurations {
+                // If the client is selected to perform the task (or all clients are selected (u32::MAX))
+                if (configuration.client_id == *client_list_u32.get(current_client).unwrap()) | (configuration.client_id == u32::MAX) {
+                    if let Some(origin) = &configuration.origin {
+                        // Avoid duplicate origins
+                        if !client_tx_origins.contains(origin) {
+                            client_tx_origins.push(origin.clone());
+                        }
                     }
                 }
             }
 
-            let active = if clients.is_empty() {
+            // Check if the current client is selected to send probes
+            let is_probing = if task_clients.is_empty() {
                 // No client-selective probing
                 if client_tx_origins.len() == 0 {
                     false // No probe origins -> not probing
@@ -545,20 +520,20 @@ impl Controller for ControllerService {
                 }
             } else {
                 // Make sure the current client is selected to perform the task
-                clients.contains(client_list_u32.get(i).expect(&*format!("Client with ID {} not found", i)))
+                task_clients.contains(client_list_u32.get(current_client).expect(&*format!("Client with ID {} not found", current_client)))
             };
-            if active { active_clients += 1; }
-            i = i + 1;
+            if is_probing { current_active_client += 1; }
+            current_client = current_client + 1;
 
             let start_task = Task {
                 data: Some(TaskStart(Start {
                     rate,
                     task_id,
-                    active,
+                    active: is_probing,
                     task_type,
-                    unicast,
+                    unicast: is_unicast,
                     ipv6: is_ipv6,
-                    traceroute,
+                    traceroute: is_traceroute,
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
                 }))
@@ -570,12 +545,13 @@ impl Controller for ControllerService {
             }
         }
 
+        // Number of clients participating in the measurement (listening and/or probing)
         let number_of_clients = senders.len() as u64;
 
-        if !divide {
-            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, active_clients, interval);
+        if !is_divide {
+            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, current_active_client, interval);
         } else {
-            println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, active_clients);
+            println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, current_active_client);
         }
 
         // Shared variable to keep track of the number of clients that have finished
@@ -591,19 +567,19 @@ impl Controller for ControllerService {
             // This client's unique ID
             let client_id = *client_list_u32.get(i as usize).unwrap();
             i += 1;
-            let clients = clients.clone();
+            let clients = task_clients.clone();
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
             let probing = clients.len() == 0 || clients.contains(&client_id);  // TODO this fails when using configurations
 
             let dest_addresses = if !probing {
                 vec![]
-            } else if divide {
-                // Each client gets its own chunk of the destination addresses
-                let chunk_size = dst_addresses.len() / active_clients as usize;
+            } else if is_divide {
+                // Each client gets its own chunk of the hitlist
+                let chunk_size = dst_addresses.len() / current_active_client as usize;
 
                 // Get start and end index of targets to probe for this client
                 let start_index = t as usize * chunk_size;
-                let end_index = if t == active_clients - 1 {
+                let end_index = if t == current_active_client - 1 {
                     dst_addresses.len() // End of the list
                 } else {
                     start_index + chunk_size
@@ -611,7 +587,7 @@ impl Controller for ControllerService {
 
                 dst_addresses[start_index..end_index].to_vec()
             } else {
-                // All clients get the same destination addresses
+                // All clients get the same hitlist
                 dst_addresses.clone()
             };
 
@@ -621,13 +597,13 @@ impl Controller for ControllerService {
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = clients_finished.clone();
+            let is_active = self.active.clone();
 
-            let active = self.active.clone();
             spawn(async move {
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if probing && !divide {
+                if probing && !is_divide {
                     tokio::time::sleep(Duration::from_secs((t - 1) * interval as u64)).await;
                 }
 
@@ -636,7 +612,7 @@ impl Controller for ControllerService {
 
                 for chunk in dest_addresses.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
-                    if *active.lock().unwrap() == false {
+                    if *is_active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                         if clients_finished.lock().unwrap().clone() == number_of_clients {
                             println!("[Server] CLI disconnected during task distribution");
@@ -672,16 +648,16 @@ impl Controller for ControllerService {
                     rx_f.recv().await.expect("Failed to receive finished signal");
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
-                    if *active.lock().unwrap() == false {
+                    if *is_active.lock().unwrap() == false {
                         return // abort
                     }
                 }
 
-                // Sleep 10 seconds to give the client time to finish the task and receive the last responses (traceroute takes longer)
-                if traceroute {
-                    tokio::time::sleep(Duration::from_secs(120)).await;
+                // Sleep 1 second to give the client time to finish the task and receive the last responses (traceroute takes longer)
+                if is_traceroute {
+                    tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
                 } else {
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
                 // Send a message to the client to let it know it has received everything for the current task
@@ -713,6 +689,10 @@ impl Controller for ControllerService {
     }
 
     /// Receive a TaskResult from the client and put it in the stream towards the CLI
+    ///
+    /// # Arguments
+    ///
+    /// * 'request' - a TaskResult message containing the results of a task
     ///
     /// # Errors
     ///
@@ -856,12 +836,12 @@ impl Controller for ControllerService {
         }
 
         // Obtain unique client id
-        let client_id: u32;
-        {
+        let client_id = {
             let mut current_client_id = self.current_client_id.lock().unwrap();
-            client_id = *current_client_id;
+            let client_id = *current_client_id;
             current_client_id.add_assign(1);
-        }
+            client_id
+        };
 
         // Add the client to the client list
         let new_client = Client {
@@ -890,7 +870,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     let port = args.value_of("port").expect("No port specified");
     let addr: SocketAddr = "[::]:".to_string().add(port).parse().unwrap();
 
-    // Get a random task ID
+    // Get a random task ID to start with
     let random_task_id = rand::thread_rng().gen_range(0..u32::MAX);
 
     let controller = ControllerService {
