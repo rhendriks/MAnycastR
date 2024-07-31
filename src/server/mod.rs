@@ -344,7 +344,6 @@ impl Controller for ControllerService {
         // Get the list of Senders (that connect to the clients)
         let senders = {
             // Lock the senders mutex and remove closed senders
-            let senders = self.senders.lock().unwrap();
             self.senders.lock().unwrap().retain(|sender| {
                 if sender.is_closed() {
                     println!("[Server] Client unavailable, connection closed. Client removed.");
@@ -353,7 +352,7 @@ impl Controller for ControllerService {
                     true
                 }
             });
-            senders
+            self.senders.lock().unwrap().clone()
         };
 
         println!("Senders locked");
