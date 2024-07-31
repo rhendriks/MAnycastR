@@ -45,9 +45,7 @@ pub fn create_ping(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-
     let src = IP::from(origin.src.expect("None IP address"));
-
     // Create ping payload
     let payload = PingPayload {
         tx_time,
@@ -56,35 +54,36 @@ pub fn create_ping(
         tx_client_id: client_id as u32,
     };
 
-    let mut bytes: Vec<u8> = Vec::new();
-    bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
-    bytes.extend_from_slice(&payload.tx_time.to_be_bytes()); // Bytes 4 - 11 *
-    bytes.extend_from_slice(&payload.tx_client_id.to_be_bytes()); // Bytes 12 - 15 *
+    // Create the ping payload bytes
+    let mut payload_bytes: Vec<u8> = Vec::new();
+    payload_bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
+    payload_bytes.extend_from_slice(&payload.tx_time.to_be_bytes()); // Bytes 4 - 11 *
+    payload_bytes.extend_from_slice(&payload.tx_client_id.to_be_bytes()); // Bytes 12 - 15 *
     if let Some(source_address) = payload.src {
         match source_address.value {
-            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
+            Some(V4(v4)) => payload_bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
             Some(V6(v6)) => {
-                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
-                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
+                payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
+                payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
             },
             None => panic!("Source address is None"),
         }
     }
     if let Some(destination_address) = payload.dst {
         match destination_address.value {
-            Some(V4(v4)) => bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
+            Some(V4(v4)) => payload_bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
             Some(V6(v6)) => {
-                bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
-                bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
+                payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
+                payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
             },
             None => panic!("Destination address is None"),
         }
     }
 
    return if src.is_v6() {
-        ICMPPacket::echo_request_v6(origin.sport as u16, 2, bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
+        ICMPPacket::echo_request_v6(origin.sport as u16, 2, payload_bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
     } else {
-        ICMPPacket::echo_request(origin.dport as u16, 2, bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
+        ICMPPacket::echo_request(origin.dport as u16, 2, payload_bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
     }
 }
 
@@ -120,7 +119,6 @@ pub fn create_udp(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-
     let src = IP::from(origin.src.expect("None IP address"));
     let dport = origin.dport as u16;
 
@@ -177,7 +175,6 @@ pub fn create_tcp(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u32; // The least significant bits are kept
-
     let seq = 0; // information in seq gets lost
     // for MAnycast the ACK is the client ID, for GCD the ACK is the transmit time
     let ack = if !gcd {
@@ -206,13 +203,13 @@ pub fn create_tcp(
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'origins' - the unique source addresses and port combinations we use for our probes
+/// * 'tx_origins' - the unique source addresses and port combinations we use for our probes
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
 /// * 'finish_rx' - used to exit or abort the measurement
 ///
-/// * 'ipv6' - whether we are using IPv6 or not
+/// * 'is_ipv6' - whether we are using IPv6 or not
 ///
 /// * 'gcd' - whether we are sending probes with unicast or anycast
 ///
@@ -321,7 +318,6 @@ pub fn outbound(
                             client_id,
                             trace.max_ttl as u8,
                             task_type,
-                            0 // TODO dst port
                         );
                         continue
                     },
@@ -336,23 +332,21 @@ pub fn outbound(
 ///
 /// # Arguments
 ///
-/// * 'origins' - the unique source addresses and port combinations we send traceroutes with
+/// * 'origins' - the unique source address and port combinations we send traceroutes with
 ///
-/// * 'ipv6' - whether we are using IPv6 or not
+/// * 'is_ipv6' - whether we are using IPv6 or not
 ///
 /// * 'ethernet_header' - the ethernet header to use for the traceroutes
 ///
 /// * 'cap' - the pcap capture to send the traceroutes with
 ///
-/// * 'dest_addr' - the destination address for the traceroutes
+/// * 'dst' - the destination address for the traceroutes
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'max_ttl' - the maximum TTL to use for the traceroutes (the actual TTLs used are 5 to max_ttl + 10)
 ///
 /// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP)
-///
-/// * 'destination_port' - the destination port to use for the TCP traceroutes
 fn perform_trace(
     origins: Vec<Origin>,
     is_ipv6: bool,
@@ -362,7 +356,6 @@ fn perform_trace(
     client_id: u8,
     max_ttl: u8,
     task_type: u8,
-    dport: u16,
 ) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
     if task_type > 3 {
         // Traceroute supported for ICMP, UDP, and TCP
@@ -373,6 +366,7 @@ fn perform_trace(
     for origin in origins {
         let src = IP::from(origin.src.expect("None IP address"));
         let sport = origin.sport as u16;
+        let dport = origin.dport as u16;
 
         // Send traceroutes to hops 5 to max_ttl + 10 (starting at 5 to avoid the first 4 vultr hops, and adding 10 to the max_ttl in case of false RTTs)
         // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different client may receive the destination's response)
@@ -442,7 +436,7 @@ fn abort_handler(
 ///
 /// # Arguments
 ///
-/// * 'v6' - whether we are using IPv6 or not
+/// * 'is_ipv6' - whether we are using IPv6 or not
 fn get_ethernet_header(is_ipv6: bool) -> Vec<u8> {
     // Source MAC address
     let mac_src = match get_mac_address() {
