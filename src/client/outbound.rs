@@ -8,28 +8,25 @@ use pcap::{Capture, Device};
 use crate::custom_module;
 use custom_module::IP;
 use tokio::sync::mpsc::Receiver;
-use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data};
+use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data, Origin};
 use custom_module::verfploeter::task::Data::{Targets, End, Trace};
 use std::process::{Command, Stdio};
 use tokio::sync::mpsc::error::TryRecvError;
 
 extern crate mac_address;
 use mac_address::get_mac_address;
-use crate::custom_module::verfploeter::{Address, Origin};
 
 /// Creates a ping packet.
 ///
 /// # Arguments
 ///
-/// * 'source' - the source IP address of the ping packet
+/// * 'origin' - the source address and ICMP identifier (dst port) we use for our probes
+///
+/// * 'dst' - the destination address for the ping packet
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
 /// * 'task_id' - the unique task ID of the current measurement
-///
-/// * 'origin' - the source address we use for our probes (dst port is used as the ICMP sequence number)
-///
-/// * 'dest_addr' - the destination address for the ping packet]
 ///
 /// # Returns
 ///
@@ -39,22 +36,23 @@ use crate::custom_module::verfploeter::{Address, Origin};
 ///
 /// If the source address or destination address is None
 pub fn create_ping(
-    src: IP,
+    origin: Origin,
+    dst: IP,
     client_id: u8,
     task_id: u32,
-    origin: Origin,
-    dst: Address,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
 
+    let src = IP::from(origin.src.expect("None IP address"));
+
     // Create ping payload
     let payload = PingPayload {
         tx_time,
         src: Some(src.clone().into()),
-        dst: Some(dst.clone()),
+        dst: Some(dst.clone().into()),
         tx_client_id: client_id as u32,
     };
 
@@ -94,17 +92,15 @@ pub fn create_ping(
 ///
 /// # Arguments
 ///
-/// * 'source_address' - the source IP address of the UDP packet
-///
-/// * 'source_port' - the source port of the UDP packet
+/// * 'origin' - the source address and port values we use for our probes
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'dest_addr' - the destination address for the UDP packet
-///
-/// * 'ipv6' - whether we are using IPv6 or not
+/// * 'dst' - the destination address for the UDP packet
 ///
 /// * 'task_type' - the type of task to perform (2 = UDP/DNS, 4 = UDP/CHAOS)
+///
+/// * 'is_ipv6' - whether we are using IPv6 or not
 ///
 /// # Returns
 ///
@@ -114,17 +110,19 @@ pub fn create_ping(
 ///
 /// If the task type is not 2 or 4
 pub fn create_udp(
-    src: IP,
-    dport: u16,
-    client_id: u8,
+    origin: Origin,
     dst: IP,
-    is_ipv6: bool,
+    client_id: u8,
     task_type: u8,
+    is_ipv6: bool,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
+
+    let src = IP::from(origin.src.expect("None IP address"));
+    let dport = origin.dport as u16;
 
     return if is_ipv6 {
         if task_type == 2 {
@@ -149,19 +147,15 @@ pub fn create_udp(
 ///
 /// # Arguments
 ///
-/// * 'dest_addr' - the destination IP address of the TCP packet
+/// * 'origin' - the source address and port values we use for our probes
 ///
-/// * 'source_address' - the source IP address of the TCP packet
-///
-/// * 'source_port' - the source port of the TCP packet
-///
-/// * 'destination_port' - the destination port of the TCP packet
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
+/// * 'dst' - the destination address for the TCP packet
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'gcd' - whether we are sending probes with unicast or anycast
+/// * 'is_ipv6' - whether we are using IPv6 or not
+///
+/// * 'gcd' - whether we are performing anycast-based (false) or GCD probing (true)
 ///
 /// # Returns
 ///
@@ -172,14 +166,12 @@ pub fn create_udp(
 /// If the source address or destination address is None
 ///
 /// If the task type is not 3
-pub fn create_tcp( // TODO inconsistent argument order
-                   dst: IP,
-                   src: IP,
-                   sport: u16,
-                   dport: u16,
-                   is_ipv6: bool,
-                   client_id: u8,
-                   gcd: bool,
+pub fn create_tcp(
+    origin: Origin,
+    dst: IP,
+    client_id: u8,
+    is_ipv6: bool,
+    gcd: bool,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -195,15 +187,15 @@ pub fn create_tcp( // TODO inconsistent argument order
     };
 
     return if is_ipv6 {
-        let source = src.get_v6();
+        let src = IP::from(origin.src.expect("None IP address")).get_v6();
         let dest = IP::from(dst.clone()).get_v6();
 
-        TCPPacket::tcp_syn_ack_v6(source.into(), dest.into(), sport, dport, seq, ack, 255)
+        TCPPacket::tcp_syn_ack_v6(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255)
     } else {
-        let source = src.get_v4();
+        let src = IP::from(origin.src.expect("None IP address")).get_v4();
         let dest = IP::from(dst.clone()).get_v4();
 
-        TCPPacket::tcp_syn_ack(source.into(), dest.into(), sport, dport, seq, ack, 255)
+        TCPPacket::tcp_syn_ack(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255)
     }
 }
 
@@ -276,17 +268,15 @@ pub fn outbound(
                     }, // An End task means the measurement has finished
                     Targets(targets) => {
                         for origin in &tx_origins {
-                            let src = IP::from(origin.src.clone().expect("None IP address"));
                             match task_type {
                                 1 => {
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
-                                            src,
+                                            origin.clone(),
+                                            IP::from(dst.clone()),
                                             client_id,
                                             task_id,
-                                            origin.clone(),
-                                            dst.clone(),
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send ICMP packet");
                                     }
@@ -295,12 +285,11 @@ pub fn outbound(
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
-                                            src,
-                                            origin.sport as u16,
-                                            client_id,
+                                            origin.clone(),
                                             IP::from(dst.clone()),
-                                            is_ipv6,
+                                            client_id,
                                             task_type,
+                                            is_ipv6,
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send UDP packet");
                                     }
@@ -309,12 +298,10 @@ pub fn outbound(
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
+                                            origin.clone(),
                                             IP::from(dst.clone()),
-                                            src,
-                                            origin.sport as u16,
-                                            origin.dport as u16,
-                                            is_ipv6,
                                             client_id,
+                                            is_ipv6,
                                             gcd,
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send TCP packet");
