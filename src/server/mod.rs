@@ -580,8 +580,8 @@ impl Controller for ControllerService {
             let clients = selected_clients.clone();
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
             let is_probing = clients.len() == 0 || clients.contains(&client_id);
-            println!("[Server] Client {} is probing: {}", client_id, is_probing);
 
+            // Get the hitlist for this client
             let dest_addresses = if !is_probing {
                 vec![]
             } else if is_divide {
