@@ -393,7 +393,7 @@ impl Controller for ControllerService {
             vec![schedule_task.origin.clone().unwrap()] // Contains port values
         } else if schedule_task.configurations.len() > 0 {
             // Make sure no unknown clients are in the list
-            if schedule_task.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id)) {
+            if schedule_task.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id) & conf.client_id != u32::MAX) {
                 println!("[Server] Unknown client in configuration list, terminating task.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"))
