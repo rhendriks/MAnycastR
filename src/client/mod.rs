@@ -18,27 +18,20 @@ use local_ip_address::{local_ip, local_ipv6};
 mod inbound;
 mod outbound;
 
-/// The client that is ran at the anycast sites and performs tasks as instructed by the server to which it is connected to
+/// The client that is run at the anycast sites and performs tasks as instructed by the server to which it is connected to
 ///
 /// # Fields
 ///
 /// * 'grpc_client' - the client connection with the server
 /// * 'metadata' - used to store this client's hostname and unique client ID
-/// * 'source_address' - contains the source address this client will use for outgoing probes (optional value that can be defined when creating this client)
-/// * 'source_port' - contains the source port this client will use for outgoing probes (optional value that can be defined when creating this client)
-/// * 'dest_port' - contains the destination port (OR ICMP identifier value) this client will use for outgoing probes (optional value that can be defined when creating this client)
 /// * 'active' - boolean value that is set to true when the client is currently doing a measurement
 /// * 'current_task' - contains the task ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
-/// * 'multi_probing' - boolean value that is set to true when the client is configured to send probes from all configured origins (i.e., address/port combinations)
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
-    // source_address: IP,
-    // source_port: u16,
-    // dest_port: u16,
     active: Arc<Mutex<bool>>,
     current_task: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
@@ -53,7 +46,9 @@ impl Client {
     /// # Arguments
     ///
     /// * 'args' - contains the parsed command-line arguments
-    pub async fn new(args: &ArgMatches<'_>) -> Result<Client, Box<dyn Error>> {
+    pub async fn new(
+        args: &ArgMatches<'_>
+    ) -> Result<Client, Box<dyn Error>> {
         // Get values from args
         let hostname = if args.is_present("hostname") {
             args.value_of("hostname").unwrap().parse().unwrap()
@@ -62,63 +57,10 @@ impl Client {
         }.to_string();
 
         let server_addr = args.value_of("server").unwrap();
-
-        // // Get the custom source address for this client (optional)
-        // let source_address = if args.is_present("source") {
-        //     let source = args.value_of("source").unwrap();
-        //     println!("[Client] Using custom source address: {}", source);
-        //
-        //     if source.contains(':') {
-        //         IP::V6(Ipv6Addr::from_str(source).expect("Invalid IPv6 address"))
-        //     } else {
-        //         IP::V4(Ipv4Addr::from_str(source).expect("Invalid IPv4 address"))
-        //     }
-        // } else {
-        //     println!("[Client] Using source address from task");
-        //     IP::None
-        // };
-
-        // // Get the custom source port for this client (optional)
-        // let s_port = if args.is_present("source_port") {
-        //     let s_port = args.value_of("source_port").unwrap()
-        //         .parse::<u16>().expect("Invalid source port value");
-        //     println!("[Client] Using custom source port: {}", s_port);
-        //
-        //     s_port
-        // } else {
-        //     println!("[Client] Using source port from task");
-        //     0
-        // };
-        //
-        //
-        // // Get the optional destination port for this client (optional)
-        // let d_port = if args.is_present("dest_port") {
-        //     let d_port = args.value_of("dest_port").unwrap()
-        //         .parse::<u16>().expect("Invalid destination port");
-        //     println!("[Client] Using custom destination port: {}", d_port);
-        //
-        //     d_port
-        // } else {
-        //     println!("[Client] Using destination port from task");
-        //     0
-        // };
-
-        // Get the optional multi-probing flag -> if set, this client will send probes from all configured 'Origins'
-        // let multi_probing = args.is_present("multi-probing");
-        // if multi_probing {
-        //     println!("[Client] Using multi-probing (this client will send probes using all configured Origins)");
-        // }
-
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
-            // origin: Some(Origin {  // TODO remove this, the CLI must define origins used
-            //     source_address: Some(Address::from(source_address.clone())),
-            //     source_port: s_port.into(),
-            //     destination_port: d_port.into(),
-            //     })
         };
-
         let is_tls = args.is_present("tls");
         let client = Client::connect(server_addr.parse().unwrap(), is_tls).await?;
 
@@ -126,9 +68,6 @@ impl Client {
         let mut client_class = Client {
             grpc_client: client,
             metadata,
-            // source_address,
-            // source_port: s_port,
-            // dest_port: d_port,
             active: Arc::new(Mutex::new(false)),
             current_task: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -153,7 +92,10 @@ impl Client {
     /// ```
     /// let grpc_client = connect("127.0.0.0:50001", true);
     /// ```
-    async fn connect(address: String, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+    async fn connect(
+        address: String,
+        tls: bool
+    ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if tls {
             // Secure connection
             let addr = format!("https://{}", address);
@@ -198,7 +140,7 @@ impl Client {
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     ///
-    /// * 'probing' - a boolean that indicates whether this client has to send out probes
+    /// * 'is_probing' - a boolean that indicates whether this client has to send out probes
     ///
     /// * 'gcd' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
     fn init(
@@ -206,7 +148,7 @@ impl Client {
         task: Task,
         client_id: u8,
         outbound_f: Option<oneshot::Receiver<()>>,
-        probing: bool,
+        is_probing: bool,
         gcd: bool,
     ) {
         // If the task is empty, we don't do a measurement
@@ -216,7 +158,7 @@ impl Client {
         }
 
         // Channel for forwarding tasks to outbound
-        let outbound_rx = if probing {
+        let outbound_rx = if is_probing {
             let (tx, rx) = tokio::sync::mpsc::channel(1000);
             self.outbound_tx = Some(tx);
             Some(rx)
@@ -224,17 +166,16 @@ impl Client {
             None
         };
 
-        let start = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        // TODO start contains the rate, but the rate is enforced by the Server and the Client does not need to know about it
-        let task_id = start.task_id;
-        let is_ipv6 = start.ipv6;
-        let mut rx_origins: Vec<Origin> = start.rx_origins;
-        let traceroute = start.traceroute;
+        let start_task = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
+        let task_id = start_task.task_id;
+        let is_ipv6 = start_task.ipv6;
+        let mut rx_origins: Vec<Origin> = start_task.rx_origins;
+        let traceroute = start_task.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
         let tx_origins: Vec<Origin> = if gcd {  // Use the local unicast address and CLI defined ports
-            let sport = start.tx_origins[0].sport;
-            let dport = start.tx_origins[0].dport;
+            let sport = start_task.tx_origins[0].sport;
+            let dport = start_task.tx_origins[0].dport;
 
             let unicast_ip = if is_ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
@@ -256,7 +197,7 @@ impl Client {
             vec![unicast_origin]
         } else {
             // Use the sender origins set by the server
-            start.tx_origins
+            start_task.tx_origins
         };
 
         // Channel for sending from inbound to the server forwarder thread
@@ -267,7 +208,6 @@ impl Client {
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
         let mut filter = String::new();
-
         if is_ipv6 {
             println!("[Client] Using IPv6");
             filter.push_str("ip6");
@@ -276,40 +216,62 @@ impl Client {
             filter.push_str("ip");
         };
 
-        // With these traceroute probes we need to encode the TTL used in the probe in the payload
-        // TODO this listener needs to capture ICMP TTL expired for all protocols
-        match start.task_type {
-            1 => {
+        // Add filter for each address/port combination based on the task type
+        filter.push_str(" and");
+        let filter_parts: Vec<String> = match start_task.task_type {
+            1 => { // ICMP has no port numbers
                 if is_ipv6 {
-                    filter.push_str(" and icmp6");
+                    rx_origins.iter()
+                        .map(|origin| format!(" (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                        .collect()
                 } else {
-                    filter.push_str(" and icmp");
+                    rx_origins.iter()
+                        .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                        .collect()
                 }
             },
-            2 | 4 =>  { // DNS A record, DNS CHAOS TXT
-                // if ipv6 {
-                //     filter.push_str(" and (icmp6 or ip6[6] == 17)");
-                // } else {
-                //     filter.push_str(" and (udp or icmp)");
-                // }
-            },
-            3 => {
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
                 if is_ipv6 {
-                    filter.push_str(" and ip6[6] == 6");
+                    rx_origins.iter()
+                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
+                        .collect()
                 } else {
-                    filter.push_str(" and tcp");
+                    rx_origins.iter()
+                        .map(|origin| format!(" (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
+                        .collect()
                 }
+            },
+            3 => { // TCP
+                let mut tcp_filters: Vec<String> = if is_ipv6 {
+                    rx_origins.iter()
+                        .map(|origin| format!(" (ip6[6] == 6 and dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
+                        .collect()
+                } else {
+                    rx_origins.iter()
+                        .map(|origin| format!(" (tcp and dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
+                        .collect()
+                };
+
+                // When tracerouting we need to listen to ICMP for TTL expired messages
+                if traceroute {
+                    let icmp_ttl_expired_filter: Vec<String> = rx_origins.iter()
+                        .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                        .collect();
+                    tcp_filters.extend(icmp_ttl_expired_filter);
+                }
+                tcp_filters
             },
             _ => panic!("Invalid task type"),
         };
 
-        if probing {
-            match start.task_type {
+        filter.push_str(&*filter_parts.join(" or"));
+
+        if is_probing {
+            match start_task.task_type {
                 1 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
-                        println!("[Client] Sending on address: {}", IP::from(origin.clone().src.unwrap()).to_string());
-                        // TODO print ICMP identifier (destination port)
+                        println!("[Client] Sending on address: {} using identifier {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.dport);
                     }
                 },
                 2 | 3 | 4 => {
@@ -324,63 +286,40 @@ impl Client {
             println!("[Client] Not sending probes");
         }
 
-        // Add filter for each address/port combination
-        filter.push_str(" and");
-        let filter_parts: Vec<String> = match start.task_type {
-            1 => { // ICMP has no port numbers
-                rx_origins.iter()
-                    .map(|origin| format!(" dst host {}", IP::from(origin.clone().src.unwrap()).to_string()))
-                    .collect()
-            },
-            2 | 4 => { // DNS A record, DNS CHAOS TXT
-                if is_ipv6 {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53) or (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), IP::from(origin.clone().src.unwrap()).to_string()))
-                        .collect()
-                } else {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (udp and dst host {} and src port 53) or (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), IP::from(origin.clone().src.unwrap()).to_string()))
-                        .collect()
-                }
-            },
-            _ => { // TCP
-                rx_origins.iter()
-                    .map(|origin| format!(" (dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
-                    .collect()
-            }
-        };
-
-        filter.push_str(&*filter_parts.join(" or"));
-
         // Start listening thread
-        // TODO listening threads are not needed for non-probing clients when using the local unicast address
-        match start.task_type {
-            1 => { // ICMP
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
-            }
-            2 | 4 => { // DNS A record, DNS CHAOS TXT
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
-            }
-            3 => { // TCP
-                // When tracerouting we need to listen to ICMP for TTL expired messages
-                if traceroute {
-                    if is_ipv6 {
-                        filter.push_str(" or icmp6");
-                    } else {
-                        filter.push_str(" or icmp");
-                    }
+        if gcd && !is_probing {
+            // If this client is not probing and there is a GCD measurement this client should not listen
+            println!("[Client] Not listening for non-probing client during GCD measurement");
+        } else {
+            // ICMP, DNS, TCP
+            match start_task.task_type {
+                1 => { // ICMP
+                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
                 }
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start.task_type);
-            }
-            _ => { () }
-        };
-
-        // Start sending thread, if this client is probing
-        if probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, gcd, task_id, start.task_type as u8)
+                2 | 4 => { // DNS A record, DNS CHAOS TXT
+                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+                }
+                3 => { // TCP
+                    // When tracerouting we need to listen to ICMP for TTL expired messages
+                    if traceroute {
+                        if is_ipv6 {
+                            filter.push_str(" or icmp6");
+                        } else {
+                            filter.push_str(" or icmp");
+                        }
+                    }
+                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+                }
+                _ => { () }
+            };
         }
 
-        let mut self_clone = self.clone();  // TODO remove clone
+        // Start sending thread, if this client is probing
+        if is_probing {
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, gcd, task_id, start_task.task_type as u8)
+        }
+
+        let mut self_clone = self.clone();
         // Thread that listens for task results from inbound and forwards them to the server
         thread::Builder::new()
             .name("forwarder_thread".to_string())
