@@ -171,11 +171,11 @@ impl<T> Drop for CLIReceiver<T> {
                 spawn(async move {
                     if let Err(e) = client.send(Ok(end_task)).await {
                         println!("[Server] ERROR - Failed to terminate task {}", e);
-                    } else {
-                        println!("[Server] Terminated task at client");
                     }
                 });
             }
+            println!("[Server] Terminated task at all clients");
+
 
             // Set task_active to false
             *active = false;
@@ -338,9 +338,7 @@ impl Controller for ControllerService {
 
             *active = true;
         }
-
-        println!("Task started");
-
+        
         // Get the list of Senders (that connect to the clients)
         let senders = {
             // Lock the senders mutex and remove closed senders
@@ -354,8 +352,6 @@ impl Controller for ControllerService {
             });
             self.senders.lock().unwrap().clone()
         };
-
-        println!("Senders locked");
 
         // If there are no connected clients that can perform this task
         if senders.len() == 0 {
@@ -390,11 +386,6 @@ impl Controller for ControllerService {
             return Err(Status::new(tonic::Code::Cancelled, "One or more client IDs are not connected."));
         }
 
-        println!("Task clients checked");
-
-        // Store the number of clients that will perform this task
-        self.open_tasks.lock().unwrap().insert(task_id, senders.len() as u32);
-
         // Create a Task from the ScheduleTask
         let is_unicast = schedule_task.unicast;
         // Get the probe origins
@@ -414,7 +405,8 @@ impl Controller for ControllerService {
             vec![schedule_task.origin.clone().unwrap()]
         };
 
-        println!("Task origins checked");
+        // Store the number of clients that will perform this task
+        self.open_tasks.lock().unwrap().insert(task_id, senders.len() as u32);
 
         let rate = schedule_task.rate;
         let task_type = schedule_task.task_type;
@@ -441,8 +433,6 @@ impl Controller for ControllerService {
                 }
             }
         }
-
-        println!("Task origins added");
 
         // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
         if is_traceroute { // TODO move this to a separate function
