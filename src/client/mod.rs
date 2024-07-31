@@ -287,33 +287,26 @@ impl Client {
         }
 
         // Start listening thread
-        if gcd && !is_probing {
-            // If this client is not probing and there is a GCD measurement this client should not listen
-            println!("[Client] Not listening for non-probing client during GCD measurement");
-            self.inbound_tx_f = Some(vec![]); // No inbound threads
-        } else {
-            // ICMP, DNS, TCP
-            match start_task.task_type {
-                1 => { // ICMP
-                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
-                }
-                2 | 4 => { // DNS A record, DNS CHAOS TXT
-                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
-                }
-                3 => { // TCP
-                    // When tracerouting we need to listen to ICMP for TTL expired messages
-                    if traceroute {
-                        if is_ipv6 {
-                            filter.push_str(" or icmp6");
-                        } else {
-                            filter.push_str(" or icmp");
-                        }
+        match start_task.task_type {
+            1 => { // ICMP
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+            }
+            2 | 4 => { // DNS A record, DNS CHAOS TXT
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+            }
+            3 => { // TCP
+                // When tracerouting we need to listen to ICMP for TTL expired messages
+                if traceroute {
+                    if is_ipv6 {
+                        filter.push_str(" or icmp6");
+                    } else {
+                        filter.push_str(" or icmp");
                     }
-                    listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
                 }
-                _ => { () }
-            };
-        }
+                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+            }
+            _ => { () }
+        };
 
         // Start sending thread, if this client is probing
         if is_probing {
