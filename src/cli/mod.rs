@@ -41,7 +41,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let is_tls = args.is_present("tls");
 
     // Create client connection with the Controller Server
-    print!("[CLI] Connecting to Controller Server at address {} ... ", server_address);
+    println!("[CLI] Connecting to Controller Server at address {}", server_address);
     let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
     let mut cli_client = CliClient { grpc_client, };
 

@@ -290,6 +290,7 @@ impl Client {
         if gcd && !is_probing {
             // If this client is not probing and there is a GCD measurement this client should not listen
             println!("[Client] Not listening for non-probing client during GCD measurement");
+            self.inbound_tx_f = Some(vec![]); // No inbound threads
         } else {
             // ICMP, DNS, TCP
             match start_task.task_type {
