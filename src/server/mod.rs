@@ -338,7 +338,7 @@ impl Controller for ControllerService {
 
             *active = true;
         }
-        
+
         // Get the list of Senders (that connect to the clients)
         let senders = {
             // Lock the senders mutex and remove closed senders
@@ -377,10 +377,10 @@ impl Controller for ControllerService {
             .collect();
 
         // Check if the CLI requested a client-selective probing task
-        let task_clients: Vec<u32> = schedule_task.clients;
+        let mut selected_clients: Vec<u32> = schedule_task.clients;
 
         // Make sure all client IDs are valid
-        if task_clients.iter().any(|client| !client_list_u32.contains(client)) {
+        if selected_clients.iter().any(|client| !client_list_u32.contains(client)) {
             println!("[Server] Client ID requested that is not connected, terminating task.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "One or more client IDs are not connected."));
@@ -397,6 +397,17 @@ impl Controller for ControllerService {
                 println!("[Server] Unknown client in configuration list, terminating task.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"))
+            }
+            // Update selected_clients to contain all clients that are in the configuration list
+            for configuration in &schedule_task.configurations {
+                if !selected_clients.contains(&configuration.client_id) {
+                    selected_clients.push(configuration.client_id);
+                }
+                // All clients are selected
+                if configuration.client_id == u32::MAX {
+                    selected_clients = vec![];
+                    break;
+                }
             }
 
             vec![]  // Return an empty list, as we will add the origins per client
@@ -510,7 +521,7 @@ impl Controller for ControllerService {
             }
 
             // Check if the current client is selected to send probes
-            let is_probing = if task_clients.is_empty() {
+            let is_probing = if selected_clients.is_empty() {
                 // No client-selective probing
                 if client_tx_origins.len() == 0 {
                     false // No probe origins -> not probing
@@ -519,7 +530,7 @@ impl Controller for ControllerService {
                 }
             } else {
                 // Make sure the current client is selected to perform the task
-                task_clients.contains(client_list_u32.get(current_client).expect(&*format!("Client with ID {} not found", current_client)))
+                selected_clients.contains(client_list_u32.get(current_client).expect(&*format!("Client with ID {} not found", current_client)))
             };
             if is_probing { current_active_client += 1; }
             current_client = current_client + 1;
@@ -566,11 +577,12 @@ impl Controller for ControllerService {
             // This client's unique ID
             let client_id = *client_list_u32.get(i as usize).unwrap();
             i += 1;
-            let clients = task_clients.clone();
+            let clients = selected_clients.clone();
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
-            let probing = clients.len() == 0 || clients.contains(&client_id);  // TODO this fails when using configurations
+            let is_probing = clients.len() == 0 || clients.contains(&client_id);
+            println!("[Server] Client {} is probing: {}", client_id, is_probing);
 
-            let dest_addresses = if !probing {
+            let dest_addresses = if !is_probing {
                 vec![]
             } else if is_divide {
                 // Each client gets its own chunk of the hitlist
@@ -591,7 +603,7 @@ impl Controller for ControllerService {
             };
 
             // increment if this client is sending probes
-            if probing { t += 1; }
+            if is_probing { t += 1; }
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
@@ -602,7 +614,7 @@ impl Controller for ControllerService {
                 let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if probing && !is_divide {
+                if is_probing && !is_divide {
                     tokio::time::sleep(Duration::from_secs((t - 1) * interval as u64)).await;
                 }
 
@@ -620,7 +632,7 @@ impl Controller for ControllerService {
                         return // abort
                     }
 
-                    if probing {
+                    if is_probing {
                         let task = Task {
                             data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
                                 dst_addresses: chunk.to_vec(),
