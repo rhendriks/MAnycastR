@@ -345,7 +345,10 @@ impl CliClient {
         let measurement_length = if divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
         } else {
-            ((hitlist_length as f32 / rate as f32) + 1.0) / 60.0
+            ((clients.len() as f32 - 1.0) * interval as f32) // Last client starts probing
+                + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
+                + 1.0 // Time to wait for last replies
+            / 60.0 // Convert to minutes
         };
         if divide {
             println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
@@ -365,12 +368,10 @@ impl CliClient {
         let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
                                           timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
                                           timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
-
         println!("[CLI] Measurement started at {}", timestamp_start.format("%H:%M:%S"));
 
+        // Progress bar
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
-        println!("[CLI] Total steps: {}", total_steps);
-        // Create a progress bar
         let pb = ProgressBar::new(total_steps);
         pb.set_style(
             ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
