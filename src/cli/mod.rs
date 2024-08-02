@@ -241,8 +241,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Print the origins used
         if unicast {
-            println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
-                   origin.clone().unwrap().sport, origin.clone().unwrap().dport);
+            if let Some(origin) = &origin {
+                println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
+                         origin.sport, origin.dport);
+            }
         } else if configurations.is_some() {
             println!("[CLI] Clients send probes using the following configurations:");
             for configuration in configurations.clone().unwrap() {
@@ -264,12 +266,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-
-
         } else {
-            let src = IP::from(origin.clone().unwrap().src.unwrap()).to_string();
-            println!("[CLI] Clients send probes using the following origin: source IP: {}, source port: {}, destination port: {}",
-                   src, origin.clone().unwrap().sport, origin.clone().unwrap().dport);
+            if let Some(origin) = &origin {
+                let src = IP::from(origin.src.clone().unwrap()).to_string();
+                println!(
+                    "[CLI] Clients send probes using the following origin: source IP: {}, source port: {}, destination port: {}",
+                    src, origin.sport, origin.dport
+                );
+            }
         }
 
         // Create the task and send it to the server
