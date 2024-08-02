@@ -241,7 +241,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Print the origins used
         if unicast {
-            println!("[CLI] Clients send probes using their unicast source IP");
+            println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
+                   origin.clone().unwrap().sport, origin.clone().unwrap().dport);
         } else if configurations.is_some() {
             println!("[CLI] Clients send probes using the following configurations:");
             for configuration in configurations.clone().unwrap() {
