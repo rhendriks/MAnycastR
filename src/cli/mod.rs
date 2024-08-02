@@ -15,7 +15,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use csv::Writer;
 
 use crate::custom_module;
-use custom_module::IP;
+use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
     VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
     Targets, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
@@ -221,21 +221,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         println!("[CLI] Performing {} task targeting {} addresses, with a rate of {}, and an interval of {}",
                  t_type,
-                 hitlist_length.to_string()
-                     .as_bytes()
-                     .rchunks(3)
-                     .rev()
-                     .map(std::str::from_utf8)
-                     .collect::<Result<Vec<&str>, _>>()
-                     .expect("Unable to format hitlist length")
-                     .join(","),
-                 rate.to_string().as_bytes()
-                     .rchunks(3)
-                     .rev()
-                     .map(std::str::from_utf8)
-                     .collect::<Result<Vec<&str>, _>>()
-                     .expect("Unable to format rate")
-                     .join(","),
+                 hitlist_length.with_separator(),
+                 rate.with_separator(),
                  interval
         );
 
@@ -467,13 +454,7 @@ impl CliClient {
         }
         file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
         // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
-        let rate = rate.to_string().as_bytes()
-            .rchunks(3)
-            .rev()
-            .map(std::str::from_utf8)
-            .collect::<Result<Vec<&str>, _>>()
-            .expect("Unable to format rate")
-            .join(",");
+        let rate = rate.with_separator();
         file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
         file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;

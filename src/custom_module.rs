@@ -158,3 +158,32 @@ impl IpResult {
         }
     }
 }
+
+pub trait Separated {
+    fn with_separator(&self) -> String;
+}
+
+fn format_number(number: usize) -> String {
+    let number_str = number.to_string();
+    let chunks: Vec<&str> = number_str
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .expect("Unable to format number");
+
+    chunks.join(",")
+}
+
+impl Separated for u32 {
+    fn with_separator(&self) -> String {
+        format_number(*self as usize)
+    }
+}
+
+impl Separated for usize {
+    fn with_separator(&self) -> String {
+        format_number(*self)
+    }
+}
