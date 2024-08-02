@@ -180,11 +180,7 @@ fn handle_results(
         sleep(Duration::from_secs(5));
 
         // Get the current result queue, and replace it with an empty one
-        let rq;
-        {
-            let mut rq_mutex = rq_sender.lock().unwrap();
-            rq = rq_mutex.replace(Vec::new()).unwrap();
-        }
+        let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
         // If we have an empty result queue
         if rq.len() == 0 {
@@ -196,13 +192,13 @@ fn handle_results(
             continue;
         }
 
-        let tr = TaskResult {
-            client_id: client_id as u32,
-            result_list: rq,
-        };
-
         // Send the result to the client handler
-        tx.send(tr).expect("Failed to send TaskResult to client handler");
+        tx.send(
+            TaskResult {
+                client_id: client_id as u32,
+                result_list: rq,
+            }
+        ).expect("Failed to send TaskResult to client handler");
     }
 }
 

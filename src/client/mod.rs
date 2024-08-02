@@ -139,23 +139,19 @@ impl Client {
     /// * 'client_id' - the unique ID of this client
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    ///
-    /// * 'is_probing' - a boolean that indicates whether this client has to send out probes
-    ///
-    /// * 'gcd' - a boolean that indicates whether this client has to use the local unicast address to perform latency measurements
     fn init(
         &mut self,
         task: Task,
         client_id: u8,
         outbound_f: Option<oneshot::Receiver<()>>,
-        is_probing: bool,
-        gcd: bool,
     ) {
-        // If the task is empty, we don't do a measurement
-        if let Data::Empty(_) = task.data.clone().unwrap() {
-            println!("[Client] Received an empty task, skipping measurement");
-            return
-        }
+        let start_task = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
+        let task_id = start_task.task_id;
+        let is_ipv6 = start_task.ipv6;
+        let mut rx_origins: Vec<Origin> = start_task.rx_origins;
+        let traceroute = start_task.traceroute;
+        let is_gcd = start_task.unicast;
+        let is_probing = start_task.active;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -166,14 +162,9 @@ impl Client {
             None
         };
 
-        let start_task = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        let task_id = start_task.task_id;
-        let is_ipv6 = start_task.ipv6;
-        let mut rx_origins: Vec<Origin> = start_task.rx_origins;
-        let traceroute = start_task.traceroute;
 
         // If this client has a specified source address use it, otherwise use the one from the task
-        let tx_origins: Vec<Origin> = if gcd {  // Use the local unicast address and CLI defined ports
+        let tx_origins: Vec<Origin> = if is_gcd {  // Use the local unicast address and CLI defined ports
             let sport = start_task.tx_origins[0].sport;
             let dport = start_task.tx_origins[0].dport;
 
@@ -209,15 +200,12 @@ impl Client {
 
         let mut filter = String::new();
         if is_ipv6 {
-            println!("[Client] Using IPv6");
-            filter.push_str("ip6");
+            filter.push_str("ip6 and");
         } else {
-            println!("[Client] Using IPv4");
-            filter.push_str("ip");
+            filter.push_str("ip and");
         };
 
         // Add filter for each address/port combination based on the task type
-        filter.push_str(" and");
         let filter_parts: Vec<String> = match start_task.task_type {
             1 => { // ICMP has no port numbers
                 if is_ipv6 {
@@ -310,7 +298,7 @@ impl Client {
 
         // Start sending thread, if this client is probing
         if is_probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, gcd, task_id, start_task.task_type as u8)
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, task_id, start_task.task_type as u8)
         }
 
         let mut self_clone = self.clone();
@@ -404,9 +392,9 @@ impl Client {
                     }
                     Some(task) => {
                         // outbound_tx will be None if this client is not probing
-                        if self.outbound_tx.is_some() {
+                        if let Some (outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
-                            self.outbound_tx.clone().unwrap().send(task).await.expect("Unable to send task to outbound thread");
+                            outbound_tx.send(task).await.expect("Unable to send task to outbound thread");
                         }
                     },
                 };
@@ -415,8 +403,8 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id, unicast) = match task.clone().data.expect("None start task") {
-                    Data::Start(start) => (start.active, start.task_id, start.unicast),
+                let (is_probing, task_id) = match task.clone().data.expect("None start task") {
+                    Data::Start(start) => (start.active, start.task_id),
                     _ => { // First task is not a start task
                         println!("[Client] Received non-start packet for init");
                         continue
@@ -431,11 +419,11 @@ impl Client {
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
-                    self.init(task, client_id, Some(outbound_rx_f), true, unicast);
+                    self.init(task, client_id, Some(outbound_rx_f));
                 } else { // This client is not probing
                     f_tx = None;
                     self.outbound_tx = None;
-                    self.init(task, client_id, None, false, unicast);
+                    self.init(task, client_id, None);
                 }
             }
         }
