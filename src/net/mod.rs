@@ -682,10 +682,11 @@ impl UDPPacket {
         source_address: u32,
         destination_address: u32,
         source_port: u16,
-        client_id: u8
+        client_id: u8,
+        chaos: String,
     ) -> Vec<u8> {
         let destination_port = 53u16;
-        let dns_body = Self::create_chaos_request(client_id);
+        let dns_body = Self::create_chaos_request(client_id, chaos);
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
@@ -719,7 +720,10 @@ impl UDPPacket {
     }
 
     /// Creating a DNS TXT record request body for id.server CHAOS request
-    fn create_chaos_request(client_id: u8) -> Vec<u8> {
+    fn create_chaos_request(
+        client_id: u8,
+        chaos: String,
+    ) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
@@ -733,8 +737,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
         // DNS Question (id.server)
-        let domain = "hostname.bind";
-        for label in domain.split('.') {
+        for label in chaos.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
         }
