@@ -34,7 +34,6 @@ COPY --from=build /manycast/target/release/manycast .
 
 # set the startup command to run binary (takes arguments from docker command)
 ENTRYPOINT ["./manycast"]
-#ENTRYPOINT ["/manycast/target/release/manycast"]
 
 # Default command used
 CMD ["--help"]

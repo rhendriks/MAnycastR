@@ -157,7 +157,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             let clients_str = matches.value_of("CLIENTS").unwrap();
             clients_str.trim_matches(|c| c == '[' || c == ']')
                 .split(',')
-                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse client ID: {}", id)))
+                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse client ID: {:<2}", id)))
                 .collect::<Vec<u32>>()
         } else {
             println!("[CLI] Probes will be sent out from all clients");
@@ -249,7 +249,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         );
                     } else {
                         println!(
-                            "\t* client ID: {}, source IP: {}, source port: {}, destination port: {}",
+                            "\t* client ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
                             configuration.client_id, src, sport, dport
                         );
                     }
@@ -486,7 +486,7 @@ impl CliClient {
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            file.write_all(format!("# \t * ID: {}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write client data");
+            file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write client data");
         }
 
         // Write configurations used for the measurement
@@ -499,7 +499,7 @@ impl CliClient {
                 } else {
                     configuration.client_id.to_string()
                 };
-                file.write_all(format!("# \t * client ID: {}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * client ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
