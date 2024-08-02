@@ -91,7 +91,7 @@ impl<T> Drop for ClientReceiver<T> {
             metadata.hostname != self.hostname
         });
 
-        // Handle the open tasks that involve this client
+        // // Handle the open tasks that involve this client
         let mut open_tasks = self.open_tasks.lock().unwrap();
         if open_tasks.len() > 0 {
             for (task_id, remaining) in open_tasks.clone().iter(){
@@ -641,8 +641,9 @@ impl Controller for ControllerService {
                             Ok(_) => (),
                             Err(e) =>  {
                                 println!("[Server] Failed to send task {:?} to client {}", e, client_id);
-                                if sender.is_closed() {
-                                    println!("Client disconnected");
+                                if sender.is_closed() { // If the client is no longer connected
+                                    println!("[Server] Client {} is no longer connected and removed from the measurement", client_id);
+                                    break
                                 }
 
                             },
