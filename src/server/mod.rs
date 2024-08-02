@@ -178,7 +178,9 @@ impl<T> Drop for CLIReceiver<T> {
     }
 }
 
-// The Controller service implementation
+
+/// Implementation of the Controller trait for the ControllerService
+/// Handles communication with the clients and the CLI
 #[tonic::async_trait]
 impl Controller for ControllerService {
     /// Called by the client when it has finished its current task.
@@ -637,7 +639,13 @@ impl Controller for ControllerService {
                         // Send packet to client
                         match sender.send(Ok(task.clone())).await {
                             Ok(_) => (),
-                            Err(e) => println!("[Server] Failed to send task to client {:?}", e), // TODO spams console when client disconnects
+                            Err(e) =>  {
+                                println!("[Server] Failed to send task {:?} to client {}", e, client_id);
+                                if sender.is_closed() {
+                                    println!("Client disconnected");
+                                }
+
+                            },
                         }
                     }
 
@@ -673,7 +681,7 @@ impl Controller for ControllerService {
                     })),
                 })).await {
                     Ok(_) => (),
-                    Err(e) => println!("[Server] Failed to send 'end message' {:?}", e),
+                    Err(e) => println!("[Server] Failed to send 'end message' {:?} to client {}", e, client_id),
                 }
             });
         }
