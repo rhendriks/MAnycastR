@@ -356,6 +356,23 @@ impl CliClient {
         let request = Request::new(task.clone());
         println!("[CLI] Sending do_task to server");
 
+        let response = self.grpc_client.do_task(request).await;
+
+        if let Err(e) = response {
+            println!("[CLI] Server did not perform the task for reason: '{}'", e.message());
+            return Err(Box::new(e))
+        }
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        let timestamp_start = Local::now();
+        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+                                          timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
+                                          timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
+
+        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", timestamp_start.format("%H:%M:%S"));
+
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
         // Create a progress bar
         let pb = ProgressBar::new(total_steps);
@@ -378,25 +395,6 @@ impl CliClient {
             }
             pb.finish_with_message("Task complete");
         });
-
-        let response = self.grpc_client.do_task(request).await;
-
-        is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
-
-        if let Err(e) = response {
-            println!("[CLI] Server did not perform the task for reason: '{}'", e.message());
-            return Err(Box::new(e))
-        }
-        let start = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-        let timestamp_start = Local::now();
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-                                          timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
-                                          timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
-
-        println!("[CLI] Task sent to server, awaiting results\n[CLI] Time of start measurement {}", timestamp_start.format("%H:%M:%S"));
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
         // Obtain the Stream from the server and read from it
@@ -437,6 +435,7 @@ impl CliClient {
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
         }
+        is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
 
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)
