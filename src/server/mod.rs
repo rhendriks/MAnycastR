@@ -86,20 +86,15 @@ impl<T> Drop for ClientReceiver<T> {
         println!("[Server] Client receiver has been dropped");
 
         // Remove this client from the clients list
-        let mut clientslist = self.clients.lock().unwrap();
-        let mut i = 0;
-        for client in clientslist.clients.clone() {
-            if client.metadata.unwrap().hostname == self.hostname {
-                clientslist.clients.remove(i);
-                break;
-            }
-            i += 1;
-        }
+        self.clients.lock().unwrap().clients.retain(|client| {
+            let Some(metadata) = &client.metadata else { panic!("Client without metadata") };
+            metadata.hostname != self.hostname
+        });
 
         // Handle the open tasks that involve this client
         let mut open_tasks = self.open_tasks.lock().unwrap();
         if open_tasks.len() > 0 {
-            for (task_id, remaining) in open_tasks.clone().iter( ){
+            for (task_id, remaining) in open_tasks.clone().iter(){
                 // If this task is already finished
                 if remaining == &0 {
                     continue
@@ -115,8 +110,7 @@ impl<T> Drop for ClientReceiver<T> {
                         Ok(_) => (),
                         Err(_) => println!("[Server] Failed to send task_finished to CLI")
                     }
-                    // If there are more clients still performing this task
-                } else {
+                } else { // If there are more clients still performing this task
                     // The server no longer has to wait for this client
                     *open_tasks.get_mut(&task_id).unwrap() -= 1;
                 }
@@ -161,6 +155,7 @@ impl<T> Drop for CLIReceiver<T> {
             // Create termination 'task'
             let end_task = Task {
                 data: Some(TaskEnd(End {
+                    code: 0,
                 })),
             };
 
@@ -673,10 +668,12 @@ impl Controller for ControllerService {
 
                 // Send a message to the client to let it know it has received everything for the current task
                 match sender.send(Ok(Task {
-                    data: None,
+                    data: Some(TaskEnd(End {
+                        code: 0,
+                    })),
                 })).await {
                     Ok(_) => (),
-                    Err(e) => println!("[Server] Failed to send 'termination message' {:?}", e),
+                    Err(e) => println!("[Server] Failed to send 'end message' {:?}", e),
                 }
             });
         }
