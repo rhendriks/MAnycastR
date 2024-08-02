@@ -154,6 +154,7 @@ impl Client {
         let traceroute = start_measurement.traceroute;
         let is_gcd = start_measurement.unicast;
         let is_probing = start_measurement.active;
+        let chaos = start_measurement.chaos;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -274,31 +275,11 @@ impl Client {
             println!("[Client] Not sending probes");
         }
 
-        // Start listening thread
-        match start_measurement.measurement_type {
-            1 => { // ICMP
-                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
-            }
-            2 | 4 => { // DNS A record, DNS CHAOS TXT
-                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
-            }
-            3 => { // TCP
-                // When tracerouting we need to listen to ICMP for TTL expired messages
-                if traceroute {
-                    if is_ipv6 {
-                        filter.push_str(" or icmp6");
-                    } else {
-                        filter.push_str(" or icmp");
-                    }
-                }
-                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
-            }
-            _ => { () }
-        };
+        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
 
         // Start sending thread, if this client is probing
         if is_probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8)
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos)
         }
 
         let mut self_clone = self.clone();

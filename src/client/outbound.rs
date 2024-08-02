@@ -101,6 +101,8 @@ pub fn create_ping(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
+/// * 'chaos' - the domain name to use for CHAOS measurements
+///
 /// # Returns
 ///
 /// A UDP packet (including the IP header) as a byte vector.
@@ -114,6 +116,7 @@ pub fn create_udp(
     client_id: u8,
     measurement_type: u8,
     is_ipv6: bool,
+    chaos: String,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -126,7 +129,7 @@ pub fn create_udp(
         if measurement_type == 2 {
             UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, chaos)
         } else {
             panic!("Invalid measurement type")
         }
@@ -134,7 +137,7 @@ pub fn create_udp(
         if measurement_type == 2 {
             UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, chaos)
         } else {
             panic!("Invalid measurement type")
         }
@@ -210,6 +213,8 @@ pub fn create_tcp(
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
 /// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
+///
+/// * 'chaos' - the domain name to use for CHAOS measurements
 pub fn outbound(
     client_id: u8,
     tx_origins: Vec<Origin>,
@@ -219,6 +224,7 @@ pub fn outbound(
     gcd: bool,
     measurement_id: u32,
     measurement_type: u8,
+    chaos: String,
 ) {
     println!("[Client outbound] Started outbound probing thread");
     let abort = Arc::new(Mutex::new(false));
@@ -281,6 +287,7 @@ pub fn outbound(
                                             client_id,
                                             measurement_type,
                                             is_ipv6,
+                                            chaos.clone(),
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send UDP packet");
                                     }

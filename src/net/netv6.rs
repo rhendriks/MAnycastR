@@ -460,10 +460,11 @@ impl super::UDPPacket {
         source_address: u128,
         destination_address: u128,
         source_port: u16,
-        client_id: u8
+        client_id: u8,
+        chaos: String,
     ) -> Vec<u8> {
         let destination_port = 53u16;
-        let dns_body = Self::create_chaos_request(client_id);
+        let dns_body = Self::create_chaos_request(client_id, chaos);
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
