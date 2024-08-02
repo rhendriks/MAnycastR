@@ -721,7 +721,6 @@ impl Controller for ControllerService {
                     sport: probe_sport,
                     dport: probe_dport,
                 };
-                // TODO we need to keep track of the flow per /24 (or /48 for ipv6)
 
                 let ttl = match value {
                     PingResult(value) => {

@@ -217,10 +217,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             4 => "UDP/CHAOS",
             _ => "Undefined (defaulting to ICMP/ping)"
         };
+        let hitlist_length = ips.len();
 
-        println!("[CLI] Performing {} task targeting {} addresses, using Origin {:?};, with a rate of {}, and an interval of {}",
+        println!("[CLI] Performing {} task targeting {} addresses, with a rate of {}, and an interval of {}",
                  t_type,
-                 ips.len().to_string()
+                 hitlist_length.to_string()
                      .as_bytes()
                      .rchunks(3)
                      .rev()
@@ -228,7 +229,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                      .collect::<Result<Vec<&str>, _>>()
                      .expect("Unable to format hitlist length")
                      .join(","),
-                 origin,  // TODO print this in a more readable format
                  rate.to_string().as_bytes()
                      .rchunks(3)
                      .rev()
@@ -239,7 +239,38 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                  interval
         );
 
-        let hitlist_length = ips.len();
+        // Print the origins used
+        if unicast {
+            println!("[CLI] Clients send probes using their unicast source IP");
+        } else if configurations.is_some() {
+            println!("[CLI] Clients send probes using the following configurations:");
+            for configuration in configurations.clone().unwrap() {
+                if let Some(origin) = &configuration.origin {
+                    let src = IP::from(origin.src.clone().unwrap()).to_string();
+                    let sport = origin.sport;
+                    let dport = origin.dport;
+
+                    if configuration.client_id == u32::MAX {
+                        println!(
+                            "\t* All clients, source IP: {}, source port: {}, destination port: {}",
+                            src, sport, dport
+                        );
+                    } else {
+                        println!(
+                            "\t* client ID: {}, source IP: {}, source port: {}, destination port: {}",
+                            configuration.client_id, src, sport, dport
+                        );
+                    }
+                }
+            }
+
+
+        } else {
+            let src = IP::from(origin.clone().unwrap().src.unwrap()).to_string();
+            println!("[CLI] Clients send probes using the following origin: source IP: {}, source port: {}, destination port: {}",
+                   src, origin.clone().unwrap().sport, origin.clone().unwrap().dport);
+        }
+
         // Create the task and send it to the server
         let schedule_task = ScheduleTask {
             rate,
