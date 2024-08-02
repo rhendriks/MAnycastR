@@ -335,8 +335,7 @@ impl CliClient {
         };
 
         // Obtain connected client information for metadata
-        let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
+        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to server failed");
         let mut clients = HashMap::new();
         for client in response.into_inner().clients {
             clients.insert(client.client_id, client.metadata.clone().unwrap());

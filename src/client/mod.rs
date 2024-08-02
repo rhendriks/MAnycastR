@@ -333,20 +333,19 @@ impl Client {
     ///
     /// Obtains a unique client ID from the server, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
+        println!("Connecting to server");
         // Get the client_id from the server
         let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a client ID from the server").client_id as u8;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the server
-        println!("[Client] Sending client connect");
         let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
-        println!("[Client] Registered at the server");
+        println!("[Client] Successfully connected with the server with client_id: {}", client_id);
         let mut stream = response.into_inner();
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            // If we already have an active task
-            if *self.active.lock().unwrap() == true {
+            if *self.active.lock().unwrap() { // If we already have an active task
                 // If the CLI disconnected we will receive this message
                 match task.clone().data {
                     None => {
@@ -360,15 +359,13 @@ impl Client {
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
-                            println!("[Client] Received measurement finished from Server");
-                            // Close the inbound threads
+                            println!("[Client] Received finished signal from Server");
+                            // Close inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                             }
-                            // Outbound threads gets exited by sending this None task to outbound
-                            // outbound_tx will be None if this client is not probing
+                            // Close outbound threads
                             if self.outbound_tx.is_some() {
-                                // Send the task to the prober
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
                                     code: 0,
                                 })).await.expect("Unable to send task_finished to outbound thread");
@@ -434,7 +431,6 @@ impl Client {
 
     /// Send the get_client_id command to the server to obtain a unique client ID
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
-        println!("[Client] Requesting client_id");
         let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();
 
         Ok(client_id)
@@ -456,7 +452,7 @@ impl Client {
     ///
     /// * 'finished' - the 'Finished' message to send to the server
     async fn task_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
-        println!("[Client] Sending task finished to server");
+        println!("[Client] Letting the server know that we are finished");
         *self.active.lock().unwrap() = false;
         let request = Request::new(finished);
         self.grpc_client.task_finished(request).await?;

@@ -154,7 +154,6 @@ pub fn listen(
 
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
-            println!("[Client inbound] Stopped listening for ICMP packets");
         }).expect("Failed to spawn result_sender_thread");
 }
 
