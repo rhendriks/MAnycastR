@@ -19,7 +19,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::custom_module;
 use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
-    VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleTask,
+    VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleMeasurement,
     Targets, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
     verfploeter_result::Value::Trace as ResultTrace,
@@ -167,19 +167,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids);
         }
 
-        // Get the type of task
-        let task_type = if let Ok(task_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { task_type } else { panic!("Invalid task type! (can be either 1, 2, 3, or 4)") };
-        // We only accept task types 1, 2, 3, 4
-        if (task_type < 1) | (task_type > 4) { panic!("Invalid task type value! (can be either 1, 2, 3, or 4)") }
+        // Get the type of measurement
+        let measurement_type = if let Ok(measurement_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { measurement_type } else { panic!("Invalid measurement type! (can be either 1, 2, 3, or 4)") };
+        // We only accept measurement types 1, 2, 3, 4
+        if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
 
-        // Origin for the tasks
+        // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
             let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
             let dport = if matches.is_present("DESTINATION_PORT") {
                 u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
             } else {
-                if task_type == 2 || task_type == 4 {
+                if measurement_type == 2 || measurement_type == 4 {
                     53 // Default DNS destination port
                 } else {
                     63853 // Default destination port
@@ -212,7 +212,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).expect("Unable to parse interval");
         let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).expect("Unable to parse rate");
 
-        let t_type = match task_type {
+        let t_type = match measurement_type {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
@@ -221,7 +221,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
         let hitlist_length = ips.len();
 
-        println!("[CLI] Performing {} task targeting {} addresses, with a rate of {}, and an interval of {}",
+        println!("[CLI] Performing {} measurement targeting {} addresses, with a rate of {}, and an interval of {}",
                  t_type,
                  hitlist_length.with_separator(),
                  rate.with_separator(),
@@ -265,13 +265,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // Create the task and send it to the server
-        let schedule_task = ScheduleTask {
+        // Create the measurement definition and send it to the server
+        let measurement_definition = ScheduleMeasurement {
             rate,
             clients: client_ids,
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
-            task_type,
+            measurement_type,
             unicast,
             ipv6: is_ipv6,
             traceroute,
@@ -281,18 +281,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 dst_addresses: ips,
             }),
         };
-        cli_client.do_task_to_server(schedule_task, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
+        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
     } else {
         panic!("Unrecognized command");
     }
 }
 
 impl CliClient {
-    /// Send the 'do_task' command to the server, await the task results, and print them out to command-line & file as CSV.
+    /// Send the 'do_measurement' command to the server, await the measurement results, and print them out to command-line & file as CSV.
     ///
     /// # Arguments
     ///
-    /// * 'task' - the task that is being sent to the server (contains all the necessary information about the upcoming measurement)
+    /// * 'measurement_definition' - the measurement that is being requested at the server (contains all the necessary information about the upcoming measurement)
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
@@ -303,31 +303,31 @@ impl CliClient {
     /// * 'hitlist_length' - the length of the hitlist
     ///
     /// * 'configuration' - a vector of configurations that are used for the measurement
-    async fn do_task_to_server(
+    async fn do_measurement_to_server(
         &mut self,
-        task: ScheduleTask,
+        measurement_definition: ScheduleMeasurement,
         cli: bool,
         shuffle: bool,
         hitlist: &str,
         hitlist_length: usize,
         configurations: Vec<Configuration>,
     ) -> Result<(), Box<dyn Error>> {
-        let divide = task.divide;
-        let is_ipv6 = task.ipv6;
-        let rate = task.rate;
-        let task_type = task.task_type;
-        let unicast = task.unicast;
-        let traceroute = task.traceroute;
-        let interval = task.interval;
+        let divide = measurement_definition.divide;
+        let is_ipv6 = measurement_definition.ipv6;
+        let rate = measurement_definition.rate;
+        let measurement_type = measurement_definition.measurement_type;
+        let unicast = measurement_definition.unicast;
+        let traceroute = measurement_definition.traceroute;
+        let interval = measurement_definition.interval;
         let origin = if unicast {
-            let sport = task.origin.clone().unwrap().sport;
-            let dport = task.origin.clone().unwrap().dport;
+            let sport = measurement_definition.origin.clone().unwrap().sport;
+            let dport = measurement_definition.origin.clone().unwrap().dport;
             format!("Unicast (source port: {}, destination port: {})", sport, dport)
         } else {
-            if task.clone().origin.is_some() {
-                let src = IP::from(task.clone().origin.unwrap().src.unwrap()).to_string();
-                let sport = task.origin.clone().unwrap().sport;
-                let dport = task.origin.clone().unwrap().dport;
+            if measurement_definition.clone().origin.is_some() {
+                let src = IP::from(measurement_definition.clone().origin.unwrap().src.unwrap()).to_string();
+                let sport = measurement_definition.origin.clone().unwrap().sport;
+                let dport = measurement_definition.origin.clone().unwrap().dport;
                 format!("Anycast (source IP: {}, source port: {}, destination port: {})", src, sport, dport)
             } else {
                 "Anycast configuration-based".to_string()
@@ -350,13 +350,13 @@ impl CliClient {
             / 60.0 // Convert to minutes
         };
         if divide {
-            println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
+            println!("[CLI] This measurement will be divided among clients (each client will probe a unique subset of the addresses)");
         }
-        println!("[CLI] This task will take an estimated {:.2} minutes",  measurement_length);
+        println!("[CLI] This measurement will take an estimated {:.2} minutes",  measurement_length);
 
-        let response = self.grpc_client.do_task(Request::new(task.clone())).await;
+        let response = self.grpc_client.do_measurement(Request::new(measurement_definition.clone())).await;
         if let Err(e) = response {
-            println!("[CLI] Server did not perform the task for reason: '{}'", e.message());
+            println!("[CLI] Server did not perform the measurement for reason: '{}'", e.message());
             return Err(Box::new(e))
         }
         let start = SystemTime::now()
@@ -389,7 +389,6 @@ impl CliClient {
                 pb.inc(1); // Increment the progress bar by one step
                 tokio::time::sleep(Duration::from_secs(1)).await; // Simulate time taken for each step
             }
-            pb.finish_with_message("Task complete");
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
@@ -398,8 +397,8 @@ impl CliClient {
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
-        // Get task type
-        let type_str = match task_type {
+        // Get measurement type
+        let type_str = match measurement_type {
             1 => "ICMP",
             2 => "UDP",
             3 => "TCP",
@@ -416,7 +415,7 @@ impl CliClient {
         let temp_file = File::create("temp").expect("Unable to create file");
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, temp_file, task_type, traceroute);
+        write_results(rx_r, cli, temp_file, measurement_type, traceroute);
 
         let mut replies_count = 0;
         while let Ok(Some(task_result)) = stream.message().await {
@@ -468,28 +467,22 @@ impl CliClient {
         } else {
             file.write_all(b"# Completed measurement\n")?;
         }
-
-        if divide {
-            file.write_all(b"# Divide-and-conquer measurement\n")?;
-        }
-
+        if divide { file.write_all(b"# Divide-and-conquer measurement\n")?; }
         file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
-
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
         } else {
             file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
         }
-        file.write_all(format!("# Task type: {}\n", type_str).as_ref())?;
-        // file.write_all(format!("# Task ID: {}\n", results[0].task_id).as_ref())?;
-        let rate = rate.with_separator();
-        file.write_all(format!("# Probing rate: {}\n", rate).as_ref())?;
+        file.write_all(format!("# Measurement type: {}\n", type_str).as_ref())?;
+        // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
+        file.write_all(format!("# Probing rate: {}\n", rate.with_separator()).as_ref())?;
         file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if !task.clients.is_empty() {
-            file.write_all(format!("# Client-selective probing using the following clients: {:?}\n", task.clients).as_ref())?;
+        if !measurement_definition.clients.is_empty() {
+            file.write_all(format!("# Client-selective probing using the following clients: {:?}\n", measurement_definition.clients).as_ref())?;
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
@@ -637,14 +630,14 @@ impl CliClient {
 ///
 /// * 'file' - The file to which the results should be written
 ///
-/// * 'task_type' - The type of task that was performed (determines the header)
+/// * 'measurement_type' - The type of measurement being performed
 ///
 /// * 'traceroute' - If true, it will handle traceroute results (which are written to a separate file)
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
     cli: bool,
     file: File,
-    task_type: u32,
+    measurement_type: u32,
     traceroute: bool
 ) {
     // CSV writer to command-line interface
@@ -663,7 +656,7 @@ fn write_results(
     let mut wtr_file = Writer::from_writer(file);
 
     // Write header
-    let header = get_header(task_type);
+    let header = get_header(measurement_type);
     if cli { wtr_cli.as_mut().unwrap().write_record(header.clone()).expect("Failed to write header to stdout") };
     wtr_file.write_record(header).expect("Failed to write header to file");
 
@@ -680,7 +673,7 @@ fn write_results(
                     ResultTrace(_) => true,
                     _ => false
                 };
-                let result = get_result(result, task_result.client_id, task_type);
+                let result = get_result(result, task_result.client_id, measurement_type);
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
                         writer.write_record(result.clone()).expect("Failed to write payload to CLI");
@@ -703,13 +696,13 @@ fn write_results(
     });
 }
 
-/// Creates the appropriate header for the results file (based on the task type)
-fn get_header(task_type: u32) -> Vec<&'static str> {
+/// Creates the appropriate header for the results file (based on the measurement type)
+fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
     let mut header = vec!["rx_client_id"];
     // Information contained in IPv4 header
     header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
-    header.append(&mut match task_type {
+    header.append(&mut match measurement_type {
         1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_client_id"], // ICMP
         2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "sender_client_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
         3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
@@ -728,11 +721,11 @@ fn get_header(task_type: u32) -> Vec<&'static str> {
 ///
 /// * 'receiver_client_id' - The client ID of the receiver
 ///
-/// * 'task_type' - The type of task that is being performed
+/// * 'measurement_type' - The type of measurement being performed
 fn get_result(
     result: VerfploeterResult,
     rx_client_id: u32,
-    task_type: u32
+    measurement_type: u32
 ) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
@@ -802,7 +795,7 @@ fn get_result(
             let ttl = ip_result.ttl.to_string();
 
             if udp.payload == None { // ICMP reply
-                if task_type == 2 {
+                if measurement_type == 2 {
                     let tx_time = "-1".to_string();
                     let probe_src = "-1".to_string();
                     let probe_dst = "-1".to_string();
@@ -811,7 +804,7 @@ fn get_result(
                     let probe_dport = "-1".to_string();
 
                     return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
-                } else if task_type == 4 {
+                } else if measurement_type == 4 {
                     let sender_client_id = "-1".to_string();
                     let chaos = "-1".to_string();
 

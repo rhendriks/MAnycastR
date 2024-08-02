@@ -14,7 +14,7 @@ use crate::custom_module::Separated;
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
-/// Makes sure that the received packets are valid and belong to the current task.
+/// Makes sure that the received packets are valid and belong to the current measurement.
 ///
 /// # Arguments
 ///
@@ -22,7 +22,7 @@ use crate::custom_module::Separated;
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
-/// * 'task_id' - the task_id of the current measurement
+/// * 'measurement_id' - the ID of the current measurement
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
@@ -32,20 +32,20 @@ use crate::custom_module::Separated;
 ///
 /// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
 ///
-/// * 'task_type' - the type of task that is being executed
+/// * 'measurement_type' - the type of measurement being performed
 ///
 /// # Panics
 ///
-/// Panics if the task type is invalid
+/// Panics if the measurement type is invalid
 pub fn listen(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
-    task_id: u32,
+    measurement_id: u32,
     client_id: u8,
     is_ipv6: bool,
     filter: String,
     traceroute: bool,
-    task_type: u32,
+    measurement_type: u32,
 ) {
     println!("[Client inbound] Started listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
@@ -72,21 +72,21 @@ pub fn listen(
                     },
                 };
 
-                let mut result = if task_type == 1 { // ICMP
+                let mut result = if measurement_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     let icmp_result = if is_ipv6 {
-                        parse_icmpv6(&packet.data[14..], task_id)
+                        parse_icmpv6(&packet.data[14..], measurement_id)
                     } else {
-                        parse_icmpv4(&packet.data[14..], task_id)
+                        parse_icmpv4(&packet.data[14..], measurement_id)
                     };
 
                     icmp_result
-                } else if task_type == 2 || task_type == 4 { // DNS A
+                } else if measurement_type == 2 || measurement_type == 4 { // DNS A
                     let udp_result = if is_ipv6 {
                         if packet.data[20] == 17 { // 17 is the protocol number for UDP
-                            parse_udpv6(&packet.data[14..], task_type)
+                            parse_udpv6(&packet.data[14..], measurement_type)
                         } else {
-                            if task_type == 2 { // We only parse icmp responses to DNS requests for A records
+                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
                                 parse_icmp_dst_unreachable(&packet.data[14..], true)
                             } else {
                                 None
@@ -94,9 +94,9 @@ pub fn listen(
                         }
                     } else {
                         if packet.data[23] == 17 { // 17 is the protocol number for UDP
-                            parse_udpv4(&packet.data[14..], task_type)
+                            parse_udpv4(&packet.data[14..], measurement_type)
                         } else {
-                            if task_type == 2 { // We only parse icmp responses to DNS requests for A records
+                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
                                 parse_icmp_dst_unreachable(&packet.data[14..], false)
                             } else {
                                 None
@@ -105,7 +105,7 @@ pub fn listen(
                     };
 
                     udp_result
-                } else if task_type == 3 { // TCP
+                } else if measurement_type == 3 { // TCP
                     let tcp_result = if is_ipv6 {
                         parse_tcpv6(&packet.data[14..])
                     } else {
@@ -114,7 +114,7 @@ pub fn listen(
 
                     tcp_result
                 } else {
-                    panic!("Invalid task type");
+                    panic!("Invalid measurement type");
                 };
 
                 // Attempt to parse the packet as an ICMP time exceeded packet
@@ -304,7 +304,7 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 ///
 /// * 'packet_bytes' - the bytes of the packet to parse
 ///
-/// * 'task_id' - the task_id of the current measurement
+/// * 'measurement_id' - the ID of the current measurement
 ///
 /// # Returns
 ///
@@ -314,8 +314,11 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 ///
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
 ///
-/// The function also discards packets that do not belong to the current task.
-fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+/// The function also discards packets that do not belong to the current measurement.
+fn parse_icmpv4(
+    packet_bytes: &[u8],
+    measurement_id: u32
+) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -327,9 +330,9 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 
         if *&icmp_packet.body.len() < 4 { return None }
         let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() { s } else { return None };
-        let pkt_task_id = u32::from_be_bytes(s);
-        // Make sure that this packet belongs to this task
-        if (pkt_task_id != task_id) | (icmp_packet.body.len() < 24) {
+        let pkt_measurement_id = u32::from_be_bytes(s);
+        // Make sure that this packet belongs to this measurement
+        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
             return None;
         }
@@ -372,7 +375,7 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 ///
 /// * 'packet_bytes' - the bytes of the packet to parse
 ///
-/// * 'task_id' - the task_id of the current measurement
+/// * 'measurement_id' - the ID of the current measurement
 ///
 /// # Returns
 ///
@@ -382,8 +385,11 @@ fn parse_icmpv4(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 ///
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
 ///
-/// The function also discards packets that do not belong to the current task.
-fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> {
+/// The function also discards packets that do not belong to the current measurement.
+fn parse_icmpv6(
+    packet_bytes: &[u8],
+    measurement_id: u32
+) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -395,9 +401,9 @@ fn parse_icmpv6(packet_bytes: &[u8], task_id: u32) -> Option<VerfploeterResult> 
 
         if *&value.body.len() < 4 { return None }
         let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None };
-        let pkt_task_id = u32::from_be_bytes(s);
-        // Make sure that this packet belongs to this task
-        if (pkt_task_id != task_id) | (value.body.len() < 48) {
+        let pkt_measurement_id = u32::from_be_bytes(s);
+        // Make sure that this packet belongs to this measurement
+        if (pkt_measurement_id != measurement_id) | (value.body.len() < 48) {
             // If not, we discard it and await the next packet
             return None;
         }
@@ -604,8 +610,11 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
 ///
 /// The function returns None if the packet is not an ICMP destination unreachable packet or if the packet is too short to contain the necessary information.
 ///
-/// The function also discards packets that do not belong to the current task.
-fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
+/// The function also discards packets that do not belong to the current measurement.
+fn parse_icmp_dst_unreachable(
+    packet_bytes: &[u8],
+    is_ipv6: bool
+) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if is_ipv6 {
         match parse_ipv6(packet_bytes) {
@@ -621,7 +630,7 @@ fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verf
 
     // 2. Parse ICMP header
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        // Make sure that this packet belongs to this task (if not we discard and continue)
+        // Make sure that this packet belongs to this measurement (if not we discard and continue)
         if !is_ipv6 & (icmp_packet.icmp_type != 3) { // Code 3 (v4) => destination unreachable
             return None;
         } else if is_ipv6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
@@ -742,7 +751,7 @@ fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verf
 ///
 /// * 'packet_bytes' - the bytes of the packet to parse
 ///
-/// * 'task_type' - the type of task that is being executed
+/// * 'measurement_type' - the type of measurement being performed
 ///
 /// # Returns
 ///
@@ -751,7 +760,10 @@ fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verf
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
+fn parse_udpv4(
+    packet_bytes: &[u8],
+    measurement_type: u32
+) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -760,7 +772,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if ((task_type == 2) & (udp_packet.body.len() < 66)) | ((task_type == 4) & (udp_packet.body.len() < 10)) {
+        if ((measurement_type == 2) & (udp_packet.body.len() < 66)) | ((measurement_type == 4) & (udp_packet.body.len() < 10)) {
             return None
         }
 
@@ -768,9 +780,9 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let payload = if task_type == 2 {
+        let payload = if measurement_type == 2 {
             parse_dns_a_record(udp_packet.body.as_slice(), false)
-        } else if task_type == 4 {
+        } else if measurement_type == 4 {
             parse_chaos(udp_packet.body.as_slice())
         } else {
             None
@@ -798,7 +810,7 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 ///
 /// * 'packet_bytes' - the bytes of the packet to parse
 ///
-/// * 'task_type' - the type of task that is being executed
+/// * 'measurement_type' - the type of measurement being performed
 ///
 /// # Returns
 ///
@@ -807,7 +819,10 @@ fn parse_udpv4(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult> {
+fn parse_udpv6(
+    packet_bytes: &[u8],
+    measurement_type: u32
+) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -816,7 +831,7 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
     // Obtain the payload
     return if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if ((task_type == 2) & (value.body.len() < 66)) | ((task_type == 4) & (value.body.len() < 10)) {
+        if ((measurement_type == 2) & (value.body.len() < 66)) | ((measurement_type == 4) & (value.body.len() < 10)) {
             return None
         }
 
@@ -824,9 +839,9 @@ fn parse_udpv6(packet_bytes: &[u8], task_type: u32) -> Option<VerfploeterResult>
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let payload = if task_type == 2 {
+        let payload = if measurement_type == 2 {
             parse_dns_a_record(value.body.as_slice(), true)
-        } else if task_type == 4 {
+        } else if measurement_type == 4 {
             parse_chaos(value.body.as_slice())
         } else {
             None
