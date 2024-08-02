@@ -22,6 +22,7 @@ gethostname = "0.4.2"
 pcap = "2.0.0"
 local-ip-address = "0.6.1"
 mac_address = "1.1.5"
+indicatif = "0.17.8" # progress bar
 
 [build-dependencies]
 tonic-build = "0.8.4"

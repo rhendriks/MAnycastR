@@ -5,7 +5,9 @@ use std::fs::File;
 use std::{fs, io};
 use std::io::{BufRead, BufReader, Write};
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use prettytable::{Attr, Cell, color, format, Row, Table};
@@ -13,7 +15,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use csv::Writer;
-
+use indicatif::{ProgressBar, ProgressStyle};
 use crate::custom_module;
 use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
@@ -340,16 +342,47 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         }
 
+        let measurement_length = if divide {
+            ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
+        } else {
+            ((hitlist_length as f32 / rate as f32) + 1.0) / 60.0
+        };
         if divide {
             println!("[CLI] This task will be divided among clients (each client will probe a unique subset of the addresses)");
-            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 10.0) / 60.0);
-        } else {
-            println!("[CLI] This task will take an estimated {:.2} minutes", ((hitlist_length as f32 / rate as f32) + 10.0) / 60.0);
         }
+        println!("[CLI] This task will take an estimated {:.2} minutes",  measurement_length);
+
 
         let request = Request::new(task.clone());
         println!("[CLI] Sending do_task to server");
+
+        let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
+        // Create a progress bar
+        let pb = ProgressBar::new(total_steps);
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+        let is_done = Arc::new(AtomicBool::new(false));
+        let is_done_clone = is_done.clone();
+
+        // Spawn a separate async task to update the progress bar
+        tokio::spawn(async move {
+            for _ in 0..total_steps {
+                if is_done_clone.load(Ordering::Relaxed) {
+                    break;
+                }
+                pb.inc(1); // Increment the progress bar by one step
+                tokio::time::sleep(Duration::from_secs(1)).await; // Simulate time taken for each step
+            }
+            pb.finish_with_message("Task complete");
+        });
+
         let response = self.grpc_client.do_task(request).await;
+
+        is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
+
         if let Err(e) = response {
             println!("[CLI] Server did not perform the task for reason: '{}'", e.message());
             return Err(Box::new(e))
