@@ -7,28 +7,40 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Server](server) - a central controller that receives a task from the CLI and sends instructions to the connected clients to perform measurements
-//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a task that is sent to the server
+//! * [Server](server) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
+//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the server
 //! * [Client](client) - the client connects to the server and awaits tasks to send out probes and listen for incoming replies
 //!
-//! # Tasks
+//! # Measurements
 //!
-//! A task is created by locally running the CLI using a command, from this command a task is created which is sent to the server.
-//! The server performs this task by sending instructions to the clients, who perform the desired measurement by sending out probes.
+//! A measurement consists of multiple tasks that are executed by the clients.
+//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the server.
+//! The server performs this measurement by sending tasks to the clients, who perform the desired measurement by sending out probes.
 //! These clients then stream back the results to the server, as they receive replies.
 //! The server forwards these results to the CLI.
 //!
-//! The tasks are probing measurements, which can be:
+//! The measurement are probing measurements, which can be:
 //! * ICMP ECHO requests
 //! * UDP DNS A Record requests
 //! * TCP SYN/ACK probes
+//! * UDP CHAOS requests
 //!
-//! When creating a task you can specify:
+//! When creating a measurement you can specify:
 //! * **Source address** - the source address from which the probes are to be sent out
 //! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
 //! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
+//! * **Stream** - Stream the results to the command-line interface
+//! * **Shuffle** - Shuffle the hitlist before sending out probes
+//! * **Unicast** - Probe the targets using the unicast address of each client
+//! * **Traceroute** - Probe the targets using traceroute (currently broken)
+//! * **Divide** - Divide the hitlist into equal separate parts for each client (divide and conquer)
+//! * **Interval** - Interval between separate client's probes to the same target (default: 1s)
+//! * **Address** - Source IP to use for the probes
+//! * **Source port** - Source port to use for the probes (default: 62321)
+//! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
+//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by clients)
 //!
 //! # Results
 //!
@@ -53,7 +65,7 @@
 //! cli -s [SERVER ADDRESS] client-list
 //! ```
 //!
-//! Finally, you can perform a task.
+//! Finally, you can perform a measurement.
 //! ```
 //! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
 //! ```
@@ -265,7 +277,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                 .arg(Arg::with_name("TYPE")
                                     .required(true)
                                     .index(2)
-                                    .help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                                    .help("The type of measurement (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
                                 )
                                 .arg(Arg::with_name("RATE")
                                     .long("rate")
@@ -273,7 +285,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                                     .takes_value(true)
                                     .required(false)
                                     .default_value("1000")
-                                    .help("The rate at which this task is to be performed at each client (number of probes / second) [default: 1000]")
+                                    .help("The rate at which this measurement is to be performed at each client (number of probes / second) [default: 1000]")
                                 )
                                 .arg(Arg::with_name("CLIENTS")
                                     .long("clients")

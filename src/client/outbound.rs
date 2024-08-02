@@ -26,7 +26,7 @@ use mac_address::get_mac_address;
 ///
 /// * 'client_id' - the unique client ID of this client
 ///
-/// * 'task_id' - the unique task ID of the current measurement
+/// * 'measurement_id' - the unique ID of the current measurement
 ///
 /// # Returns
 ///
@@ -39,7 +39,7 @@ pub fn create_ping(
     origin: Origin,
     dst: IP,
     client_id: u8,
-    task_id: u32,
+    measurement_id: u32,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -56,7 +56,7 @@ pub fn create_ping(
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
-    payload_bytes.extend_from_slice(&task_id.to_be_bytes()); // Bytes 0 - 3
+    payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&payload.tx_time.to_be_bytes()); // Bytes 4 - 11 *
     payload_bytes.extend_from_slice(&payload.tx_client_id.to_be_bytes()); // Bytes 12 - 15 *
     if let Some(source_address) = payload.src {
@@ -97,7 +97,7 @@ pub fn create_ping(
 ///
 /// * 'dst' - the destination address for the UDP packet
 ///
-/// * 'task_type' - the type of task to perform (2 = UDP/DNS, 4 = UDP/CHAOS)
+/// * 'measurement_type' - the type of measurement being performed (2 = UDP/DNS, 4 = UDP/CHAOS)
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -107,12 +107,12 @@ pub fn create_ping(
 ///
 /// # Panics
 ///
-/// If the task type is not 2 or 4
+/// If the measurement type is not 2 or 4
 pub fn create_udp(
     origin: Origin,
     dst: IP,
     client_id: u8,
-    task_type: u8,
+    measurement_type: u8,
     is_ipv6: bool,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
@@ -123,20 +123,20 @@ pub fn create_udp(
     let dport = origin.dport as u16;
 
     return if is_ipv6 {
-        if task_type == 2 {
+        if measurement_type == 2 {
             UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
-        } else if task_type == 4 {
+        } else if measurement_type == 4 {
             UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id)
         } else {
-            panic!("Invalid task type")
+            panic!("Invalid measurement type")
         }
     } else {
-        if task_type == 2 {
+        if measurement_type == 2 {
             UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
-        } else if task_type == 4 {
+        } else if measurement_type == 4 {
             UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id)
         } else {
-            panic!("Invalid task type")
+            panic!("Invalid measurement type")
         }
     }
 }
@@ -158,12 +158,6 @@ pub fn create_udp(
 /// # Returns
 ///
 /// A TCP packet (including the IP header) as a byte vector.
-///
-/// # Panics
-///
-/// If the source address or destination address is None
-///
-/// If the task type is not 3
 pub fn create_tcp(
     origin: Origin,
     dst: IP,
@@ -213,9 +207,9 @@ pub fn create_tcp(
 ///
 /// * 'gcd' - whether we are sending probes with unicast or anycast
 ///
-/// * 'task_id' - the unique task ID of the current measurement
+/// * 'measurement_id' - the unique ID of the current measurement
 ///
-/// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
+/// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
 pub fn outbound(
     client_id: u8,
     tx_origins: Vec<Origin>,
@@ -223,8 +217,8 @@ pub fn outbound(
     finish_rx: futures::sync::oneshot::Receiver<()>,
     is_ipv6: bool,
     gcd: bool,
-    task_id: u32,
-    task_type: u8,
+    measurement_id: u32,
+    measurement_type: u8,
 ) {
     println!("[Client outbound] Started outbound probing thread");
     let abort = Arc::new(Mutex::new(false));
@@ -236,7 +230,7 @@ pub fn outbound(
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
             let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
             'outer: loop {
-                if *abort.lock().unwrap() == true {
+                if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
                     break
                 }
@@ -265,7 +259,7 @@ pub fn outbound(
                     },
                     Targets(targets) => {
                         for origin in &tx_origins {
-                            match task_type {
+                            match measurement_type {
                                 1 => {
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
@@ -273,7 +267,7 @@ pub fn outbound(
                                             origin.clone(),
                                             IP::from(dst.clone()),
                                             client_id,
-                                            task_id,
+                                            measurement_id,
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send ICMP packet");
                                     }
@@ -285,7 +279,7 @@ pub fn outbound(
                                             origin.clone(),
                                             IP::from(dst.clone()),
                                             client_id,
-                                            task_type,
+                                            measurement_type,
                                             is_ipv6,
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send UDP packet");
@@ -304,7 +298,7 @@ pub fn outbound(
                                         cap.sendpacket(packet).expect("Failed to send TCP packet");
                                     }
                                 },
-                                _ => panic!("Invalid task type"), // Invalid task
+                                _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
                         }
                     },
@@ -317,11 +311,11 @@ pub fn outbound(
                             IP::from(trace.dst.expect("None IP address")),
                             client_id,
                             trace.max_ttl as u8,
-                            task_type,
+                            measurement_type,
                         );
                         continue
                     },
-                    _ => continue, // Invalid task
+                    _ => continue, // Invalid measurement
                 };
             }
             println!("[Client outbound] Outbound thread finished");
@@ -346,7 +340,7 @@ pub fn outbound(
 ///
 /// * 'max_ttl' - the maximum TTL to use for the traceroutes (the actual TTLs used are 5 to max_ttl + 10)
 ///
-/// * 'task_type' - the type of task to perform (1 = ICMP, 2 = UDP/DNS, 3 = TCP)
+/// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = UDP/DNS, 3 = TCP)
 fn perform_trace(
     origins: Vec<Origin>,
     is_ipv6: bool,
@@ -355,11 +349,11 @@ fn perform_trace(
     dst: IP,
     client_id: u8,
     max_ttl: u8,
-    task_type: u8,
+    measurement_type: u8,
 ) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
-    if task_type > 3 {
+    if measurement_type > 3 {
         // Traceroute supported for ICMP, UDP, and TCP
-        panic!("Invalid task type")
+        panic!("Invalid measurement type")
     }
 
     println!("performing trace from {:?} to {}", origins, dst.to_string());
@@ -383,21 +377,21 @@ fn perform_trace(
             payload_bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
             payload_bytes.extend_from_slice(&i.to_be_bytes()); // Byte 9 *
 
-            if task_type == 1 { // ICMP
+            if measurement_type == 1 { // ICMP
                 let icmp = if is_ipv6 {
                     ICMPPacket::echo_request_v6(1, 2, payload_bytes, src.get_v6().into(), dst.get_v6().into(), i)
                 } else {
                     ICMPPacket::echo_request(1, 2, payload_bytes, src.get_v4().into(), dst.get_v4().into(), i)
                 };
                 packet.extend_from_slice(&icmp); // ip header included
-            } else if task_type == 2 { // UDP
+            } else if measurement_type == 2 { // UDP
                 let udp = if is_ipv6 { // TODO encode TTL in the domain name
                     UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, "any.dnsjedi.org", tx_time, client_id, i)
                 } else {
                     UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, "any.dnsjedi.org", tx_time, client_id, i)
                 };
                 packet.extend_from_slice(&udp); // ip header included
-            } else if task_type == 3 { // TCP
+            } else if measurement_type == 3 { // TCP
                 // ACK: first 16 is the TTL, last 16 is the client ID
                 let ack = (i as u32) << 16 | client_id as u32; // TODO test this
                 let tcp = if is_ipv6 {

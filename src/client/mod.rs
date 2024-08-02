@@ -18,14 +18,16 @@ use local_ip_address::{local_ip, local_ipv6};
 mod inbound;
 mod outbound;
 
-/// The client that is run at the anycast sites and performs tasks as instructed by the server to which it is connected to
+/// The client that is run at the anycast sites and performs measurements as instructed by the server.
+///
+/// The client is responsible for establishing a connection with the server, receiving tasks, and performing measurements.
 ///
 /// # Fields
 ///
 /// * 'grpc_client' - the client connection with the server
 /// * 'metadata' - used to store this client's hostname and unique client ID
 /// * 'active' - boolean value that is set to true when the client is currently doing a measurement
-/// * 'current_task' - contains the task ID of the current measurement
+/// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
 #[derive(Clone)]
@@ -33,7 +35,7 @@ pub struct Client {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     active: Arc<Mutex<bool>>,
-    current_task: Arc<Mutex<u32>>,
+    current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
 }
@@ -69,7 +71,7 @@ impl Client {
             grpc_client: client,
             metadata,
             active: Arc::new(Mutex::new(false)),
-            current_task: Arc::new(Mutex::new(0)),
+            current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
         };
@@ -126,15 +128,15 @@ impl Client {
     }
 
 
-    /// Initialize a new measurement by creating outbound and inbound threads, and ensures tasks are sent back to the server.
+    /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the server.
     ///
-    /// Extracts the protocol type from the task, and determines which source address to use.
+    /// Extracts the protocol type from the measurement definition, and determines which source address to use.
     /// Creates a socket to send out probes and receive replies with, calls the appropriate inbound & outbound functions.
     /// Creates an additional thread that forwards task results to the server.
     ///
     /// # Arguments
     ///
-    /// * 'task' - the first 'Task' message sent by the server for the new measurement
+    /// * 'task' - the first 'Task' message sent by the server, that contains the measurement definition
     ///
     /// * 'client_id' - the unique ID of this client
     ///
@@ -145,13 +147,13 @@ impl Client {
         client_id: u8,
         outbound_f: Option<oneshot::Receiver<()>>,
     ) {
-        let start_task = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
-        let task_id = start_task.task_id;
-        let is_ipv6 = start_task.ipv6;
-        let mut rx_origins: Vec<Origin> = start_task.rx_origins;
-        let traceroute = start_task.traceroute;
-        let is_gcd = start_task.unicast;
-        let is_probing = start_task.active;
+        let start_measurement = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
+        let measurement_id = start_measurement.measurement_id;
+        let is_ipv6 = start_measurement.ipv6;
+        let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
+        let traceroute = start_measurement.traceroute;
+        let is_gcd = start_measurement.unicast;
+        let is_probing = start_measurement.active;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -162,11 +164,9 @@ impl Client {
             None
         };
 
-
-        // If this client has a specified source address use it, otherwise use the one from the task
         let tx_origins: Vec<Origin> = if is_gcd {  // Use the local unicast address and CLI defined ports
-            let sport = start_task.tx_origins[0].sport;
-            let dport = start_task.tx_origins[0].dport;
+            let sport = start_measurement.tx_origins[0].sport;
+            let dport = start_measurement.tx_origins[0].dport;
 
             let unicast_ip = if is_ipv6 {
                 IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
@@ -188,7 +188,7 @@ impl Client {
             vec![unicast_origin]
         } else {
             // Use the sender origins set by the server
-            start_task.tx_origins
+            start_measurement.tx_origins
         };
 
         // Channel for sending from inbound to the server forwarder thread
@@ -205,8 +205,8 @@ impl Client {
             filter.push_str("ip and");
         };
 
-        // Add filter for each address/port combination based on the task type
-        let filter_parts: Vec<String> = match start_task.task_type {
+        // Add filter for each address/port combination based on the measurement type
+        let filter_parts: Vec<String> = match start_measurement.measurement_type {
             1 => { // ICMP has no port numbers
                 if is_ipv6 {
                     rx_origins.iter()
@@ -249,13 +249,13 @@ impl Client {
                 }
                 tcp_filters
             },
-            _ => panic!("Invalid task type"),
+            _ => panic!("Invalid measurement type"),
         };
 
         filter.push_str(&*filter_parts.join(" or"));
 
         if is_probing {
-            match start_task.task_type {
+            match start_measurement.measurement_type {
                 1 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
@@ -275,12 +275,12 @@ impl Client {
         }
 
         // Start listening thread
-        match start_task.task_type {
+        match start_measurement.measurement_type {
             1 => { // ICMP
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
             }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
             }
             3 => { // TCP
                 // When tracerouting we need to listen to ICMP for TTL expired messages
@@ -291,14 +291,14 @@ impl Client {
                         filter.push_str(" or icmp");
                     }
                 }
-                listen(tx.clone(), inbound_rx_f, task_id, client_id, is_ipv6, filter, traceroute, start_task.task_type);
+                listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
             }
             _ => { () }
         };
 
         // Start sending thread, if this client is probing
         if is_probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, task_id, start_task.task_type as u8)
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8)
         }
 
         let mut self_clone = self.clone();
@@ -314,8 +314,8 @@ impl Client {
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
-                            self_clone.task_finished_to_server(Finished {
-                                task_id,
+                            self_clone.measurement_finished_to_server(Finished {
+                                measurement_id,
                                 client_id: client_id.into(),
                             }).await.unwrap();
 
@@ -345,7 +345,7 @@ impl Client {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            if *self.active.lock().unwrap() { // If we already have an active task
+            if *self.active.lock().unwrap() { // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
                 match task.clone().data {
                     None => {
@@ -359,7 +359,7 @@ impl Client {
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
-                            println!("[Client] Received finished signal from Server");
+                            println!("[Client] Received measurement finished signal from Server");
                             // Close inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
@@ -368,7 +368,7 @@ impl Client {
                             if self.outbound_tx.is_some() {
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
                                     code: 0,
-                                })).await.expect("Unable to send task_finished to outbound thread");
+                                })).await.expect("Unable to send measurement_finished to outbound thread");
                             }
                         } else if data.code == 1 {
                             println!("[Client] CLI disconnected, aborting measurement");
@@ -400,16 +400,16 @@ impl Client {
             } else {
                 println!("[Client] Starting new measurement");
 
-                let (is_probing, task_id) = match task.clone().data.expect("None start task") {
-                    Data::Start(start) => (start.active, start.task_id),
-                    _ => { // First task is not a start task
+                let (is_probing, measurement_id) = match task.clone().data.expect("None start measurement task") {
+                    Data::Start(start) => (start.active, start.measurement_id),
+                    _ => { // First task is not a start measurement task
                         println!("[Client] Received non-start packet for init");
                         continue
                     },
                 };
 
                 *self.active.lock().unwrap() = true;
-                *self.current_task.lock().unwrap() = task_id;
+                *self.current_measurement.lock().unwrap() = measurement_id;
 
                 if is_probing { // This client is probing
                     // Initialize signal finish channel
@@ -438,8 +438,7 @@ impl Client {
 
     /// Send a TaskResult to the server
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
-        let request = Request::new(task_result);
-        self.grpc_client.send_result(request).await?;
+        self.grpc_client.send_result(Request::new(task_result)).await?;
 
         Ok(())
     }
@@ -451,11 +450,10 @@ impl Client {
     /// # Arguments
     ///
     /// * 'finished' - the 'Finished' message to send to the server
-    async fn task_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
-        println!("[Client] Letting the server know that we are finished");
+    async fn measurement_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
+        println!("[Client] Letting the server know that this client finished the measurement");
         *self.active.lock().unwrap() = false;
-        let request = Request::new(finished);
-        self.grpc_client.task_finished(request).await?;
+        self.grpc_client.measurement_finished(Request::new(finished)).await?;
 
         Ok(())
     }

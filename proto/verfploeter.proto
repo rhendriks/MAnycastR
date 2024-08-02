@@ -8,12 +8,12 @@ package verfploeter;
 
 // The controller which controls and is responsible for most communication
 service Controller {
-  // Client lets the server know the task is finished
-  rpc TaskFinished(Finished) returns (Ack) {}
-  // Client announces itself, and starts its connection with the Server. The server sends a stream of Task
+  // Client lets the server know the measurement is finished
+  rpc MeasurementFinished(Finished) returns (Ack) {}
+  // Client announces itself, and starts its connection with the Server. The server sends a stream of tasks
   rpc ClientConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a measurement
-  rpc DoTask(ScheduleTask) returns (stream TaskResult) {}
+  rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
   // CLI asks Server to list clients, Server returns ClientList
   rpc ListClients(Empty) returns (ClientList) {}
   // Client sends TaskResult to Server
@@ -25,28 +25,28 @@ service Controller {
 // Empty message
 message Empty {}
 
-// Acknowledgement of a task, with a boolean whether it was successful or not, and a possible error message.
+// Acknowledgement of a measurement, with a boolean whether it was successful or not, and a possible error message.
 message Ack {
   bool success = 1;
   string error_message = 2;
 }
 
-// TaskFinished message, sent by a client to the server when a task is finished
+// Finished message, sent by a client to the server when a measurement is finished, or as acknowledgement of a received task result
 message Finished {
-  uint32 task_id = 1;
+  uint32 measurement_id = 1;
   uint32 client_id = 2;
 }
 
 // A client ID
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task with the Server can be either a Ping, UDP, or TCP task, with a probing rate, source address, and a list of clients that have to send out probes
-message ScheduleTask {
+// Schedule a measurement with the Server
+message ScheduleMeasurement {
   uint32 rate = 1;
   repeated uint32 clients = 2;
   Origin origin = 3; // Default origin to use (for all clients)  // TODO combine 3 and 4 into one
   repeated Configuration configurations = 4; // Configuration of client and origin combinations
-  uint32 task_type = 5;
+  uint32 measurement_type = 5;
   bool unicast = 6;
   bool ipv6 = 7;
   bool traceroute = 8;
@@ -96,12 +96,12 @@ message Task {
   }
 }
 
-// A start message, indicates the probing rate (packets per second), whether the client should send out probes, the type of task, and the source address to be used
+// A start message, indicates the probing rate (packets per second), whether the client should send out probes, the measurement type, and the source address to be used
 message Start {
   uint32 rate = 1;
   bool active = 2;
-  uint32 task_id = 3;
-  uint32 task_type = 4;
+  uint32 measurement_id = 3;
+  uint32 measurement_type = 4;
   repeated Origin tx_origins = 5; // origins to send with
   bool unicast = 6;
   bool ipv6 = 7;
@@ -114,7 +114,7 @@ message End {
   uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
 
-// Origin: the source address and port combinations used by clients in a task
+// Origin: the source address and port combinations used by clients in a measurement
 message Origin {
   Address src = 1;
   fixed32 sport = 2;
@@ -134,7 +134,7 @@ message Trace {
   repeated Origin origins = 3;
 }
 
-// Target task, which has a list of target addresses to probe
+// A list of target addresses
 message Targets {
   repeated Address dst_addresses = 1;
 }
