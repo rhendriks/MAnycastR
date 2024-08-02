@@ -260,9 +260,9 @@ pub fn outbound(
                 }
 
                 match task {
-                    End(_) => {
+                    End(_) => { // An End task means the measurement has finished
                         break
-                    }, // An End task means the measurement has finished
+                    },
                     Targets(targets) => {
                         for origin in &tx_origins {
                             match task_type {

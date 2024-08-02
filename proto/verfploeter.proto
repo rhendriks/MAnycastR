@@ -111,6 +111,7 @@ message Start {
 
 // An end message, indicates the client should stop sending out probes
 message End {
+  uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
 
 // Origin: the source address and port combinations used by clients in a task

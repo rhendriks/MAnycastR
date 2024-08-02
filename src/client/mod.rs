@@ -362,8 +362,16 @@ impl Client {
                 // If the CLI disconnected we will receive this message
                 match task.clone().data {
                     None => {
-                        // A task with data None identifies the end of a measurement
-                        if task.data == None { // TODO use the end message with an abort/finished flag
+                        println!("[Client] Received empty task, skipping");
+                        continue
+                    }
+                    Some(Data::Start(_)) => {
+                        println!("[Client] Received new measurement during an active measurement, skipping");
+                        continue
+                    },
+                    Some(Data::End(data)) => {
+                        // Received finish signal
+                        if data.code == 0 {
                             println!("[Client] Received measurement finished from Server");
                             // Close the inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
@@ -374,25 +382,24 @@ impl Client {
                             if self.outbound_tx.is_some() {
                                 // Send the task to the prober
                                 self.outbound_tx.clone().unwrap().send(Data::End(End {
+                                    code: 0,
                                 })).await.expect("Unable to send task_finished to outbound thread");
                             }
-                        }
-                    }
-                    Some(Data::Start(_)) => {
-                        println!("[Client] Received new measurement during an active measurement, skipping");
-                        continue
-                    },
-                    Some(Data::End(_)) => {
-                        // Send finish signal
-                        println!("[Client] CLI disconnected, aborting measurement");
-                        // Close the inbound threads
-                        for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                            inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
-                        }
-                        // f_tx will be None if this client is not probing
-                        if f_tx.is_some() {
-                            // Close outbound threads
-                            f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
+                        } else if data.code == 1 {
+                            println!("[Client] CLI disconnected, aborting measurement");
+
+                            // Close the inbound threads
+                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
+                                inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                            }
+                            // f_tx will be None if this client is not probing
+                            if f_tx.is_some() {
+                                // Close outbound threads
+                                f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
+                            }
+                        } else {
+                            println!("[Client] Received invalid code from Server");
+                            continue
                         }
                     }
                     Some(task) => {
