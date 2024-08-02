@@ -10,6 +10,7 @@ use crate::custom_module::verfploeter::{
 };
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord, netv6::IPv6Packet};
 use pcap::{Active, Capture, Device};
+use crate::custom_module::Separated;
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
@@ -136,7 +137,10 @@ pub fn listen(
             }
 
             let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped ICMP pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)", stats.received, stats.dropped, stats.if_dropped);
+            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
+                     stats.received.with_separator(),
+                     stats.dropped.with_separator(),
+                     stats.if_dropped.with_separator());
         }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the server as TaskResult
