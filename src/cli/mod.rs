@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::error::Error;
 use rand::seq::SliceRandom;
-use std::fs::File;
 use std::{fs, io};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -302,7 +302,7 @@ impl CliClient {
     ///
     /// * 'hitlist_length' - the length of the hitlist
     ///
-    /// * 'configuration' - a vector of configurations that are used for the measurement
+    /// * 'configurations' - a vector of configurations that are used for the measurement
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
