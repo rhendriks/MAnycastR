@@ -172,6 +172,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // We only accept measurement types 1, 2, 3, 4
         if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
 
+        // CHAOS value to send in the DNS query
+        let chaos_value = if measurement_type == 4 {
+            if matches.is_present("CHAOS") {
+                matches.value_of("CHAOS").unwrap()
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
@@ -280,6 +291,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
+            chaos: chaos_value.to_string()
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
     } else {
