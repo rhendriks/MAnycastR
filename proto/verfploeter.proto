@@ -53,6 +53,7 @@ message ScheduleMeasurement {
   uint32 interval = 9;
   bool divide = 10;
   Targets targets = 11;
+  string chaos = 12;
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)
