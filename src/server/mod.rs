@@ -443,60 +443,8 @@ impl Controller for ControllerService {
         }
 
         // If traceroute is enabled, start a thread that handles when and how the clients should perform traceroute
-        if is_traceroute { // TODO move this to a separate function
-            let targets = self.traceroute_targets.clone();
-            let senders = self.senders.clone();
-            // Thread that cleans up the targets map and instruct traceroute
-            spawn(async move {
-                loop {
-                    let cleanup_interval = Duration::from_secs(40);
-                    // Sleep for the cleanup interval
-                    tokio::time::sleep(cleanup_interval).await;
-                    // Perform the cleanup
-                    let mut map = targets.lock().await;
-                    let mut traceroute_targets = HashMap::new();
-
-                    for (target, (clients, timestamp, _, _)) in map.clone().iter() {
-                        if Instant::now().duration_since(*timestamp) > cleanup_interval {
-                            let value = map.remove(target).expect("Failed to remove target from map");
-                            if clients.len() > 1 {
-                                println!("Tracerouting to {} from clients {:?}", target, clients);
-                                traceroute_targets.insert(target.clone(), value);
-                            }
-                        }
-                    }
-
-                    for (target, (clients, _, ttl, origins)) in traceroute_targets {
-                        // Get the upper bound TTL we should perform traceroute with
-                        let max_ttl = if ttl >= 128 {
-                            255 - ttl
-                        } else if ttl >= 64 {
-                            128 - ttl
-                        } else {
-                            64 - ttl
-                        } as u32;
-
-                        let traceroute_task = Task {
-                            data: Some(TaskTrace(Trace {
-                                max_ttl,
-                                dst: Some(Address::from(target.clone())),
-                                origins,
-                            }))
-                        };
-
-                        // TODO make sure client_id is mapped to the right sender
-                        // TODO when client IDs don't start at 1, this will fail
-                        for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
-                            // Sleep 1 second between each client to avoid rate limiting
-                            // tokio::time::sleep(Duration::from_secs(1)).await;
-                            // TODO will fail when clients have been instructed to end
-                            senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
-                        }
-                    }
-
-
-                }
-            });
+        if is_traceroute {
+            traceroute_orchestrator(self.traceroute_targets.clone(), self.senders.clone()).await;
         }
 
         // Notify all senders that a new measurement is starting
@@ -721,7 +669,7 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
 
-        if *self.traceroute.lock().unwrap() {
+        if *self.traceroute.lock().unwrap() { // If traceroute is enabled
             // Loop over the results and keep track of the clients that have received probe responses
             let client_id = task_result.client_id as u8;
             let mut map = self.traceroute_targets.lock().await;
@@ -874,6 +822,73 @@ impl Controller for ControllerService {
             client_id,
         }))
     }
+}
+
+
+/// Start a thread that orchestrates the traceroute measurements.
+///
+/// This thread will instruct the clients to perform traceroute measurements to targets that sent probe replies toward multiple clients.
+///
+/// # Arguments
+///
+/// * 'targets' - a shared hashmap that contains the targets that have sent probe replies to multiple clients
+///
+/// * 'senders' - a shared list of senders that connect to the clients
+async fn traceroute_orchestrator(
+    targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>,
+    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>)
+{
+    // Thread that cleans up the targets map and instruct traceroute
+    spawn(async move {
+        loop {
+            let cleanup_interval = Duration::from_secs(40);
+            // Sleep for the cleanup interval
+            tokio::time::sleep(cleanup_interval).await;
+            // Perform the cleanup
+            let mut map = targets.lock().await;
+            let mut traceroute_targets = HashMap::new();
+
+            for (target, (clients, timestamp, _, _)) in map.clone().iter() {
+                if Instant::now().duration_since(*timestamp) > cleanup_interval {
+                    let value = map.remove(target).expect("Failed to remove target from map");
+                    if clients.len() > 1 {
+                        println!("Tracerouting to {} from clients {:?}", target, clients);
+                        traceroute_targets.insert(target.clone(), value);
+                    }
+                }
+            }
+
+            for (target, (clients, _, ttl, origins)) in traceroute_targets {
+                // Get the upper bound TTL we should perform traceroute with
+                let max_ttl = if ttl >= 128 {
+                    255 - ttl
+                } else if ttl >= 64 {
+                    128 - ttl
+                } else {
+                    64 - ttl
+                } as u32;
+
+                let traceroute_task = Task {
+                    data: Some(TaskTrace(Trace {
+                        max_ttl,
+                        dst: Some(Address::from(target.clone())),
+                        origins,
+                    }))
+                };
+
+                // TODO make sure client_id is mapped to the right sender
+                // TODO when client IDs don't start at 1, this will fail
+                for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                    // Sleep 1 second between each client to avoid rate limiting
+                    // tokio::time::sleep(Duration::from_secs(1)).await;
+                    // TODO will fail when clients have been instructed to end
+                    senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
+                }
+            }
+
+
+        }
+    });
 }
 
 /// Start the server.
