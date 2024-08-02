@@ -448,6 +448,7 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_client = 0;
         let mut current_active_client = 0;
+        let chaos = &schedule_measurement.chaos.clone();
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
             // Add all configuration probing origins assigned to this client
@@ -489,6 +490,7 @@ impl Controller for ControllerService {
                     traceroute: is_traceroute,
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
+                    chaos: chaos.to_string(),
                 }))
             };
 
