@@ -191,7 +191,7 @@ fn main() {
         let _ = cli::execute(cli_matches);
         return;
     } else if let Some(server_matches) = matches.subcommand_matches("server") {
-        println!("[Main] Executing server");
+        println!("[Main] Executing server version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -206,7 +206,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
-        .about("Performs measurements")
+        .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
             SubCommand::with_name("server").about("Launches the verfploeter server")
                 .arg(

@@ -177,8 +177,8 @@ fn handle_results(
     rq_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>,
 ) {
     loop {
-        // Every 5 seconds, forward the ping results to the server
-        sleep(Duration::from_secs(5));
+        // Every second, forward the ping results to the server
+        sleep(Duration::from_secs(1));
 
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
