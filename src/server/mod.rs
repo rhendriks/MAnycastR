@@ -22,6 +22,7 @@ use custom_module::verfploeter::{
     ip_result::Value::Ipv6, Metadata, Origin, ScheduleMeasurement, Start,
     Targets, Task, task::Data::End as TaskEnd, task::Data::Start as TaskStart, task::Data::Trace as TaskTrace,
     TaskResult, Trace, verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult,
+    verfploeter_result::Value::Responsive as ResponsiveResult,
 };
 
 use crate::custom_module;
@@ -40,6 +41,8 @@ use crate::server::mpsc::Sender;
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 /// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
 /// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
+/// * 'responsive' - a boolean value that is set to true when responsive targets are being measured
+/// * 'responsive_targets' - a list of the responsive targets that need to be measured
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     clients: Arc<Mutex<ClientList>>,
@@ -51,6 +54,8 @@ pub struct ControllerService {
     active: Arc<Mutex<bool>>,
     traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
+    responsive: Arc<Mutex<bool>>,
+    responsive_targets: Arc<Mutex<Vec<Address>>>,
 }
 
 /// Special Receiver struct that notices when the client disconnects.
@@ -368,7 +373,7 @@ impl Controller for ControllerService {
         };
 
         // The measurement that the CLI wants to perform
-        let schedule_measurement = request.into_inner();
+        let scheduled_measurement = request.into_inner();
         // Create a list of the connected clients' IDs
         let client_list_u32: Vec<u32> = self.clients.lock().unwrap().clients
             .iter()
@@ -376,7 +381,7 @@ impl Controller for ControllerService {
             .collect();
 
         // Check if the CLI requested a client-selective probing measurement
-        let mut selected_clients: Vec<u32> = schedule_measurement.clients;
+        let mut selected_clients: Vec<u32> = scheduled_measurement.clients;
 
         // Make sure all client IDs are valid
         if selected_clients.iter().any(|client| !client_list_u32.contains(client)) {
@@ -386,19 +391,19 @@ impl Controller for ControllerService {
         }
 
         // Create a measurement from the ScheduleMeasurement
-        let is_unicast = schedule_measurement.unicast;
+        let is_unicast = scheduled_measurement.unicast;
         // Get the probe origins
         let tx_origins: Vec<Origin> = if is_unicast {
-            vec![schedule_measurement.origin.clone().unwrap()] // Contains port values
-        } else if schedule_measurement.configurations.len() > 0 {
+            vec![scheduled_measurement.origin.clone().unwrap()] // Contains port values
+        } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown clients are in the list
-            if schedule_measurement.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id) && conf.client_id != u32::MAX) {
+            if scheduled_measurement.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id) && conf.client_id != u32::MAX) {
                 println!("[Server] Unknown client in configuration list, terminating measurement.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"));
             }
             // Update selected_clients to contain all clients that are in the configuration list
-            for configuration in &schedule_measurement.configurations {
+            for configuration in &scheduled_measurement.configurations {
                 if !selected_clients.contains(&configuration.client_id) {
                     selected_clients.push(configuration.client_id);
                 }
@@ -411,20 +416,20 @@ impl Controller for ControllerService {
 
             vec![]  // Return an empty list, as we will add the origins per client
         } else {
-            vec![schedule_measurement.origin.clone().unwrap()]
+            vec![scheduled_measurement.origin.clone().unwrap()]
         };
 
         // Store the number of clients that will perform this measurement
         self.open_measurements.lock().unwrap().insert(measurement_id, senders.len() as u32);
 
-        let rate = schedule_measurement.rate;
-        let measurement_type = schedule_measurement.measurement_type;
-        let is_ipv6 = schedule_measurement.ipv6;
-        let is_traceroute = schedule_measurement.traceroute;
-        let is_divide = schedule_measurement.divide;
-        let interval = schedule_measurement.interval;
+        let rate = scheduled_measurement.rate;
+        let measurement_type = scheduled_measurement.measurement_type;
+        let is_ipv6 = scheduled_measurement.ipv6;
+        let is_traceroute = scheduled_measurement.traceroute;
+        let is_divide = scheduled_measurement.divide;
+        let inter_client_interval = scheduled_measurement.interval;
         *self.traceroute.lock().unwrap() = is_traceroute;
-        let dst_addresses = schedule_measurement.targets.expect("Received measurement with no targets").dst_addresses;
+        let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -434,7 +439,7 @@ impl Controller for ControllerService {
         // Create a list of origins used by clients
         let mut rx_origins = tx_origins.clone();
         // Add all configuration origins to the listen origins
-        for configuration in &schedule_measurement.configurations {
+        for configuration in &scheduled_measurement.configurations {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
@@ -451,11 +456,11 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_client = 0;
         let mut current_active_client = 0;
-        let chaos = &schedule_measurement.chaos.clone();
+        let chaos = &scheduled_measurement.chaos.clone();
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
             // Add all configuration probing origins assigned to this client
-            for configuration in &schedule_measurement.configurations {
+            for configuration in &scheduled_measurement.configurations {
                 // If the client is selected to perform the measurement (or all clients are selected (u32::MAX))
                 if (configuration.client_id == *client_list_u32.get(current_client).unwrap()) | (configuration.client_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
@@ -507,7 +512,7 @@ impl Controller for ControllerService {
         let number_of_clients = senders.len() as u64;
 
         if !is_divide {
-            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, current_active_client, interval);
+            println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, current_active_client, inter_client_interval);
         } else {
             println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, current_active_client);
         }
@@ -518,6 +523,8 @@ impl Controller for ControllerService {
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
         let mut t: u64 = 0; // Index for active clients
         let mut i = 0; // Index for the client list
+        let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
+        let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
@@ -530,18 +537,18 @@ impl Controller for ControllerService {
             let is_probing = clients.len() == 0 || clients.contains(&client_id);
 
             // Get the hitlist for this client
-            let dest_addresses = if !is_probing {
+            let hitlist_targets = if !is_probing {
                 vec![]
             } else if is_divide {
                 // Each client gets its own chunk of the hitlist
-                let chunk_size = dst_addresses.len() / current_active_client as usize;
+                let targets_chunk = dst_addresses.len() / current_active_client as usize;
 
                 // Get start and end index of targets to probe for this client
-                let start_index = t as usize * chunk_size;
+                let start_index = t as usize * targets_chunk;
                 let end_index = if t == current_active_client - 1 {
                     dst_addresses.len() // End of the list
                 } else {
-                    start_index + chunk_size
+                    start_index + targets_chunk
                 };
 
                 dst_addresses[start_index..end_index].to_vec()
@@ -559,17 +566,14 @@ impl Controller for ControllerService {
             let is_active = self.active.clone();
 
             spawn(async move {
-                let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
-
+                // Send out packets at the required interval
+                let mut interval = tokio::time::interval(p_rate);
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if is_probing && !is_divide {
-                    tokio::time::sleep(Duration::from_secs((t - 1) * interval as u64)).await;
+                    tokio::time::sleep(Duration::from_secs((t - 1) * inter_client_interval as u64)).await;
                 }
 
-                // Send out packets at the required interval
-                let mut interval = tokio::time::interval(Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64));
-
-                for chunk in dest_addresses.chunks(chunk_size) {
+                for chunk in hitlist_targets.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
                     if *is_active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
@@ -588,7 +592,7 @@ impl Controller for ControllerService {
                         };
 
                         // Send packet to client
-                        match sender.send(Ok(task.clone())).await {
+                        match sender.send(Ok(task)).await {
                             Ok(_) => (),
                             Err(e) => {
                                 println!("[Server] Failed to send task {:?} to client {}", e, client_id);
@@ -756,6 +760,28 @@ impl Controller for ControllerService {
             }
         }
 
+        // Responsive targets handler
+        if *self.responsive.lock().unwrap() {
+            // TODO targets that send multiple probe replies will be added multiple times
+            // If this contains responsive targets
+            if task_result.client_id == u32::MAX {
+                let mut responsive_targets = self.responsive_targets.lock().unwrap();
+
+                let targets: Vec<Address> = task_result.result_list.iter().map(|result| {
+                    let value = result.value.clone().unwrap();
+                    match value {
+                        ResponsiveResult(value) => {
+                            value.responsive_address.expect("invalid responsive address")
+                        }
+                        _ => panic!("Non-responsive target"),
+                    }
+                }).collect();
+
+                responsive_targets.append(&mut targets.clone());
+            }
+        }
+
+        // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()
@@ -913,6 +939,8 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
+        responsive: Arc::new(Mutex::new(false)),
+        responsive_targets: Arc::new(Mutex::new(Vec::new())),
     };
 
     let svc = ControllerServer::new(controller);
@@ -932,6 +960,54 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     }
 
     Ok(())
+}
+
+/// Probe hitlist targets from the first Client to check if they are responsive.
+async fn probe_responsive(
+    hitlist_targets: Vec<Address>,
+    first_sender: Sender<Result<Task, Status>>,
+    rate: u32,
+    is_active: Arc<Mutex<bool>>,
+) {
+    let chunk_size: usize = 10;
+    let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
+
+    // Instruct the first client to probe the hitlist targets
+    spawn(async move { // TODO abort this when the CLI disconnects
+        let mut interval = tokio::time::interval(p_rate);
+        for chunk in hitlist_targets.chunks(chunk_size) {
+            if *is_active.lock().unwrap() == false {
+                println!("[Server] CLI disconnected cancelling responsive target probing");
+                break; // abort
+            }
+
+            let task = Task {
+                data: Some(custom_module::verfploeter::task::Data::RTargets(Targets {
+                    dst_addresses: chunk.to_vec(),
+                })),
+            };
+
+            // Send packet to client
+            match first_sender.send(Ok(task)).await {
+                Ok(_) => (),
+                Err(e) => {
+                    println!("[Server] Failed to send responsiveness task {:?} to first client", e);
+                    if first_sender.is_closed() { // If the client is no longer connected
+                        println!("[Server] The first client is no longer able to find responsive targets");
+                        break;
+                    }
+                }
+            }
+
+            interval.tick().await;
+        }
+    });
+
+    // Probe responsive targets from all clients
+    spawn(async move {
+        // TODO
+
+    });
 }
 
 // 1. Generate private key:

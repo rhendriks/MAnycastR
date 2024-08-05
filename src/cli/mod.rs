@@ -61,6 +61,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if divide && unicast {
             panic!("Divide-and-conquer is only supported for anycast-based measurements");
         }
+        if responsive && divide {
+            panic!("Responsive mode not supported for divide-and-conquer measurements");
+        }
 
         let src = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
@@ -780,7 +783,7 @@ fn get_result(
                     let ack = tcp.ack.to_string();
 
                     vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport, seq, ack]
-                }
+                },
             };
         }
         ResultPing(ping) => {
@@ -868,6 +871,7 @@ fn get_result(
             let ack = tcp.ack.to_string();
 
             return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
-        }
+        },
+        _ => panic!("Unexpected result!"),
     }
 }
