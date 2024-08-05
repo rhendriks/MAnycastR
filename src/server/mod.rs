@@ -458,6 +458,7 @@ impl Controller for ControllerService {
         let mut current_active_client = 0;
         let chaos = &scheduled_measurement.chaos.clone();
         for sender in senders.iter() {
+            let responsive_checker = current_client == 0;
             let mut client_tx_origins = tx_origins.clone();
             // Add all configuration probing origins assigned to this client
             for configuration in &scheduled_measurement.configurations {
@@ -499,6 +500,7 @@ impl Controller for ControllerService {
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
                     chaos: chaos.to_string(),
+                    responsive: responsive_checker,
                 }))
             };
 
@@ -976,6 +978,9 @@ async fn probe_responsive( // TODO test
     let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
     let first_sender = senders.lock().unwrap().get(0).unwrap().clone();
     let is_active_c = is_active.clone();
+    // Signal when finished responsive probing
+    let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
+    let tx_f_c = tx_f.clone();
 
     // Instruct the first client to probe the hitlist targets
     spawn(async move {
@@ -1006,6 +1011,12 @@ async fn probe_responsive( // TODO test
 
             interval.tick().await;
         }
+
+        // Sleep 1 second to give the client time to finish the measurement and receive the last responses
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Signal finished responsive probing
+        tx_f_c.send(()).expect("Failed to send finished signal");
     });
 
     let mut i = 0;
@@ -1014,6 +1025,8 @@ async fn probe_responsive( // TODO test
         sender = sender.clone();
         let is_active = is_active.clone();
         let responsive_targets = responsive_targets.clone();
+        let tx_f = tx_f.clone();
+        let mut rx_f = tx_f.subscribe();
 
         spawn(async move {
             let mut interval = tokio::time::interval(p_rate);
@@ -1023,6 +1036,12 @@ async fn probe_responsive( // TODO test
                 if *is_active.lock().unwrap() == false {
                     println!("[Server] CLI disconnected cancelling responsive target probing");
                     break; // abort
+                }
+
+                // Check whether the finished signal has been received
+                if rx_f.try_recv().is_ok() {
+                    println!("Client {} finished probing responsive targets", i);
+                    break;
                 }
 
                 let chunk_targets = {
@@ -1036,6 +1055,7 @@ async fn probe_responsive( // TODO test
                 if chunk_targets.len() != 0 {
                     current_chunk_size += chunk_targets.len();
                 } else {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                     continue; // No responsive targets to probe
                 }
 

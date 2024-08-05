@@ -111,6 +111,7 @@ message Start {
   bool traceroute = 8;
   repeated Origin rx_origins = 9; // origins to listen for
   string chaos = 10; // domain to use for chaos queries
+  bool responsive = 11; // whether this client checks for responsiveness
 }
 
 // An end message, indicates the client should stop sending out probes
