@@ -224,7 +224,6 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false)
                         .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                 )
-
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
@@ -243,14 +242,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false)
                         .help("hostname for this client (default: $HOSTNAME)")
                 )
-                .arg (
+                .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(false)
                         .required(false)
                         .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
                 )
-
         )
         .subcommand(
             SubCommand::with_name("cli").about("Verfploeter CLI")

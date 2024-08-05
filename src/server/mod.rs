@@ -1,28 +1,32 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, transport::Server};
 use std::ops::{Add, AddAssign};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+
 use clap::ArgMatches;
 use futures_core::Stream;
 use rand::Rng;
 use tokio::spawn;
+use tokio::sync::mpsc;
+use tonic::{Request, Response, Status, transport::Server};
 use tonic::transport::{Identity, ServerTlsConfig};
-use crate::server::mpsc::Sender;
-use crate::custom_module;
+
 use custom_module::IP;
 use custom_module::verfploeter::{
-    Ack, Finished, ScheduleMeasurement, ClientList, Task, TaskResult, ClientId, Origin,
-    verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Udp as UdpResult, verfploeter_result::Value::Tcp as TcpResult,
-    controller_server::Controller, controller_server::ControllerServer, Address, task::Data::End as TaskEnd, End,
-    task::Data::Trace as TaskTrace, Trace, task::Data::Start as TaskStart, Start, Targets,
-    Metadata, Client, Empty, ip_result::Value::Ipv6, ip_result::Value::Ipv4
+    Ack, Address, Client, ClientId, ClientList, controller_server::Controller, controller_server::ControllerServer, Empty,
+    End, Finished, ip_result::Value::Ipv4,
+    ip_result::Value::Ipv6, Metadata, Origin, ScheduleMeasurement, Start,
+    Targets, Task, task::Data::End as TaskEnd, task::Data::Start as TaskStart, task::Data::Trace as TaskTrace,
+    TaskResult, Trace, verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult,
 };
+
+use crate::custom_module;
+use crate::server::mpsc::Sender;
+
 /// Struct for the Server service
 ///
 /// # Fields
@@ -94,10 +98,10 @@ impl<T> Drop for ClientReceiver<T> {
         // // Handle the open measurements that involve this client
         let mut open_measurements = self.open_measurements.lock().unwrap();
         if open_measurements.len() > 0 {
-            for (measurement_id, remaining) in open_measurements.clone().iter(){
+            for (measurement_id, remaining) in open_measurements.clone().iter() {
                 // If this measurement is already finished
                 if remaining == &0 {
-                    continue
+                    continue;
                 }
                 // If this is the last client for this open measurement
                 if remaining == &1 {
@@ -241,7 +245,7 @@ impl Controller for ControllerService {
                     success: false,
                     error_message: "CLI disconnected".to_string(),
                 })),
-            }
+            };
         } else {
             // Send an ack to the client that it has finished
             Ok(Response::new(Ack {
@@ -319,7 +323,7 @@ impl Controller for ControllerService {
             let mut active = self.active.lock().unwrap();
             if *active {
                 println!("[Server] There is already an active measurement, returning");
-                return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"))
+                return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"));
             }
 
             // For every open measurement
@@ -327,7 +331,7 @@ impl Controller for ControllerService {
                 // If there are still clients who are working on a different measurement
                 if open > &0 {
                     println!("[Server] There is already an active measurement, returning");
-                    return Err(Status::new(tonic::Code::Cancelled, "There are still clients working on an active measurement"))
+                    return Err(Status::new(tonic::Code::Cancelled, "There are still clients working on an active measurement"));
                 }
             }
 
@@ -391,7 +395,7 @@ impl Controller for ControllerService {
             if schedule_measurement.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id) && conf.client_id != u32::MAX) {
                 println!("[Server] Unknown client in configuration list, terminating measurement.");
                 *self.active.lock().unwrap() = false;
-                return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"))
+                return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"));
             }
             // Update selected_clients to contain all clients that are in the configuration list
             for configuration in &schedule_measurement.configurations {
@@ -406,8 +410,7 @@ impl Controller for ControllerService {
             }
 
             vec![]  // Return an empty list, as we will add the origins per client
-        }
-        else {
+        } else {
             vec![schedule_measurement.origin.clone().unwrap()]
         };
 
@@ -574,7 +577,7 @@ impl Controller for ControllerService {
                             println!("[Server] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
-                        return // abort
+                        return; // abort
                     }
 
                     if is_probing {
@@ -587,14 +590,13 @@ impl Controller for ControllerService {
                         // Send packet to client
                         match sender.send(Ok(task.clone())).await {
                             Ok(_) => (),
-                            Err(e) =>  {
+                            Err(e) => {
                                 println!("[Server] Failed to send task {:?} to client {}", e, client_id);
                                 if sender.is_closed() { // If the client is no longer connected
                                     println!("[Server] Client {} is no longer connected and removed from the measurement", client_id);
-                                    break
+                                    break;
                                 }
-
-                            },
+                            }
                         }
                     }
 
@@ -612,7 +614,7 @@ impl Controller for ControllerService {
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
                     if *is_active.lock().unwrap() == false {
-                        return // abort
+                        return; // abort
                     }
                 }
 
@@ -674,7 +676,6 @@ impl Controller for ControllerService {
             let client_id = task_result.client_id as u8;
             let mut map = self.traceroute_targets.lock().await;
             for result in task_result.clone().result_list {
-
                 let value = result.value.unwrap();
                 let (probe_dst, probe_src) = match value.clone() {
                     PingResult(value) => {
@@ -683,21 +684,21 @@ impl Controller for ControllerService {
                             Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
                                          IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
-                    },
+                    }
                     UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
                             Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
                             Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
                                          IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
-                    },
+                    }
                     TcpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
                             Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
                             Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
                                          IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
                         }
-                    },
+                    }
                     _ => (IP::None, IP::None),
                 };
 
@@ -705,13 +706,13 @@ impl Controller for ControllerService {
                 let (probe_sport, probe_dport) = match value.clone() {
                     PingResult(_) => {
                         (0, 0)
-                    },
+                    }
                     UdpResult(value) => {
                         (value.sport, value.dport)
-                    },
+                    }
                     TcpResult(value) => {
                         (value.sport, value.dport)
-                    },
+                    }
                     _ => (0, 0)
                 };
 
@@ -725,18 +726,18 @@ impl Controller for ControllerService {
                 let ttl = match value {
                     PingResult(value) => {
                         value.ip_result.unwrap().ttl
-                    },
+                    }
                     UdpResult(value) => {
                         value.ip_result.unwrap().ttl
-                    },
+                    }
                     TcpResult(value) => {
                         value.ip_result.unwrap().ttl
-                    },
+                    }
                     _ => 0,
                 } as u8;
 
                 if probe_dst == IP::None {
-                    continue
+                    continue;
                 }
                 if map.contains_key(&probe_dst) {
                     let (clients, _, ttl_old, origins) = map.get_mut(&probe_dst).unwrap();
@@ -785,7 +786,7 @@ impl Controller for ControllerService {
     /// Returns an error if the hostname already exists
     async fn get_client_id(
         &self,
-        request: Request<Metadata>
+        request: Request<Metadata>,
     ) -> Result<Response<ClientId>, Status> {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
@@ -817,7 +818,7 @@ impl Controller for ControllerService {
         clients_list.clients.push(new_client);
 
         // Accept the client and give it a unique client ID
-        Ok(Response::new(ClientId{
+        Ok(Response::new(ClientId {
             client_id,
         }))
     }
@@ -884,8 +885,6 @@ async fn traceroute_orchestrator(
                     senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
                 }
             }
-
-
         }
     });
 }

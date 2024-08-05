@@ -1,8 +1,9 @@
 use std::fmt::Display;
 use std::net::{Ipv4Addr, Ipv6Addr};
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
+pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match &self.value {
@@ -88,14 +89,14 @@ impl From<IP> for Address {
             },
             IP::V6(v6) => Address {
                 value: Some(V6(IPv6 {
-                        p1: (v6.segments()[0] as u64) << 48
-                            | (v6.segments()[1] as u64) << 32
-                            | (v6.segments()[2] as u64) << 16
-                            | (v6.segments()[3] as u64),
-                        p2: (v6.segments()[4] as u64) << 48
-                            | (v6.segments()[5] as u64) << 32
-                            | (v6.segments()[6] as u64) << 16
-                            | (v6.segments()[7] as u64),
+                    p1: (v6.segments()[0] as u64) << 48
+                        | (v6.segments()[1] as u64) << 32
+                        | (v6.segments()[2] as u64) << 16
+                        | (v6.segments()[3] as u64),
+                    p2: (v6.segments()[4] as u64) << 48
+                        | (v6.segments()[5] as u64) << 32
+                        | (v6.segments()[6] as u64) << 16
+                        | (v6.segments()[7] as u64),
                 })),
             },
             IP::None => Address {
@@ -142,7 +143,7 @@ impl IpResult {
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
                 let src = v6.src.clone().expect("None IPv6 data type");
                 ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
-            },
+            }
             None => String::from("None"),
         }
     }
@@ -153,7 +154,7 @@ impl IpResult {
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
                 let dst = v6.dst.clone().expect("None IPv6 data type");
                 ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
-            },
+            }
             None => String::from("None"),
         }
     }

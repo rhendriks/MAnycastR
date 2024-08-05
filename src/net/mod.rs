@@ -1,10 +1,11 @@
-pub(crate) mod netv6;
-
 extern crate byteorder;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
 use std::net::Ipv4Addr;
+
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
+
+pub(crate) mod netv6;
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";
@@ -50,29 +51,26 @@ impl From<&[u8]> for IPv4Packet {
         let payload_bytes = &cursor.into_inner()[header_length..];
         let payload = match packet_type {
             1 => {
-                if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
-                else {
+                if payload_bytes.len() < 8 { PacketPayload::Unimplemented } else {
                     PacketPayload::ICMP {
                         value: ICMPPacket::from(payload_bytes),
                     }
                 }
-            },
+            }
             17 => {
-                if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
-                else {
+                if payload_bytes.len() < 8 { PacketPayload::Unimplemented } else {
                     PacketPayload::UDP {
                         value: UDPPacket::from(payload_bytes),
                     }
                 }
-            },
+            }
             6 => {
-                if payload_bytes.len() < 20 { PacketPayload::Unimplemented }
-                else {
+                if payload_bytes.len() < 20 { PacketPayload::Unimplemented } else {
                     PacketPayload::TCP {
                         value: TCPPacket::from(payload_bytes),
                     }
                 }
-            },
+            }
             _ => PacketPayload::Unimplemented,
         };
 
@@ -128,8 +126,8 @@ impl Into<Vec<u8>> for &IPv4Packet {
 #[derive(Debug)]
 pub enum PacketPayload {
     ICMP { value: ICMPPacket },
-    UDP {value: UDPPacket },
-    TCP {value: TCPPacket },
+    UDP { value: UDPPacket },
+    TCP { value: TCPPacket },
     Unimplemented,
 }
 
@@ -281,7 +279,7 @@ impl ICMPPacket {
         body: Vec<u8>,
         source_address: u32,
         destination_address: u32,
-        ttl: u8
+        ttl: u8,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -436,8 +434,7 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
         let mut label_bytes = vec![0; label_len as usize];
 
         match data.read_exact(&mut label_bytes) {
-            Ok(()) => {
-            }
+            Ok(()) => {}
             Err(_) => {
                 return "Invalid domain name".to_string();
             }
@@ -558,7 +555,6 @@ impl UDPPacket {
     /// Create a basic UDP packet with checksum (v4 only).
     pub fn udp_request(source_address: u32, destination_address: u32,
                        source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
-
         let length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
 
         let mut packet = Self {
@@ -821,8 +817,8 @@ impl TCPPacket {
         source_port: u16,
         destination_port: u16,
         seq: u32,
-        ack:u32,
-        ttl: u8
+        ack: u32,
+        ttl: u8,
     ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
@@ -834,7 +830,7 @@ impl TCPPacket {
             checksum: 0,
             pointer: 0,
             body: INFO_URL.bytes().collect(),
-            window_size: 0
+            window_size: 0,
         };
 
         // Turn everything into a vec of bytes and calculate checksum
