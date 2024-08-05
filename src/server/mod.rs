@@ -963,20 +963,25 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 }
 
 /// Probe hitlist targets from the first Client to check if they are responsive.
-async fn probe_responsive(
+async fn probe_responsive( // TODO test
     hitlist_targets: Vec<Address>,
-    first_sender: Sender<Result<Task, Status>>,
+    // first_sender: Sender<Result<Task, Status>>,
+    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     rate: u32,
     is_active: Arc<Mutex<bool>>,
+    inter_client_interval: u64,
+    responsive_targets: Arc<Mutex<Vec<Address>>>,
 ) {
     let chunk_size: usize = 10;
     let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
+    let first_sender = senders.lock().unwrap().get(0).unwrap().clone();
+    let is_active_c = is_active.clone();
 
     // Instruct the first client to probe the hitlist targets
-    spawn(async move { // TODO abort this when the CLI disconnects
+    spawn(async move {
         let mut interval = tokio::time::interval(p_rate);
         for chunk in hitlist_targets.chunks(chunk_size) {
-            if *is_active.lock().unwrap() == false {
+            if *is_active_c.lock().unwrap() == false {
                 println!("[Server] CLI disconnected cancelling responsive target probing");
                 break; // abort
             }
@@ -1003,11 +1008,59 @@ async fn probe_responsive(
         }
     });
 
+    let mut i = 0;
     // Probe responsive targets from all clients
-    spawn(async move {
-        // TODO
+    for mut sender in senders.lock().unwrap().clone() {
+        sender = sender.clone();
+        let is_active = is_active.clone();
+        let responsive_targets = responsive_targets.clone();
 
-    });
+        spawn(async move {
+            let mut interval = tokio::time::interval(p_rate);
+            let mut current_chunk_size = 0;
+            tokio::time::sleep(Duration::from_secs(i * inter_client_interval)).await; // synchronize clients
+            loop {
+                if *is_active.lock().unwrap() == false {
+                    println!("[Server] CLI disconnected cancelling responsive target probing");
+                    break; // abort
+                }
+
+                let chunk_targets = {
+                    let responsive_targets = responsive_targets.lock().unwrap();
+                    let end_index = std::cmp::min(current_chunk_size + chunk_size, responsive_targets.len());
+
+                    // Get responsive targets
+                    responsive_targets.get(current_chunk_size..end_index).unwrap_or(&vec![]).to_vec()
+                };
+
+                if chunk_targets.len() != 0 {
+                    current_chunk_size += chunk_targets.len();
+                } else {
+                    continue; // No responsive targets to probe
+                }
+
+                // Instruct client to probe the responsive targets
+                let task = Task {
+                    data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                        dst_addresses: chunk_targets,
+                    })),
+                };
+                match sender.send(Ok(task)).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        println!("[Server] Failed to send responsiveness task {:?} to client", e);
+                        if sender.is_closed() { // If the client is no longer connected
+                            println!("[Server] Client is no longer able to find responsive targets");
+                            break;
+                        }
+                    }
+                }
+
+                interval.tick().await;
+            }
+        });
+        i += 1;
+    }
 }
 
 // 1. Generate private key:
