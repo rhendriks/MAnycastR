@@ -8,7 +8,7 @@ use prost::bytes::Buf;
 pub(crate) mod netv6;
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
-const INFO_URL: &str = "edu.nl/9qt8h";
+const INFO_URL: &str = "edu.nl/9qt8h";  // TODO hardcoded URL
 
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
