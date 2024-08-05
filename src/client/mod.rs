@@ -1,19 +1,22 @@
-use crate::custom_module;
-use custom_module::IP;
-use custom_module::verfploeter::{
-    Finished, Task, Metadata, TaskResult, task::Data, ClientId, controller_client::ControllerClient, Address, Origin, End
-};
-use tonic::{Request};
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
 use clap::ArgMatches;
 use futures::sync::oneshot;
-use crate::client::inbound::listen;
 use gethostname::gethostname;
-use crate::client::outbound::outbound;
 use local_ip_address::{local_ip, local_ipv6};
+use tonic::Request;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+
+use custom_module::IP;
+use custom_module::verfploeter::{
+    Address, ClientId, controller_client::ControllerClient, End, Finished, Metadata, Origin, Task, task::Data, TaskResult,
+};
+
+use crate::client::inbound::listen;
+use crate::client::outbound::outbound;
+use crate::custom_module;
 
 mod inbound;
 mod outbound;
@@ -96,7 +99,7 @@ impl Client {
     /// ```
     async fn connect(
         address: String,
-        tls: bool
+        tls: bool,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if tls {
             // Secure connection
@@ -218,7 +221,7 @@ impl Client {
                         .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
                         .collect()
                 }
-            },
+            }
             2 | 4 => { // DNS A record, DNS CHAOS TXT
                 if is_ipv6 {
                     rx_origins.iter()
@@ -229,7 +232,7 @@ impl Client {
                         .map(|origin| format!(" (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
                         .collect()
                 }
-            },
+            }
             3 => { // TCP
                 let mut tcp_filters: Vec<String> = if is_ipv6 {
                     rx_origins.iter()
@@ -249,7 +252,7 @@ impl Client {
                     tcp_filters.extend(icmp_ttl_expired_filter);
                 }
                 tcp_filters
-            },
+            }
             _ => panic!("Invalid measurement type"),
         };
 
@@ -262,13 +265,13 @@ impl Client {
                     for origin in tx_origins.iter() {
                         println!("[Client] Sending on address: {} using identifier {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.dport);
                     }
-                },
+                }
                 2 | 3 | 4 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!("[Client] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport);
                     }
-                },
+                }
                 _ => { () }
             }
         } else {
@@ -331,12 +334,12 @@ impl Client {
                 match task.clone().data {
                     None => {
                         println!("[Client] Received empty task, skipping");
-                        continue
+                        continue;
                     }
                     Some(Data::Start(_)) => {
                         println!("[Client] Received new measurement during an active measurement, skipping");
-                        continue
-                    },
+                        continue;
+                    }
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
@@ -365,19 +368,19 @@ impl Client {
                             }
                         } else {
                             println!("[Client] Received invalid code from Server");
-                            continue
+                            continue;
                         }
                     }
                     Some(task) => {
                         // outbound_tx will be None if this client is not probing
-                        if let Some (outbound_tx) = &self.outbound_tx {
+                        if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
                             outbound_tx.send(task).await.expect("Unable to send task to outbound thread");
                         }
-                    },
+                    }
                 };
 
-            // If we don't have an active measurement
+                // If we don't have an active measurement
             } else {
                 println!("[Client] Starting new measurement");
 
@@ -385,8 +388,8 @@ impl Client {
                     Data::Start(start) => (start.active, start.measurement_id),
                     _ => { // First task is not a start measurement task
                         println!("[Client] Received non-start packet for init");
-                        continue
-                    },
+                        continue;
+                    }
                 };
 
                 *self.active.lock().unwrap() = true;

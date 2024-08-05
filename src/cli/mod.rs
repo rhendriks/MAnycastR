@@ -1,31 +1,34 @@
+use std::{fs, io};
 use std::collections::HashMap;
 use std::error::Error;
-use rand::seq::SliceRandom;
-use std::{fs, io};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
+use csv::Writer;
+use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::{Attr, Cell, color, format, Row, Table};
+use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
-use csv::Writer;
-use indicatif::{ProgressBar, ProgressStyle};
-use crate::custom_module;
+
 use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
-    VerfploeterResult, controller_client::ControllerClient, TaskResult, ScheduleMeasurement,
-    Targets, Empty, Address, verfploeter_result::Value::Ping as ResultPing,
-    verfploeter_result::Value::Udp as ResultUdp, verfploeter_result::Value::Tcp as ResultTcp,
-    verfploeter_result::Value::Trace as ResultTrace,
-    udp_payload::Value::DnsARecord, udp_payload::Value::DnsChaos,
-    Origin, trace_result::Value, Configuration
+    Address, Configuration, controller_client::ControllerClient, Empty,
+    Origin, ScheduleMeasurement, Targets, TaskResult,
+    trace_result::Value, udp_payload::Value::DnsARecord,
+    udp_payload::Value::DnsChaos,
+    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Tcp as ResultTcp,
+    verfploeter_result::Value::Trace as ResultTrace, verfploeter_result::Value::Udp as ResultUdp, VerfploeterResult,
 };
+
+use crate::custom_module;
 
 /// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -45,7 +48,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", server_address);
     let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
-    let mut cli_client = CliClient { grpc_client, };
+    let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
         cli_client.list_clients_to_server().await
@@ -97,7 +100,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src: Some(src),
                             sport: sport.into(),
                             dport: dport.into(),
-                        })
+                        }),
                     })
                 })
                 .collect();
@@ -133,7 +136,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if configurations.is_some()  {
+        if configurations.is_some() {
             if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6 {
                 panic!("Configurations are not all of the same type as the target addresses! (IPv4 & IPv6)");
             }
@@ -291,7 +294,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
-            chaos: chaos_value.to_string()
+            chaos: chaos_value.to_string(),
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
     } else {
@@ -359,17 +362,17 @@ impl CliClient {
             (((clients.len() as f32 - 1.0) * interval as f32) // Last client starts probing
                 + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
-            / 60.0 // Convert to minutes
+                / 60.0 // Convert to minutes
         };
         if divide {
             println!("[CLI] This measurement will be divided among clients (each client will probe a unique subset of the addresses)");
         }
-        println!("[CLI] This measurement will take an estimated {:.2} minutes",  measurement_length);
+        println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
 
         let response = self.grpc_client.do_measurement(Request::new(measurement_definition.clone())).await;
         if let Err(e) = response {
             println!("[CLI] Server did not perform the measurement for reason: '{}'", e.message());
-            return Err(Box::new(e))
+            return Err(Box::new(e));
         }
         let start = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -650,7 +653,7 @@ fn write_results(
     cli: bool,
     file: File,
     measurement_type: u32,
-    traceroute: bool
+    traceroute: bool,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
@@ -737,7 +740,7 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 fn get_result(
     result: VerfploeterResult,
     rx_client_id: u32,
-    measurement_type: u32
+    measurement_type: u32,
 ) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
@@ -776,7 +779,7 @@ fn get_result(
 
                     vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport, seq, ack]
                 }
-            }
+            };
         }
         ResultPing(ping) => {
             let rx_time = ping.rx_time.to_string();
@@ -839,18 +842,18 @@ fn get_result(
                     let probe_dport = "53".to_string();
 
                     return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
-                },
+                }
                 Some(DnsChaos(dns_chaos)) => {
                     let tx_client_id = dns_chaos.tx_client_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
                     return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_client_id, chaos];
-                },
+                }
                 None => {
                     panic!("No payload found for UDP result!");
                 }
             }
-        },
+        }
         ResultTcp(tcp) => {
             let rx_time = tcp.rx_time.to_string();
             let ip_result = tcp.ip_result.unwrap();

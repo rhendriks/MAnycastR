@@ -1,20 +1,22 @@
+extern crate mac_address;
 use std::{io, thread};
 use std::io::BufRead;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use std::sync::{Arc, Mutex};
-use futures::Future;
-use pcap::{Capture, Device};
-use crate::custom_module;
-use custom_module::IP;
-use tokio::sync::mpsc::Receiver;
-use custom_module::verfploeter::{PingPayload, address::Value::V4, address::Value::V6, task::Data, Origin};
-use custom_module::verfploeter::task::Data::{Targets, End, Trace};
 use std::process::{Command, Stdio};
-use tokio::sync::mpsc::error::TryRecvError;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-extern crate mac_address;
+use futures::Future;
 use mac_address::get_mac_address;
+use pcap::{Capture, Device};
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::Receiver;
+
+use custom_module::IP;
+use custom_module::verfploeter::{address::Value::V4, address::Value::V6, Origin, PingPayload, task::Data};
+use custom_module::verfploeter::task::Data::{End, Targets, Trace};
+
+use crate::custom_module;
+use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 
 /// Creates a ping packet.
 ///
@@ -65,7 +67,7 @@ pub fn create_ping(
             Some(V6(v6)) => {
                 payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
                 payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
-            },
+            }
             None => panic!("Source address is None"),
         }
     }
@@ -75,16 +77,16 @@ pub fn create_ping(
             Some(V6(v6)) => {
                 payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
                 payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
-            },
+            }
             None => panic!("Destination address is None"),
         }
     }
 
-   return if src.is_v6() {
+    return if src.is_v6() {
         ICMPPacket::echo_request_v6(origin.sport as u16, 2, payload_bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
     } else {
         ICMPPacket::echo_request(origin.dport as u16, 2, payload_bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
-    }
+    };
 }
 
 /// Creates a UDP packet.
@@ -141,7 +143,7 @@ pub fn create_udp(
         } else {
             panic!("Invalid measurement type")
         }
-    }
+    };
 }
 
 /// Creates a TCP packet.
@@ -190,7 +192,7 @@ pub fn create_tcp(
         let dest = IP::from(dst.clone()).get_v4();
 
         TCPPacket::tcp_syn_ack(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255)
-    }
+    };
 }
 
 
@@ -238,7 +240,7 @@ pub fn outbound(
             'outer: loop {
                 if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
-                    break
+                    break;
                 }
                 let task;
                 // Receive tasks from the outbound channel
@@ -247,22 +249,22 @@ pub fn outbound(
                         Ok(t) => {
                             task = t;
                             break;
-                        },
+                        }
                         Err(e) => {
                             if e == TryRecvError::Disconnected {
                                 println!("[Client outbound] Channel disconnected");
-                                break 'outer
+                                break 'outer;
                             }
                             // wait some time and try again
                             thread::sleep(Duration::from_millis(100));
-                        },
+                        }
                     };
                 }
 
                 match task {
                     End(_) => { // An End task means the measurement has finished
                         break
-                    },
+                    }
                     Targets(targets) => {
                         for origin in &tx_origins {
                             match measurement_type {
@@ -277,7 +279,7 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send ICMP packet");
                                     }
-                                },
+                                }
                                 2 | 4 => {
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
@@ -291,7 +293,7 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send UDP packet");
                                     }
-                                },
+                                }
                                 3 => {
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
@@ -304,11 +306,11 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).expect("Failed to send TCP packet");
                                     }
-                                },
+                                }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
                         }
-                    },
+                    }
                     Trace(trace) => {
                         perform_trace(
                             trace.origins,
@@ -320,8 +322,8 @@ pub fn outbound(
                             trace.max_ttl as u8,
                             measurement_type,
                         );
-                        continue
-                    },
+                        continue;
+                    }
                     _ => continue, // Invalid measurement
                 };
             }
@@ -423,7 +425,7 @@ fn perform_trace(
 /// * 'finish_rx' - main thread will send a message on this channel when the measurement must be aborted
 fn abort_handler(
     abort: Arc<Mutex<bool>>,
-    finish_rx: futures::sync::oneshot::Receiver<()>
+    finish_rx: futures::sync::oneshot::Receiver<()>,
 ) {
     thread::Builder::new()
         .name("abort_thread".to_string())
@@ -454,8 +456,8 @@ fn get_ethernet_header(is_ipv6: bool) -> Vec<u8> {
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to run command");
-        // .stdout
-        // .expect("Failed to capture stdout");
+    // .stdout
+    // .expect("Failed to capture stdout");
 
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
