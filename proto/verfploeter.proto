@@ -51,9 +51,10 @@ message ScheduleMeasurement {
   bool ipv6 = 7;
   bool traceroute = 8;
   uint32 interval = 9;
-  bool divide = 10;
-  Targets targets = 11;
-  string chaos = 12;
+  bool responsive = 10;
+  bool divide = 11;
+  Targets targets = 12;
+  string chaos = 13;
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)

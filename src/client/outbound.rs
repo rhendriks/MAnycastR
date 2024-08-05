@@ -33,10 +33,6 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 /// # Returns
 ///
 /// A ping packet (including the IP header) as a byte vector.
-///
-/// # Panics
-///
-/// If the source address or destination address is None
 pub fn create_ping(
     origin: Origin,
     dst: IP,

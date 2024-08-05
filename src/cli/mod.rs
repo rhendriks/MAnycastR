@@ -56,6 +56,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Source IP for the measurement
         let unicast = matches.is_present("UNICAST");
         let divide = matches.is_present("DIVIDE");
+        let responsive = matches.is_present("RESPONSIVE");
         // Divide-and-conquer is only supported for anycast-based measurements
         if divide && unicast {
             panic!("Divide-and-conquer is only supported for anycast-based measurements");
@@ -291,6 +292,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             traceroute,
             divide,
             interval,
+            responsive,
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
