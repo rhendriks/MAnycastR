@@ -90,11 +90,12 @@ message IPv6 {
 // A task for a Client, can be either a Start, Ping, UDP, TCP, or an Empty task
 message Task {
   oneof data {
-    End end = 1;
-    Start start = 2;
-    Targets targets = 3;
-    Empty empty = 4;
-    Trace trace = 5;
+    End end = 1; // End measurement
+    Start start = 2; // Start measurement
+    Targets targets = 3; // Targets to measure
+//    Empty empty = 4;
+    Trace trace = 4;
+    Targets r_targets = 5; // Targets to be checked for responsiveness
   }
 }
 
@@ -155,7 +156,13 @@ message VerfploeterResult {
     UDPResult udp = 2;
     TCPResult tcp = 3;
     TraceResult trace = 4;
+    ResponsiveResult responsive = 5;
   }
+}
+
+// ResponsiveResult, contains a responsive addresses
+message ResponsiveResult {
+  Address responsive_address = 1;
 }
 
 // IPResult, contains either an IPv4Result or an IPv6Result, and the TTL

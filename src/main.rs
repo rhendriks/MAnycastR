@@ -371,7 +371,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("r")
                         .takes_value(false)
                         .required(false)
-                        .help("First check if the target is responsive using the Server before sending probes from clients")
+                        .help("First check if the target is responsive using the Server before sending probes from clients [UNIMPLEMENTED]")
                     )
                 )
         )
