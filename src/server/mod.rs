@@ -22,7 +22,6 @@ use custom_module::verfploeter::{
     ip_result::Value::Ipv6, Metadata, Origin, ScheduleMeasurement, Start,
     Targets, Task, task::Data::End as TaskEnd, task::Data::Start as TaskStart, task::Data::Trace as TaskTrace,
     TaskResult, Trace, verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult,
-    verfploeter_result::Value::Responsive as ResponsiveResult,
 };
 
 use crate::custom_module;
@@ -757,27 +756,6 @@ impl Controller for ControllerService {
                 } else {
                     map.insert(probe_dst, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
                 }
-            }
-        }
-
-        // Responsive targets handler
-        if *self.responsive.lock().unwrap() {
-            // TODO targets that send multiple probe replies will be added multiple times
-            // If this contains responsive targets
-            if task_result.client_id == u32::MAX {
-                let mut responsive_targets = self.responsive_targets.lock().unwrap();
-
-                let targets: Vec<Address> = task_result.result_list.iter().map(|result| {
-                    let value = result.value.clone().unwrap();
-                    match value {
-                        ResponsiveResult(value) => {
-                            value.responsive_address.expect("invalid responsive address")
-                        }
-                        _ => panic!("Non-responsive target"),
-                    }
-                }).collect();
-
-                responsive_targets.append(&mut targets.clone());
             }
         }
 

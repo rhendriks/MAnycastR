@@ -154,13 +154,7 @@ message VerfploeterResult {
     UDPResult udp = 2;
     TCPResult tcp = 3;
     TraceResult trace = 4;
-    ResponsiveResult responsive = 5;
   }
-}
-
-// ResponsiveResult, contains a responsive addresses
-message ResponsiveResult {
-  Address responsive_address = 1;
 }
 
 // IPResult, contains either an IPv4Result or an IPv6Result, and the TTL

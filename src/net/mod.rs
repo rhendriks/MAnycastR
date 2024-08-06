@@ -6,6 +6,7 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 
 pub(crate) mod netv6;
+pub(crate) mod packet;
 
 // URL that explains it this packet is part of MAnycast and is for research purposes.
 const INFO_URL: &str = "edu.nl/9qt8h";  // TODO hardcoded URL
