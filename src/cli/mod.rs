@@ -357,9 +357,9 @@ impl CliClient {
         // Obtain connected client information for metadata
         let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to server failed");
         let mut clients = HashMap::new();
-        for client in response.into_inner().clients {
+        response.into_inner().clients.iter().for_each(|client| {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
-        }
+        });
 
         let measurement_length = if divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
