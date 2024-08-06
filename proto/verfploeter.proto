@@ -93,9 +93,7 @@ message Task {
     End end = 1; // End measurement
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
-//    Empty empty = 4;
     Trace trace = 4;
-    Targets r_targets = 5; // Targets to be checked for responsiveness
   }
 }
 
@@ -110,8 +108,7 @@ message Start {
   bool ipv6 = 7;
   bool traceroute = 8;
   repeated Origin rx_origins = 9; // origins to listen for
-  string chaos = 10; // domain to use for chaos queries
-  bool responsive = 11; // whether this client checks for responsiveness
+  string chaos = 10; // domain to use for chaos queries TODO use this as DNS A record as well
 }
 
 // An end message, indicates the client should stop sending out probes

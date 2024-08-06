@@ -158,7 +158,6 @@ impl Client {
         let is_gcd = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let chaos = start_measurement.chaos;
-        let responsive = start_measurement.responsive;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -284,14 +283,7 @@ impl Client {
         } else {
             println!("[Client] Not sending probes");
         }
-
-        // TODO responsiveness measuring
-        if responsive {
-            println!("[Client] Measuring responsiveness");
-            // listen(tx.clone(), inbound_rx_f, measurement_id + 1, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
-            // outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id + 1, start_measurement.measurement_type as u8, chaos);
-        }
-
+        
         let mut self_clone = self.clone();
         // Thread that listens for task results from inbound and forwards them to the server
         thread::Builder::new()
