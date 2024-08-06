@@ -283,7 +283,7 @@ impl Client {
         } else {
             println!("[Client] Not sending probes");
         }
-        
+
         let mut self_clone = self.clone();
         // Thread that listens for task results from inbound and forwards them to the server
         thread::Builder::new()

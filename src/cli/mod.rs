@@ -872,6 +872,5 @@ fn get_result(
 
             return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
         },
-        _ => panic!("Unexpected result!"),
     }
 }
