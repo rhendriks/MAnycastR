@@ -158,6 +158,7 @@ impl Client {
         let is_gcd = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let chaos = start_measurement.chaos;
+        let responsive = start_measurement.responsive;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -186,6 +187,7 @@ impl Client {
 
             // We only listen to our own unicast address (each client has its own unicast address)
             rx_origins = vec![unicast_origin.clone()];
+
 
             println!("[Client] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
@@ -258,6 +260,9 @@ impl Client {
 
         filter.push_str(&*filter_parts.join(" or"));
 
+        // Start listening thread
+        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
+
         if is_probing {
             match start_measurement.measurement_type {
                 1 => {
@@ -274,15 +279,17 @@ impl Client {
                 }
                 _ => { () }
             }
+            // Start sending thread
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos);
         } else {
             println!("[Client] Not sending probes");
         }
 
-        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
-
-        // Start sending thread, if this client is probing
-        if is_probing {
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos)
+        // TODO responsiveness measuring
+        if responsive {
+            println!("[Client] Measuring responsiveness");
+            // listen(tx.clone(), inbound_rx_f, measurement_id + 1, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
+            // outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id + 1, start_measurement.measurement_type as u8, chaos);
         }
 
         let mut self_clone = self.clone();
