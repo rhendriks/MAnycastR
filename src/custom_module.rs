@@ -4,6 +4,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
 pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match &self.value {
@@ -20,6 +21,24 @@ impl Address {
         match &self.value {
             Some(V6(_)) => true,
             _ => false,
+        }
+    }
+
+    /// Get the prefix of the address
+    ///
+    /// /24 for IPv4 and /48 for IPv6
+    ///
+    pub fn get_prefix(&self) -> u64 {
+        match &self.value {
+            Some(V4(v4)) => {
+                // Return the sum of first 24 bits
+                ((v4 >> 8) & 0x00FFFFFF).into()
+            },
+            Some(V6(v6)) => {
+                // Return the sum of first 48 bits
+                (v6.p1 >> 16) & 0x0000FFFFFFFF
+            },
+            None => 0,
         }
     }
 }
