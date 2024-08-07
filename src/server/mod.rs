@@ -56,7 +56,6 @@ pub struct ControllerService {
     active: Arc<Mutex<bool>>,
     traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (clients, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
-    responsive: Arc<Mutex<bool>>,
     responsive_targets: Arc<Mutex<Vec<Address>>>,
 }
 
@@ -459,7 +458,7 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_client = 0;
         let mut current_active_client = 0;
-        let chaos = &scheduled_measurement.chaos.clone();
+        let chaos = scheduled_measurement.chaos.clone();
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
             // Add all configuration probing origins assigned to this client
@@ -530,24 +529,35 @@ impl Controller for ControllerService {
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {
-            // TODO implement probing for responsive targets
-            // TODO get chunks
-            // Interval of this measurement
-            let mut interval = tokio::time::interval(p_rate);
-            let server_origin = Origin {
-                src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
-                sport: 65535, // TODO ports from task
-                dport: 62321,
-            };
-
+            let responsive_targets = self.responsive_targets.clone();
             spawn(async move { // thread probing for responsiveness
-                for chunk in dst_addresses.chunks(chunk_size) {
+                let mut interval = tokio::time::interval(p_rate);
+                let server_origin = Origin {
+                    src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
+                    sport: 65535, // TODO ports from task
+                    dport: 62321,
+                };
+
+                // Group hitlist targets by prefix
+                let prefix_targets: HashMap<u64, Vec<Address>> = dst_addresses.iter()
+                    .fold(HashMap::new(), |mut acc, target| {
+                        let prefix = target.get_prefix();
+                        acc.entry(prefix).or_insert_with(Vec::new).push(target.clone());
+                        acc
+                    });
+
+                // Probe each prefix to find a responsive target
+                for chunk in prefix_targets.values() {
+                    let chunk = chunk.clone();
+                    let server_origin = server_origin.clone();
+                    let chaos = chaos.clone();
+                    let responsive_targets = responsive_targets.clone();
                     spawn(async move {
                         // Get the responsive address for this chunk
-                        let responsive_addr = probe_targets(is_ipv6, Vec::from(chunk), measurement_type as u8, server_origin.clone(), chaos).await;
+                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos).await;
                         if let Some(addr) = responsive_addr {
                             // Add the responsive target to the list (if we found one)
-                            self.responsive_targets.lock().unwrap().push(addr);
+                            responsive_targets.lock().unwrap().push(addr);
                         }
                     });
 
@@ -556,130 +566,122 @@ impl Controller for ControllerService {
             });
 
 
-            send_responsive(); // TODO instruct clients to probe responsive targets
+            // send_responsive(); // TODO instruct clients to probe responsive targets
+        } else {
+            // Create a thread that streams tasks for each client
+            for sender in senders.iter() {
+                let sender = sender.clone();
+                // This client's unique ID
+                let client_id = *client_list_u32.get(all_client_i as usize).unwrap();
+                all_client_i += 1;
+                let clients = selected_clients.clone();
+                // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
+                let is_probing = clients.len() == 0 || clients.contains(&client_id);
 
-            // Create a chunk for each prefix
+                // Get the hitlist for this client
+                let hitlist_targets = if !is_probing {
+                    vec![]
+                } else if is_divide {
+                    // Each client gets its own chunk of the hitlist
+                    let targets_chunk = dst_addresses.len() / current_active_client as usize;
 
-            // Probe each address in the chunk sequentially
+                    // Get start and end index of targets to probe for this client
+                    let start_index = active_client_i as usize * targets_chunk;
+                    let end_index = if active_client_i == current_active_client - 1 {
+                        dst_addresses.len() // End of the list
+                    } else {
+                        start_index + targets_chunk
+                    };
 
-            // * If responsive, add to responsive_targets and go to next chunk
-            // * If not responsive, go to next address in the chunk
-            // * If all addresses in the chunk are not responsive, go to next chunk
-        }
-
-        // Create a thread that streams tasks for each client
-        for sender in senders.iter() {
-            let sender = sender.clone();
-            // This client's unique ID
-            let client_id = *client_list_u32.get(all_client_i as usize).unwrap();
-            all_client_i += 1;
-            let clients = selected_clients.clone();
-            // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
-            let is_probing = clients.len() == 0 || clients.contains(&client_id);
-
-            // Get the hitlist for this client
-            let hitlist_targets = if !is_probing {
-                vec![]
-            } else if is_divide {
-                // Each client gets its own chunk of the hitlist
-                let targets_chunk = dst_addresses.len() / current_active_client as usize;
-
-                // Get start and end index of targets to probe for this client
-                let start_index = active_client_i as usize * targets_chunk;
-                let end_index = if active_client_i == current_active_client - 1 {
-                    dst_addresses.len() // End of the list
+                    dst_addresses[start_index..end_index].to_vec()
                 } else {
-                    start_index + targets_chunk
+                    // All clients get the same hitlist
+                    dst_addresses.clone()
                 };
 
-                dst_addresses[start_index..end_index].to_vec()
-            } else {
-                // All clients get the same hitlist
-                dst_addresses.clone()
-            };
+                // increment if this client is sending probes
+                if is_probing { active_client_i += 1; }
 
-            // increment if this client is sending probes
-            if is_probing { active_client_i += 1; }
+                let tx_f = tx_f.clone();
+                let mut rx_f = tx_f.subscribe();
+                let clients_finished = clients_finished.clone();
+                let is_active = self.active.clone();
 
-            let tx_f = tx_f.clone();
-            let mut rx_f = tx_f.subscribe();
-            let clients_finished = clients_finished.clone();
-            let is_active = self.active.clone();
-
-            spawn(async move {
-                // Send out packets at the required interval
-                let mut interval = tokio::time::interval(p_rate);
-                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if is_probing && !is_divide {
-                    tokio::time::sleep(Duration::from_secs((active_client_i - 1) * inter_client_interval as u64)).await;
-                }
-
-                for chunk in hitlist_targets.chunks(chunk_size) {
-                    // If the CLI disconnects during task distribution, abort
-                    if *is_active.lock().unwrap() == false {
-                        clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
-                        if clients_finished.lock().unwrap().clone() == number_of_clients {
-                            println!("[Server] CLI disconnected during task distribution");
-                            tx_f.send(()).expect("Failed to send finished signal");
-                        }
-                        return; // abort
+                spawn(async move {
+                    // Send out packets at the required interval
+                    let mut interval = tokio::time::interval(p_rate);
+                    // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+                    if is_probing && !is_divide {
+                        tokio::time::sleep(Duration::from_secs((active_client_i - 1) * inter_client_interval as u64)).await;
                     }
 
-                    if is_probing {
-                        let task = Task {
-                            data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
-                                dst_addresses: chunk.to_vec(),
-                            })),
-                        };
+                    for chunk in hitlist_targets.chunks(chunk_size) {
+                        // If the CLI disconnects during task distribution, abort
+                        if *is_active.lock().unwrap() == false {
+                            clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                            if clients_finished.lock().unwrap().clone() == number_of_clients {
+                                println!("[Server] CLI disconnected during task distribution");
+                                tx_f.send(()).expect("Failed to send finished signal");
+                            }
+                            return; // abort
+                        }
 
-                        // Send packet to client
-                        match sender.send(Ok(task)).await {
-                            Ok(_) => (),
-                            Err(e) => {
-                                println!("[Server] Failed to send task {:?} to client {}", e, client_id);
-                                if sender.is_closed() { // If the client is no longer connected
-                                    println!("[Server] Client {} is no longer connected and removed from the measurement", client_id);
-                                    break;
+                        if is_probing {
+                            let task = Task {
+                                data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                                    dst_addresses: chunk.to_vec(),
+                                })),
+                            };
+
+                            // Send packet to client
+                            match sender.send(Ok(task)).await {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    println!("[Server] Failed to send task {:?} to client {}", e, client_id);
+                                    if sender.is_closed() { // If the client is no longer connected
+                                        println!("[Server] Client {} is no longer connected and removed from the measurement", client_id);
+                                        break;
+                                    }
                                 }
                             }
                         }
+
+                        interval.tick().await;
                     }
 
-                    interval.tick().await;
-                }
+                    clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                    if clients_finished.lock().unwrap().clone() == number_of_clients {
+                        print!("[Server] Measurement finished, awaiting clients... ");
+                        // Send a message to the other sending threads to let them know the measurement is finished
+                        tx_f.send(()).expect("Failed to send finished signal");
+                    } else {
+                        // Wait for the last client to finish
+                        rx_f.recv().await.expect("Failed to receive finished signal");
 
-                clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
-                if clients_finished.lock().unwrap().clone() == number_of_clients {
-                    print!("[Server] Measurement finished, awaiting clients... ");
-                    // Send a message to the other sending threads to let them know the measurement is finished
-                    tx_f.send(()).expect("Failed to send finished signal");
-                } else {
-                    // Wait for the last client to finish
-                    rx_f.recv().await.expect("Failed to receive finished signal");
-
-                    // If the CLI disconnects whilst waiting for the finished signal, abort
-                    if *is_active.lock().unwrap() == false {
-                        return; // abort
+                        // If the CLI disconnects whilst waiting for the finished signal, abort
+                        if *is_active.lock().unwrap() == false {
+                            return; // abort
+                        }
                     }
-                }
 
-                // Sleep 1 second to give the client time to finish the measurement and receive the last responses (traceroute takes longer)
-                if is_traceroute {
-                    tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
-                } else {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
+                    // Sleep 1 second to give the client time to finish the measurement and receive the last responses (traceroute takes longer)
+                    if is_traceroute {
+                        tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
 
-                // Send a message to the client to let it know it has received everything for the current measurement
-                match sender.send(Ok(Task {
-                    data: Some(TaskEnd(End {
-                        code: 0,
-                    })),
-                })).await {
-                    Ok(_) => (),
-                    Err(e) => println!("[Server] Failed to send 'end message' {:?} to client {}", e, client_id),
-                }
-            });
+                    // Send a message to the client to let it know it has received everything for the current measurement
+                    match sender.send(Ok(Task {
+                        data: Some(TaskEnd(End {
+                            code: 0,
+                        })),
+                    })).await {
+                        Ok(_) => (),
+                        Err(e) => println!("[Server] Failed to send 'end message' {:?} to client {}", e, client_id),
+                    }
+                });
+            }
         }
 
         let rx = CLIReceiver {
@@ -958,7 +960,6 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
         active: Arc::new(Mutex::new(false)),
         traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         traceroute: Arc::new(Mutex::new(false)),
-        responsive: Arc::new(Mutex::new(false)),
         responsive_targets: Arc::new(Mutex::new(Vec::new())),
     };
 
@@ -1010,7 +1011,7 @@ async fn probe_targets(
     targets: Vec<Address>,
     measurement_type: u8,
     source: Origin,
-    chaos: &String,
+    chaos: String,
 ) -> Option<Address> {
     // Get capture interface
     let ethernet_header = get_ethernet_header(is_ipv6);
@@ -1081,15 +1082,72 @@ async fn probe_targets(
 
        // Check if we have received a response
        if let Ok(_) = cap.next_packet() {
-            return Some(target);
+            return Some(target.clone());
        }
    }
     return None; // No responsive target found
 }
 
 /// Instruct the clients to probe responsive targets.
-async fn send_responsive() {
-    todo!()
+///
+/// Awaits responsive targets and instructs the clients to probe them.
+///
+/// Clients will be instructed to probe the responsive targets in a round-robin fashion, with the configured delay between each client.
+///
+/// # Arguments
+///
+/// * 'senders' - a list of senders that connect to the clients
+///
+/// # Returns
+///
+/// A result containing channel senders for each client.
+async fn send_responsive(
+    senders: Vec<Sender<Result<Task, Status>>>,
+    responsive_targets: Arc<Mutex<Vec<Address>>>,
+    client_interval: u32,
+) {
+    // Create thread awaiting responsive targets and sending them to the clients
+    loop {
+        loop { // await responsive targets
+            if !responsive_targets.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+
+            // Check for finished signal
+        }
+        // await responsive targets
+        let target = responsive_targets.lock().unwrap().pop().expect("Failed to pop responsive target"); // TODO get multiple responsive targets at once
+
+        // Send to client with 'client_interval' gaps
+        let senders = senders.clone();
+        spawn(async move {
+            for sender in senders.iter() {
+                let task = Task {
+                    data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                        dst_addresses: vec![target.clone()],
+                    })),
+                };
+                // Send packet to client
+                match sender.send(Ok(task)).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        println!("[Server] Failed to send task {:?} to client", e); // TODO will spam console
+                        if sender.is_closed() { // If the client is no longer connected
+                            println!("[Server] Client is no longer connected and removed from the measurement");
+                            continue;
+                        }
+                    }
+                }
+
+                // TODO interval tick await
+            }
+        });
+    }
+
+    // Wait for the last client to finish
+    tokio::time::sleep(Duration::from_secs(client_interval as u64) * senders.len() as u32).await;
+
 }
 
 
