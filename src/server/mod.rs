@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use clap::ArgMatches;
 use futures_core::Stream;
+use local_ip_address::local_ip;
+use pcap::{Capture, Device};
 use rand::Rng;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -25,6 +27,7 @@ use custom_module::verfploeter::{
 };
 
 use crate::custom_module;
+use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 use crate::server::mpsc::Sender;
 
 /// Struct for the Server service
@@ -429,6 +432,7 @@ impl Controller for ControllerService {
         let inter_client_interval = scheduled_measurement.interval;
         *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
+        let responsive = scheduled_measurement.responsive;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -520,17 +524,55 @@ impl Controller for ControllerService {
         let clients_finished = Arc::new(Mutex::new(0));
         // Shared channel that clients will wait for till the last client has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
-        let mut t: u64 = 0; // Index for active clients
-        let mut i = 0; // Index for the client list
+        let mut active_client_i: u64 = 0; // Index for active clients
+        let mut all_client_i = 0; // Index for the client list
         let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
+
+        if responsive {
+            // TODO implement probing for responsive targets
+            // TODO get chunks
+            // Interval of this measurement
+            let mut interval = tokio::time::interval(p_rate);
+            let server_origin = Origin {
+                src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
+                sport: 65535, // TODO ports from task
+                dport: 62321,
+            };
+
+            spawn(async move { // thread probing for responsiveness
+                for chunk in dst_addresses.chunks(chunk_size) {
+                    spawn(async move {
+                        // Get the responsive address for this chunk
+                        let responsive_addr = probe_targets(is_ipv6, Vec::from(chunk), measurement_type as u8, server_origin.clone(), chaos).await;
+                        if let Some(addr) = responsive_addr {
+                            // Add the responsive target to the list (if we found one)
+                            self.responsive_targets.lock().unwrap().push(addr);
+                        }
+                    });
+
+                    interval.tick().await; // rate limit
+                }
+            });
+
+
+            send_responsive(); // TODO instruct clients to probe responsive targets
+
+            // Create a chunk for each prefix
+
+            // Probe each address in the chunk sequentially
+
+            // * If responsive, add to responsive_targets and go to next chunk
+            // * If not responsive, go to next address in the chunk
+            // * If all addresses in the chunk are not responsive, go to next chunk
+        }
 
         // Create a thread that streams tasks for each client
         for sender in senders.iter() {
             let sender = sender.clone();
             // This client's unique ID
-            let client_id = *client_list_u32.get(i as usize).unwrap();
-            i += 1;
+            let client_id = *client_list_u32.get(all_client_i as usize).unwrap();
+            all_client_i += 1;
             let clients = selected_clients.clone();
             // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
             let is_probing = clients.len() == 0 || clients.contains(&client_id);
@@ -543,8 +585,8 @@ impl Controller for ControllerService {
                 let targets_chunk = dst_addresses.len() / current_active_client as usize;
 
                 // Get start and end index of targets to probe for this client
-                let start_index = t as usize * targets_chunk;
-                let end_index = if t == current_active_client - 1 {
+                let start_index = active_client_i as usize * targets_chunk;
+                let end_index = if active_client_i == current_active_client - 1 {
                     dst_addresses.len() // End of the list
                 } else {
                     start_index + targets_chunk
@@ -557,7 +599,7 @@ impl Controller for ControllerService {
             };
 
             // increment if this client is sending probes
-            if is_probing { t += 1; }
+            if is_probing { active_client_i += 1; }
 
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
@@ -569,7 +611,7 @@ impl Controller for ControllerService {
                 let mut interval = tokio::time::interval(p_rate);
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if is_probing && !is_divide {
-                    tokio::time::sleep(Duration::from_secs((t - 1) * inter_client_interval as u64)).await;
+                    tokio::time::sleep(Duration::from_secs((active_client_i - 1) * inter_client_interval as u64)).await;
                 }
 
                 for chunk in hitlist_targets.chunks(chunk_size) {
@@ -828,7 +870,6 @@ impl Controller for ControllerService {
     }
 }
 
-
 /// Start a thread that orchestrates the traceroute measurements.
 ///
 /// This thread will instruct the clients to perform traceroute measurements to targets that sent probe replies toward multiple clients.
@@ -958,4 +999,97 @@ fn load_tls() -> Identity {
 
     identity
 }
+
+/// Probe a set of targets to find a responsive target.
+///
+/// Probing is done sequentially, with a 1-second delay between each target.
+///
+/// If a target is responsive, we stop probing and return the target.
+async fn probe_targets(
+    is_ipv6: bool,
+    targets: Vec<Address>,
+    measurement_type: u8,
+    source: Origin,
+    chaos: &String,
+) -> Option<Address> {
+    // Get capture interface
+    let ethernet_header = get_ethernet_header(is_ipv6);
+    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+    let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
+        .immediate_mode(true)
+        .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
+        .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
+    cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
+
+   for target in targets {
+       // Get filter
+       let filter = if is_ipv6 {
+           if measurement_type == 1 {
+               format!("src host {} and icmp6", target)
+           } else if measurement_type == 2 | 4 {
+               format!("src host {} and ip6[6] == 17", target)
+           } else {
+               format!("src host {} and ip6[6] == 6", target)
+           }
+       } else {
+            if measurement_type == 1 {
+                 format!("src host {} and icmp", target)
+            } else if measurement_type == 2 | 4 {
+                 format!("src host {} and udp", target)
+            } else {
+                 format!("src host {} and tcp", target)
+            }
+       };
+       cap.filter(&*filter, true).expect("Failed to set pcap filter");
+
+       let mut packet = ethernet_header.clone();
+       match measurement_type {
+           1 => {
+               packet.extend_from_slice(&create_ping(
+                   source.clone(),
+                   IP::from(target.clone()),
+                   0,
+                   0,
+               ));
+           },
+            2 | 4 => {
+                 packet.extend_from_slice(&create_udp(
+                      source.clone(),
+                      IP::from(target.clone()),
+                      0,
+                      measurement_type,
+                      is_ipv6,
+                      chaos.clone(),
+                 ));
+            },
+           3 => {
+               packet.extend_from_slice(&create_tcp(
+                   source.clone(),
+                   IP::from(target.clone()),
+                   0,
+                   is_ipv6,
+                   true,
+               ));
+           },
+            _ => {
+                 panic!("Invalid measurement type");
+            }
+       }
+
+       cap.sendpacket(packet).expect("Failed to send packet");
+       tokio::time::sleep(Duration::from_secs(1)).await;
+
+       // Check if we have received a response
+       if let Ok(_) = cap.next_packet() {
+            return Some(target);
+       }
+   }
+    return None; // No responsive target found
+}
+
+/// Instruct the clients to probe responsive targets.
+async fn send_responsive() {
+    todo!()
+}
+
 
