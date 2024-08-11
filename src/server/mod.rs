@@ -1132,7 +1132,7 @@ async fn send_responsive(
                 match sender.send(Ok(task)).await {
                     Ok(_) => (),
                     Err(e) => {
-                        println!("[Server] Failed to send task {:?} to client", e); // TODO will spam console
+                        println!("[Server] Failed to send task {:?} to client", e);
                         if sender.is_closed() { // If the client is no longer connected
                             println!("[Server] Client is no longer connected and removed from the measurement");
                             continue;

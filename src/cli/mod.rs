@@ -478,7 +478,8 @@ impl CliClient {
         };
 
         // Output file // TODO add option to write as a compressed file
-        let mut file = File::create(format!("./out/{}{}{}.csv", measurement_type, type_str, timestamp_end_str)).expect("Unable to create file");
+        // TODO allow for filename input, including path
+        let mut file = File::create(format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)).expect("Unable to create file");
 
         // Write metadata of measurement
         if !graceful {
