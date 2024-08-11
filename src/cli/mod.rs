@@ -282,6 +282,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
+        // get optional path to write results to
+        let path = if matches.is_present("OUT") {
+            matches.value_of("OUT")
+        } else {
+            None
+        };
+
         // Create the measurement definition and send it to the server
         let measurement_definition = ScheduleMeasurement {
             rate,
@@ -300,7 +307,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }),
             chaos: chaos_value.to_string(),
         };
-        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default()).await
+        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
     } else {
         panic!("Unrecognized command");
     }
@@ -322,6 +329,8 @@ impl CliClient {
     /// * 'hitlist_length' - the length of the hitlist
     ///
     /// * 'configurations' - a vector of configurations that are used for the measurement
+    ///
+    /// * 'path' - optional path to write the results to
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
@@ -330,6 +339,7 @@ impl CliClient {
         hitlist: &str,
         hitlist_length: usize,
         configurations: Vec<Configuration>,
+        path: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         let divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
@@ -477,9 +487,19 @@ impl CliClient {
             "MAnycast"
         };
 
-        // Output file // TODO add option to write as a compressed file
+        // Output file
+        let file_path = if path.is_some() {
+            if path.unwrap().ends_with('/') { // user provided a path, use default naming convention for file
+                format!("{}{}{}{}.csv", path.unwrap(), measurement_type, type_str, timestamp_end_str)
+            } else { // user provided a file (with possibly a path)
+                format!("{}", path.unwrap())
+            }
+        } else { // write file to current directory using default naming convention
+            format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)
+        };
+
         // TODO allow for filename input, including path
-        let mut file = File::create(format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)).expect("Unable to create file");
+        let mut file = File::create(file_path.clone()).expect(format!("Unable to create file at {}", file_path).as_str());
 
         // Write metadata of measurement
         if !graceful {
