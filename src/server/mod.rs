@@ -590,21 +590,11 @@ impl Controller for ControllerService {
             });
 
             println!("instructing clients to probe responsive targets...");
-            send_responsive(senders.clone(), self.responsive_targets.clone(), inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
-            println!("clients finished");
-
-            // Send finished signal to all clients
-            for sender in senders.iter() {
-                // Send a message to the client to let it know it has received everything for the current measurement
-                match sender.send(Ok(Task {
-                    data: Some(TaskEnd(End {
-                        code: 0,
-                    })),
-                })).await {
-                    Ok(_) => (),
-                    Err(_) => println!("[Server] Failed to send 'end message' to client"),
-                }
-            }
+            let responsive_targets = self.responsive_targets.clone();
+            spawn(async move { // thread probing for responsiveness
+                send_responsive(senders, responsive_targets, inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
+                println!("clients finished");
+            });
 
         } else {
             // Create a thread that streams tasks for each client
@@ -1159,6 +1149,19 @@ async fn send_responsive(
             // Check if the server has finished probing for responsive targets
             if rx_f.try_recv().is_ok() {
                 println!("received finished signal");
+
+                // Send finished signal to all clients
+                for sender in senders.iter() {
+                    // Send a message to the client to let it know it has received everything for the current measurement
+                    match sender.send(Ok(Task {
+                        data: Some(TaskEnd(End {
+                            code: 0,
+                        })),
+                    })).await {
+                        Ok(_) => (),
+                        Err(_) => println!("[Server] Failed to send 'end message' to client"),
+                    }
+                }
                 return;
             }
         }
