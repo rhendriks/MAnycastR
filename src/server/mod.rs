@@ -561,7 +561,6 @@ impl Controller for ControllerService {
                         // Get the responsive address for this chunk
                         let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos).await;
                         if let Some(addr) = responsive_addr {
-                            println!("Found responsive target: {}", addr);
                             // Add the responsive target to the list (if we found one)
                             responsive_targets.lock().unwrap().push(addr);
                         }
@@ -1152,7 +1151,6 @@ async fn send_responsive(
         // Wait for responsive targets
         loop {
             if !responsive_targets.lock().unwrap().is_empty() {
-                println!("responsive targets found");
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1163,18 +1161,15 @@ async fn send_responsive(
                 return;
             }
         }
-        println!("getting responsive targets...");
 
         // Pop up to 10 targets from the list
         let targets: Vec<Address> = {
             let mut all_targets = responsive_targets.lock().unwrap();
             let n = std::cmp::min(10, all_targets.len());
 
-            println!("getting n responsive targets... {}", n);
+            println!("targets list length ... {}", all_targets.len());
             all_targets.drain(..n).collect()
         };
-
-        println!("instructing clients to probe responsive targets... {:?}", targets);
 
         // Send to client with 'client_interval' gaps
         let senders = senders.clone();
@@ -1197,11 +1192,11 @@ async fn send_responsive(
                         }
                     }
                 }
+
+                // Sleep for the client interval
+                tokio::time::sleep(Duration::from_secs(client_interval)).await;
             }
         });
-
-        // Sleep for the client interval
-        tokio::time::sleep(Duration::from_secs(client_interval)).await;
     }
 }
 
