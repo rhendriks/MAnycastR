@@ -579,6 +579,8 @@ impl Controller for ControllerService {
                     }
                 }
 
+                println!("sending finished signal");
+
                 // Send a message to the other sending threads to let them know the measurement is finished
                 tx_f.send(()).expect("Failed to send finished signal");
 
@@ -1141,6 +1143,7 @@ async fn send_responsive(
 
             // Check if the server has finished probing for responsive targets
             if rx_f.try_recv().is_ok() {
+                println!("received finished signal");
                 return;
             }
         }
