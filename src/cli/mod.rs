@@ -393,7 +393,7 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
                                           timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
                                           timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
         println!("[CLI] Measurement started at {}", timestamp_start.format("%H:%M:%S"));
