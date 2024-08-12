@@ -561,6 +561,7 @@ impl Controller for ControllerService {
                         // Get the responsive address for this chunk
                         let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos).await;
                         if let Some(addr) = responsive_addr {
+                            println!("Found responsive target: {}", addr);
                             // Add the responsive target to the list (if we found one)
                             responsive_targets.lock().unwrap().push(addr);
                         }
@@ -569,9 +570,7 @@ impl Controller for ControllerService {
                     interval.tick().await; // rate limit
                 }
 
-                // TODO wait till responsive targets is empty (i.e., all targets have been probed)
-                // TODO send finished signal to send_responsive
-
+                // Wait for all clients to finish (i.e., responsive_targets is emptied)
                 loop {
                     if responsive_targets.lock().unwrap().len() == 0 {
                         break;
@@ -1028,7 +1027,7 @@ fn load_tls() -> Identity {
 /// Probing is done sequentially, with a 1-second delay between each target.
 ///
 /// If a target is responsive, we stop probing and return the target.
-async fn probe_targets(
+async fn probe_targets( // TODO OOM killed
     is_ipv6: bool,
     targets: Vec<Address>,
     measurement_type: u8,
@@ -1107,7 +1106,7 @@ async fn probe_targets(
             return Some(target.clone());
        }
    }
-    return None; // No responsive target found
+    None // No responsive target found
 }
 
 /// Instruct the clients to probe responsive targets.
@@ -1151,6 +1150,8 @@ async fn send_responsive(
 
             all_targets.drain(..n).collect()
         };
+
+        println!("instructing clients to probe responsive targets... {:?}", targets);
 
         // Send to client with 'client_interval' gaps
         let senders = senders.clone();
