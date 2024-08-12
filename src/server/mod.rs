@@ -1134,6 +1134,7 @@ async fn send_responsive(
         loop {
             println!("awaiting responsive targets...");
             if !responsive_targets.lock().unwrap().is_empty() {
+                println!("responsive targets found");
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1143,12 +1144,14 @@ async fn send_responsive(
                 return;
             }
         }
+        println!("getting responsive targets...");
 
         // Pop up to 10 targets from the list
         let targets: Vec<Address> = {
             let mut all_targets = responsive_targets.lock().unwrap();
             let n = std::cmp::min(10, all_targets.len());
 
+            println!("getting n responsive targets... {}", n);
             all_targets.drain(..n).collect()
         };
 
@@ -1157,7 +1160,6 @@ async fn send_responsive(
         // Send to client with 'client_interval' gaps
         let senders = senders.clone();
         spawn(async move {
-            let targets = targets.clone();
             let task = Task {
                 data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
                     dst_addresses: targets,
