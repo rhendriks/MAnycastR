@@ -571,6 +571,9 @@ impl Controller for ControllerService {
                     interval.tick().await; // rate limit
                 }
 
+                // 10 seconds time for remaining prefixes that are being probed TODO make this dynamic
+                tokio::time::sleep(Duration::from_secs(10)).await;
+
                 // Wait for all clients to finish (i.e., responsive_targets is emptied)
                 loop {
                     println!("Responsive targets2: {:?}", responsive_targets.lock().unwrap());
@@ -1042,9 +1045,10 @@ async fn probe_targets( // TODO OOM killed
     // Get capture interface
     let ethernet_header = get_ethernet_header(is_ipv6);
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+    // TODO create a new capture for each target resulting in a lot of overhead
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
-        .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
+        .buffer_size(1_000)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
 
