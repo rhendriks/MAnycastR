@@ -13,6 +13,7 @@ use local_ip_address::local_ip;
 use pcap::{Capture, Device};
 use rand::Rng;
 use tokio::spawn;
+use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, transport::Server};
 use tonic::transport::{Identity, ServerTlsConfig};
@@ -428,7 +429,7 @@ impl Controller for ControllerService {
         let is_ipv6 = scheduled_measurement.ipv6;
         let is_traceroute = scheduled_measurement.traceroute;
         let is_divide = scheduled_measurement.divide;
-        let inter_client_interval = scheduled_measurement.interval;
+        let inter_client_interval = scheduled_measurement.interval as u64;
         *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
         let responsive = scheduled_measurement.responsive;
@@ -529,6 +530,10 @@ impl Controller for ControllerService {
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {
+            // Finished signal channel
+            let (tx_f, rx_f) = tokio::sync::broadcast::channel::<()>(1);
+
+            println!("Probing for responsive targets from server...");
             let responsive_targets = self.responsive_targets.clone();
             spawn(async move { // thread probing for responsiveness
                 let mut interval = tokio::time::interval(p_rate);
@@ -563,10 +568,27 @@ impl Controller for ControllerService {
 
                     interval.tick().await; // rate limit
                 }
+
+                // TODO wait till responsive targets is empty (i.e., all targets have been probed)
+                // TODO send finished signal to send_responsive
+
+                loop {
+                    if responsive_targets.lock().unwrap().len() == 0 {
+                        break;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
+
+                // Send a message to the other sending threads to let them know the measurement is finished
+                tx_f.send(()).expect("Failed to send finished signal");
+
             });
 
+            println!("instructing clients to probe responsive targets...");
+            send_responsive(senders, self.responsive_targets.clone(), inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
+            println!("clients finished");
 
-            // send_responsive(); // TODO instruct clients to probe responsive targets
         } else {
             // Create a thread that streams tasks for each client
             for sender in senders.iter() {
@@ -1104,32 +1126,45 @@ async fn probe_targets(
 async fn send_responsive(
     senders: Vec<Sender<Result<Task, Status>>>,
     responsive_targets: Arc<Mutex<Vec<Address>>>,
-    client_interval: u32,
+    client_interval: u64,
+    mut rx_f: Receiver<()>,
 ) {
     // Create thread awaiting responsive targets and sending them to the clients
     loop {
-        loop { // await responsive targets
+        // Wait for responsive targets
+        loop {
             if !responsive_targets.lock().unwrap().is_empty() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
 
-            // Check for finished signal
+            // Check if the server has finished probing for responsive targets
+            if rx_f.try_recv().is_ok() {
+                return;
+            }
         }
-        // await responsive targets
-        let target = responsive_targets.lock().unwrap().pop().expect("Failed to pop responsive target"); // TODO get multiple responsive targets at once
+
+        // Pop up to 10 targets from the list
+        let targets: Vec<Address> = {
+            let mut all_targets = responsive_targets.lock().unwrap();
+            let n = std::cmp::min(10, all_targets.len());
+
+            all_targets.drain(..n).collect()
+        };
 
         // Send to client with 'client_interval' gaps
         let senders = senders.clone();
         spawn(async move {
+            let targets = targets.clone();
+            let task = Task {
+                data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                    dst_addresses: targets,
+                })),
+            };
+
             for sender in senders.iter() {
-                let task = Task {
-                    data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
-                        dst_addresses: vec![target.clone()],
-                    })),
-                };
                 // Send packet to client
-                match sender.send(Ok(task)).await {
+                match sender.send(Ok(task.clone())).await {
                     Ok(_) => (),
                     Err(e) => {
                         println!("[Server] Failed to send task {:?} to client", e);
@@ -1139,15 +1174,12 @@ async fn send_responsive(
                         }
                     }
                 }
-
-                // TODO interval tick await
             }
         });
+
+        // Sleep for the client interval
+        tokio::time::sleep(Duration::from_secs(client_interval)).await;
     }
-
-    // Wait for the last client to finish
-    tokio::time::sleep(Duration::from_secs(client_interval as u64) * senders.len() as u32).await;
-
 }
 
 
