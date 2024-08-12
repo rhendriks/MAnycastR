@@ -54,13 +54,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
-        let unicast = matches.is_present("UNICAST");
-        let divide = matches.is_present("DIVIDE");
-        let responsive = matches.is_present("RESPONSIVE");
+        let is_unicast = matches.is_present("UNICAST");
+        let is_divide = matches.is_present("DIVIDE");
+        let is_responsive = matches.is_present("RESPONSIVE");
         // if divide && unicast {
         //     panic!("Divide-and-conquer is only supported for anycast-based measurements");
         // }
-        if responsive && divide {
+        if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
@@ -71,8 +71,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.is_present("CONF") && !unicast {
-            if divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
+        let configurations = if matches.is_present("CONF") && !is_unicast {
+            if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
             let conf_file = matches.value_of("CONF").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
@@ -122,7 +122,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // There must be a defined anycast source address, configuration, or unicast flag
-        if src.is_none() && configurations.is_none() && !unicast {
+        if src.is_none() && configurations.is_none() && !is_unicast {
             panic!("No source address or configuration file provided!");
         }
 
@@ -203,7 +203,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 }
             };
 
-            // configurations.unwrap().append(&mut vec![Configuration {
+            // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
             //     client_id: u32::MAX,
             //     origin: Some(Origin {
             //         source_address: source_ip,
@@ -245,8 +245,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                  interval
         );
 
+        if is_responsive {
+            println!("[CLI] Measurement will be performed in responsive mode (only probing responsive addresses, checked by the Server)");
+        }
+
         // Print the origins used
-        if unicast {
+        if is_unicast {
             if let Some(origin) = &origin {
                 println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
                          origin.sport, origin.dport);
@@ -296,12 +300,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
             measurement_type,
-            unicast,
+            unicast: is_unicast,
             ipv6: is_ipv6,
             traceroute,
-            divide,
+            divide: is_divide,
             interval,
-            responsive,
+            responsive: is_responsive,
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
@@ -628,30 +632,12 @@ impl CliClient {
             Cell::new("Client ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Source address")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Source port")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Destination port")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
-        // TODO retrieve configurations used for each client (source address, source port, destination port)
         for client in response.into_inner().clients {
-            // let ip  = if client.metadata.clone().unwrap().origin.clone().unwrap().source_address.is_some() {
-            //     IP::from(client.metadata.clone().unwrap().origin.unwrap().source_address.unwrap()).to_string()
-            // } else {
-            //     "Default".to_string()
-            // };
             table.add_row(prettytable::row!(
                     client.metadata.clone().unwrap().hostname,
                     client.client_id,
-                    // ip, // Source address of this client
-                    // client.metadata.clone().unwrap().origin.unwrap().source_port, // Source port of this client
-                    // client.metadata.unwrap().origin.unwrap().destination_port // Destination port of this client
                 ));
         }
         table.printstd();

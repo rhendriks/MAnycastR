@@ -634,7 +634,7 @@ impl Controller for ControllerService {
                     let mut interval = tokio::time::interval(p_rate);
                     // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                     if is_probing && !is_divide {
-                        tokio::time::sleep(Duration::from_secs((active_client_i - 1) * inter_client_interval as u64)).await;
+                        tokio::time::sleep(Duration::from_secs((active_client_i - 1) * inter_client_interval)).await;
                     }
 
                     for chunk in hitlist_targets.chunks(chunk_size) {
