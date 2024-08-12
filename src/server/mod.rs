@@ -564,6 +564,7 @@ impl Controller for ControllerService {
                             println!("Found responsive target: {}", addr);
                             // Add the responsive target to the list (if we found one)
                             responsive_targets.lock().unwrap().push(addr);
+                            println!("Responsive targets1: {:?}", responsive_targets.lock().unwrap());
                         }
                     });
 
@@ -572,6 +573,8 @@ impl Controller for ControllerService {
 
                 // Wait for all clients to finish (i.e., responsive_targets is emptied)
                 loop {
+                    println!("Responsive targets2: {:?}", responsive_targets.lock().unwrap());
+
                     if responsive_targets.lock().unwrap().len() == 0 {
                         break;
                     } else {
