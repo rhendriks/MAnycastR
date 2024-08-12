@@ -552,15 +552,19 @@ impl Controller for ControllerService {
                         acc
                     });
 
+                let ethernet_header = get_ethernet_header(is_ipv6);
+                let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
                 // Probe each prefix to find a responsive target
                 for chunk in prefix_targets.values() { // TODO slower than probing rate
+                    let main_interface = main_interface.clone();
+                    let ethernet_header = ethernet_header.clone();
                     let chunk = chunk.clone();
                     let server_origin = server_origin.clone();
                     let chaos = chaos.clone();
                     let responsive_targets = responsive_targets.clone();
                     spawn(async move {
                         // Get the responsive address for this chunk
-                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos).await;
+                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface).await;
                         if let Some(addr) = responsive_addr {
                             // Add the responsive target to the list (if we found one)
                             responsive_targets.lock().unwrap().push(addr);
@@ -1036,17 +1040,17 @@ fn load_tls() -> Identity {
 /// Probing is done sequentially, with a 1-second delay between each target.
 ///
 /// If a target is responsive, we stop probing and return the target.
-async fn probe_targets( // TODO OOM killed
+async fn probe_targets(
     is_ipv6: bool,
     targets: Vec<Address>,
     measurement_type: u8,
     source: Origin,
     chaos: String,
+    ethernet_header: Vec<u8>,
+    main_interface: Device,
 ) -> Option<Address> {
-    // Get capture interface
-    let ethernet_header = get_ethernet_header(is_ipv6);
-    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-    // TODO create a new capture for each target resulting in a lot of overhead
+    // get capture interface
+    // TODO creating a new capture for each target prefix results in a lot of overhead
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(1_000)
