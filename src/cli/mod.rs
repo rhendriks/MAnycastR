@@ -170,7 +170,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             Vec::new()
         };
         if client_ids.len() > 0 {
-            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids);
+            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print client hostnames
         }
 
         // Get the type of measurement
@@ -374,6 +374,8 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         });
 
+
+        // TODO measurement length does not take into account that not all clients may participate
         let measurement_length = if is_divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
