@@ -1,7 +1,9 @@
 use std::fmt::Display;
 use std::net::{Ipv4Addr, Ipv6Addr};
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
+
+pub mod verfploeter { tonic::include_proto!("verfploeter"); }
 
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -19,6 +21,24 @@ impl Address {
         match &self.value {
             Some(V6(_)) => true,
             _ => false,
+        }
+    }
+
+    /// Get the prefix of the address
+    ///
+    /// /24 for IPv4 and /48 for IPv6
+    ///
+    pub fn get_prefix(&self) -> u64 {
+        match &self.value {
+            Some(V4(v4)) => {
+                // Return the sum of first 24 bits
+                ((v4 >> 8) & 0x00FFFFFF).into()
+            },
+            Some(V6(v6)) => {
+                // Return the sum of first 48 bits
+                (v6.p1 >> 16) & 0x0000FFFFFFFF
+            },
+            None => 0,
         }
     }
 }
@@ -88,14 +108,14 @@ impl From<IP> for Address {
             },
             IP::V6(v6) => Address {
                 value: Some(V6(IPv6 {
-                        p1: (v6.segments()[0] as u64) << 48
-                            | (v6.segments()[1] as u64) << 32
-                            | (v6.segments()[2] as u64) << 16
-                            | (v6.segments()[3] as u64),
-                        p2: (v6.segments()[4] as u64) << 48
-                            | (v6.segments()[5] as u64) << 32
-                            | (v6.segments()[6] as u64) << 16
-                            | (v6.segments()[7] as u64),
+                    p1: (v6.segments()[0] as u64) << 48
+                        | (v6.segments()[1] as u64) << 32
+                        | (v6.segments()[2] as u64) << 16
+                        | (v6.segments()[3] as u64),
+                    p2: (v6.segments()[4] as u64) << 48
+                        | (v6.segments()[5] as u64) << 32
+                        | (v6.segments()[6] as u64) << 16
+                        | (v6.segments()[7] as u64),
                 })),
             },
             IP::None => Address {
@@ -136,25 +156,54 @@ impl Display for IPv6 {
 }
 
 impl IpResult {
-    pub fn get_source_address_str(&self) -> String {
+    pub fn get_src_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.source_address.to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let source_address = v6.source_address.clone().expect("None IPv6 data type");
-                ((source_address.p1 as u128) << 64 | source_address.p2 as u128).to_string()
-            },
+                let src = v6.src.clone().expect("None IPv6 data type");
+                ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
+            }
             None => String::from("None"),
         }
     }
 
-    pub fn get_dest_address_str(&self) -> String {
+    pub fn get_dst_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.destination_address.to_string(),
+            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let destination_address = v6.destination_address.clone().expect("None IPv6 data type");
-                ((destination_address.p1 as u128) << 64 | destination_address.p2 as u128).to_string()
-            },
+                let dst = v6.dst.clone().expect("None IPv6 data type");
+                ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
+            }
             None => String::from("None"),
         }
+    }
+}
+
+pub trait Separated {
+    fn with_separator(&self) -> String;
+}
+
+fn format_number(number: usize) -> String {
+    let number_str = number.to_string();
+    let chunks: Vec<&str> = number_str
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .expect("Unable to format number");
+
+    chunks.join(",")
+}
+
+impl Separated for u32 {
+    fn with_separator(&self) -> String {
+        format_number(*self as usize)
+    }
+}
+
+impl Separated for usize {
+    fn with_separator(&self) -> String {
+        format_number(*self)
     }
 }

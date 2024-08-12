@@ -1,23 +1,32 @@
-use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
+
 use super::{ICMPPacket, INFO_URL, PacketPayload};
+use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
 #[derive(Debug)]
 pub struct IPv6Packet {
-    // pub version: u8,             // 4-bit Version
-    // pub traffic_class: u8,       // 8-bit Traffic Class
-    // pub flow_label: u32,         // 20-bit Flow Label
-    pub payload_length: u16,      // 16-bit Payload Length
-    pub next_header: u8,         // 8-bit Next Header
-    pub hop_limit: u8,           // 8-bit Hop Limit
-    pub source_address: Ipv6Addr,
-    pub destination_address: Ipv6Addr,
-    pub payload: PacketPayload,
+    // pub version: u8,                 // 4-bit Version
+    // pub traffic_class: u8,           // 8-bit Traffic Class
+    // pub flow_label: u32,             // 20-bit Flow Label
+    pub payload_length: u16,            // 16-bit Payload Length
+    pub next_header: u8,                // 8-bit Next Header
+    pub hop_limit: u8,                  // 8-bit Hop Limit
+    pub source_address: Ipv6Addr,       // 128-bit Source Address
+    pub destination_address: Ipv6Addr,  // 128-bit Destination Address
+    pub payload: PacketPayload,         // Payload
 }
 
 /// Convert bytes into an IPv6Packet
+///
+/// # Arguments
+///
+/// * 'data' - the bytes to convert
+///
+/// # Remarks
+///
+/// Extension headers are not supported and will result in an Unimplemented PacketPayload
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
@@ -34,7 +43,7 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap()
+            cursor.read_u16::<NetworkEndian>().unwrap(),
         );
         let destination_address = Ipv6Addr::new(
             cursor.read_u16::<NetworkEndian>().unwrap(),
@@ -44,7 +53,7 @@ impl From<&[u8]> for IPv6Packet {
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap(),
             cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap()
+            cursor.read_u16::<NetworkEndian>().unwrap(),
         );
         let payload_bytes = &cursor.into_inner()[40..]; // IPv6 header is 40 bytes
 
@@ -54,23 +63,21 @@ impl From<&[u8]> for IPv6Packet {
                 PacketPayload::ICMP {
                     value: super::ICMPPacket::from(payload_bytes),
                 }
-            },
+            }
             17 => { // UDP
-                if payload_bytes.len() < 8 { PacketPayload::Unimplemented }
-                else {
+                if payload_bytes.len() < 8 { PacketPayload::Unimplemented } else {
                     PacketPayload::UDP {
                         value: super::UDPPacket::from(payload_bytes),
                     }
                 }
-            },
+            }
             6 => { // TCP
-                if payload_bytes.len() < 20 { PacketPayload::Unimplemented }
-                else {
+                if payload_bytes.len() < 20 { PacketPayload::Unimplemented } else {
                     PacketPayload::TCP {
                         value: super::TCPPacket::from(payload_bytes),
                     }
                 }
-            },
+            }
             _ => PacketPayload::Unimplemented,
         };
 
@@ -89,13 +96,16 @@ impl From<&[u8]> for IPv6Packet {
 }
 
 /// Convert an IPv6Packet into bytes
+///
+/// # Arguments
+///
+/// * 'self' - the IPv6Packet to convert
 impl Into<Vec<u8>> for IPv6Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
         // Write traffic class 0x60 and flow label 0x000000
         wtr.write_u32::<NetworkEndian>(0x60000000)
             .expect("Unable to write to byte buffer for IPv6Packet");
-
         wtr.write_u16::<NetworkEndian>(self.payload_length)
             .expect("Unable to write to byte buffer for IPv6Packet");
         wtr.write_u8(self.next_header)
@@ -135,8 +145,9 @@ impl Into<Vec<u8>> for IPv6Packet {
         wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[7])
             .expect("Unable to write to byte buffer for IPv6Packet");
 
+        // Write the payload
         let payload_bytes: Vec<u8> = self.payload.into();
-        wtr.write_all(&*payload_bytes).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+        wtr.write_all(&*payload_bytes).expect("Unable to write to byte buffer for IPv6 packet"); // Payload
 
         wtr
     }
@@ -164,7 +175,7 @@ impl ICMPPacket {
         body: Vec<u8>,
         source_address: u128,
         destination_address: u128,
-        hop_limit: u8
+        hop_limit: u8,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -183,7 +194,7 @@ impl ICMPPacket {
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header.write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        psuedo_header.write_u32::<NetworkEndian>((8 + body_len + INFO_URL.bytes().len() as u16) as u32)// ICMP length
+        psuedo_header.write_u32::<NetworkEndian>((8 + body_len + INFO_URL.bytes().len() as u16) as u32) // ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
@@ -199,7 +210,7 @@ impl ICMPPacket {
             hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
-            payload: PacketPayload::ICMP { value: packet.into(), },
+            payload: PacketPayload::ICMP { value: packet.into() },
         };
 
         let mut bytes: Vec<u8> = v6_packet.into();
@@ -216,7 +227,7 @@ pub struct PseudoHeaderv6 {
     pub destination_address: u128,
     pub length: u32,  // TCP/UDP header + data length
     pub zeros: u32, // 24 0's
-    pub next_header: u8  // 6 for TCP, 17 for UDP
+    pub next_header: u8,  // 6 for TCP, 17 for UDP
 }
 
 /// Converting PsuedoHeaderv6 to bytes
@@ -286,13 +297,14 @@ impl super::UDPPacket {
     /// * 'destination_port' - the destination port of the packet
     ///
     /// * 'body' - the payload of the packet
-    pub fn udp_request_v6( // TODO add IP header
+    pub fn udp_request_v6(
         source_address: u128,
         destination_address: u128,
         source_port: u16,
         destination_port: u16,
-        body: Vec<u8>
+        body: Vec<u8>,
     ) -> Vec<u8> {
+        // TODO add IP header
         let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32;
 
         let mut packet = Self {
@@ -383,7 +395,7 @@ impl super::UDPPacket {
             hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
-            payload: PacketPayload::UDP { value: udp_packet.into(), },
+            payload: PacketPayload::UDP { value: udp_packet.into() },
         };
 
         v6_packet.into()
@@ -442,6 +454,51 @@ impl super::UDPPacket {
 
         dns_body
     }
+
+    /// Create a UDP packet with a CHAOS TXT record request.
+    pub fn chaos_request_v6(
+        source_address: u128,
+        destination_address: u128,
+        source_port: u16,
+        client_id: u8,
+        chaos: String,
+    ) -> Vec<u8> {
+        let destination_port = 53u16;
+        let dns_body = Self::create_chaos_request(client_id, chaos);
+        let udp_length = 8 + dns_body.len() as u32;
+
+        let mut udp_packet = Self {
+            source_port,
+            destination_port,
+            length: udp_length as u16,
+            checksum: 0,
+            body: dns_body,
+        };
+
+        let udp_bytes: Vec<u8> = (&udp_packet).into();
+
+        let pseudo_header = PseudoHeaderv6 {
+            source_address,
+            destination_address,
+            zeros: 0,
+            length: udp_length,
+            next_header: 17,
+        };
+
+        udp_packet.checksum = calculate_checksum_v6(udp_bytes.clone(), pseudo_header);
+
+        // Create the IPv6 packet
+        let v6_packet = IPv6Packet {
+            payload_length: udp_length as u16,
+            next_header: 17, // UDP
+            hop_limit: 255,
+            source_address: Ipv6Addr::from(source_address),
+            destination_address: Ipv6Addr::from(destination_address),
+            payload: PacketPayload::UDP { value: udp_packet.into() },
+        };
+
+        v6_packet.into()
+    }
 }
 
 impl super::TCPPacket {
@@ -468,8 +525,8 @@ impl super::TCPPacket {
         source_port: u16,
         destination_port: u16,
         seq: u32,
-        ack:u32,
-        hop_limit: u8
+        ack: u32,
+        hop_limit: u8,
     ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
@@ -481,7 +538,7 @@ impl super::TCPPacket {
             checksum: 0,
             pointer: 0,
             body: INFO_URL.bytes().collect(),
-            window_size: 0
+            window_size: 0,
         };
 
         let bytes: Vec<u8> = (&packet).into();
@@ -500,7 +557,7 @@ impl super::TCPPacket {
             hop_limit,
             source_address: Ipv6Addr::from(source_address),
             destination_address: Ipv6Addr::from(destination_address),
-            payload: PacketPayload::TCP { value: packet.into(), },
+            payload: PacketPayload::TCP { value: packet.into() },
         };
 
         v6_packet.into()

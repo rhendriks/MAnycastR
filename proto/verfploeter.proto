@@ -8,12 +8,12 @@ package verfploeter;
 
 // The controller which controls and is responsible for most communication
 service Controller {
-  // Client lets the server know the task is finished
-  rpc TaskFinished(Finished) returns (Ack) {}
-  // Client announces itself, and starts its connection with the Server. The server sends a stream of Task
+  // Client lets the server know the measurement is finished
+  rpc MeasurementFinished(Finished) returns (Ack) {}
+  // Client announces itself, and starts its connection with the Server. The server sends a stream of tasks
   rpc ClientConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a measurement
-  rpc DoTask(ScheduleTask) returns (stream TaskResult) {}
+  rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
   // CLI asks Server to list clients, Server returns ClientList
   rpc ListClients(Empty) returns (ClientList) {}
   // Client sends TaskResult to Server
@@ -25,38 +25,36 @@ service Controller {
 // Empty message
 message Empty {}
 
-// Acknowledgement of a task, with a boolean whether it was successful or not, and a possible error message.
+// Acknowledgement of a measurement, with a boolean whether it was successful or not, and a possible error message.
 message Ack {
   bool success = 1;
   string error_message = 2;
 }
 
-// TaskFinished message, sent by a client to the server when a task is finished
+// Finished message, sent by a client to the server when a measurement is finished, or as acknowledgement of a received task result
 message Finished {
-  uint32 task_id = 1;
+  uint32 measurement_id = 1;
   uint32 client_id = 2;
 }
 
 // A client ID
 message ClientId {uint32 client_id = 1;}
 
-// Schedule a task with the Server can be either a Ping, UDP, or TCP task, with a probing rate, source address, and a list of clients that have to send out probes
-message ScheduleTask {
+// Schedule a measurement with the Server
+message ScheduleMeasurement {
   uint32 rate = 1;
   repeated uint32 clients = 2;
-  Origin origin = 3; // Default origin to use (for all clients)
+  Origin origin = 3; // Default origin to use (for all clients)  // TODO combine 3 and 4 into one
   repeated Configuration configurations = 4; // Configuration of client and origin combinations
-  uint32 task_type = 5;
+  uint32 measurement_type = 5;
   bool unicast = 6;
   bool ipv6 = 7;
   bool traceroute = 8;
   uint32 interval = 9;
-  bool divide = 10;
-  oneof data {
-    Ping ping = 11;
-    UDP udp = 12;
-    TCP tcp = 13;
-  }
+  bool responsive = 10;
+  bool divide = 11;
+  Targets targets = 12;
+  string chaos = 13;
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)
@@ -70,7 +68,7 @@ message Client {
   Metadata metadata = 2;
 }
 
-// Metadata (as used in Client), contains a hostname, and the origin the client uses
+// Metadata (as used in Client), contains a hostname
 message Metadata {
   string hostname = 1;
 }
@@ -83,7 +81,7 @@ message Address {
   }
 }
 
-// IPv6 address message (since protobuf does not support 128 bit values)
+// IPv6 address message (protobuf does not support 128 bit values)
 message IPv6 {
   fixed64 p1 = 1;
   fixed64 p2 = 2;
@@ -92,41 +90,40 @@ message IPv6 {
 // A task for a Client, can be either a Start, Ping, UDP, TCP, or an Empty task
 message Task {
   oneof data {
-    End end = 1;
-    Start start = 2;
-    Ping ping = 3;
-    UDP udp = 4;
-    TCP tcp = 5;
-    Empty empty = 6;
-    Trace trace = 7;
+    End end = 1; // End measurement
+    Start start = 2; // Start measurement
+    Targets targets = 3; // Targets to measure
+    Trace trace = 4;
   }
 }
 
-// A start message, indicates the probing rate (packets per second), whether the client should send out probes, the type of task, and the source address to be used
+// A start message, indicates the probing rate (packets per second), whether the client should send out probes, the measurement type, and the source address to be used
 message Start {
   uint32 rate = 1;
   bool active = 2;
-  uint32 task_id = 3;
-  uint32 task_type = 4;
-  repeated Origin probe_origins = 5; // origins to send with
+  uint32 measurement_id = 3;
+  uint32 measurement_type = 4;
+  repeated Origin tx_origins = 5; // origins to send with
   bool unicast = 6;
   bool ipv6 = 7;
   bool traceroute = 8;
-  repeated Origin listen_origins = 9; // origins to listen for
+  repeated Origin rx_origins = 9; // origins to listen for
+  string chaos = 10; // domain to use for chaos queries TODO use this as DNS A record as well
 }
 
 // An end message, indicates the client should stop sending out probes
 message End {
+  uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
 
-// Origin: the source address and port combinations used by clients in a task
+// Origin: the source address and port combinations used by clients in a measurement
 message Origin {
-  Address source_address = 1;
-  fixed32 source_port = 2;
-  fixed32 destination_port = 3;
+  Address src = 1;
+  fixed32 sport = 2;
+  fixed32 dport = 3;
 }
 
-// Configuration: Configuration of client and origin combinations
+// Configuration: mapping of client ID to origin
 message Configuration {
   Origin origin = 1;
   uint32 client_id = 2;
@@ -134,24 +131,14 @@ message Configuration {
 
 // A traceroute task, which has a destination address, a max_ttl (expected number of hops to traceroute), and a list of flows (a unique flow for each receiving client)
 message Trace {
-  Address destination_address = 1;
+  Address dst = 1;
   uint32 max_ttl = 2;
   repeated Origin origins = 3;
 }
 
-// A Ping, which has a list of destination addresses
-message Ping {
-  repeated Address destination_addresses = 1;
-}
-
-// UDP, which has a list of destination addresses
-message UDP {
-  repeated Address destination_addresses = 1;
-}
-
-// TCP, which has a list of destination addresses
-message TCP {
-  repeated Address destination_addresses = 1;
+// A list of target addresses
+message Targets {
+  repeated Address dst_addresses = 1;
 }
 
 // A TaskResult, contains the Client that executed the task, and a list of results
@@ -181,23 +168,23 @@ message IPResult {
 
 // IPv4Result, contains all information extracted from the IPv4 header: source, destination addresses and TTL
 message IPv4Result {
-  fixed32 source_address = 1;
-  fixed32 destination_address = 2;
+  fixed32 src = 1;
+  fixed32 dst = 2;
 }
 
 // IPv6Result, contains all information extracted from the IPv6 header: source, destination addresses
 message IPv6Result {
-  IPv6 source_address = 1;
-  IPv6 destination_address = 2;
+  IPv6 src = 1;
+  IPv6 dst = 2;
 }
 
 // TraceResult, contains the IP result, TTL, receive time, transmit time, and the sender client ID
 message TraceResult {
   IPResult ip_result = 1; // IP result of the host that replied to the traceroute probe
   uint32 ttl = 2; // TTL of the traceroute probe that resulted in this trace result
-  uint64 receive_time = 3; // receive time of the traceroute probe that resulted in this trace result
-  uint64 transmit_time = 4; // transmit time of the traceroute probe that resulted in this trace result
-  uint32 sender_client_id = 5; // client ID of the client that sent out the traceroute probe that resulted in this trace result
+  uint64 rx_time = 3; // receive time of the traceroute probe that resulted in this trace result
+  uint64 tx_time = 4; // transmit time of the traceroute probe that resulted in this trace result
+  uint32 tx_client_id = 5; // client ID of the client that sent out the traceroute probe that resulted in this trace result
   oneof value { // Depending on the protocol used, the trace result contains a ping, udp, or tcp result
     PingResult ping = 6;
     UDPResult udp = 7;
@@ -207,24 +194,24 @@ message TraceResult {
 
 // Result of a ping which has a receive time, an ipv4 result, and the ping payload information
 message PingResult {
-  uint64 receive_time = 1;
+  uint64 rx_time = 1;
   IPResult ip_result = 2;
   PingPayload payload = 3;
 }
 
 // PingPayload. The payload of a ping which contains the transmission time, source/dest address, and the sender client ID
 message PingPayload {
-  uint64 transmit_time = 1;
-  Address source_address = 2;
-  Address destination_address = 3;
-  fixed32 sender_client_id = 4;
+  uint64 tx_time = 1;
+  Address src = 2;
+  Address dst = 3;
+  fixed32 tx_client_id = 4;
 }
 
 // UDP result contains the receive time, source and destination port, an ipv4 result, the UDP payload, and a code (0-15 for ICMP codes, 16 => UDP response)
 message UDPResult {
-  uint64 receive_time = 1;
-  fixed32 source_port = 2;
-  fixed32 destination_port = 3;
+  uint64 rx_time = 1;
+  fixed32 sport = 2;
+  fixed32 dport = 3;
   fixed32 code = 4;
   IPResult ip_result = 5;
   UDPPayload payload = 6;
@@ -240,25 +227,25 @@ message UDPPayload {
 
 // UDP payload, which is extracted from the domain of the DNS A Record reply, containing information about the probe
 message DNS_A_Record {
-  uint64 transmit_time = 1;
-  Address source_address = 2; // we can't fit 128 bit addresses into the domain (so for ipv6 we store the 32 right-most bits)
-  Address destination_address = 3;
-  fixed32 sender_client_id = 4;
-  fixed32 source_port = 5;
+  uint64 tx_time = 1;
+  Address src = 2; // we can't fit 128 bit addresses into the domain (so for ipv6 we store the 32 right-most bits)
+  Address dst = 3;
+  fixed32 tx_client_id = 4;
+  fixed32 sport = 5;
 }
 
 // CHAOS payload, which is extracted from the domain of the DNS CHAOS reply
 message DNS_CHAOS {
-  fixed32 sender_client_id = 1;
+  fixed32 tx_client_id = 1;
   string chaos_data = 2;
 }
 
 // TCP result which contains a receive time, an ipv4 result, source & destination ports, and the ack & seq numbers
 message TCPResult {
-  uint64 receive_time = 1;
+  uint64 rx_time = 1;
   IPResult ip_result = 2;
-  fixed32 source_port = 3;
-  fixed32 destination_port = 4;
+  fixed32 sport = 3;
+  fixed32 dport = 4;
   fixed32 seq = 5;
   fixed32 ack = 6;
 }
