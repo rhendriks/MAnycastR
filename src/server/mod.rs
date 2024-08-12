@@ -1132,6 +1132,7 @@ async fn send_responsive(
     loop {
         // Wait for responsive targets
         loop {
+            println!("awaiting responsive targets...");
             if !responsive_targets.lock().unwrap().is_empty() {
                 break;
             }
