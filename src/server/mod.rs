@@ -593,8 +593,21 @@ impl Controller for ControllerService {
             });
 
             println!("instructing clients to probe responsive targets...");
-            send_responsive(senders, self.responsive_targets.clone(), inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
+            send_responsive(senders.clone(), self.responsive_targets.clone(), inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
             println!("clients finished");
+
+            // Send finished signal to all clients
+            for sender in senders.iter() {
+                // Send a message to the client to let it know it has received everything for the current measurement
+                match sender.send(Ok(Task {
+                    data: Some(TaskEnd(End {
+                        code: 0,
+                    })),
+                })).await {
+                    Ok(_) => (),
+                    Err(_) => println!("[Server] Failed to send 'end message' to client"),
+                }
+            }
 
         } else {
             // Create a thread that streams tasks for each client
