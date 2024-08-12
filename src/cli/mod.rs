@@ -341,14 +341,14 @@ impl CliClient {
         configurations: Vec<Configuration>,
         path: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
-        let divide = measurement_definition.divide;
+        let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
         let rate = measurement_definition.rate;
         let measurement_type = measurement_definition.measurement_type;
-        let unicast = measurement_definition.unicast;
-        let traceroute = measurement_definition.traceroute;
+        let is_unicast = measurement_definition.unicast;
+        let is_traceroute = measurement_definition.traceroute;
         let interval = measurement_definition.interval;
-        let origin = if unicast {
+        let origin = if is_unicast {
             let sport = measurement_definition.origin.clone().unwrap().sport;
             let dport = measurement_definition.origin.clone().unwrap().dport;
             format!("Unicast (source port: {}, destination port: {})", sport, dport)
@@ -370,7 +370,7 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         });
 
-        let measurement_length = if divide {
+        let measurement_length = if is_divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
         } else {
             (((clients.len() as f32 - 1.0) * interval as f32) // Last client starts probing
@@ -378,7 +378,7 @@ impl CliClient {
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
-        if divide {
+        if is_divide {
             println!("[CLI] This measurement will be divided among clients (each client will probe a unique subset of the addresses)");
         }
         println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
@@ -444,7 +444,7 @@ impl CliClient {
         let temp_file = File::create("temp").expect("Unable to create file");
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, temp_file, measurement_type, traceroute);
+        write_results(rx_r, cli, temp_file, measurement_type, is_traceroute);
 
         let mut replies_count = 0;
         while let Ok(Some(task_result)) = stream.message().await {
@@ -481,10 +481,10 @@ impl CliClient {
                                         timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
 
         // Determine the type of measurement
-        let measurement_type = if unicast {
-            "GCD"
+        let measurement_type = if is_unicast {
+            "GCD_"
         } else {
-            "MAnycast"
+            "MAnycast_"
         };
 
         // Output file
@@ -507,7 +507,7 @@ impl CliClient {
         } else {
             file.write_all(b"# Completed measurement\n")?;
         }
-        if divide { file.write_all(b"# Divide-and-conquer measurement\n")?; }
+        if is_divide { file.write_all(b"# Divide-and-conquer measurement\n")?; }
         file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
