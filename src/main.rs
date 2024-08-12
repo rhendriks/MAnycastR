@@ -368,7 +368,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                     )
                     .arg(Arg::with_name("RESPONSIVE")
                         .long("responsive")
-                        .short("r")
+                        .short("v")
                         .takes_value(false)
                         .required(false)
                         .help("First check if the target is responsive using the Server before sending probes from clients [UNIMPLEMENTED]")
