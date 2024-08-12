@@ -475,7 +475,10 @@ impl CliClient {
         println!("[CLI] Number of replies captured: {}", replies_count.with_separator());
 
         // If the stream closed during a measurement
-        if !graceful { println!("[CLI] Measurement ended prematurely!"); }
+        if !graceful {
+            println!("[CLI] Measurement ended prematurely!");
+            // TODO deadlock bug
+        }
 
 
         // Get current timestamp and create timestamp file encoding
