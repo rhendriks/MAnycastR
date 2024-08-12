@@ -553,7 +553,7 @@ impl Controller for ControllerService {
                     });
 
                 // Probe each prefix to find a responsive target
-                for chunk in prefix_targets.values() {
+                for chunk in prefix_targets.values() { // TODO slower than probing rate
                     let chunk = chunk.clone();
                     let server_origin = server_origin.clone();
                     let chaos = chaos.clone();
@@ -569,6 +569,7 @@ impl Controller for ControllerService {
 
                     interval.tick().await; // rate limit
                 }
+                println!("finished probing for responsive targets");
 
                 // 10 seconds time for remaining prefixes that are being probed TODO make this dynamic
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -1170,8 +1171,6 @@ async fn send_responsive(
         let targets: Vec<Address> = {
             let mut all_targets = responsive_targets.lock().unwrap();
             let n = std::cmp::min(10, all_targets.len());
-
-            println!("targets list length ... {}", all_targets.len());
             all_targets.drain(..n).collect()
         };
 
