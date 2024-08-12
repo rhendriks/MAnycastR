@@ -536,6 +536,7 @@ impl Controller for ControllerService {
             println!("Probing for responsive targets from server...");
             let responsive_targets = self.responsive_targets.clone();
             spawn(async move { // thread probing for responsiveness
+                let p_rate = Duration::from_nanos(((1.0 / rate as f64) * 1_000_000_000.0) as u64); // p_rate without chunk size
                 let mut interval = tokio::time::interval(p_rate);
                 let server_origin = Origin {
                     src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
