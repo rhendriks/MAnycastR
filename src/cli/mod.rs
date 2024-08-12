@@ -179,9 +179,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
 
         // CHAOS value to send in the DNS query
-        let chaos_value = if measurement_type == 4 {
-            if matches.is_present("CHAOS") {
-                matches.value_of("CHAOS").unwrap()
+        let chaos_value = if measurement_type == 4 { // TODO use hostname for DNS A record as well
+            if matches.is_present("HOSTNAME") {
+                matches.value_of("HOSTNAME").unwrap()
             } else {
                 ""
             }
