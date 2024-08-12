@@ -374,8 +374,12 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         });
 
-        let measurement_length = if is_divide || is_unicast {
+        let measurement_length = if is_divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
+        } else if is_unicast {
+            ((hitlist_length as f32 / rate as f32) // Time to probe all addresses
+                + 1.0) // Time to wait for last replies
+                / 60.0 // Convert to minutes
         } else {
             (((clients.len() as f32 - 1.0) * interval as f32) // Last client starts probing
                 + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
