@@ -7,28 +7,40 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Server](server) - a central controller that receives a task from the CLI and sends instructions to the connected clients to perform measurements
-//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a task that is sent to the server
+//! * [Server](server) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
+//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the server
 //! * [Client](client) - the client connects to the server and awaits tasks to send out probes and listen for incoming replies
 //!
-//! # Tasks
+//! # Measurements
 //!
-//! A task is created by locally running the CLI using a command, from this command a task is created which is sent to the server.
-//! The server performs this task by sending instructions to the clients, who perform the desired measurement by sending out probes.
+//! A measurement consists of multiple tasks that are executed by the clients.
+//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the server.
+//! The server performs this measurement by sending tasks to the clients, who perform the desired measurement by sending out probes.
 //! These clients then stream back the results to the server, as they receive replies.
 //! The server forwards these results to the CLI.
 //!
-//! The tasks are probing measurements, which can be:
+//! The measurement are probing measurements, which can be:
 //! * ICMP ECHO requests
 //! * UDP DNS A Record requests
 //! * TCP SYN/ACK probes
+//! * UDP CHAOS requests
 //!
-//! When creating a task you can specify:
+//! When creating a measurement you can specify:
 //! * **Source address** - the source address from which the probes are to be sent out
 //! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
 //! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
+//! * **Stream** - Stream the results to the command-line interface
+//! * **Shuffle** - Shuffle the hitlist before sending out probes
+//! * **Unicast** - Probe the targets using the unicast address of each client
+//! * **Traceroute** - Probe the targets using traceroute (currently broken)
+//! * **Divide** - Divide the hitlist into equal separate parts for each client (divide and conquer)
+//! * **Interval** - Interval between separate client's probes to the same target (default: 1s)
+//! * **Address** - Source IP to use for the probes
+//! * **Source port** - Source port to use for the probes (default: 62321)
+//! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
+//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by clients)
 //!
 //! # Results
 //!
@@ -53,7 +65,7 @@
 //! cli -s [SERVER ADDRESS] client-list
 //! ```
 //!
-//! Finally, you can perform a task.
+//! Finally, you can perform a measurement.
 //! ```
 //! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
 //! ```
@@ -83,7 +95,7 @@
 //!
 //! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
 //! * Each client probes a target address, approximately 1 second after the previous client sent out theirs.
-//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI) [UNIMPLEMENTED].
+//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
 //! * The rate of the measurements is adjustable.
 //! * The clients that have to send out probes can be specified.
 //!
@@ -179,7 +191,7 @@ fn main() {
         let _ = cli::execute(cli_matches);
         return;
     } else if let Some(server_matches) = matches.subcommand_matches("server") {
-        println!("[Main] Executing server");
+        println!("[Main] Executing server version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -194,56 +206,49 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
     App::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
-        .about("Performs measurements")
+        .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
             SubCommand::with_name("server").about("Launches the verfploeter server")
                 .arg(
                     Arg::with_name("port")
+                        .long("port")
                         .short("p")
                         .takes_value(true)
-                        .help("Port to listen on [default: 50001]")
                         .required(false)
+                        .help("Port to listen on [default: 50001]")
                 )
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(false)
-                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                         .required(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                 )
-
         )
         .subcommand(
             SubCommand::with_name("client").about("Launches the verfploeter client")
                 .arg(
-                    Arg::with_name("hostname")
-                        .short("h")
-                        .takes_value(true)
-                        .help("hostname for this client")
-                        .required(false)
-                )
-                .arg(
                     Arg::with_name("server")
                         .short("s")
                         .takes_value(true)
+                        .required(true)
                         .help("hostname/ip address:port of the server")
-                        .default_value("[::1]:50001")
                 )
-                // .arg(
-                //     Arg::with_name("multi-probing")
-                //         .long("multi-probing")
-                //         .takes_value(false)
-                //         .help("Enable multi-source probing")
-                //         .required(false)
-                // )
-                .arg (
+                .arg(
+                    Arg::with_name("hostname")
+                        .long("hostname")
+                        .short("h")
+                        .takes_value(true)
+                        .required(false)
+                        .help("hostname for this client (default: $HOSTNAME)")
+                )
+                .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(false)
-                        .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
                         .required(false)
+                        .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
                 )
-
         )
         .subcommand(
             SubCommand::with_name("cli").about("Verfploeter CLI")
@@ -251,102 +256,130 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                     Arg::with_name("server")
                         .short("s")
                         .takes_value(true)
-                        .help("hostname/ip address:port of the server")
-                        .default_value("[::1]:50001")
+                        .required(true)
+                        .help("hostname/ip address:port of the server (e.g., [::1]:50001 for localhost)")
                 )
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(false)
-                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                         .required(false)
+                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
-                                .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
-                                    .required(true)
-                                    .index(1)
-                                )
-                                .arg(Arg::with_name("TYPE").help("The type of task (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
-                                    .required(true)
-                                    .index(2)
-                                )
-                                .arg(Arg::with_name("RATE").help("The rate at which this task is to be performed at each client (number of probes / second)")
-                                    .required(false)
-                                    .long("rate")
-                                    .short("r")
-                                    .default_value("1000")
-                                )
-                                .arg(Arg::with_name("CLIENTS").help("Specify which clients have to send out probes (all connected clients will listen for packets) [client_id1,client_id2,...]")
-                                    .required(false)
-                                    .long("clients")
-                                    .short("c")
-                                    .takes_value(true)
-                                )
-                                .arg(Arg::with_name("STREAM").help("Stream results to stdout")
-                                    .takes_value(false)
-                                    .long("stream")
-                                    .required(false)
-                                )
-                                .arg(Arg::with_name("SHUFFLE").help("Randomly shuffle the ip file")
-                                    .takes_value(false)
-                                    .long("shuffle")
-                                    .required(false)
-                                )
-                                .arg(Arg::with_name("UNICAST").help("Probe the targets using the unicast address of each client")
-                                    .takes_value(false)
-                                    .long("unicast")
-                                    .required(false)
-                                )
-                                .arg(Arg::with_name("TRACEROUTE").help("Probe the targets using traceroute")
-                                    .takes_value(false)
-                                    .long("traceroute")
-                                    .required(false)
-                                    .help("This option is currently broken")
-                                )
-                                .arg(Arg::with_name("INTERVAL")
-                                        .short("i")
-                                        .long("interval")
-                                        .takes_value(true)
-                                        .help("Interval between separate client's probes to the same target [default: 1s]")
-                                        .required(false)
-                                )
-                                .arg(Arg::with_name("DIVIDE")
-                                        .long("divide")
-                                        .takes_value(false)
-                                        .help("Divide the hitlist into equal separate parts for each client (divide and conquer)")
-                                        .required(false)
-                                )
-                                .arg(Arg::with_name("ADDRESS").help("The anycast IP to send the pings from (or .conf file)")
-                                    .required(false)
-                                    .long("address")
-                                    .short("a")
-                                    .takes_value(true)
-                                    .help("Source IP to use for the probes")
-                                )
-                                .arg(Arg::with_name("SOURCE_PORT")
-                                        .short("s")
-                                        .takes_value(true)
-                                        .help("Source port to use (default 62321)")
-                                        .required(false)
-                                )
-                                .arg(Arg::with_name("DESTINATION_PORT")
-                                        .short("d")
-                                        .takes_value(true)
-                                        .help("Destination port to use (default DNS: 53, TCP: 63853)")
-                                        .required(false)
-                                )
-                                .arg(Arg::with_name("CONF")
-                                    .short("f")
-                                    .long("conf")
-                                    .takes_value(true)
-                                    .help("Path to the configuration file")
-                                    .required(false)
-                                )
-
-                            // TODO option to perform manycast for all 3 protocols on a hitlist
-                            // TODO this command would then work with igreedy, but make sure to run igreedy once for each prefix (not 3 times if it is confirmed by all protocols) (i.e. keep a list of anycast targets checked by igreedy)
-                            // TODO do we scan the hitlist for each protocol individually (i.e., first scan hitlist with ICMP, then repeat with TCP, then UPD..), or go through the hitlist and probe with all 3 protocols (i.e., probe first target with ICMP, UDP, TCP, iGreedy -> move on to next, etc..)
+                    .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
+                        .required(true)
+                        .index(1)
+                    )
+                    .arg(Arg::with_name("TYPE")
+                        .required(true)
+                        .index(2)
+                        .help("The type of measurement (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                    )
+                    .arg(Arg::with_name("RATE")
+                        .long("rate")
+                        .short("r")
+                        .takes_value(true)
+                        .required(false)
+                        .default_value("1000")
+                        .help("The rate at which this measurement is to be performed at each client (number of probes / second) [default: 1000]")
+                    )
+                    .arg(Arg::with_name("CLIENTS")
+                        .long("clients")
+                        .short("c")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Specify which clients have to send out probes (all connected clients will listen for packets) [client_id1,client_id2,...]")
+                    )
+                    .arg(Arg::with_name("STREAM")
+                        .long("stream")
+                        .takes_value(false)
+                        .required(false)
+                        .help("Stream results to stdout")
+                    )
+                    .arg(Arg::with_name("SHUFFLE")
+                        .long("shuffle")
+                        .takes_value(false)
+                        .required(false)
+                        .help("Randomly shuffle the ip file")
+                    )
+                    .arg(Arg::with_name("UNICAST")
+                        .long("unicast")
+                        .takes_value(false)
+                        .required(false)
+                        .help("Probe the targets using the unicast address of each client (GCD measurement)")
+                    )
+                    .arg(Arg::with_name("TRACEROUTE")
+                        .long("traceroute")
+                        .takes_value(false)
+                        .required(false)
+                        .help("This option is currently broken")
+                    )
+                    .arg(Arg::with_name("INTERVAL")
+                        .long("interval")
+                        .short("i")
+                        .takes_value(true)
+                        .required(false)
+                        .default_value("1")
+                        .help("Interval between separate client's probes to the same target [default: 1s]")
+                    )
+                    .arg(Arg::with_name("DIVIDE")
+                        .long("divide")
+                        .takes_value(false)
+                        .required(false)
+                        .help("Divide the hitlist into equal separate parts for each client (divide-and-conquer)")
+                    )
+                    .arg(Arg::with_name("ADDRESS")
+                        .long("addr")
+                        .short("a")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Source IP to use for the probes")
+                    )
+                    .arg(Arg::with_name("SOURCE_PORT")
+                        .long("sport")
+                        .short("s")
+                        .takes_value(true)
+                        .required(false)
+                        .default_value("62321")
+                        .help("Source port to use (default 62321)")
+                    )
+                    .arg(Arg::with_name("DESTINATION_PORT")
+                        .long("dport")
+                        .short("d")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Destination port to use (default DNS: 53, TCP: 63853)")
+                    )
+                    .arg(Arg::with_name("CONF")
+                        .long("conf")
+                        .short("f")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Path to the configuration file")
+                    )
+                    .arg(Arg::with_name("HOSTNAME")
+                        .long("hostname")
+                        .short("h")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Specify hostname record to request (chaos default: hostname.bind, A default: google.com)")
+                    )
+                    .arg(Arg::with_name("RESPONSIVE")
+                        .long("responsive")
+                        .short("v")
+                        .takes_value(false)
+                        .required(false)
+                        .help("First check if the target is responsive using the Server before sending probes from clients [UNIMPLEMENTED]")
+                    )
+                    .arg(Arg::with_name("OUT")
+                        .long("out")
+                        .short("o")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Optional path and/or filename to store the results of the measurement")
+                    )
                 )
         )
         .get_matches()
