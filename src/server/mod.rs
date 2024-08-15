@@ -551,46 +551,81 @@ impl Controller for ControllerService {
                         acc
                     });
 
-                let ethernet_header = get_ethernet_header(is_ipv6);
-                let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-                // Probe each prefix to find a responsive target
-                for chunk in prefix_targets.values() { // TODO slower than probing rate
-                    let main_interface = main_interface.clone();
-                    let ethernet_header = ethernet_header.clone();
+                // Channel for probing targets
+                let (tx_r, rx_r) = tokio::sync::mpsc::channel::<Address>(1000);
+                // Probe each prefix to find a responsive target, representing the prefix
+                let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> = Arc::new(Mutex::new(HashMap::new()));
+
+                // start probing thread
+                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, chaos, &info_url).await;
+
+                // Set filter
+                let bpf_filter = if is_ipv6 { // TODO test filters for all measurement types
+                    if measurement_type == 1 {
+                        // ICMP echo reply
+                        "icmp6 and icmp6[0] == 129"
+                    } else if measurement_type == 2 | 4 {
+                        // DNS response
+                        "ip6[6] == 17 and src port 53" // TODO source port
+                    } else {
+                        // TCP RST (no tcp for ipv6)
+                        "ip6[6] == 6 and (ip6[53] & 4) != 0" // TODO source port
+                    }
+                } else {
+                    if measurement_type == 1 {
+                        // ICMP echo reply
+                        "icmp and icmp[0] == 0"
+                    } else if measurement_type == 2 | 4 {
+                        // DNS response
+                        "udp and src port 53"
+                    } else {
+                        "tcp and tcp[13] & 4 != 0"
+                    }
+                };
+
+                // Start listening thread
+                listen_for_responses(bpf_filter, prefix_map.clone(), is_ipv6).await;
+
+                for chunk in prefix_targets.values() {
                     let chunk = chunk.clone();
-                    let server_origin = server_origin.clone();
-                    let chaos = chaos.clone();
                     let responsive_targets = responsive_targets.clone();
-                    let info_url = info_url.clone();
-
-                    // TODO
-                    // create single probing thread
-                    // thread takes targets from channel
-                    // for each prefix create thread adding a target to the channel
-                    // then with 1 second intervals add new target
-                    // unless a target was found for this prefix
-                    // keep track of found targets using a hashmap of prefix -> target
-                    // if target found, add to responsive_targets and break
-                    // if no target found, and no more targets, break
-
-                    // After break, remove hashmap entry for prefix
-                    // listening thread discards responses from prefixes not in list (avoiding memory exhaustion due to targets responding multiple times and avoiding spoofed responses / responses from other targets)
+                    let prefix_map = prefix_map.clone();
+                    let tx_r = tx_r.clone();
 
                     spawn(async move {
-                        // Get the responsive address for this chunk
-                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface, &info_url).await;
-                        if let Some(addr) = responsive_addr {
-                            // Add the responsive target to the list (if we found one)
-                            responsive_targets.lock().unwrap().push(addr);
-                        }
-                    });
+                        let current_prefix = chunk[0].get_prefix();
+                        let r_address = Arc::new(Mutex::new(None));
+                        prefix_map.lock().unwrap().insert(current_prefix, r_address.clone());
+                        for addr in chunk {
+                            // Add address to the probing channel
+                            tx_r.send(addr.clone()).await.expect("Failed to send target");
 
-                    // TODO replace above spawning of a thread for each unique prefix to a single sending and a single listening thread for all prefixes
-                    // TODO keep track of responsive candidate by prefix using a data structure
+                            // Sleep 1 second
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+
+                            // See if a responsive address has been found for this prefix
+                            if let Some(addr) = r_address.lock().unwrap().clone() {
+                                // Add the responsive target to the list (if we found one)
+                                responsive_targets.lock().unwrap().push(addr);
+                                break;
+                            }
+                        }
+
+                        // Remove the prefix from the hashmap
+                        prefix_map.lock().unwrap().remove(&current_prefix);
+
+
+                        // // Get the responsive address for this chunk
+                        // let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface, &info_url).await;
+                        // if let Some(addr) = responsive_addr {
+                        //     // Add the responsive target to the list (if we found one)
+                        //     responsive_targets.lock().unwrap().push(addr);
+                        // }
+                    });
 
                     interval.tick().await; // rate limit
                 }
-                println!("finished probing for responsive targets");
+                println!("[Server] Finished probing for responsive targets");
 
                 // 10 seconds time for remaining prefixes that are being probed TODO make this dynamic
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -1052,95 +1087,97 @@ fn load_tls() -> Identity {
     identity
 }
 
-/// Probe a set of targets to find a responsive target.
-///
-/// Probing is done sequentially, with a 1-second delay between each target.
-///
-/// If a target is responsive, we stop probing and return the target.
+/// Probe targets for responsiveness.
 async fn probe_targets(
     is_ipv6: bool,
-    targets: Vec<Address>,
+    mut targets: tokio::sync::mpsc::Receiver<Address>,
     measurement_type: u8,
     source: Origin,
     chaos: String,
-    ethernet_header: Vec<u8>,
-    main_interface: Device,
     info_url: &str,
-) -> Option<Address> {
+) {
+    // Create capture for sending packets (not receiving)
+    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
+    let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+    let ethernet_header = get_ethernet_header(is_ipv6);
+
+    // Probe targets
+    while let Some(target) = targets.recv().await {
+        let mut packet = ethernet_header.clone();
+        match measurement_type {
+            1 => {
+                packet.extend_from_slice(&create_ping(
+                    source.clone(),
+                    IP::from(target.clone()),
+                    0,
+                    0,
+                    info_url,
+                ));
+            },
+            2 | 4 => {
+                packet.extend_from_slice(&create_udp(
+                    source.clone(),
+                    IP::from(target.clone()),
+                    0,
+                    measurement_type,
+                    is_ipv6,
+                    chaos.clone(),
+                ));
+            },
+            3 => {
+                packet.extend_from_slice(&create_tcp(
+                    source.clone(),
+                    IP::from(target.clone()),
+                    0,
+                    is_ipv6,
+                    true,
+                    info_url,
+                ));
+            },
+            _ => {
+                panic!("Invalid measurement type");
+            }
+        }
+
+        cap.sendpacket(packet).expect("Failed to send packet");
+    }
+}
+
+/// Listen for responses from the targets.
+async fn listen_for_responses(
+    filter: &str,
+    prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>>,
+    is_ipv6: bool,
+) {
     // get capture interface
-    // TODO creating a new capture for each target prefix results in a lot of overhead
+    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
     let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(1_000)
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
     cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
 
-   for target in targets {
-       // Get filter
-       let filter = if is_ipv6 {
-           if measurement_type == 1 {
-               format!("src host {} and icmp6", target)
-           } else if measurement_type == 2 | 4 {
-               format!("src host {} and ip6[6] == 17", target)
-           } else {
-               format!("src host {} and ip6[6] == 6", target)
-           }
-       } else {
-            if measurement_type == 1 {
-                 format!("src host {} and icmp", target)
-            } else if measurement_type == 2 | 4 {
-                 format!("src host {} and udp", target)
-            } else {
-                 format!("src host {} and tcp", target)
+    // Set filter
+    cap.filter(filter, true).expect("Failed to set pcap filter");
+
+    // Start listening
+    while let Ok(packet) = cap.next_packet() {
+        // Get source address
+        let src = if is_ipv6 {
+            Address::from(&packet.data[22..38])
+        } else {
+            Address::from(&packet.data[26..30])
+        };
+
+        let prefix = src.get_prefix();
+        if let Some(addr) = prefix_map.lock().unwrap().get(&prefix) {
+            let mut addr = addr.lock().unwrap();
+            if addr.is_none() {
+                *addr = Some(src);
             }
-       };
-       cap.filter(&*filter, true).expect("Failed to set pcap filter");
+        }
+    }
 
-       let mut packet = ethernet_header.clone();
-       match measurement_type {
-           1 => {
-               packet.extend_from_slice(&create_ping(
-                   source.clone(),
-                   IP::from(target.clone()),
-                   0,
-                   0,
-                   info_url,
-               ));
-           },
-            2 | 4 => {
-                 packet.extend_from_slice(&create_udp(
-                      source.clone(),
-                      IP::from(target.clone()),
-                      0,
-                      measurement_type,
-                      is_ipv6,
-                      chaos.clone(),
-                 ));
-            },
-           3 => {
-               packet.extend_from_slice(&create_tcp(
-                   source.clone(),
-                   IP::from(target.clone()),
-                   0,
-                   is_ipv6,
-                   true,
-                   info_url,
-               ));
-           },
-            _ => {
-                 panic!("Invalid measurement type");
-            }
-       }
-
-       cap.sendpacket(packet).expect("Failed to send packet");
-       tokio::time::sleep(Duration::from_secs(1)).await;
-
-       // Check if we have received a response
-       if let Ok(_) = cap.next_packet() {
-            return Some(target.clone());
-       }
-   }
-    None // No responsive target found
 }
 
 /// Instruct the clients to probe responsive targets.
