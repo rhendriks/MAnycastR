@@ -158,6 +158,7 @@ impl Client {
         let is_gcd = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let chaos = start_measurement.chaos;
+        let info_url = start_measurement.url;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -279,7 +280,7 @@ impl Client {
                 _ => { () }
             }
             // Start sending thread
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos);
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos, info_url);
         } else {
             println!("[Client] Not sending probes");
         }
