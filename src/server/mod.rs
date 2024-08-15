@@ -468,10 +468,7 @@ impl Controller for ControllerService {
                 // If the client is selected to perform the measurement (or all clients are selected (u32::MAX))
                 if (configuration.client_id == *client_list_u32.get(current_client).unwrap()) | (configuration.client_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
-                        // Avoid duplicate origins
-                        if !client_tx_origins.contains(origin) {
-                            client_tx_origins.push(origin.clone());
-                        }
+                        client_tx_origins.push(origin.clone());
                     }
                 }
             }
@@ -841,7 +838,7 @@ impl Controller for ControllerService {
                     continue;
                 }
                 if map.contains_key(&probe_dst) {
-                    let (clients, _, ttl_old, origins) = map.get_mut(&probe_dst).unwrap();
+                    let (clients, _, ttl_old, trace_origins) = map.get_mut(&probe_dst).unwrap();
                     // We want to keep track of the lowest TTL recorded
                     if ttl < ttl_old.clone() {
                         *ttl_old = ttl;
@@ -849,7 +846,7 @@ impl Controller for ControllerService {
                     // Keep track of all clients that have received probe replies for this target
                     if !clients.contains(&client_id) {
                         clients.push(client_id);
-                        origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
+                        trace_origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
                     }
                 } else {
                     map.insert(probe_dst, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
@@ -959,7 +956,7 @@ async fn traceroute_orchestrator(
                 }
             }
 
-            for (target, (clients, _, ttl, origins)) in traceroute_targets {
+            for (target, (clients, _, ttl, trace_origins)) in traceroute_targets {
                 // Get the upper bound TTL we should perform traceroute with
                 let max_ttl = if ttl >= 128 {
                     255 - ttl
@@ -973,7 +970,7 @@ async fn traceroute_orchestrator(
                     data: Some(TaskTrace(Trace {
                         max_ttl,
                         dst: Some(Address::from(target.clone())),
-                        origins,
+                        origins: trace_origins,
                     }))
                 };
 
