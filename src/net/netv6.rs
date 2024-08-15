@@ -1,7 +1,7 @@
 use std::io::{Cursor, Write};
 use std::net::Ipv6Addr;
 
-use super::{ICMPPacket, INFO_URL, PacketPayload};
+use super::{ICMPPacket, PacketPayload};
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -176,6 +176,7 @@ impl ICMPPacket {
         source_address: u128,
         destination_address: u128,
         hop_limit: u8,
+        info_url: &str,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -194,18 +195,18 @@ impl ICMPPacket {
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header.write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        psuedo_header.write_u32::<NetworkEndian>((8 + body_len + INFO_URL.bytes().len() as u16) as u32) // ICMP length
+        psuedo_header.write_u32::<NetworkEndian>((8 + body_len + info_url.bytes().len() as u16) as u32) // ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(58).unwrap(); // next header (58 => ICMPv6)
         psuedo_header.extend(icmp_bytes); // Add the ICMP packet bytes
-        psuedo_header.extend(INFO_URL.bytes()); // Add the INFO_URL bytes
+        psuedo_header.extend(info_url.bytes()); // Add the INFO_URL bytes
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice()); // Calculate the checksum
 
         let v6_packet = IPv6Packet {
-            payload_length: 8 + body_len + INFO_URL.bytes().len() as u16, // ICMP header (8 bytes) + body length
+            payload_length: 8 + body_len + info_url.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58, // ICMPv6
             hop_limit,
             source_address: Ipv6Addr::from(source_address),
@@ -214,7 +215,7 @@ impl ICMPPacket {
         };
 
         let mut bytes: Vec<u8> = v6_packet.into();
-        bytes.extend(INFO_URL.bytes());
+        bytes.extend(info_url.bytes());
 
         bytes
     }
@@ -303,9 +304,10 @@ impl super::UDPPacket {
         source_port: u16,
         destination_port: u16,
         body: Vec<u8>,
+        info_url: &str,
     ) -> Vec<u8> {
         // TODO add IP header
-        let udp_length = (8 + body.len() + INFO_URL.bytes().len()) as u32;
+        let udp_length = (8 + body.len() + info_url.bytes().len()) as u32;
 
         let mut packet = Self {
             source_port,
@@ -316,7 +318,7 @@ impl super::UDPPacket {
         };
 
         let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
+        bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
             source_address,
@@ -527,6 +529,7 @@ impl super::TCPPacket {
         seq: u32,
         ack: u32,
         hop_limit: u8,
+        info_url: &str,
     ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
@@ -537,7 +540,7 @@ impl super::TCPPacket {
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body: INFO_URL.bytes().collect(),
+            body: info_url.bytes().collect(),
             window_size: 0,
         };
 

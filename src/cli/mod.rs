@@ -64,6 +64,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
+        // Get optional opt-out URL
+        let url = if matches.is_present("URL") {
+            matches.value_of("URL").unwrap().to_string()
+        } else {
+            "".to_string()
+        };
+
         let src = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
         } else {
@@ -310,6 +317,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 dst_addresses: ips,
             }),
             chaos: chaos_value.to_string(),
+            url,
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
     } else {

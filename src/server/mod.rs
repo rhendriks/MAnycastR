@@ -433,6 +433,8 @@ impl Controller for ControllerService {
         *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
         let responsive = scheduled_measurement.responsive;
+        let chaos = scheduled_measurement.chaos;
+        let info_url = scheduled_measurement.url;
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -459,7 +461,6 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_client = 0;
         let mut current_active_client = 0;
-        let chaos = scheduled_measurement.chaos.clone();
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
             // Add all configuration probing origins assigned to this client
@@ -501,7 +502,8 @@ impl Controller for ControllerService {
                     traceroute: is_traceroute,
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
-                    chaos: chaos.to_string(),
+                    chaos: chaos.clone(),
+                    url: info_url.clone(),
                 }))
             };
 
@@ -562,14 +564,32 @@ impl Controller for ControllerService {
                     let server_origin = server_origin.clone();
                     let chaos = chaos.clone();
                     let responsive_targets = responsive_targets.clone();
+                    let info_url = info_url.clone();
+
+                    // TODO
+                    // create single probing thread
+                    // thread takes targets from channel
+                    // for each prefix create thread adding a target to the channel
+                    // then with 1 second intervals add new target
+                    // unless a target was found for this prefix
+                    // keep track of found targets using a hashmap of prefix -> target
+                    // if target found, add to responsive_targets and break
+                    // if no target found, and no more targets, break
+
+                    // After break, remove hashmap entry for prefix
+                    // listening thread discards responses from prefixes not in list (avoiding memory exhaustion due to targets responding multiple times and avoiding spoofed responses / responses from other targets)
+
                     spawn(async move {
                         // Get the responsive address for this chunk
-                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface).await;
+                        let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface, &info_url).await;
                         if let Some(addr) = responsive_addr {
                             // Add the responsive target to the list (if we found one)
                             responsive_targets.lock().unwrap().push(addr);
                         }
                     });
+
+                    // TODO replace above spawning of a thread for each unique prefix to a single sending and a single listening thread for all prefixes
+                    // TODO keep track of responsive candidate by prefix using a data structure
 
                     interval.tick().await; // rate limit
                 }
@@ -597,7 +617,7 @@ impl Controller for ControllerService {
             println!("instructing clients to probe responsive targets...");
             let responsive_targets = self.responsive_targets.clone();
             spawn(async move { // thread probing for responsiveness
-                send_responsive(senders, responsive_targets, inter_client_interval, rx_f).await; // TODO instruct clients to probe responsive targets
+                send_responsive(senders, responsive_targets, inter_client_interval, rx_f).await;
                 println!("clients finished");
             });
 
@@ -1048,6 +1068,7 @@ async fn probe_targets(
     chaos: String,
     ethernet_header: Vec<u8>,
     main_interface: Device,
+    info_url: &str,
 ) -> Option<Address> {
     // get capture interface
     // TODO creating a new capture for each target prefix results in a lot of overhead
@@ -1086,6 +1107,7 @@ async fn probe_targets(
                    IP::from(target.clone()),
                    0,
                    0,
+                   info_url,
                ));
            },
             2 | 4 => {
@@ -1105,6 +1127,7 @@ async fn probe_targets(
                    0,
                    is_ipv6,
                    true,
+                   info_url,
                ));
            },
             _ => {
