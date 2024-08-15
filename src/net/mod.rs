@@ -25,12 +25,9 @@ impl From<&[u8]> for IPv4Packet {
         // Get header length, which is the 4 right bits in the first byte (hence & 0xF)
         // header length is in number of 32 bits i.e. 4 bytes (hence *4)
         let header_length: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
-
         cursor.set_position(8); // Time To Live
         let ttl = cursor.read_u8().unwrap();
-
         let packet_type = cursor.read_u8().unwrap(); // Protocol
-
         cursor.set_position(12); // Source IP Address
         let source_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap());
         let destination_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap()); // Destination IP Address
