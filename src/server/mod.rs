@@ -748,8 +748,6 @@ impl Controller for ControllerService {
                     // Sleep 1 second to give the client time to finish the measurement and receive the last responses (traceroute takes longer)
                     if is_traceroute {
                         tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
-                    } else if is_divide {
-                        tokio::time::sleep(Duration::from_secs(5)).await; // More time for the last responses
                     } else {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
