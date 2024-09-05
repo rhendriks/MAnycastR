@@ -674,7 +674,6 @@ impl Controller for ControllerService {
                         start_index + targets_chunk
                     };
 
-                    println!("Client {} probes targets {} to {}", client_id, start_index, end_index);
                     dst_addresses[start_index..end_index].to_vec()
                 } else {
                     // All clients get the same hitlist
@@ -749,6 +748,8 @@ impl Controller for ControllerService {
                     // Sleep 1 second to give the client time to finish the measurement and receive the last responses (traceroute takes longer)
                     if is_traceroute {
                         tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
+                    } else if is_divide {
+                        tokio::time::sleep(Duration::from_secs(5)).await; // More time for the last responses
                     } else {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
