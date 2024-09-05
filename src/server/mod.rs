@@ -566,10 +566,10 @@ impl Controller for ControllerService {
                         "icmp6 and icmp6[0] == 129"
                     } else if measurement_type == 2 | 4 {
                         // DNS response
-                        "ip6[6] == 17 and src port 53" // TODO source port
+                        "ip6[6] == 17 and src port 53" // TODO source port and dst port
                     } else {
                         // TCP RST (no tcp for ipv6)
-                        "ip6[6] == 6 and (ip6[53] & 4) != 0" // TODO source port
+                        "ip6[6] == 6 and (ip6[53] & 4) != 0" // TODO source port and dst port
                     }
                 } else {
                     if measurement_type == 1 {
@@ -583,8 +583,11 @@ impl Controller for ControllerService {
                     }
                 };
 
+                let prefix_map_r = prefix_map.clone();
                 // Start listening thread
-                listen_for_responses(bpf_filter, prefix_map.clone(), is_ipv6).await;
+                spawn (async move {
+                    listen_for_responses(bpf_filter, prefix_map_r, is_ipv6).await;
+                });
 
                 for chunk in prefix_targets.values() {
                     let chunk = chunk.clone();
@@ -613,14 +616,6 @@ impl Controller for ControllerService {
 
                         // Remove the prefix from the hashmap
                         prefix_map.lock().unwrap().remove(&current_prefix);
-
-
-                        // // Get the responsive address for this chunk
-                        // let responsive_addr = probe_targets(is_ipv6, chunk, measurement_type as u8, server_origin, chaos, ethernet_header, main_interface, &info_url).await;
-                        // if let Some(addr) = responsive_addr {
-                        //     // Add the responsive target to the list (if we found one)
-                        //     responsive_targets.lock().unwrap().push(addr);
-                        // }
                     });
 
                     interval.tick().await; // rate limit
@@ -1102,7 +1097,7 @@ async fn probe_targets(
     let ethernet_header = get_ethernet_header(is_ipv6);
 
     // Probe targets
-    while let Some(target) = targets.recv().await {
+    while let Some(target) = targets.recv().await { // TODO finished signal
         let mut packet = ethernet_header.clone();
         match measurement_type {
             1 => {
@@ -1161,7 +1156,7 @@ async fn listen_for_responses(
     cap.filter(filter, true).expect("Failed to set pcap filter");
 
     // Start listening
-    while let Ok(packet) = cap.next_packet() {
+    while let Ok(packet) = cap.next_packet() { // TODO finished signal
         // Get source address
         let src = if is_ipv6 {
             Address::from(&packet.data[22..38])
