@@ -674,6 +674,7 @@ impl Controller for ControllerService {
                         start_index + targets_chunk
                     };
 
+                    println!("Client {} probes targets {} to {}", client_id, start_index, end_index);
                     dst_addresses[start_index..end_index].to_vec()
                 } else {
                     // All clients get the same hitlist
