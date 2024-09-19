@@ -732,7 +732,7 @@ impl Controller for ControllerService {
 
                     clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
                     if clients_finished.lock().unwrap().clone() == number_of_clients {
-                        print!("[Server] Measurement finished, awaiting clients... ");
+                        println!("[Server] Measurement finished, awaiting clients... ");
                         // Send a message to the other sending threads to let them know the measurement is finished
                         tx_f.send(()).expect("Failed to send finished signal");
                     } else {
