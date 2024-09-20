@@ -530,7 +530,9 @@ impl Controller for ControllerService {
 
         if responsive {
             // Finished signal channel
-            let (tx_f, rx_f) = tokio::sync::broadcast::channel::<()>(1);
+            let (tx_f, rx_f) = tokio::sync::broadcast::channel::<()>(1); // TODO replace channels with single automic bool
+            let (tx_f_2, rx_f_2) = tokio::sync::broadcast::channel::<()>(1);
+
 
             println!("Probing for responsive targets from server...");
             let responsive_targets = self.responsive_targets.clone();
@@ -586,7 +588,7 @@ impl Controller for ControllerService {
                 let prefix_map_r = prefix_map.clone();
                 // Start listening thread
                 spawn (async move {
-                    listen_for_responses(bpf_filter, prefix_map_r, is_ipv6).await;
+                    listen_for_responses(bpf_filter, prefix_map_r, is_ipv6, rx_f_2).await;
                 });
 
                 for chunk in prefix_targets.values() {
@@ -637,7 +639,10 @@ impl Controller for ControllerService {
                 println!("sending finished signal");
 
                 // Send a message to the other sending threads to let them know the measurement is finished
+
+                tx_r.send(Address::default()).await.expect("Failed to send finished signal");
                 tx_f.send(()).expect("Failed to send finished signal");
+                tx_f_2.send(()).expect("Failed to send finished signal");
 
             });
 
@@ -1097,7 +1102,11 @@ async fn probe_targets(
     let ethernet_header = get_ethernet_header(is_ipv6);
 
     // Probe targets
-    while let Some(target) = targets.recv().await { // TODO finished signal
+    while let Some(target) = targets.recv().await {
+        if target == Address::default() { // Finished signal
+            break;
+        }
+
         let mut packet = ethernet_header.clone();
         match measurement_type {
             1 => {
@@ -1143,6 +1152,7 @@ async fn listen_for_responses(
     filter: &str,
     prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>>,
     is_ipv6: bool,
+    mut rx_f: Receiver<()>,
 ) {
     // get capture interface
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
@@ -1155,8 +1165,27 @@ async fn listen_for_responses(
     // Set filter
     cap.filter(filter, true).expect("Failed to set pcap filter");
 
+    cap = cap.setnonblock().unwrap();
+
+
     // Start listening
-    while let Ok(packet) = cap.next_packet() { // TODO finished signal
+    // while let Ok(packet) = cap.next_packet() {
+    loop {
+        if rx_f.try_recv().is_ok() { // Check if the server has finished probing for responsive targets
+            println!("received finished signal");
+            break;
+        }
+
+
+        let packet = match cap.next_packet() {
+            Ok(packet) => {
+                packet
+            },
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
         // Get source address
         let src = if is_ipv6 {
             Address::from(&packet.data[22..38])
