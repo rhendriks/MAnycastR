@@ -50,7 +50,6 @@ pub fn outbound(
     chaos: String,
     info_url: String,
 ) {
-    println!("[Client outbound] Started outbound probing thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
