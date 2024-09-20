@@ -58,7 +58,8 @@ pub fn outbound(
         .spawn(move || {
             let ethernet_header = get_ethernet_header(is_ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(100_000_000).open().expect("Failed to open capture");
+            // let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(1_000_000).open().expect("Failed to open capture");
             'outer: loop {
                 if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
