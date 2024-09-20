@@ -101,7 +101,9 @@ pub fn outbound(
                                             measurement_id,
                                             &info_url,
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });
                                     }
                                 }
                                 2 | 4 => {
@@ -115,8 +117,9 @@ pub fn outbound(
                                             is_ipv6,
                                             chaos.clone(),
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send UDP packet");
-                                    }
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });                                    }
                                 }
                                 3 => {
                                     for dst in &targets.dst_addresses {
@@ -129,7 +132,9 @@ pub fn outbound(
                                             gcd,
                                             &info_url,
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send TCP packet");
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });
                                     }
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
