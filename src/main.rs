@@ -2,6 +2,10 @@
 //!
 //! It is an extension of the original Verfploeter code <https://github.com/Woutifier/verfploeter>.
 //!
+//! Designed to:
+//! 1. measure external anycast infrastructure (using the MAnycast2 and Great-Circle-Distance techniques)
+//! 2. measure anycast infrastructure itself (catchment analysis, detecting anycast site fliping, latency to the Internet, ...)
+//!
 //! # The components
 //!
 //! It allows for performing synchronized probes from a distributed set of nodes.

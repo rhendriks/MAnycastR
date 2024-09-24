@@ -44,7 +44,6 @@ use crate::server::mpsc::Sender;
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 /// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
 /// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
-/// * 'responsive' - a boolean value that is set to true when responsive targets are being measured
 /// * 'responsive_targets' - a list of the responsive targets that need to be measured
 #[derive(Debug, Clone)]
 pub struct ControllerService {
