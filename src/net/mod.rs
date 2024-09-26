@@ -8,9 +8,6 @@ use prost::bytes::Buf;
 pub(crate) mod netv6;
 pub(crate) mod packet;
 
-// URL that explains it this packet is part of MAnycast and is for research purposes.
-const INFO_URL: &str = "edu.nl/9qt8h";  // TODO hardcoded URL
-
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
@@ -28,12 +25,9 @@ impl From<&[u8]> for IPv4Packet {
         // Get header length, which is the 4 right bits in the first byte (hence & 0xF)
         // header length is in number of 32 bits i.e. 4 bytes (hence *4)
         let header_length: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
-
         cursor.set_position(8); // Time To Live
         let ttl = cursor.read_u8().unwrap();
-
         let packet_type = cursor.read_u8().unwrap(); // Protocol
-
         cursor.set_position(12); // Source IP Address
         let source_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap());
         let destination_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap()); // Destination IP Address
@@ -281,6 +275,7 @@ impl ICMPPacket {
         source_address: u32,
         destination_address: u32,
         ttl: u8,
+        info_url: &str,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -294,11 +289,11 @@ impl ICMPPacket {
 
         // Turn everything into a vec of bytes and calculate checksum
         let mut icmp_bytes: Vec<u8> = (&packet).into();
-        icmp_bytes.extend(INFO_URL.bytes());
+        icmp_bytes.extend(info_url.bytes());
         packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
         let v4_packet = IPv4Packet {
-            length: 20 + 8 + body_len + INFO_URL.bytes().len() as u16,
+            length: 20 + 8 + body_len + info_url.bytes().len() as u16,
             ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
@@ -306,7 +301,7 @@ impl ICMPPacket {
         };
 
         let mut bytes: Vec<u8> = (&v4_packet).into();
-        bytes.extend(INFO_URL.bytes());
+        bytes.extend(info_url.bytes());
 
         bytes
     }
@@ -554,9 +549,15 @@ impl From<&[u8]> for TXTRecord {
 
 impl UDPPacket {
     /// Create a basic UDP packet with checksum (v4 only).
-    pub fn udp_request(source_address: u32, destination_address: u32,
-                       source_port: u16, destination_port: u16, body: Vec<u8>) -> Vec<u8> {
-        let length = (8 + body.len() + INFO_URL.bytes().len()) as u16;
+    pub fn udp_request(
+        source_address: u32,
+        destination_address: u32,
+        source_port: u16,
+        destination_port: u16,
+        body: Vec<u8>,
+        info_url: &str,
+    ) -> Vec<u8> {
+        let length = (8 + body.len() + info_url.bytes().len()) as u16;
 
         let mut packet = Self {
             source_port,
@@ -567,7 +568,7 @@ impl UDPPacket {
         };
 
         let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(INFO_URL.bytes()); // Add INFO_URL
+        bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeader {
             source_address,
@@ -820,6 +821,7 @@ impl TCPPacket {
         seq: u32,
         ack: u32,
         ttl: u8,
+        info_url: &str,
     ) -> Vec<u8> {
         let mut packet = Self {
             source_port,
@@ -830,7 +832,7 @@ impl TCPPacket {
             flags: 0b00010010, // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body: INFO_URL.bytes().collect(),
+            body: info_url.bytes().collect(),
             window_size: 0,
         };
 

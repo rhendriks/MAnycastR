@@ -183,15 +183,6 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
-        // If we have an empty result queue
-        if rq.len() == 0 {
-            // Exit the thread if client sends us the signal it's finished
-            if let Ok(_) = rx_f.try_recv() {
-                // We are finished
-                break;
-            }
-            continue;
-        }
 
         // Send the result to the client handler
         tx.send(
@@ -200,6 +191,12 @@ fn handle_results(
                 result_list: rq,
             }
         ).expect("Failed to send TaskResult to client handler");
+
+        // Exit the thread if client sends us the signal it's finished
+        if let Ok(_) = rx_f.try_recv() {
+            // We are finished
+            break;
+        }
     }
 }
 

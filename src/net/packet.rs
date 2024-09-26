@@ -84,6 +84,7 @@ pub fn create_ping(
     dst: IP,
     client_id: u8,
     measurement_id: u32,
+    info_url: &str,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -124,11 +125,11 @@ pub fn create_ping(
         }
     }
 
-    return if src.is_v6() {
-        ICMPPacket::echo_request_v6(origin.sport as u16, 2, payload_bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255)
+    if src.is_v6() {
+        ICMPPacket::echo_request_v6(origin.sport as u16, 2, payload_bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255, info_url)
     } else {
-        ICMPPacket::echo_request(origin.dport as u16, 2, payload_bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255)
-    };
+        ICMPPacket::echo_request(origin.dport as u16, 2, payload_bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255, info_url)
+    }
 }
 
 /// Creates a UDP packet.
@@ -211,6 +212,7 @@ pub fn create_tcp(
     client_id: u8,
     is_ipv6: bool,
     gcd: bool,
+    info_url: &str,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -224,15 +226,15 @@ pub fn create_tcp(
         transmit_time
     };
 
-    return if is_ipv6 {
+    if is_ipv6 {
         let src = IP::from(origin.src.expect("None IP address")).get_v6();
         let dest = IP::from(dst.clone()).get_v6();
 
-        TCPPacket::tcp_syn_ack_v6(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255)
+        TCPPacket::tcp_syn_ack_v6(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255, info_url)
     } else {
         let src = IP::from(origin.src.expect("None IP address")).get_v4();
         let dest = IP::from(dst.clone()).get_v4();
 
-        TCPPacket::tcp_syn_ack(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255)
-    };
+        TCPPacket::tcp_syn_ack(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255, info_url)
+    }
 }

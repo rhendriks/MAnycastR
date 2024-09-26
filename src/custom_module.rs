@@ -125,6 +125,32 @@ impl From<IP> for Address {
     }
 }
 
+// convert bytes into Address
+impl From<&[u8]> for Address {
+    fn from(bytes: &[u8]) -> Self {
+        match bytes.len() {
+            4 => {
+                let mut ip = [0; 4];
+                ip.copy_from_slice(&bytes);
+                Address {
+                    value: Some(V4(u32::from_be_bytes(ip))),
+                }
+            },
+            16 => {
+                let mut ip = [0; 16];
+                ip.copy_from_slice(&bytes);
+                Address {
+                    value: Some(V6(IPv6 {
+                        p1: u64::from_be_bytes(ip[0..8].try_into().unwrap()),
+                        p2: u64::from_be_bytes(ip[8..16].try_into().unwrap()),
+                    })),
+                }
+            },
+            _ => panic!("Invalid IP address length"),
+        }
+    }
+}
+
 impl Display for IP {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {

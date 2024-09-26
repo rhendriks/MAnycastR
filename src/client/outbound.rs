@@ -48,8 +48,8 @@ pub fn outbound(
     measurement_id: u32,
     measurement_type: u8,
     chaos: String,
+    info_url: String,
 ) {
-    println!("[Client outbound] Started outbound probing thread");
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
@@ -57,7 +57,7 @@ pub fn outbound(
         .spawn(move || {
             let ethernet_header = get_ethernet_header(is_ipv6);
             let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(100_000_000).open().expect("Failed to open capture");
             'outer: loop {
                 if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
@@ -97,8 +97,11 @@ pub fn outbound(
                                             IP::from(dst.clone()),
                                             client_id,
                                             measurement_id,
+                                            &info_url,
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send ICMP packet");
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });
                                     }
                                 }
                                 2 | 4 => {
@@ -112,8 +115,9 @@ pub fn outbound(
                                             is_ipv6,
                                             chaos.clone(),
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send UDP packet");
-                                    }
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });                                    }
                                 }
                                 3 => {
                                     for dst in &targets.dst_addresses {
@@ -124,8 +128,11 @@ pub fn outbound(
                                             client_id,
                                             is_ipv6,
                                             gcd,
+                                            &info_url,
                                         ));
-                                        cap.sendpacket(packet).expect("Failed to send TCP packet");
+                                        cap.sendpacket(packet).unwrap_or_else(|e| {
+                                            println!("Failed to send ICMP packet: {}", e)
+                                        });
                                     }
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
@@ -142,6 +149,7 @@ pub fn outbound(
                             client_id,
                             trace.max_ttl as u8,
                             measurement_type,
+                            &info_url,
                         );
                         continue;
                     }
@@ -180,6 +188,7 @@ fn perform_trace(
     client_id: u8,
     max_ttl: u8,
     measurement_type: u8,
+    info_url: &str,
 ) { // TODO these are sent out in bursts, create a thread in here for the trace task to send them out 1 second after eachother
     if measurement_type > 3 {
         // Traceroute supported for ICMP, UDP, and TCP
@@ -209,9 +218,9 @@ fn perform_trace(
 
             if measurement_type == 1 { // ICMP
                 let icmp = if is_ipv6 {
-                    ICMPPacket::echo_request_v6(1, 2, payload_bytes, src.get_v6().into(), dst.get_v6().into(), i)
+                    ICMPPacket::echo_request_v6(1, 2, payload_bytes, src.get_v6().into(), dst.get_v6().into(), i, info_url)
                 } else {
-                    ICMPPacket::echo_request(1, 2, payload_bytes, src.get_v4().into(), dst.get_v4().into(), i)
+                    ICMPPacket::echo_request(1, 2, payload_bytes, src.get_v4().into(), dst.get_v4().into(), i, info_url)
                 };
                 packet.extend_from_slice(&icmp); // ip header included
             } else if measurement_type == 2 { // UDP
@@ -225,9 +234,9 @@ fn perform_trace(
                 // ACK: first 16 is the TTL, last 16 is the client ID
                 let ack = (i as u32) << 16 | client_id as u32; // TODO test this
                 let tcp = if is_ipv6 {
-                    TCPPacket::tcp_syn_ack_v6(src.get_v6().into(), dst.get_v6().into(), sport, dport, 0, ack, i)
+                    TCPPacket::tcp_syn_ack_v6(src.get_v6().into(), dst.get_v6().into(), sport, dport, 0, ack, i, info_url)
                 } else {
-                    TCPPacket::tcp_syn_ack(src.get_v4().into(), dst.get_v4().into(), sport, dport, 0, ack, i)
+                    TCPPacket::tcp_syn_ack(src.get_v4().into(), dst.get_v4().into(), sport, dport, 0, ack, i, info_url)
                 };
                 packet.extend_from_slice(&tcp); // ip header included
             }
