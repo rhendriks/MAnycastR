@@ -811,7 +811,7 @@ impl Controller for ControllerService {
                 let value = result.value.unwrap();
                 let (probe_dst, probe_src) = match value.clone() {
                     PingResult(value) => {
-                        match value.ip_result.unwrap().value.unwrap() {
+                        match value.ip_result.unwrap().value.unwrap() { // TODO from::IP_result for IP
                             Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
                             Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
                                          IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
@@ -1089,7 +1089,7 @@ fn load_tls() -> Identity {
 /// Probe targets for responsiveness.
 async fn probe_targets(
     is_ipv6: bool,
-    mut targets: tokio::sync::mpsc::Receiver<Address>,
+    mut targets: mpsc::Receiver<Address>,
     measurement_type: u8,
     source: Origin,
     chaos: String,
