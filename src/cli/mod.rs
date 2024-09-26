@@ -64,6 +64,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
+        // Get optional opt-out URL
+        let url = if matches.is_present("URL") {
+            matches.value_of("URL").unwrap().to_string()
+        } else {
+            "".to_string()
+        };
+
         let src = if matches.is_present("ADDRESS") {
             Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
         } else {
@@ -97,6 +104,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
                     let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+
                     Some(Configuration {
                         client_id,
                         origin: Some(Origin {
@@ -170,7 +178,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             Vec::new()
         };
         if client_ids.len() > 0 {
-            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids);
+            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print client hostnames
         }
 
         // Get the type of measurement
@@ -310,6 +318,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 dst_addresses: ips,
             }),
             chaos: chaos_value.to_string(),
+            url,
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
     } else {
@@ -374,6 +383,7 @@ impl CliClient {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
         });
 
+        // TODO measurement length does not take into account that not all clients may participate
         let measurement_length = if is_divide {
             ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
@@ -509,7 +519,7 @@ impl CliClient {
             format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)
         };
 
-        // TODO allow for filename input, including path
+        // Create the output file
         let mut file = File::create(file_path.clone()).expect(format!("Unable to create file at {}", file_path).as_str());
 
         // Write metadata of measurement

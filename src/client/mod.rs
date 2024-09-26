@@ -154,10 +154,11 @@ impl Client {
         let measurement_id = start_measurement.measurement_id;
         let is_ipv6 = start_measurement.ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let traceroute = start_measurement.traceroute;
+        let is_traceroute = start_measurement.traceroute;
         let is_gcd = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let chaos = start_measurement.chaos;
+        let info_url = start_measurement.url;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -203,11 +204,11 @@ impl Client {
         let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        let mut filter = String::new();
-        if is_ipv6 {
-            filter.push_str("ip6 and");
+        // Berkeley Packet Filter (BPF) string
+        let mut bpf_filter = if is_ipv6 {
+            "ip6 and".to_string()
         } else {
-            filter.push_str("ip and");
+            "ip and".to_string()
         };
 
         // Add filter for each address/port combination based on the measurement type
@@ -246,7 +247,7 @@ impl Client {
                 };
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
-                if traceroute {
+                if is_traceroute {
                     let icmp_ttl_expired_filter: Vec<String> = rx_origins.iter()
                         .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
                         .collect();
@@ -257,10 +258,10 @@ impl Client {
             _ => panic!("Invalid measurement type"),
         };
 
-        filter.push_str(&*filter_parts.join(" or"));
+        bpf_filter.push_str(&*filter_parts.join(" or"));
 
         // Start listening thread
-        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, filter, traceroute, start_measurement.measurement_type);
+        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, bpf_filter, is_traceroute, start_measurement.measurement_type);
 
         if is_probing {
             match start_measurement.measurement_type {
@@ -279,7 +280,7 @@ impl Client {
                 _ => { () }
             }
             // Start sending thread
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos);
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos, info_url);
         } else {
             println!("[Client] Not sending probes");
         }

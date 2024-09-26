@@ -55,6 +55,7 @@ message ScheduleMeasurement {
   bool divide = 11;
   Targets targets = 12;
   string chaos = 13;
+  string url = 14;
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)
@@ -109,6 +110,7 @@ message Start {
   bool traceroute = 8;
   repeated Origin rx_origins = 9; // origins to listen for
   string chaos = 10; // domain to use for chaos queries TODO use this as DNS A record as well
+  string url = 11; // URL encoded in probes
 }
 
 // An end message, indicates the client should stop sending out probes

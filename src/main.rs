@@ -2,6 +2,10 @@
 //!
 //! It is an extension of the original Verfploeter code <https://github.com/Woutifier/verfploeter>.
 //!
+//! Designed to:
+//! 1. measure external anycast infrastructure (using the MAnycast2 and Great-Circle-Distance techniques)
+//! 2. measure anycast infrastructure itself (catchment analysis, detecting anycast site fliping, latency to the Internet, ...)
+//!
 //! # The components
 //!
 //! It allows for performing synchronized probes from a distributed set of nodes.
@@ -188,6 +192,8 @@ fn main() {
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
+        // TODO implement quit command to stop the CLI when user types quit in the CLI
+
         let _ = cli::execute(cli_matches);
         return;
     } else if let Some(server_matches) = matches.subcommand_matches("server") {
@@ -247,7 +253,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(false)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires ca.pem in ./tls/)")
+                        .help("Use TLS for communication with the server (requires server.crt in ./tls/)")
                 )
         )
         .subcommand(
@@ -264,7 +270,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(false)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .help("Use TLS for communication with the server (requires server.crt in ./tls/)")
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
@@ -378,7 +384,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("o")
                         .takes_value(true)
                         .required(false)
-                        .help("Optional path and/or filename to store the results of the measurement")
+                        .help("Optional path and/or filename to store the results of the measurement (default ./)")
+                    )
+                    .arg(Arg::with_name("URL")
+                        .long("url")
+                        .short("u")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
                     )
                 )
         )

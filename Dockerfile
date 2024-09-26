@@ -1,4 +1,4 @@
-FROM rust:latest as build
+FROM rust:latest AS build
 
 # create a new empty shell project
 RUN USER=root cargo new --bin manycast
@@ -13,7 +13,7 @@ COPY ./proto ./proto
 COPY ./build.rs ./build.rs
 RUN mkdir /out
 
-# this build step will cache dependencies
+# cache dependencies
 RUN cargo build --release
 RUN rm src/*.rs
 
@@ -24,7 +24,7 @@ COPY ./src ./src
 RUN rm ./target/release/deps/manycast*
 RUN cargo build --release
 
-# our final base
+# final base
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y libpcap0.8-dev
