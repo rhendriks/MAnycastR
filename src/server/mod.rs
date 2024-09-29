@@ -1054,11 +1054,15 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     if args.is_present("tls") {
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls())).expect("Failed to load TLS certificate")
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
+            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
             .await?;
     } else {
         Server::builder()
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
+            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
             .await?;
