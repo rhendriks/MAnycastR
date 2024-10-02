@@ -1102,8 +1102,7 @@ async fn probe_targets(
     // Create capture for sending packets (not receiving)
     let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
     let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
-    let ethernet_header = get_ethernet_header(is_ipv6);
-
+    let ethernet_header = get_ethernet_header(is_ipv6, None); // TODO interface
     // Probe targets
     while let Some(target) = targets.recv().await {
         if target == Address::default() { // Finished signal

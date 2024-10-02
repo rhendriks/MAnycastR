@@ -49,15 +49,23 @@ pub fn outbound(
     measurement_type: u8,
     chaos: String,
     info_url: String,
+    if_name: Option<String>,
 ) {
     let abort = Arc::new(Mutex::new(false));
     abort_handler(abort.clone(), finish_rx);
 
     thread::Builder::new().name("outbound".to_string())
         .spawn(move || {
-            let ethernet_header = get_ethernet_header(is_ipv6);
-            let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-            let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").buffer_size(100_000_000).open().expect("Failed to open capture");
+            let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
+            let interface = if let Some(if_name) = if_name {
+                Device::list().expect("Failed to get interfaces")
+                    .into_iter()
+                    .find(|iface| iface.name == if_name)
+                    .expect("Failed to find interface")
+            } else {
+                Device::lookup().expect("Failed to get main interface").unwrap()
+            };
+            let mut cap = Capture::from_device(interface).expect("Failed to create a capture").buffer_size(100_000_000).open().expect("Failed to open capture");
             'outer: loop {
                 if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
