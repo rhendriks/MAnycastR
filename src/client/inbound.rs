@@ -48,6 +48,7 @@ pub fn listen(
     filter: String,
     traceroute: bool,
     measurement_type: u32,
+    if_name: Option<String>,
 ) {
     println!("[Client inbound] Started listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
@@ -59,7 +60,7 @@ pub fn listen(
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
-            let mut cap = get_pcap(filter);
+            let mut cap = get_pcap(filter, if_name);
 
             // Listen for incoming ICMP packets
             loop {
@@ -219,10 +220,19 @@ fn handle_results(
 /// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
 ///
 /// The pcap object is set to capture packets on the main interface.
-fn get_pcap(filter: String) -> Capture<Active> {
-    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
-    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap(); // Get the main interface
-    let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
+fn get_pcap(
+    filter: String,
+    if_name: Option<String>
+) -> Capture<Active> {    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
+    let interface = if let Some(if_name) = if_name {
+        Device::list().expect("Failed to get interfaces")
+            .into_iter()
+            .find(|iface| iface.name == if_name)
+            .expect("Failed to find interface")
+    } else {
+        Device::lookup().expect("Failed to get main interface").unwrap()
+    };
+    let mut cap = Capture::from_device(interface).expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
         .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");

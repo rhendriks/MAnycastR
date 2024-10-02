@@ -255,6 +255,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .required(false)
                         .help("Use TLS for communication with the server (requires server.crt in ./tls/)")
                 )
+                .arg(
+                    Arg::with_name("interface")
+                        .long("interface")
+                        .short("i")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Interface to use for sending probes (will use the default interface if not specified)")
+                )
         )
         .subcommand(
             SubCommand::with_name("cli").about("Verfploeter CLI")
