@@ -7,20 +7,32 @@ use crate::custom_module::verfploeter::{Origin, PingPayload};
 use crate::custom_module::verfploeter::address::Value::{V4, V6};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::io::BufRead;
+use mac_address::mac_address_by_name;
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
 /// # Arguments
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
-pub fn get_ethernet_header(is_ipv6: bool) -> Vec<u8> {
-    // Source MAC address
-    let mac_src = match get_mac_address() {
-        Ok(Some(ma)) => {
-            ma.bytes()
+pub fn get_ethernet_header(
+    is_ipv6: bool,
+    if_name: Option<String>
+) -> Vec<u8> {
+    // Get the src MAC for interface, if provided
+    let mac_src = if let Some(if_name) = if_name {
+        if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
+            mac.bytes().to_vec()
+        } else {
+            panic!("No MAC address found for interface: {}", if_name);
         }
-        Ok(None) => panic!("No MAC address found."),
-        Err(e) => panic!("{:?}", e),
+    } else {
+        match get_mac_address() {
+            Ok(Some(ma)) => {
+                ma.bytes().to_vec()
+            },
+            Ok(None) => panic!("No MAC address found."),
+            Err(e) => panic!("{:?}", e),
+        }
     };
 
     // Run the sudo arp command (for the destination MAC addresses)

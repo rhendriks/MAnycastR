@@ -33,6 +33,7 @@ mod outbound;
 /// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
+/// * 'interface' - interface name to connect to (connect to default if None)
 #[derive(Clone)]
 pub struct Client {
     grpc_client: ControllerClient<Channel>,
@@ -41,6 +42,7 @@ pub struct Client {
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
+    interface: Option<String>,
 }
 
 impl Client {
@@ -61,6 +63,12 @@ impl Client {
             gethostname().into_string().unwrap()
         }.to_string();
 
+        let interface = if args.is_present("interface") {
+            Some(args.value_of("interface").unwrap().parse().unwrap())
+        } else {
+            None
+        };
+
         let server_addr = args.value_of("server").unwrap();
         // This client's metadata (shared with the Server)
         let metadata = Metadata {
@@ -77,6 +85,7 @@ impl Client {
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
+            interface,
         };
 
         client_class.connect_to_server().await?;
@@ -261,7 +270,7 @@ impl Client {
         bpf_filter.push_str(&*filter_parts.join(" or"));
 
         // Start listening thread
-        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, bpf_filter, is_traceroute, start_measurement.measurement_type);
+        listen(tx.clone(), inbound_rx_f, measurement_id, client_id, is_ipv6, bpf_filter, is_traceroute, start_measurement.measurement_type, self.interface.clone());
 
         if is_probing {
             match start_measurement.measurement_type {
@@ -280,7 +289,7 @@ impl Client {
                 _ => { () }
             }
             // Start sending thread
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos, info_url);
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, chaos, info_url, self.interface.clone());
         } else {
             println!("[Client] Not sending probes");
         }
