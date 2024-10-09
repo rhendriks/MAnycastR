@@ -251,9 +251,9 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
-                        .takes_value(false)
+                        .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt in ./tls/)")
+                        .help("Use TLS for communication with the server (requires server.crt in ./tls/), takes a FQDN as argument")
                 )
                 .arg(
                     Arg::with_name("interface")
@@ -276,9 +276,9 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
-                        .takes_value(false)
+                        .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt in ./tls/)")
+                        .help("Use TLS for communication with the server (requires server.crt in ./tls/), takes a FQDN as argument")
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
                 .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
