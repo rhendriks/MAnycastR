@@ -43,11 +43,13 @@ pub struct CliClient {
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.value_of("server").unwrap();
-    let is_tls = args.is_present("tls");
+
+    let fqdn = args.value_of("tls");
+    // let is_tls = args.is_present("tls");
 
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", server_address);
-    let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
+    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to server");
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
@@ -582,7 +584,7 @@ impl CliClient {
     ///
     /// * 'address' - the address of the server (e.g., 190.100.10.10:50051)
     ///
-    /// * 'tls' - a boolean that determines whether the connection should be secure or not
+    /// * 'fqdn' - an optional string that contains the FQDN of the server certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
@@ -603,8 +605,8 @@ impl CliClient {
     /// This function is async and should be awaited
     ///
     /// tls requires a certificate at ./tls/server.crt
-    async fn connect(address: &str, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if tls {
+    async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -614,7 +616,7 @@ impl CliClient {
 
             let tls = ClientTlsConfig::new()
                 .ca_certificate(ca)
-                .domain_name("localhost");
+                .domain_name(fqdn.unwrap());
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder

@@ -74,8 +74,9 @@ impl Client {
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
         };
-        let is_tls = args.is_present("tls");
-        let client = Client::connect(server_addr.parse().unwrap(), is_tls).await?;
+        // let is_tls = args.is_present("tls");
+        let fqdn = args.value_of("tls");
+        let client = Client::connect(server_addr.parse().unwrap(), fqdn).await?;
 
         // Initialize a client instance
         let mut client_class = Client {
@@ -99,7 +100,7 @@ impl Client {
     ///
     /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
     ///
-    /// * 'tls' - a boolean that indicates whether the connection should be secured with TLS
+    /// * 'fqdn' - an optional string that contains the FQDN of the server certificate (if TLS is enabled)
     ///
     /// # Example
     ///
@@ -108,9 +109,9 @@ impl Client {
     /// ```
     async fn connect(
         address: String,
-        tls: bool,
+        fqdn: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if tls {
+        let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -120,7 +121,7 @@ impl Client {
 
             let tls = ClientTlsConfig::new()
                 .ca_certificate(ca)
-                .domain_name("localhost");
+                .domain_name(fqdn.unwrap());
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
