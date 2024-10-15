@@ -189,11 +189,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
 
         // CHAOS value to send in the DNS query
-        let chaos_value = if measurement_type == 4 { // TODO use hostname for DNS A record as well
+        let dns_record = if measurement_type == 4 {
             if matches.is_present("HOSTNAME") {
                 matches.value_of("HOSTNAME").unwrap()
             } else {
-                ""
+                "hostname.bind"
+            }
+        } else if measurement_type == 2 {
+            if matches.is_present("HOSTNAME") {
+                matches.value_of("HOSTNAME").unwrap()
+            } else {
+                "any.dnsjedi.org" // TODO what default record to use for A
             }
         } else {
             ""
@@ -296,12 +302,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // get optional path to write results to
-        let path = if matches.is_present("OUT") {
-            matches.value_of("OUT")
-        } else {
-            None
-        };
+        // get optional path to write results to TODO ensure path is valid before measurement start
+        let path = matches.value_of("OUT");
+        if path.is_some() {
+            // Make sure path is valid
+            // Output file
+            if path.unwrap().ends_with('/') {
+                // User provided a path (check if path is valid)
+                // TODO
+            } else {
+                // user provided a file (check if file is valid)
+                // TODO
+            };
+        }
 
         // Create the measurement definition and send it to the server
         let measurement_definition = ScheduleMeasurement {
@@ -319,7 +332,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
-            chaos: chaos_value.to_string(),
+            record: dns_record.to_string(),
             url,
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await

@@ -432,7 +432,7 @@ impl Controller for ControllerService {
         *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
         let responsive = scheduled_measurement.responsive;
-        let chaos = scheduled_measurement.chaos;
+        let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
         // Establish a stream with the CLI to return the TaskResults through
@@ -498,7 +498,7 @@ impl Controller for ControllerService {
                     traceroute: is_traceroute,
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
-                    chaos: chaos.clone(),
+                    record: dns_record.clone(),
                     url: info_url.clone(),
                 }))
             };
@@ -558,7 +558,7 @@ impl Controller for ControllerService {
                 let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> = Arc::new(Mutex::new(HashMap::new()));
 
                 // start probing thread
-                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, chaos, &info_url).await;
+                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, dns_record, &info_url).await;
 
                 // Set filter
                 let bpf_filter = if is_ipv6 { // TODO test filters for all measurement types
@@ -1096,7 +1096,7 @@ async fn probe_targets(
     mut targets: mpsc::Receiver<Address>,
     measurement_type: u8,
     source: Origin,
-    chaos: String,
+    dns_record: String,
     info_url: &str,
 ) {
     // Create capture for sending packets (not receiving)
@@ -1127,7 +1127,7 @@ async fn probe_targets(
                     0,
                     measurement_type,
                     is_ipv6,
-                    chaos.clone(),
+                    &dns_record.clone(),
                 ));
             },
             3 => {
