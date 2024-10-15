@@ -158,7 +158,7 @@ pub fn create_ping(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'chaos' - the domain name to use for CHAOS measurements
+/// * 'dns_record' - the DNS record to request
 ///
 /// # Returns
 ///
@@ -173,7 +173,7 @@ pub fn create_udp(
     client_id: u8,
     measurement_type: u8,
     is_ipv6: bool,
-    chaos: String,
+    dns_record: &str,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -184,17 +184,17 @@ pub fn create_udp(
 
     return if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
+            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, chaos)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
+            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, chaos)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }

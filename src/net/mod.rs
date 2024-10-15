@@ -602,7 +602,7 @@ impl UDPPacket {
         ttl: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
-        let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
+        let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
                                                        source_address, destination_address, client_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u16;
 
@@ -681,7 +681,7 @@ impl UDPPacket {
         destination_address: u32,
         source_port: u16,
         client_id: u8,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
         let destination_port = 53u16;
         let dns_body = Self::create_chaos_request(client_id, chaos);
@@ -720,7 +720,7 @@ impl UDPPacket {
     /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(
         client_id: u8,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 

@@ -367,7 +367,7 @@ impl super::UDPPacket {
         hop_limit: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
-        let dns_packet = Self::create_dns_a_record_request_v6(domain_name, transmit_time,
+        let dns_packet = Self::create_dns_a_record_request_v6(&domain_name, transmit_time,
                                                               source_address, destination_address, client_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u32;
 
@@ -463,7 +463,7 @@ impl super::UDPPacket {
         destination_address: u128,
         source_port: u16,
         client_id: u8,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
         let destination_port = 53u16;
         let dns_body = Self::create_chaos_request(client_id, chaos);

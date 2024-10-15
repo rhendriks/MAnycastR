@@ -54,7 +54,7 @@ message ScheduleMeasurement {
   bool responsive = 10;
   bool divide = 11;
   Targets targets = 12;
-  string chaos = 13;
+  string record = 13; // Record to send CHAOS (TXT) or A/AAAA requests for
   string url = 14;
 }
 
@@ -109,7 +109,7 @@ message Start {
   bool ipv6 = 7;
   bool traceroute = 8;
   repeated Origin rx_origins = 9; // origins to listen for
-  string chaos = 10; // domain to use for chaos queries TODO use this as DNS A record as well
+  string record = 10; // domain to use for DNS queries (TXT/A/AAAA)
   string url = 11; // URL encoded in probes
 }
 

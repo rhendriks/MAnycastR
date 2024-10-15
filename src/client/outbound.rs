@@ -47,7 +47,7 @@ pub fn outbound(
     gcd: bool,
     measurement_id: u32,
     measurement_type: u8,
-    chaos: String,
+    dns_record: String,
     info_url: String,
     if_name: Option<String>,
 ) {
@@ -121,7 +121,7 @@ pub fn outbound(
                                             client_id,
                                             measurement_type,
                                             is_ipv6,
-                                            chaos.clone(),
+                                            &dns_record.clone(),
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!("Failed to send ICMP packet: {}", e)
