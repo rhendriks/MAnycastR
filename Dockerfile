@@ -27,7 +27,7 @@ RUN cargo build --release
 # final base
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y libpcap0.8-dev
+RUN apt-get update && apt-get install -y libpcap0.8
 
 # copy the build artifact from the build stage
 COPY --from=build /manycast/target/release/manycast .
