@@ -182,7 +182,7 @@ pub fn create_udp(
     let src = IP::from(origin.src.expect("None IP address"));
     let dport = origin.dport as u16;
 
-    return if is_ipv6 {
+    if is_ipv6 {
         if measurement_type == 2 {
             UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
@@ -198,7 +198,7 @@ pub fn create_udp(
         } else {
             panic!("Invalid measurement type")
         }
-    };
+    }
 }
 
 /// Creates a TCP packet.

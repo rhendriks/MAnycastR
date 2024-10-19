@@ -747,6 +747,16 @@ impl UDPPacket {
     }
 }
 
+/// Get the length of a given domain in bytes
+/// TODO test this function
+pub fn get_domain_bytes_length(domain: &str) -> u32 {
+    let mut length = 0;
+    for label in domain.split('.') {
+        length += label.len() as u32 + 1; // Add the length of the label and the '.' separator
+    }
+    length
+}
+
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
 #[derive(Debug)]
 pub struct TCPPacket {
