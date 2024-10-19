@@ -36,6 +36,8 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayl
 ///
 /// * 'measurement_type' - the type of measurement being performed
 ///
+/// * 'if_name' - the name of the interface to listen on (default is the main interface)
+///
 /// # Panics
 ///
 /// Panics if the measurement type is invalid
@@ -799,7 +801,7 @@ fn parse_udpv4(
         };
 
         // Create a VerfploeterResult for the received UDP reply
-        return Some(VerfploeterResult {
+        Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
                 rx_time,
                 sport: udp_packet.source_port as u32,
@@ -808,9 +810,9 @@ fn parse_udpv4(
                 ip_result: Some(ip_result),
                 payload,
             })),
-        });
+        })
     } else {
-        return None;
+        None
     }
 }
 
@@ -892,7 +894,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
     // Get the information from the domain, continue to the next packet if it does not follow the format
-    return if is_ipv6 {
+    if is_ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();
         // Our domains have 8 'parts' separated by 7 dots
         if parts.len() != 8 { return None; }
@@ -976,7 +978,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
                 sport: probe_sport as u32,
             })),
         })
-    };
+    }
 }
 
 /// Attempts to parse the DNS Chaos record from a UDP payload body.
