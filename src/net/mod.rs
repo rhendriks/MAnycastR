@@ -566,7 +566,6 @@ impl UDPPacket {
             checksum: 0,
             body,
         };
-
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
@@ -601,14 +600,13 @@ impl UDPPacket {
         client_id: u8,
         ttl: u8,
     ) -> Vec<u8> {
-        let destination_port = 53u16; // DNS port
         let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
                                                        source_address, destination_address, client_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
             source_port,
-            destination_port,
+            destination_port: 53u16, // DNS port
             length: udp_length,
             checksum: 0,
             body: dns_packet,
@@ -646,7 +644,6 @@ impl UDPPacket {
         source_port: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
-
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,

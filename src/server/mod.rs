@@ -638,7 +638,6 @@ impl Controller for ControllerService {
                 println!("sending finished signal");
 
                 // Send a message to the other sending threads to let them know the measurement is finished
-
                 tx_r.send(Address::default()).await.expect("Failed to send finished signal");
                 tx_f.send(()).expect("Failed to send finished signal");
                 tx_f_2.send(()).expect("Failed to send finished signal");
@@ -1169,15 +1168,12 @@ async fn listen_for_responses(
 
     cap = cap.setnonblock().unwrap();
 
-
     // Start listening
-    // while let Ok(packet) = cap.next_packet() {
     loop {
         if rx_f.try_recv().is_ok() { // Check if the server has finished probing for responsive targets
             println!("received finished signal");
             break;
         }
-
 
         let packet = match cap.next_packet() {
             Ok(packet) => {
