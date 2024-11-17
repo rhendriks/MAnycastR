@@ -60,15 +60,10 @@ impl Client {
         let hostname = if args.is_present("hostname") {
             args.value_of("hostname").unwrap().parse().unwrap()
         } else {
-            gethostname().into_string().unwrap()
+            gethostname().into_string().expect("Unable to get hostname")
         }.to_string();
 
-        let interface = if args.is_present("interface") {
-            Some(args.value_of("interface").unwrap().parse().unwrap())
-        } else {
-            None
-        };
-
+        let interface = args.value_of("interface").map(|s| s.to_string());
         let server_addr = args.value_of("server").unwrap();
         // This client's metadata (shared with the Server)
         let metadata = Metadata {

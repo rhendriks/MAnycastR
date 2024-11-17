@@ -1,13 +1,13 @@
 use std::io;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
-use mac_address::get_mac_address;
+use mac_address::{get_mac_address, mac_address_by_name};
 use crate::custom_module::IP;
 use crate::custom_module::verfploeter::{Origin, PingPayload};
 use crate::custom_module::verfploeter::address::Value::{V4, V6};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::io::BufRead;
-use mac_address::mac_address_by_name;
+use pcap::{Active, Capture, Device};
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
@@ -74,6 +74,47 @@ pub fn get_ethernet_header(
     ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
 
     ethernet_header
+}
+
+/// Create a pcap capture object with the given filter.
+///
+/// # Arguments
+///
+/// * 'if_name' - the interface to attach the pcap to
+///
+/// * 'buffer_size' - the buffer size for the pcap
+///
+/// # Returns
+///
+/// * 'Capture<Active>' - the pcap capture object
+///
+/// # Panics
+///
+/// Panics if the pcap object cannot be created or the filter cannot be set.
+///
+/// # Remarks
+///
+/// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
+///
+/// The pcap object is set to capture packets on the main interface.
+pub fn get_pcap(
+    if_name: Option<String>,
+    buffer_size: i32
+) -> Capture<Active> {    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
+    let interface = if let Some(if_name) = if_name {
+        Device::list().expect("Failed to get interfaces")
+            .into_iter()
+            .find(|iface| iface.name == if_name)
+            .expect("Failed to find interface")
+    } else {
+        Device::lookup().expect("Failed to get main interface").unwrap()
+    };
+    let cap = Capture::from_device(interface).expect("Failed to get capture device")
+        .immediate_mode(true)
+        .buffer_size(buffer_size) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
+        .open().expect("Failed to open capture device")
+        .setnonblock().expect("Failed to set pcap to non-blocking mode");
+    cap
 }
 
 /// Creates a ping packet.
