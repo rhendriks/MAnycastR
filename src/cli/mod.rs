@@ -72,7 +72,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         let src = if matches.is_present("ADDRESS") {
-            Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
+            Some(Address::from(matches.value_of("ADDRESS").unwrap().to_string()))
         } else {
             None
         };
@@ -100,7 +100,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
-                    let src = Address::from(IP::from(addr_ports[0].to_string()));
+                    let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
                     let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
@@ -142,7 +142,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
             .map(|l| {
-                // Address::from(IP::from(l.unwrap()))
                 Address::from(l.unwrap()) // TODO test
             })
             .collect();
