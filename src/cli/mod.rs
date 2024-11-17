@@ -140,10 +140,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
         let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
+
+        // TODO read addresses as u32 / u128, in case supplied as IP numbers
+        // TODO allow for bytes
+
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
             .map(|l| {
-                Address::from(IP::from(l.unwrap()))
+                // Address::from(IP::from(l.unwrap()))
+                Address::from(l.unwrap()) // TODO test
             })
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();

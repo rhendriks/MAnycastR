@@ -165,7 +165,7 @@ mod client;
 mod net;
 mod custom_module;
 
-/// Parse command line input and start VerfPloeter server, client, or CLI
+/// Parse command line input and start MAnycastR server, client, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
@@ -214,7 +214,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
-            SubCommand::with_name("server").about("Launches the verfploeter server")
+            SubCommand::with_name("server").about("Launches the MAnycastR server")
                 .arg(
                     Arg::with_name("port")
                         .long("port")
@@ -232,7 +232,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
         )
         .subcommand(
-            SubCommand::with_name("client").about("Launches the verfploeter client")
+            SubCommand::with_name("client").about("Launches the MAnycastR client")
                 .arg(
                     Arg::with_name("server")
                         .short("s")
@@ -265,7 +265,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                 )
         )
         .subcommand(
-            SubCommand::with_name("cli").about("Verfploeter CLI")
+            SubCommand::with_name("cli").about("MAnycastR CLI")
                 .arg(
                     Arg::with_name("server")
                         .short("s")
@@ -281,7 +281,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .help("Use TLS for communication with the server (requires server.crt in ./tls/), takes a FQDN as argument")
                 )
                 .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
-                .subcommand(SubCommand::with_name("start").about("performs verfploeter on the indicated client")
+                .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated client")
                     .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                         .required(true)
                         .index(1)

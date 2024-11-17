@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
 
 use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
 
@@ -147,6 +147,29 @@ impl From<&[u8]> for Address {
                 }
             },
             _ => panic!("Invalid IP address length"),
+        }
+    }
+}
+
+// Convert String into an Address
+impl From<String> for Address {
+    fn from(s: String) -> Self {
+        match s.parse::<IpAddr>() {
+            Ok(IpAddr::V4(v4_addr)) => {
+                Address {
+                    value: Some(V4(u32::from_be_bytes(v4_addr.octets()))),
+                }
+            }
+            Ok(IpAddr::V6(v6_addr)) => {
+                let parts = v6_addr.octets();
+                Address {
+                    value: Some(V6(IPv6 {
+                        p1: u64::from_be_bytes(parts[0..8].try_into().unwrap()),
+                        p2: u64::from_be_bytes(parts[8..16].try_into().unwrap()),
+                    })),
+                }
+            }
+            Err(_) => panic!("Invalid IP address format"),
         }
     }
 }
