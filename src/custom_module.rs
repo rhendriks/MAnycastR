@@ -152,24 +152,41 @@ impl From<&[u8]> for Address {
 }
 
 // Convert String into an Address
-impl From<String> for Address {
+impl From<String> for Address { // TODO test
     fn from(s: String) -> Self {
-        match s.parse::<IpAddr>() {
-            Ok(IpAddr::V4(v4_addr)) => {
-                Address {
+        if let Ok(ip) = s.parse::<IpAddr>() {
+            // handle standard IP string format (e.g., 2001::1, 1.1.1.1)
+            match ip {
+                IpAddr::V4(v4_addr) => Address {
                     value: Some(V4(u32::from_be_bytes(v4_addr.octets()))),
-                }
-            }
-            Ok(IpAddr::V6(v6_addr)) => {
-                let parts = v6_addr.octets();
-                Address {
+                },
+                IpAddr::V6(v6_addr) => Address {
                     value: Some(V6(IPv6 {
-                        p1: u64::from_be_bytes(parts[0..8].try_into().unwrap()),
-                        p2: u64::from_be_bytes(parts[8..16].try_into().unwrap()),
+                        p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
+                        p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
                     })),
-                }
+                },
             }
-            Err(_) => panic!("Invalid IP address format"),
+        } else if let Ok(ip_number) = s.parse::<u128>() {
+            // attempt to interpret as a raw IP number (e.g., 16843009)
+            match s.len() { // TODO do these constraints hold for all IP number lengths?
+                10 => {
+                    Address {
+                        value: Some(V4(ip_number as u32)),
+                    }
+                }
+                39 => {
+                    Address {
+                        value: Some(V6(IPv6 {
+                            p1: (ip_number >> 64) as u64,
+                            p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64,
+                        })),
+                    }
+                }
+                _ => panic!("Invalid IP number"),
+            }
+        } else {
+            panic!("Invalid IP address or IP number");
         }
     }
 }
