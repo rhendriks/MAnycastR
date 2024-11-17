@@ -73,9 +73,22 @@
 //! ```
 //! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
 //! ```
-//! SOURCE IP is the IPv4 address from which to send the probes, HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data), TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP), RATE the rate (packets / second) at which clients will sent out probes, CLIENTS is an optional command that is used to specify which clients have to send out probes (omitting this means all clients will send out probes).
+//!
+//! * SOURCE IP is the IPv4 address from which to send the probes.
+//!
+//! * HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data).
+//!
+//! * TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
+//!
+//! * RATE the rate (packets / second) at which clients will sent out probes.
+//!
+//! * CLIENTS is an optional command that is used to specify which clients have to send out probes (omitting this means all clients will send out probes).
 //!
 //! The hitlist can be shuffled by using the --shuffle option in the command.
+//!
+//! Hitlist format is a list of addresses (can be regular IPs (e.g., 1.1.1.1), or IP numbers (e.g., 16843009)
+//!
+//! Hitlist may not mix IPv4 and IPv6 addresses.
 //!
 //! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
 //!

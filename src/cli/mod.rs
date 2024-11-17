@@ -43,9 +43,7 @@ pub struct CliClient {
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.value_of("server").unwrap();
-
     let fqdn = args.value_of("tls");
-    // let is_tls = args.is_present("tls");
 
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", server_address);
@@ -140,9 +138,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
         let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
-
-        // TODO read addresses as u32 / u128, in case supplied as IP numbers
-        // TODO allow for bytes
 
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
