@@ -118,7 +118,8 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!("Failed to send ICMP packet: {}", e)
-                                        });                                    }
+                                        });
+                                    }
                                 }
                                 3 => {
                                     for dst in &targets.dst_addresses {
