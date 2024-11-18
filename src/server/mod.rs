@@ -509,6 +509,9 @@ impl Controller for ControllerService {
             }
         }
 
+        // Sleep 1 second to let the clients start listening for probe replies
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         // Number of clients participating in the measurement (listening and/or probing)
         let number_of_clients = senders.len() as u64;
 
@@ -525,6 +528,7 @@ impl Controller for ControllerService {
         let mut active_client_i: u64 = 0; // Index for active clients
         let mut all_client_i = 0; // Index for the client list
         let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
+        // TODO are chunks needed, or can we just use chunk size 1
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {
