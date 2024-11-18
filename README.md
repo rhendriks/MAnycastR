@@ -1,4 +1,4 @@
-# Manycast
+# ManycastR
 
 This project is an implementation of https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf
 
@@ -8,7 +8,7 @@ Furthermore, it allows for probing with ICMP, TCP, and UDP (using DNS).
 
 ## Usage
 
-Verfploeter has 3 components, all contained in the same binary:
+MAnycastR has 3 components, all contained in the same binary:
  - Server (running somewhere centrally)
  - Client (running on the edges, e.g. the anycast nodes)
  - Cli (running on locally)
@@ -19,9 +19,9 @@ The server receives tasks from the cli component, and sends these to the connect
 for execution. Client's receiving measurement data forward this to the server. The server streams back results to the cli.
 
 ```
-$ verfploeter server --help
-verfploeter-server
-Launches the verfploeter server
+$ MAnycastR server --help
+MAnycastR-server
+Launches the MAnycastR server
 
 USAGE:
     verfploeter server [OPTIONS]

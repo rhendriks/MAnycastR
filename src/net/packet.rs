@@ -19,7 +19,7 @@ pub fn get_ethernet_header(
     if_name: Option<String>
 ) -> Vec<u8> {
     // Get the src MAC for interface, if provided
-    let mac_src = if let Some(if_name) = if_name {
+    let mac_src = if let Some(if_name) = if_name.clone() {
         if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
             mac.bytes().to_vec()
         } else {
@@ -41,8 +41,6 @@ pub fn get_ethernet_header(
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to run command");
-    // .stdout
-    // .expect("Failed to capture stdout");
 
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
@@ -51,10 +49,19 @@ pub fn get_ethernet_header(
     let reader = io::BufReader::new(output);
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
+    // TODO can return the wrong MAC address, match on Device == if_name (or default interface)
     for line in lines {
         if let Ok(line) = line {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() > 3 {
+            if parts.len() > 5 {
+                if if_name.is_some() { // Match on the interface name
+                    let if_name = if_name.unwrap();
+                    if parts[5] == if_name {
+                        mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                        break;
+                    }
+                }
+
                 mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
                 break;
             }
