@@ -92,7 +92,6 @@ pub fn outbound(
                                 1 => {
                                     for dst in &targets.dst_addresses {
                                         let mut packet = ethernet_header.clone();
-                                        println!("packet {:?}", packet);
                                         packet.extend_from_slice(&create_ping(
                                             origin.clone(),
                                             IP::from(dst.clone()),
