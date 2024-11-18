@@ -55,6 +55,8 @@ pub fn get_ethernet_header(
             if parts.len() > 5 {
                 if if_name.is_some() { // Match on the interface name TODO match for default interface as well
                     let if_name = if_name.unwrap();
+                    println!("if_name: {}", if_name);
+                    println!("parts[5]: {}", parts[5]);
                     if parts[5] == if_name {
                         mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
                         break;
