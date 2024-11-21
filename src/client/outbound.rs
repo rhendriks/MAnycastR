@@ -100,7 +100,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("Failed to send ICMP packet: {}", e)
+                                            println!("Failed to send ICMP packet: {}", e) // TODO packet loss due to libpcap error: send: Resource temporarily unavailable
                                         });
                                     }
                                 }

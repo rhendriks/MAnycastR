@@ -528,7 +528,7 @@ impl Controller for ControllerService {
         let mut active_client_i: u64 = 0; // Index for active clients
         let mut all_client_i = 0; // Index for the client list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-        // TODO are chunks needed, or can we just use chunk size 1
+        // TODO rate-limit at the client to not send bursts for each chunk
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {

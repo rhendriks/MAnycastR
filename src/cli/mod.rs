@@ -504,10 +504,9 @@ impl CliClient {
 
         // If the stream closed during a measurement
         if !graceful {
+            tx_r.send(TaskResult::default()).unwrap(); // Let the results channel know that we are done
             println!("[CLI] Measurement ended prematurely!");
-            // TODO deadlock bug
         }
-
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
@@ -578,7 +577,7 @@ impl CliClient {
             }
         }
 
-        file.flush()?;
+        file.flush().expect("Failed to flush file");
 
         tx_r.closed().await; // Wait for all results to be written to file
 
