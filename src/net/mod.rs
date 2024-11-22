@@ -566,7 +566,6 @@ impl UDPPacket {
             checksum: 0,
             body,
         };
-
         let mut bytes: Vec<u8> = (&packet).into();
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
@@ -601,14 +600,13 @@ impl UDPPacket {
         client_id: u8,
         ttl: u8,
     ) -> Vec<u8> {
-        let destination_port = 53u16; // DNS port
-        let dns_packet = Self::create_a_record_request(domain_name, transmit_time,
+        let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
                                                        source_address, destination_address, client_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
             source_port,
-            destination_port,
+            destination_port: 53u16, // DNS port
             length: udp_length,
             checksum: 0,
             body: dns_packet,
@@ -646,7 +644,6 @@ impl UDPPacket {
         source_port: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
-
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
@@ -681,15 +678,14 @@ impl UDPPacket {
         destination_address: u32,
         source_port: u16,
         client_id: u8,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
-        let destination_port = 53u16;
         let dns_body = Self::create_chaos_request(client_id, chaos);
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
             source_port,
-            destination_port,
+            destination_port: 53u16,
             length: udp_length as u16,
             checksum: 0,
             body: dns_body,
@@ -720,7 +716,7 @@ impl UDPPacket {
     /// Creating a DNS TXT record request body for id.server CHAOS request
     fn create_chaos_request(
         client_id: u8,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
@@ -746,6 +742,16 @@ impl UDPPacket {
 
         dns_body
     }
+}
+
+/// Get the length of a given domain in bytes
+/// TODO test this function
+pub fn get_domain_bytes_length(domain: &str) -> u32 {
+    let mut length = 0;
+    for label in domain.split('.') {
+        length += label.len() as u32 + 1; // Add the length of the label and the '.' separator
+    }
+    length
 }
 
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
