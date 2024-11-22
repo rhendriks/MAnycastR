@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::thread::{Builder, sleep};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use pcap::{Active, Capture, Device};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 use crate::custom_module::Separated;
@@ -12,7 +10,7 @@ use crate::custom_module::verfploeter::{
     PingResult, TaskResult, TcpResult, trace_result, TraceResult, udp_payload, UdpPayload,
     UdpResult, verfploeter_result::Value, VerfploeterResult,
 };
-use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayload, TXTRecord};
+use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayload, TXTRecord, packet::get_pcap};
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
@@ -35,6 +33,8 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayl
 /// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
 ///
 /// * 'measurement_type' - the type of measurement being performed
+///
+/// * 'if_name' - the name of the interface to listen on (default is the main interface)
 ///
 /// # Panics
 ///
@@ -60,7 +60,9 @@ pub fn listen(
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
-            let mut cap = get_pcap(filter, if_name);
+            let mut cap = get_pcap(if_name, 100_000_000);
+            cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
+            cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
 
             // Listen for incoming ICMP packets
             loop {
@@ -199,46 +201,6 @@ fn handle_results(
             break;
         }
     }
-}
-
-/// Create a pcap capture object with the given filter.
-///
-/// # Arguments
-///
-/// * 'filter' - the pcap filter to use (see https://www.tcpdump.org/manpages/pcap-filter.7.html)
-///
-/// # Returns
-///
-/// * 'Capture<Active>' - the pcap capture object
-///
-/// # Panics
-///
-/// Panics if the pcap object cannot be created or the filter cannot be set.
-///
-/// # Remarks
-///
-/// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
-///
-/// The pcap object is set to capture packets on the main interface.
-fn get_pcap(
-    filter: String,
-    if_name: Option<String>
-) -> Capture<Active> {    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
-    let interface = if let Some(if_name) = if_name {
-        Device::list().expect("Failed to get interfaces")
-            .into_iter()
-            .find(|iface| iface.name == if_name)
-            .expect("Failed to find interface")
-    } else {
-        Device::lookup().expect("Failed to get main interface").unwrap()
-    };
-    let mut cap = Capture::from_device(interface).expect("Failed to get capture device")
-        .immediate_mode(true)
-        .buffer_size(100_000_000) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
-        .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
-    cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
-    cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
-    cap
 }
 
 /// Parse packet bytes into an IPv4 header, returns the IP result for this header and the payload.
@@ -781,6 +743,7 @@ fn parse_udpv4(
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+        // TODO body packet length is variable based on the domain name used in the measurement
         if ((measurement_type == 2) & (udp_packet.body.len() < 66)) | ((measurement_type == 4) & (udp_packet.body.len() < 10)) {
             return None;
         }
@@ -798,7 +761,7 @@ fn parse_udpv4(
         };
 
         // Create a VerfploeterResult for the received UDP reply
-        return Some(VerfploeterResult {
+        Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
                 rx_time,
                 sport: udp_packet.source_port as u32,
@@ -807,9 +770,9 @@ fn parse_udpv4(
                 ip_result: Some(ip_result),
                 payload,
             })),
-        });
+        })
     } else {
-        return None;
+        None
     }
 }
 
@@ -840,7 +803,8 @@ fn parse_udpv6(
     // Obtain the payload
     return if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-        if ((measurement_type == 2) & (value.body.len() < 66)) | ((measurement_type == 4) & (value.body.len() < 10)) {
+        // TODO use 'get_domain_length'
+        if ((measurement_type == 2) & (value.body.len() < 66))| ((measurement_type == 4) & (value.body.len() < 10)) {
             return None;
         }
 
@@ -891,7 +855,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
     // Get the information from the domain, continue to the next packet if it does not follow the format
-    return if is_ipv6 {
+    if is_ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();
         // Our domains have 8 'parts' separated by 7 dots
         if parts.len() != 8 { return None; }
@@ -975,7 +939,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
                 sport: probe_sport as u32,
             })),
         })
-    };
+    }
 }
 
 /// Attempts to parse the DNS Chaos record from a UDP payload body.

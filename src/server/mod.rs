@@ -432,7 +432,7 @@ impl Controller for ControllerService {
         *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
         let responsive = scheduled_measurement.responsive;
-        let chaos = scheduled_measurement.chaos;
+        let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
         // Establish a stream with the CLI to return the TaskResults through
@@ -498,7 +498,7 @@ impl Controller for ControllerService {
                     traceroute: is_traceroute,
                     tx_origins: client_tx_origins.clone(),
                     rx_origins: rx_origins.clone(),
-                    chaos: chaos.clone(),
+                    record: dns_record.clone(),
                     url: info_url.clone(),
                 }))
             };
@@ -508,6 +508,9 @@ impl Controller for ControllerService {
                 Err(e) => println!("[Server] Failed to send 'start measurement' {:?}", e),
             }
         }
+
+        // Sleep 1 second to let the clients start listening for probe replies
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Number of clients participating in the measurement (listening and/or probing)
         let number_of_clients = senders.len() as u64;
@@ -524,7 +527,8 @@ impl Controller for ControllerService {
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
         let mut active_client_i: u64 = 0; // Index for active clients
         let mut all_client_i = 0; // Index for the client list
-        let chunk_size: usize = 10; // TODO try increasing chunk size to reduce overhead
+        let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
+        // TODO rate-limit at the client to not send bursts for each chunk
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {
@@ -558,7 +562,7 @@ impl Controller for ControllerService {
                 let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> = Arc::new(Mutex::new(HashMap::new()));
 
                 // start probing thread
-                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, chaos, &info_url).await;
+                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, dns_record, &info_url).await;
 
                 // Set filter
                 let bpf_filter = if is_ipv6 { // TODO test filters for all measurement types
@@ -638,7 +642,6 @@ impl Controller for ControllerService {
                 println!("sending finished signal");
 
                 // Send a message to the other sending threads to let them know the measurement is finished
-
                 tx_r.send(Address::default()).await.expect("Failed to send finished signal");
                 tx_f.send(()).expect("Failed to send finished signal");
                 tx_f_2.send(()).expect("Failed to send finished signal");
@@ -1096,7 +1099,7 @@ async fn probe_targets(
     mut targets: mpsc::Receiver<Address>,
     measurement_type: u8,
     source: Origin,
-    chaos: String,
+    dns_record: String,
     info_url: &str,
 ) {
     // Create capture for sending packets (not receiving)
@@ -1127,7 +1130,7 @@ async fn probe_targets(
                     0,
                     measurement_type,
                     is_ipv6,
-                    chaos.clone(),
+                    &dns_record.clone(),
                 ));
             },
             3 => {
@@ -1169,15 +1172,12 @@ async fn listen_for_responses(
 
     cap = cap.setnonblock().unwrap();
 
-
     // Start listening
-    // while let Ok(packet) = cap.next_packet() {
     loop {
         if rx_f.try_recv().is_ok() { // Check if the server has finished probing for responsive targets
             println!("received finished signal");
             break;
         }
-
 
         let packet = match cap.next_packet() {
             Ok(packet) => {

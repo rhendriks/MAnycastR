@@ -43,11 +43,11 @@ pub struct CliClient {
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.value_of("server").unwrap();
-    let is_tls = args.is_present("tls");
+    let fqdn = args.value_of("tls");
 
     // Create client connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", server_address);
-    let grpc_client = CliClient::connect(server_address, is_tls).await.expect("Unable to connect to server");
+    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to server");
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
@@ -72,7 +72,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         let src = if matches.is_present("ADDRESS") {
-            Some(Address::from(IP::from(matches.value_of("ADDRESS").unwrap().to_string())))
+            Some(Address::from(matches.value_of("ADDRESS").unwrap().to_string()))
         } else {
             None
         };
@@ -100,7 +100,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
-                    let src = Address::from(IP::from(addr_ports[0].to_string()));
+                    let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
                     let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
@@ -138,10 +138,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
         let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
+
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
             .map(|l| {
-                Address::from(IP::from(l.unwrap()))
+                Address::from(l.unwrap()) // TODO test
             })
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();
@@ -187,11 +188,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
 
         // CHAOS value to send in the DNS query
-        let chaos_value = if measurement_type == 4 { // TODO use hostname for DNS A record as well
+        let dns_record = if measurement_type == 4 {
             if matches.is_present("HOSTNAME") {
                 matches.value_of("HOSTNAME").unwrap()
             } else {
-                ""
+                "hostname.bind"
+            }
+        } else if measurement_type == 2 {
+            if matches.is_present("HOSTNAME") {
+                matches.value_of("HOSTNAME").unwrap()
+            } else {
+                "any.dnsjedi.org" // TODO what default record to use for A
             }
         } else {
             ""
@@ -294,12 +301,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // get optional path to write results to
-        let path = if matches.is_present("OUT") {
-            matches.value_of("OUT")
-        } else {
-            None
-        };
+        // get optional path to write results to TODO ensure path is valid before measurement start
+        let path = matches.value_of("OUT");
+        if path.is_some() {
+            // Make sure path is valid
+            // Output file
+            if path.unwrap().ends_with('/') {
+                // User provided a path (check if path is valid)
+                // TODO
+            } else {
+                // user provided a file (check if file is valid)
+                // TODO
+            };
+        }
 
         // Create the measurement definition and send it to the server
         let measurement_definition = ScheduleMeasurement {
@@ -317,7 +331,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             targets: Some(Targets {
                 dst_addresses: ips,
             }),
-            chaos: chaos_value.to_string(),
+            record: dns_record.to_string(),
             url,
         };
         cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
@@ -490,10 +504,9 @@ impl CliClient {
 
         // If the stream closed during a measurement
         if !graceful {
+            tx_r.send(TaskResult::default()).unwrap(); // Let the results channel know that we are done
             println!("[CLI] Measurement ended prematurely!");
-            // TODO deadlock bug
         }
-
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
@@ -564,7 +577,7 @@ impl CliClient {
             }
         }
 
-        file.flush()?;
+        file.flush().expect("Failed to flush file");
 
         tx_r.closed().await; // Wait for all results to be written to file
 
@@ -582,7 +595,7 @@ impl CliClient {
     ///
     /// * 'address' - the address of the server (e.g., 190.100.10.10:50051)
     ///
-    /// * 'tls' - a boolean that determines whether the connection should be secure or not
+    /// * 'fqdn' - an optional string that contains the FQDN of the server certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
@@ -603,8 +616,8 @@ impl CliClient {
     /// This function is async and should be awaited
     ///
     /// tls requires a certificate at ./tls/server.crt
-    async fn connect(address: &str, tls: bool) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if tls {
+    async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+        let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -614,7 +627,7 @@ impl CliClient {
 
             let tls = ClientTlsConfig::new()
                 .ca_certificate(ca)
-                .domain_name("localhost");
+                .domain_name(fqdn.unwrap());
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder

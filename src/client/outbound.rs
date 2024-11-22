@@ -4,16 +4,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::Future;
-use pcap::{Capture, Device};
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::Receiver;
+use pcap::Capture;
+use tokio::sync::mpsc::{Receiver, error::TryRecvError};
 
+use crate::custom_module;
 use custom_module::IP;
 use custom_module::verfploeter::{Origin, task::Data};
 use custom_module::verfploeter::task::Data::{End, Targets, Trace};
 
-use crate::custom_module;
-use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
+use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header, get_pcap};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 
 
@@ -47,7 +46,7 @@ pub fn outbound(
     gcd: bool,
     measurement_id: u32,
     measurement_type: u8,
-    chaos: String,
+    dns_record: String,
     info_url: String,
     if_name: Option<String>,
 ) {
@@ -57,15 +56,8 @@ pub fn outbound(
     thread::Builder::new().name("outbound".to_string())
         .spawn(move || {
             let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
-            let interface = if let Some(if_name) = if_name {
-                Device::list().expect("Failed to get interfaces")
-                    .into_iter()
-                    .find(|iface| iface.name == if_name)
-                    .expect("Failed to find interface")
-            } else {
-                Device::lookup().expect("Failed to get main interface").unwrap()
-            };
-            let mut cap = Capture::from_device(interface).expect("Failed to create a capture").buffer_size(100_000_000).open().expect("Failed to open capture");
+            let mut cap = get_pcap(if_name, 100_000_000); // TODO use single pcap for in- and outbound
+            cap.direction(pcap::Direction::Out).expect("Unable to set pcap direction");
             'outer: loop {
                 if *abort.lock().unwrap() {
                     println!("[Client outbound] ABORTING");
@@ -108,7 +100,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("Failed to send ICMP packet: {}", e)
+                                            println!("Failed to send ICMP packet: {}", e) // TODO packet loss due to libpcap error: send: Resource temporarily unavailable
                                         });
                                     }
                                 }
@@ -121,11 +113,12 @@ pub fn outbound(
                                             client_id,
                                             measurement_type,
                                             is_ipv6,
-                                            chaos.clone(),
+                                            &dns_record.clone(),
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!("Failed to send ICMP packet: {}", e)
-                                        });                                    }
+                                        });
+                                    }
                                 }
                                 3 => {
                                     for dst in &targets.dst_addresses {

@@ -1,13 +1,13 @@
 use std::io;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
-use mac_address::get_mac_address;
+use mac_address::{get_mac_address, mac_address_by_name};
 use crate::custom_module::IP;
 use crate::custom_module::verfploeter::{Origin, PingPayload};
 use crate::custom_module::verfploeter::address::Value::{V4, V6};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::io::BufRead;
-use mac_address::mac_address_by_name;
+use pcap::{Active, Capture, Device};
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
@@ -19,7 +19,7 @@ pub fn get_ethernet_header(
     if_name: Option<String>
 ) -> Vec<u8> {
     // Get the src MAC for interface, if provided
-    let mac_src = if let Some(if_name) = if_name {
+    let mac_src = if let Some(if_name) = if_name.clone() {
         if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
             mac.bytes().to_vec()
         } else {
@@ -41,8 +41,6 @@ pub fn get_ethernet_header(
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to run command");
-    // .stdout
-    // .expect("Failed to capture stdout");
 
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
@@ -54,9 +52,17 @@ pub fn get_ethernet_header(
     for line in lines {
         if let Ok(line) = line {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() > 3 {
-                mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
-                break;
+            if parts.len() > 5 {
+                if if_name.is_some() { // Match on the interface name TODO match for default interface as well
+                    let if_name = if_name.clone().unwrap();
+                    if parts[5] == if_name {
+                        mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                        break;
+                    }
+                } else {
+                    mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                    break;
+                }
             }
         }
     }
@@ -74,6 +80,47 @@ pub fn get_ethernet_header(
     ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
 
     ethernet_header
+}
+
+/// Create a pcap capture object with the given filter.
+///
+/// # Arguments
+///
+/// * 'if_name' - the interface to attach the pcap to
+///
+/// * 'buffer_size' - the buffer size for the pcap
+///
+/// # Returns
+///
+/// * 'Capture<Active>' - the pcap capture object
+///
+/// # Panics
+///
+/// Panics if the pcap object cannot be created or the filter cannot be set.
+///
+/// # Remarks
+///
+/// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
+///
+/// The pcap object is set to capture packets on the main interface.
+pub fn get_pcap(
+    if_name: Option<String>,
+    buffer_size: i32
+) -> Capture<Active> {    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
+    let interface = if let Some(if_name) = if_name {
+        Device::list().expect("Failed to get interfaces")
+            .into_iter()
+            .find(|iface| iface.name == if_name)
+            .expect("Failed to find interface")
+    } else {
+        Device::lookup().expect("Failed to get main interface").unwrap()
+    };
+    let cap = Capture::from_device(interface).expect("Failed to get capture device")
+        .immediate_mode(true)
+        .buffer_size(buffer_size) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
+        .open().expect("Failed to open capture device")
+        .setnonblock().expect("Failed to set pcap to non-blocking mode");
+    cap
 }
 
 /// Creates a ping packet.
@@ -158,7 +205,7 @@ pub fn create_ping(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'chaos' - the domain name to use for CHAOS measurements
+/// * 'dns_record' - the DNS record to request
 ///
 /// # Returns
 ///
@@ -173,7 +220,7 @@ pub fn create_udp(
     client_id: u8,
     measurement_type: u8,
     is_ipv6: bool,
-    chaos: String,
+    dns_record: &str,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -182,23 +229,23 @@ pub fn create_udp(
     let src = IP::from(origin.src.expect("None IP address"));
     let dport = origin.dport as u16;
 
-    return if is_ipv6 {
+    if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
+            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, chaos)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, "any.dnsjedi.org", transmit_time, client_id, 255)
+            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, chaos)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
-    };
+    }
 }
 
 /// Creates a TCP packet.
