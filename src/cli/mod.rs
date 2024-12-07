@@ -473,7 +473,7 @@ impl CliClient {
         };
 
         // Temporary output file (for writing live results to)
-        let temp_file = File::create("temp").expect("Unable to create file");
+        let temp_file = File::create("manycastr_results_feed").expect("Unable to create file");
 
         // Start thread that writes results to file
         write_results(rx_r, cli, temp_file, measurement_type, is_traceroute);
@@ -582,10 +582,10 @@ impl CliClient {
         tx_r.closed().await; // Wait for all results to be written to file
 
         // Output file
-        let mut temp_file = File::open("temp").expect("Unable to create file");
+        let mut temp_file = File::open("manycastr_results_feed").expect("Unable to create file");
 
         io::copy(&mut temp_file, &mut file).expect("Unable to copy from temp to final"); // Copy live results to the output file
-        fs::remove_file("temp").expect("Unable to remove temp file");
+        fs::remove_file("manycastr_results_feed").expect("Unable to remove temp file");
         Ok(())
     }
 
