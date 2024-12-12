@@ -57,9 +57,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_unicast = matches.is_present("UNICAST");
         let is_divide = matches.is_present("DIVIDE");
         let is_responsive = matches.is_present("RESPONSIVE");
-        // if divide && unicast {
-        //     panic!("Divide-and-conquer is only supported for anycast-based measurements");
-        // }
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
