@@ -64,7 +64,7 @@ pub fn listen(
             cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
             cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
 
-            // Listen for incoming ICMP packets
+            // Listen for incoming packets
             loop {
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
