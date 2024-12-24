@@ -87,11 +87,13 @@ pub fn listen(
 
                     icmp_result
                 } else if measurement_type == 2 || measurement_type == 4 { // DNS A
+                    println!("UDP");
                     let udp_result = if is_ipv6 {
                         if packet.data[20] == 17 { // 17 is the protocol number for UDP
                             parse_udpv6(&packet.data[14..], measurement_type)
                         } else {
                             if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
+                                println!(" ICMP response");
                                 parse_icmp_dst_unreachable(&packet.data[14..], true)
                             } else {
                                 None
@@ -99,6 +101,7 @@ pub fn listen(
                         }
                     } else {
                         if packet.data[23] == 17 { // 17 is the protocol number for UDP
+                            println!("Received UDP packet");
                             parse_udpv4(&packet.data[14..], measurement_type)
                         } else {
                             if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
