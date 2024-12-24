@@ -64,7 +64,7 @@ pub fn listen(
             cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
             cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
 
-            // Listen for incoming ICMP packets
+            // Listen for incoming packets
             loop {
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
@@ -76,6 +76,8 @@ pub fn listen(
                         continue;
                     }
                 };
+                println!("Received packet");
+                println!("measurement_type: {}", measurement_type);
 
                 let mut result = if measurement_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
