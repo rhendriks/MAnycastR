@@ -227,21 +227,23 @@ pub fn create_udp(
         .unwrap()
         .as_nanos() as u64;
     let src = IP::from(origin.src.expect("None IP address"));
-    let dport = origin.dport as u16;
+    let sport = origin.sport as u16;
+
+    println!("sp: {}", sport);
 
     if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, dns_record, transmit_time, client_id, 255)
+            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), dport, client_id, dns_record)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), dport, dns_record, transmit_time, client_id, 255)
+            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, dns_record, transmit_time, client_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), dport, client_id, dns_record)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, client_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
