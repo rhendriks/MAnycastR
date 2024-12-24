@@ -735,16 +735,19 @@ fn parse_udpv4(
     packet_bytes: &[u8],
     measurement_type: u32,
 ) -> Option<VerfploeterResult> {
+    println!("Parsing UDPv4 packet");
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
+    println!("Parsed IP header");
 
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         // TODO body packet length is variable based on the domain name used in the measurement
         if ((measurement_type == 2) & (udp_packet.body.len() < 66)) | ((measurement_type == 4) & (udp_packet.body.len() < 10)) {
+            println!("Invalid packet length: {}", udp_packet.body.len());
             return None;
         }
 
@@ -772,6 +775,7 @@ fn parse_udpv4(
             })),
         })
     } else {
+        println!("Unable to parse UDP packet");
         None
     }
 }
