@@ -229,8 +229,6 @@ pub fn create_udp(
     let src = IP::from(origin.src.expect("None IP address"));
     let sport = origin.sport as u16;
 
-    println!("sp: {}", sport);
-
     if is_ipv6 {
         if measurement_type == 2 {
             UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, dns_record, transmit_time, client_id, 255)

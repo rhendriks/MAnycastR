@@ -76,8 +76,6 @@ pub fn listen(
                         continue;
                     }
                 };
-                println!("Received packet");
-                println!("measurement_type: {}", measurement_type);
 
                 let mut result = if measurement_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
@@ -89,13 +87,11 @@ pub fn listen(
 
                     icmp_result
                 } else if measurement_type == 2 || measurement_type == 4 { // DNS A
-                    println!("UDP");
                     let udp_result = if is_ipv6 {
                         if packet.data[20] == 17 { // 17 is the protocol number for UDP
                             parse_udpv6(&packet.data[14..], measurement_type)
                         } else {
                             if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
-                                println!(" ICMP response");
                                 parse_icmp_dst_unreachable(&packet.data[14..], true)
                             } else {
                                 None
@@ -103,7 +99,6 @@ pub fn listen(
                         }
                     } else {
                         if packet.data[23] == 17 { // 17 is the protocol number for UDP
-                            println!("Received UDP packet");
                             parse_udpv4(&packet.data[14..], measurement_type)
                         } else {
                             if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
@@ -740,19 +735,16 @@ fn parse_udpv4(
     packet_bytes: &[u8],
     measurement_type: u32,
 ) -> Option<VerfploeterResult> {
-    println!("Parsing UDPv4 packet");
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
-    println!("Parsed IP header");
 
     // Obtain the payload
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         // TODO body packet length is variable based on the domain name used in the measurement
         if ((measurement_type == 2) & (udp_packet.body.len() < 66)) | ((measurement_type == 4) & (udp_packet.body.len() < 10)) {
-            println!("Invalid packet length: {}", udp_packet.body.len());
             return None;
         }
 
@@ -780,7 +772,6 @@ fn parse_udpv4(
             })),
         })
     } else {
-        println!("Unable to parse UDP packet");
         None
     }
 }
