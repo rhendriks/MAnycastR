@@ -139,7 +139,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
             .map(|l| {
-                Address::from(l.unwrap()) // TODO test
+                Address::from(l.unwrap())
             })
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();
@@ -147,7 +147,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Panic if the source IP is not the same type as the addresses
         if configurations.is_some() {
             if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6 {
-                panic!("Configurations are not all of the same type as the target addresses! (IPv4 & IPv6)");
+                panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
             }
         } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
             panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
