@@ -118,6 +118,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
             // Make sure all configurations have the same IP type
             let is_ipv6 = configurations.first().unwrap().origin.clone().unwrap().src.unwrap().is_v6();
+            println!("IPv6: {}", is_ipv6);
+            for configuration in configurations.iter() {
+                println!("Config: {:?}", configuration);
+                println!("Is IPv6: {}", configuration.origin.clone().unwrap().src.unwrap().is_v6());
+            }
+            
             if configurations.iter().any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6) {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
