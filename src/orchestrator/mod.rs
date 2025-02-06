@@ -1169,7 +1169,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     let addr: SocketAddr = "[::]:".to_string().add(port).parse().unwrap();
 
     // Get a random measurement ID to start with
-    let measurement_id = rand::thread_rng().gen_range(0..u32::MAX);
+    let measurement_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(WorkerList::default())),
