@@ -35,7 +35,7 @@ mod outbound;
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
 /// * 'interface' - interface name to connect to (connect to default if None)
 #[derive(Clone)]
-pub struct Client {
+pub struct Worker {
     grpc_client: ControllerClient<Channel>,
     metadata: Metadata,
     active: Arc<Mutex<bool>>,
@@ -45,7 +45,7 @@ pub struct Client {
     interface: Option<String>,
 }
 
-impl Client {
+impl Worker {
     /// Create a worker instance, which includes establishing a connection with the orc.
     ///
     /// Extracts the parameters of the command-line arguments.
@@ -55,7 +55,7 @@ impl Client {
     /// * 'args' - contains the parsed command-line arguments
     pub async fn new(
         args: &ArgMatches<'_>
-    ) -> Result<Client, Box<dyn Error>> {
+    ) -> Result<Worker, Box<dyn Error>> {
         // Get values from args
         let hostname = if args.is_present("hostname") {
             args.value_of("hostname").unwrap().parse().unwrap()
@@ -71,10 +71,10 @@ impl Client {
         };
         // let is_tls = args.is_present("tls");
         let fqdn = args.value_of("tls");
-        let client = Client::connect(server_addr.parse().unwrap(), fqdn).await?;
+        let client = Worker::connect(server_addr.parse().unwrap(), fqdn).await?;
 
         // Initialize a worker instance
-        let mut client_class = Client {
+        let mut client_class = Worker {
             grpc_client: client,
             metadata,
             active: Arc::new(Mutex::new(false)),
