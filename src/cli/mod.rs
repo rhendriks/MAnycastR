@@ -88,7 +88,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     if line.starts_with("#") { return None; } // Skip comments
                     let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
                     if parts.len() != 2 { panic!("Invalid configuration format: {}", line); }
-                    let client_id = if parts[0] == "ALL" { // All clients probe this configuration
+                    let worker_id = if parts[0] == "ALL" { // All clients probe this configuration
                         u32::MAX
                     } else {
                         u32::from_str(parts[0]).expect("Unable to parse configuration worker ID")
@@ -103,7 +103,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
 
                     Some(Configuration {
-                        client_id,
+                        worker_id,
                         origin: Some(Origin {
                             src: Some(src),
                             sport: sport.into(),
@@ -275,7 +275,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let sport = origin.sport;
                     let dport = origin.dport;
 
-                    if configuration.client_id == u32::MAX {
+                    if configuration.worker_id == u32::MAX {
                         println!(
                             "\t* All clients, source IP: {}, source port: {}, destination port: {}",
                             src, sport, dport
@@ -283,7 +283,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     } else {
                         println!(
                             "\t* worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                            configuration.client_id, src, sport, dport
+                            configuration.worker_id, src, sport, dport
                         );
                     }
                 }
@@ -315,7 +315,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
-            clients: client_ids,
+            workers: client_ids,
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
             measurement_type,
@@ -388,21 +388,21 @@ impl CliClient {
         };
 
         // Obtain connected worker information for metadata
-        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to orchestrator failed");
-        let mut clients = HashMap::new();
-        response.into_inner().clients.iter().for_each(|client| {
-            clients.insert(client.client_id, client.metadata.clone().unwrap());
+        let response = self.grpc_client.list_workers(Request::new(Empty::default())).await.expect("Connection to orchestrator failed");
+        let mut workers = HashMap::new();
+        response.into_inner().workers.iter().for_each(|worker| {
+            workers.insert(worker.worker_id, worker.metadata.clone().unwrap());
         });
 
         // TODO measurement length does not take into account that not all clients may participate
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
+            ((hitlist_length as f32 / (rate * workers.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
             ((hitlist_length as f32 / rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         } else {
-            (((clients.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
+            (((workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
@@ -552,11 +552,11 @@ impl CliClient {
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if !measurement_definition.clients.is_empty() {
-            file.write_all(format!("# Client-selective probing using the following clients: {:?}\n", measurement_definition.clients).as_ref())?;
+        if !measurement_definition.workers.is_empty() {
+            file.write_all(format!("# Selective probing using the following workers: {:?}\n", measurement_definition.workers).as_ref())?;
         }
-        file.write_all(b"# Connected clients:\n")?;
-        for (id, metadata) in &clients {
+        file.write_all(b"# Connected workers:\n")?;
+        for (id, metadata) in &workers {
             file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write worker data");
         }
 
@@ -565,10 +565,10 @@ impl CliClient {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
                 let src = IP::from(configuration.origin.clone().unwrap().src.expect("Invalid source address")).to_string();
-                let client_id = if configuration.client_id == u32::MAX {
+                let client_id = if configuration.worker_id == u32::MAX {
                     "ALL".to_string()
                 } else {
-                    configuration.client_id.to_string()
+                    configuration.worker_id.to_string()
                 };
                 file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }

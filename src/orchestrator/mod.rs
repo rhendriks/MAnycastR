@@ -396,7 +396,7 @@ impl Controller for ControllerService {
             vec![scheduled_measurement.origin.clone().unwrap()] // Contains port values
         } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown workers are in the list
-            if scheduled_measurement.configurations.iter().any(|conf| !worker_ids.contains(&conf.client_id) && conf.client_id != u32::MAX) {
+            if scheduled_measurement.configurations.iter().any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX) {
                 println!("[Server] Unknown worker in configuration list, terminating measurement.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration list"));
@@ -781,10 +781,10 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_clients(
+    async fn list_workers(
         &self,
         _request: Request<Empty>,
-    ) -> Result<Response<ClientList>, Status> {
+    ) -> Result<Response<WorkerList>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -806,7 +806,7 @@ impl Controller for ControllerService {
 
         if *self.traceroute.lock().unwrap() { // If traceroute is enabled
             // Loop over the results and keep track of the clients that have received probe responses
-            let client_id = task_result.client_id as u8;
+            let worker_id = task_result.worker_id as u8;
             let mut map = self.traceroute_targets.lock().await;
             for result in task_result.clone().result_list {
                 let value = result.value.unwrap();
@@ -873,18 +873,18 @@ impl Controller for ControllerService {
                     continue;
                 }
                 if map.contains_key(&probe_dst) {
-                    let (clients, _, ttl_old, trace_origins) = map.get_mut(&probe_dst).unwrap();
+                    let (workers, _, ttl_old, trace_origins) = map.get_mut(&probe_dst).unwrap();
                     // We want to keep track of the lowest TTL recorded
                     if ttl < ttl_old.clone() {
                         *ttl_old = ttl;
                     }
                     // Keep track of all clients that have received probe replies for this target
-                    if !clients.contains(&client_id) {
-                        clients.push(client_id);
+                    if !workers.contains(&worker_id) {
+                        workers.push(worker_id);
                         trace_origins.push(origin_flow); // First time we see this worker receive a probe reply -> we add this origin flow for this worker
                     }
                 } else {
-                    map.insert(probe_dst, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
+                    map.insert(probe_dst, (vec![worker_id], Instant::now(), ttl, vec![origin_flow]));
                 }
             }
         }
@@ -918,24 +918,24 @@ impl Controller for ControllerService {
     /// # Errors
     ///
     /// Returns an error if the hostname already exists
-    async fn get_client_id(
+    async fn get_worker_id(
         &self,
         request: Request<Metadata>,
-    ) -> Result<Response<ClientId>, Status> {
+    ) -> Result<Response<WorkerId>, Status> {
         let metadata = request.into_inner();
         let hostname = metadata.hostname;
-        let mut clients_list = self.workers.lock().unwrap();
+        let mut worker_list = self.workers.lock().unwrap();
 
         // Check if the hostname already exists
-        for client in clients_list.clone().clients.into_iter() {
-            if hostname == client.metadata.unwrap().hostname {
+        for worker in worker_list.clone().workers.into_iter() {
+            if hostname == worker.metadata.unwrap().hostname {
                 println!("[Server] Refusing worker as the hostname already exists: {}", hostname);
                 return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
             }
         }
 
         // Obtain unique worker id
-        let client_id = {
+        let worker_id = {
             let mut current_client_id = self.current_worker_id.lock().unwrap();
             let client_id = *current_client_id;
             current_client_id.add_assign(1);
@@ -943,17 +943,17 @@ impl Controller for ControllerService {
         };
 
         // Add the worker to the worker list
-        let new_client = Client {
-            client_id,
+        let new_worker = Worker {
+            worker_id: worker_id,
             metadata: Some(Metadata {
                 hostname: hostname.clone(),
             }),
         };
-        clients_list.clients.push(new_client);
+        worker_list.workers.push(new_worker);
 
         // Accept the worker and give it a unique worker ID
-        Ok(Response::new(ClientId {
-            client_id,
+        Ok(Response::new(WorkerId {
+            worker_id,
         }))
     }
 }
@@ -1037,7 +1037,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     let measurement_id = rand::thread_rng().gen_range(0..u32::MAX);
 
     let controller = ControllerService {
-        workers: Arc::new(Mutex::new(ClientList::default())),
+        workers: Arc::new(Mutex::new(WorkerList::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
