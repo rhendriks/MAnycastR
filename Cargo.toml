@@ -11,15 +11,15 @@ csv = "1.2.0"
 futures = "~0.1"
 futures-core = "0.3.26"
 prettytable-rs = "0.10.0"
-prost = "0.11.6"
+prost = "0.13.4"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tonic = { version = "0.8.3", features = ["tls"] }
-rand = "0.8"
-gethostname = "0.4.2"
+tonic = { version = "0.12.3", features = ["tls"] }
+rand = "0.9.0"
+gethostname = "1.0.0"
 pcap = "2.0.0"
 local-ip-address = "0.6.1"
 mac_address = "1.1.5"
 indicatif = "0.17.8" # progress bar
 
 [build-dependencies]
-tonic-build = "0.8.4"
+tonic-build = "0.12.3"
