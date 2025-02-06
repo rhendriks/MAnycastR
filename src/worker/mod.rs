@@ -160,7 +160,7 @@ impl Worker {
         let is_ipv6 = start_measurement.ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
         let is_traceroute = start_measurement.traceroute;
-        let is_gcd = start_measurement.unicast;
+        let is_unicast = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let dns_record = start_measurement.record;
         let info_url = start_measurement.url;
@@ -174,7 +174,7 @@ impl Worker {
             None
         };
 
-        let tx_origins: Vec<Origin> = if is_gcd {  // Use the local unicast address and CLI defined ports
+        let tx_origins: Vec<Origin> = if is_unicast {  // Use the local unicast address and CLI defined ports
             let sport = start_measurement.tx_origins[0].sport;
             let dport = start_measurement.tx_origins[0].dport;
 
@@ -285,7 +285,7 @@ impl Worker {
                 _ => { () }
             }
             // Start sending thread
-            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_gcd, measurement_id, start_measurement.measurement_type as u8, dns_record, info_url, self.interface.clone());
+            outbound(client_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_unicast, measurement_id, start_measurement.measurement_type as u8, dns_record, info_url, self.interface.clone());
         } else {
             println!("[Client] Not sending probes");
         }

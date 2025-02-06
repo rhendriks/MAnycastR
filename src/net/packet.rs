@@ -41,7 +41,6 @@ pub fn get_ethernet_header(
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to run command");
-
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
@@ -53,9 +52,12 @@ pub fn get_ethernet_header(
         if let Ok(line) = line {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() > 5 {
+                // Skip 00:00:00:00:00:00
+                if parts[3].split(':').all(|s| s == "00") {
+                    continue;
+                }
                 if if_name.is_some() { // Match on the interface name TODO match for default interface as well
-                    let if_name = if_name.clone().unwrap();
-                    if parts[5] == if_name {
+                    if parts[5] == if_name.clone().unwrap() {
                         mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
                         break;
                     }
@@ -220,9 +222,9 @@ pub fn create_udp(
     worker_id: u8,
     measurement_type: u8,
     is_ipv6: bool,
-    dns_record: &str,
+    qname: &str,
 ) -> Vec<u8> {
-    let transmit_time = SystemTime::now()
+    let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
@@ -231,17 +233,17 @@ pub fn create_udp(
 
     if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, dns_record, transmit_time, worker_id, 255)
+            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, qname, tx_time, worker_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, worker_id, dns_record)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, dns_record, transmit_time, worker_id, 255)
+            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, qname, tx_time, worker_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, worker_id, dns_record)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
         }
