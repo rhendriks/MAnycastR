@@ -11,17 +11,17 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Server](server) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
-//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the server
-//! * [Client](client) - the client connects to the server and awaits tasks to send out probes and listen for incoming replies
+//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
+//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the orchestrator
+//! * [Worker](worker) - the worker connects to the orchestrator and awaits tasks to send out probes and listen for incoming replies
 //!
 //! # Measurements
 //!
-//! A measurement consists of multiple tasks that are executed by the clients.
+//! A measurement consists of multiple tasks that are executed by the workers.
 //! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the server.
-//! The server performs this measurement by sending tasks to the clients, who perform the desired measurement by sending out probes.
-//! These clients then stream back the results to the server, as they receive replies.
-//! The server forwards these results to the CLI.
+//! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
+//! These clients then stream back the results to the orchestrator, as they receive replies.
+//! The orchestrator forwards these results to the CLI.
 //!
 //! The measurement are probing measurements, which can be:
 //! * ICMP ECHO requests
