@@ -11,7 +11,7 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
+//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected workers to perform the measurement
 //! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the orchestrator
 //! * [Worker](worker) - the worker connects to the orchestrator and awaits tasks to send out probes and listen for incoming replies
 //!
@@ -20,7 +20,7 @@
 //! A measurement consists of multiple tasks that are executed by the workers.
 //! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orc.
 //! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
-//! These clients then stream back the results to the orchestrator, as they receive replies.
+//! These workers then stream back the results to the orchestrator, as they receive replies.
 //! The orchestrator forwards these results to the CLI.
 //!
 //! The measurement are probing measurements, which can be:
@@ -34,7 +34,7 @@
 //! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each worker will send out probes (default: 1000)
-//! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
+//! * **Workers** - The workers that will send out probes for this measurement (default: all workers send probes)
 //! * **Stream** - Stream the results to the command-line interface
 //! * **Shuffle** - Shuffle the hitlist before sending out probes
 //! * **Unicast** - Probe the targets using the unicast address of each worker
@@ -44,7 +44,7 @@
 //! * **Address** - Source IP to use for the probes
 //! * **Source port** - Source port to use for the probes (default: 62321)
 //! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
-//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by clients)
+//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by workers)
 //!
 //! # Results
 //!
@@ -71,7 +71,7 @@
 //!
 //! Finally, you can perform a measurement.
 //! ```
-//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
+//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [WORKERS] --stream --shuffle
 //! ```
 //!
 //! * SOURCE IP is the IPv4 address from which to send the probes.
@@ -80,9 +80,9 @@
 //!
 //! * TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
 //!
-//! * RATE the rate (packets / second) at which clients will sent out probes.
+//! * RATE the rate (packets / second) at which workers will sent out probes.
 //!
-//! * CLIENTS is an optional command that is used to specify which clients have to send out probes (omitting this means all clients will send out probes).
+//! * WORKERS is an optional command that is used to specify which workers have to send out probes (omitting this means all workers will send out probes).
 //!
 //! The hitlist can be shuffled by using the --shuffle option in the command.
 //!
@@ -110,11 +110,11 @@
 //!
 //! # Measurement details
 //!
-//! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
+//! * Measurements are performed in parallel; all workers send out their probes at the same time and in the same order.
 //! * Each worker probes a target address, approximately 1 second after the previous worker sent out theirs.
-//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
+//! * Workers can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
 //! * The rate of the measurements is adjustable.
-//! * The clients that have to send out probes can be specified.
+//! * The workers that have to send out probes can be specified.
 //!
 //! # Robustness
 //!
@@ -178,7 +178,7 @@ mod worker;
 mod net;
 mod custom_module;
 
-/// Parse command line input and start MAnycastR orc, worker, or CLI
+/// Parse command line input and start MAnycastR orchestrator (orc), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
@@ -189,7 +189,7 @@ fn main() {
     // Parse the command-line arguments
     let matches = parse_cmd();
 
-    if let Some(client_matches) = matches.subcommand_matches("worker") {
+    if let Some(worker_matches) = matches.subcommand_matches("worker") {
         println!("[Main] Executing worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -197,7 +197,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { worker::Client::new(client_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
+        let _ = rt.block_on(async { worker::Worker::new(worker_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
 
         return;
     }
@@ -251,7 +251,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("s")
                         .takes_value(true)
                         .required(true)
-                        .help("hostname/ip address:port of the orc")
+                        .help("hostname/ip address:port of the orchestrator")
                 )
                 .arg(
                     Arg::with_name("hostname")
@@ -284,16 +284,16 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("s")
                         .takes_value(true)
                         .required(true)
-                        .help("hostname/ip address:port of the orc (e.g., [::1]:50001 for localhost)")
+                        .help("hostname/ip address:port of the orchestrator (e.g., [::1]:50001 for localhost)")
                 )
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orchestrator (requires orc.crt in ./tls/), takes a FQDN as argument")
                 )
-                .subcommand(SubCommand::with_name("worker-list").about("retrieves a list of currently connected clients from the orc"))
+                .subcommand(SubCommand::with_name("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated worker")
                     .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                         .required(true)
@@ -312,12 +312,12 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .default_value("1000")
                         .help("The rate at which this measurement is to be performed at each worker (number of probes / second) [default: 1000]")
                     )
-                    .arg(Arg::with_name("CLIENTS")
-                        .long("clients")
+                    .arg(Arg::with_name("WORKERS")
+                        .long("workers")
                         .short("c")
                         .takes_value(true)
                         .required(false)
-                        .help("Specify which clients have to send out probes (all connected clients will listen for packets) [client_id1,client_id2,...]")
+                        .help("Specify which workers have to send out probes (all connected workers will listen for packets) [worker_id1,worker_id2,...]")
                     )
                     .arg(Arg::with_name("STREAM")
                         .long("stream")
@@ -391,14 +391,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("h")
                         .takes_value(true)
                         .required(false)
-                        .help("Specify hostname record to request (chaos default: hostname.bind, A default: google.com)")
+                        .help("Specify hostname record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)")
                     )
                     .arg(Arg::with_name("RESPONSIVE")
                         .long("responsive")
                         .short("v")
                         .takes_value(false)
                         .required(false)
-                        .help("First check if the target is responsive using the Server before sending probes from clients [UNIMPLEMENTED]")
+                        .help("First check if the target is responsive using the orchestrator before sending probes from workers [UNIMPLEMENTED]")
                     )
                     .arg(Arg::with_name("OUT")
                         .long("out")

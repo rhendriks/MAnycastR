@@ -11,15 +11,15 @@ service Controller {
   // Client lets the server know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
   // Client announces itself, and starts its connection with the Server. The server sends a stream of tasks
-  rpc ClientConnect(Metadata) returns (stream Task) {}
+  rpc WorkerConnect(Metadata) returns (stream Task) {}
   // CLI instructs Server to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
-  // CLI asks Server to list clients, Server returns ClientList
-  rpc ListClients(Empty) returns (ClientList) {}
-  // Client sends TaskResult to Server
+  // CLI asks orchestrator to list workers, orchestrator returns ClientList
+  rpc ListWorkers(Empty) returns (WorkerList) {}
+  // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
-  // Client obtains a unique client ID from the server
-  rpc GetClientId(Metadata) returns (ClientId) {}
+  // Worker obtains a unique worker ID from the orchestrator
+  rpc GetWorkerID(Metadata) returns (WorkerID) {}
 }
 
 // Empty message
@@ -38,7 +38,7 @@ message Finished {
 }
 
 // A client ID
-message ClientId {uint32 client_id = 1;}
+message WorkerID {uint32 client_id = 1;}
 
 // Schedule a measurement with the Server
 message ScheduleMeasurement {
@@ -59,7 +59,7 @@ message ScheduleMeasurement {
 }
 
 // A list of Client (an empty list is used when all clients have to send out probes)
-message ClientList {
+message WorkerList {
   repeated Client clients = 1;
 }
 
