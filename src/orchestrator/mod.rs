@@ -31,7 +31,7 @@ use crate::custom_module;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 use crate::orchestrator::mpsc::Sender;
 
-/// Struct for the Server service
+/// Struct for the orchestrator service
 ///
 /// # Fields
 ///
@@ -93,7 +93,7 @@ impl<T> Stream for WorkerReceiver<T> {
 
 impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
-        println!("[Server] Worker receiver has been dropped");
+        println!("[Orchestrator] Worker receiver has been dropped");
 
         // Remove this worker from the workers list
         self.workers.lock().unwrap().workers.retain(|workers| {
@@ -114,11 +114,11 @@ impl<T> Drop for WorkerReceiver<T> {
                     // The orchestrator no longer has to wait for this worker
                     open_measurements.remove(&measurement_id);
 
-                    println!("[Server] The last worker for a measurement dropped, sending measurement finished signal to CLI");
+                    println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
                     *self.active.lock().unwrap() = false;
                     match self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())) {
                         Ok(_) => (),
-                        Err(_) => println!("[Server] Failed to send measurement finished signal to CLI")
+                        Err(_) => println!("[Orchestrator] Failed to send measurement finished signal to CLI")
                     }
                 } else { // If there are more workers still performing this measurement
                     // The orchestrator no longer has to wait for this worker
@@ -160,7 +160,7 @@ impl<T> Drop for CLIReceiver<T> {
 
         // If there is an active measurement we need to cancel it and notify the workers
         if *active {
-            println!("[Server] CLI dropped during an active measurement, terminating measurement");
+            println!("[Orchestrator] CLI dropped during an active measurement, terminating measurement");
 
             // Create termination 'task'
             let end_task = Task {
@@ -175,11 +175,11 @@ impl<T> Drop for CLIReceiver<T> {
 
                 spawn(async move {
                     if let Err(e) = worker.send(Ok(end_task)).await {
-                        println!("[Server] ERROR - Failed to terminate measurement {}", e);
+                        println!("[Orchestrator] ERROR - Failed to terminate measurement {}", e);
                     }
                 });
             }
-            println!("[Server] Terminated the current measurement at all workers");
+            println!("[Orchestrator] Terminated the current measurement at all workers");
 
             *active = false; // No longer an active measurement
         }
@@ -218,14 +218,14 @@ impl Controller for ControllerService {
             let remaining = if let Some(remaining) = open_measurements.get(&measurement_id) {
                 remaining
             } else {
-                println!("[Server] Received measurement finished signal for non-existent measurement {}", &measurement_id);
+                println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &measurement_id);
                 return Ok(Response::new(Ack {
                     success: false,
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
             if remaining == &(1u32) { // If this is the last worker we are finished
-                println!("[Server] All workers finished");
+                println!("[Orchestrator] All workers finished");
 
                 open_measurements.remove(&measurement_id);
                 true // Finished
@@ -235,7 +235,7 @@ impl Controller for ControllerService {
             }
         };
         if is_finished {
-            println!("[Server] Notifying CLI that the measurement is finished");
+            println!("[Orchestrator] Notifying CLI that the measurement is finished");
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
 
@@ -273,7 +273,7 @@ impl Controller for ControllerService {
         request: Request<Metadata>,
     ) -> Result<Response<Self::WorkerConnectStream>, Status> {
         let hostname = request.into_inner().hostname;
-        println!("[Server] New worker connected: {}", hostname);
+        println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
@@ -319,14 +319,14 @@ impl Controller for ControllerService {
         &self,
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
-        println!("[Server] Received CLI measurement request for measurement");
+        println!("[Orchestrator] Received CLI measurement request for measurement");
 
         // If there already is an active measurement, we skip
         {
             // If the orchestrator is already working on another measurement
             let mut active = self.active.lock().unwrap();
             if *active {
-                println!("[Server] There is already an active measurement, returning");
+                println!("[Orchestrator] There is already an active measurement, returning");
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"));
             }
 
@@ -334,7 +334,7 @@ impl Controller for ControllerService {
             for (_, open) in self.open_measurements.lock().expect("No open measurements map").iter() {
                 // If there are still workers who are working on a different measurement
                 if open > &0 {
-                    println!("[Server] There is already an active measurement, returning");
+                    println!("[Orchestrator] There is already an active measurement, returning");
                     return Err(Status::new(tonic::Code::Cancelled, "There are still workers working on an active measurement"));
                 }
             }
@@ -347,7 +347,7 @@ impl Controller for ControllerService {
             // Lock the senders mutex and remove closed senders
             self.senders.lock().unwrap().retain(|sender| {
                 if sender.is_closed() {
-                    println!("[Server] Worker unavailable, connection closed. Worker removed.");
+                    println!("[Orchestrator] Worker unavailable, connection closed. Worker removed.");
                     false
                 } else {
                     true
@@ -358,7 +358,7 @@ impl Controller for ControllerService {
 
         // If there are no connected workers that can perform this measurement
         if senders.len() == 0 {
-            println!("[Server] No connected workers, terminating measurement.");
+            println!("[Orchestrator] No connected workers, terminating measurement.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
         }
@@ -384,7 +384,7 @@ impl Controller for ControllerService {
 
         // Make sure all worker IDs are valid
         if probing_workers.iter().any(|worker| !worker_ids.contains(worker)) {
-            println!("[Server] Worker ID requested that is not connected, terminating measurement.");
+            println!("[Orchestrator] Worker ID requested that is not connected, terminating measurement.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "One or more worker IDs are not connected."));
         }
@@ -397,7 +397,7 @@ impl Controller for ControllerService {
         } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown workers are in the list
             if scheduled_measurement.configurations.iter().any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX) {
-                println!("[Server] Unknown worker in configuration list, terminating measurement.");
+                println!("[Orchestrator] Unknown worker in configuration list, terminating measurement.");
                 *self.active.lock().unwrap() = false;
                 return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration list"));
             }
@@ -503,7 +503,7 @@ impl Controller for ControllerService {
 
             match sender.try_send(Ok(start_task.clone())) {
                 Ok(_) => (),
-                Err(e) => println!("[Server] Failed to send 'start measurement' {:?}", e),
+                Err(e) => println!("[Orchestrator] Failed to send 'start measurement' {:?}", e),
             }
         }
 
@@ -514,9 +514,9 @@ impl Controller for ControllerService {
         let number_of_workers = senders.len() as u64;
 
         if !is_divide {
-            println!("[Server] {} workers will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
         } else {
-            println!("[Server] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, current_active_worker);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, current_active_worker);
         }
 
         // Shared variable to keep track of the number of workers that have finished
@@ -540,7 +540,7 @@ impl Controller for ControllerService {
             spawn(async move { // thread probing for responsiveness
                 let p_rate = Duration::from_nanos(((1.0 / rate as f64) * 1_000_000_000.0) as u64); // p_rate without chunk size
                 let mut interval = tokio::time::interval(p_rate);
-                let server_origin = Origin {
+                let orc_origin = Origin {
                     src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
                     sport: 65535, // TODO ports from task
                     dport: 62321,
@@ -560,7 +560,7 @@ impl Controller for ControllerService {
                 let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> = Arc::new(Mutex::new(HashMap::new()));
 
                 // start probing thread
-                probe_targets(is_ipv6, rx_r, measurement_type as u8, server_origin, dns_record, &info_url).await;
+                probe_targets(is_ipv6, rx_r, measurement_type as u8, orc_origin, dns_record, &info_url).await;
 
                 // Set filter
                 let bpf_filter = if is_ipv6 { // TODO test filters for all measurement types
@@ -623,7 +623,7 @@ impl Controller for ControllerService {
 
                     interval.tick().await; // rate limit
                 }
-                println!("[Server] Finished probing for responsive targets");
+                println!("[Orchestrator] Finished probing for responsive targets");
 
                 // 10 seconds time for remaining prefixes that are being probed TODO make this dynamic
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -706,7 +706,7 @@ impl Controller for ControllerService {
                         if *is_active.lock().unwrap() == false {
                             clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                             if clients_finished.lock().unwrap().clone() == number_of_workers {
-                                println!("[Server] CLI disconnected during task distribution");
+                                println!("[Orchestrator] CLI disconnected during task distribution");
                                 tx_f.send(()).expect("Failed to send finished signal");
                             }
                             return; // abort
@@ -723,9 +723,9 @@ impl Controller for ControllerService {
                             match sender.send(Ok(task)).await {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    println!("[Server] Failed to send task {:?} to worker {}", e, worker_id);
+                                    println!("[Orchestrator] Failed to send task {:?} to worker {}", e, worker_id);
                                     if sender.is_closed() { // If the worker is no longer connected
-                                        println!("[Server] Client {} is no longer connected and removed from the measurement", worker_id);
+                                        println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
                                         break;
                                     }
                                 }
@@ -737,7 +737,7 @@ impl Controller for ControllerService {
 
                     clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                     if clients_finished.lock().unwrap().clone() == number_of_workers {
-                        println!("[Server] Measurement finished, awaiting clients... ");
+                        println!("[Orchestrator] Measurement finished, awaiting clients... ");
                         // Send a message to the other sending threads to let them know the measurement is finished
                         tx_f.send(()).expect("Failed to send finished signal");
                     } else {
@@ -764,7 +764,7 @@ impl Controller for ControllerService {
                         })),
                     })).await {
                         Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send 'end message' {:?} to worker {}", e, worker_id),
+                        Err(e) => println!("[Orchestrator] Failed to send 'end message' {:?} to worker {}", e, worker_id),
                     }
                 });
             }
@@ -929,7 +929,7 @@ impl Controller for ControllerService {
         // Check if the hostname already exists
         for worker in worker_list.clone().workers.into_iter() {
             if hostname == worker.metadata.unwrap().hostname {
-                println!("[Server] Refusing worker as the hostname already exists: {}", hostname);
+                println!("[Orchestrator] Refusing worker as the hostname already exists: {}", hostname);
                 return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
             }
         }
@@ -1245,7 +1245,7 @@ async fn send_responsive(
                         })),
                     })).await {
                         Ok(_) => (),
-                        Err(_) => println!("[Server] Failed to send 'end message' to worker"),
+                        Err(_) => println!("[Orchestrator] Failed to send 'end message' to worker"),
                     }
                 }
                 return;
@@ -1273,9 +1273,9 @@ async fn send_responsive(
                 match sender.send(Ok(task.clone())).await {
                     Ok(_) => (),
                     Err(e) => {
-                        println!("[Server] Failed to send task {:?} to worker", e);
+                        println!("[Orchestrator] Failed to send task {:?} to worker", e);
                         if sender.is_closed() { // If the worker is no longer connected
-                            println!("[Server] Client is no longer connected and removed from the measurement");
+                            println!("[Orchestrator] Client is no longer connected and removed from the measurement");
                             continue;
                         }
                     }
