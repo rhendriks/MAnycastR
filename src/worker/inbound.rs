@@ -24,7 +24,7 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayl
 ///
 /// * 'measurement_id' - the ID of the current measurement
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'is_ipv6' - whether to parse the packets as IPv6 or IPv4
 ///
@@ -43,14 +43,14 @@ pub fn listen(
     tx: UnboundedSender<TaskResult>,
     rx_f: Receiver<()>,
     measurement_id: u32,
-    client_id: u8,
+    worker_id: u16,
     is_ipv6: bool,
     filter: String,
-    traceroute: bool,
+    is_traceroute: bool,
     measurement_type: u32,
     if_name: Option<String>,
 ) {
-    println!("[Client inbound] Started listener with filter {}", filter);
+    println!("[Worker inbound] Started listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
@@ -123,7 +123,7 @@ pub fn listen(
                 };
 
                 // Attempt to parse the packet as an ICMP time exceeded packet
-                if traceroute && (result == None) {
+                if is_traceroute && (result == None) {
                     result = parse_icmp_ttl_exceeded(&packet.data[14..], is_ipv6);
                 }
 
@@ -142,7 +142,7 @@ pub fn listen(
             }
 
             let stats = cap.stats().expect("Failed to get pcap stats");
-            println!("[Client inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
+            println!("[Worker inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
                      stats.received.with_separator(),
                      stats.dropped.with_separator(),
                      stats.if_dropped.with_separator());
@@ -152,7 +152,7 @@ pub fn listen(
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
-            handle_results(&tx, rx_f, client_id, rq);
+            handle_results(&tx, rx_f, worker_id, rq);
 
             // Close the pcap listener
             *exit_flag.lock().unwrap() = true;
@@ -170,13 +170,13 @@ pub fn listen(
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'rq_sender' - contains a vector of all received replies as VerfploeterResult
 fn handle_results(
     tx: &UnboundedSender<TaskResult>,
     mut rx_f: Receiver<()>,
-    client_id: u8,
+    worker_id: u16,
     rq_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>,
 ) {
     loop {
@@ -190,7 +190,7 @@ fn handle_results(
         // Send the result to the worker handler
         tx.send(
             TaskResult {
-                worker_id: client_id as u32,
+                worker_id: worker_id as u32,
                 result_list: rq,
             }
         ).expect("Failed to send TaskResult to worker handler");
@@ -958,7 +958,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
 fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
 
-    // 8 right most bits are the client_id
+    // 8 right most bits are the sender worker_id
     let tx_worker_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {

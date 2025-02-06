@@ -143,7 +143,7 @@ pub fn get_pcap(
 pub fn create_ping(
     origin: Origin,
     dst: IP,
-    worker_id: u8,
+    worker_id: u16,
     measurement_id: u32,
     info_url: &str,
 ) -> Vec<u8> {
@@ -219,7 +219,7 @@ pub fn create_ping(
 pub fn create_udp(
     origin: Origin,
     dst: IP,
-    worker_id: u8,
+    worker_id: u16,
     measurement_type: u8,
     is_ipv6: bool,
     qname: &str,
@@ -270,7 +270,7 @@ pub fn create_udp(
 pub fn create_tcp(
     origin: Origin,
     dst: IP,
-    worker_id: u8,
+    worker_id: u16,
     is_ipv6: bool,
     is_unicast: bool,
     info_url: &str,

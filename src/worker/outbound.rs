@@ -38,15 +38,15 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 ///
 /// * 'chaos' - the domain name to use for CHAOS measurements
 pub fn outbound(
-    client_id: u8,
+    worker_id: u16,
     tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
     finish_rx: futures::sync::oneshot::Receiver<()>,
     is_ipv6: bool,
-    gcd: bool,
+    is_unicast: bool,
     measurement_id: u32,
     measurement_type: u8,
-    dns_record: String,
+    qname: String,
     info_url: String,
     if_name: Option<String>,
 ) {
@@ -95,7 +95,7 @@ pub fn outbound(
                                         packet.extend_from_slice(&create_ping(
                                             origin.clone(),
                                             IP::from(dst.clone()),
-                                            client_id,
+                                            worker_id,
                                             measurement_id,
                                             &info_url,
                                         ));
@@ -110,10 +110,10 @@ pub fn outbound(
                                         packet.extend_from_slice(&create_udp(
                                             origin.clone(),
                                             IP::from(dst.clone()),
-                                            client_id,
+                                            worker_id,
                                             measurement_type,
                                             is_ipv6,
-                                            &dns_record.clone(),
+                                            &qname.clone(),
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!("Failed to send ICMP packet: {}", e)
@@ -126,9 +126,9 @@ pub fn outbound(
                                         packet.extend_from_slice(&create_tcp(
                                             origin.clone(),
                                             IP::from(dst.clone()),
-                                            client_id,
+                                            worker_id,
                                             is_ipv6,
-                                            gcd,
+                                            is_unicast,
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
@@ -147,7 +147,7 @@ pub fn outbound(
                             ethernet_header.clone(),
                             &mut cap,
                             IP::from(trace.dst.expect("None IP address")),
-                            client_id,
+                            worker_id,
                             trace.max_ttl as u8,
                             measurement_type,
                             &info_url,
@@ -183,10 +183,10 @@ pub fn outbound(
 fn perform_trace(
     origins: Vec<Origin>,
     is_ipv6: bool,
-    ethernet_header: Vec<u8>,
+    eth_header: Vec<u8>,
     cap: &mut Capture<pcap::Active>,
     dst: IP,
-    client_id: u8,
+    worker_id: u16,
     max_ttl: u8,
     measurement_type: u8,
     info_url: &str,
@@ -206,7 +206,7 @@ fn perform_trace(
         // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different worker may receive the destination's response)
         for i in 5..(max_ttl + 10) {
             let mut packet: Vec<u8> = Vec::new();
-            packet.extend_from_slice(&ethernet_header);
+            packet.extend_from_slice(&eth_header);
 
             let mut payload_bytes: Vec<u8> = Vec::new();
             let tx_time = SystemTime::now()
@@ -214,7 +214,7 @@ fn perform_trace(
                 .unwrap()
                 .as_nanos() as u64;
             payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 0 - 7
-            payload_bytes.extend_from_slice(&client_id.to_be_bytes()); // Byte 8 *
+            payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Byte 8 *
             payload_bytes.extend_from_slice(&i.to_be_bytes()); // Byte 9 *
 
             if measurement_type == 1 { // ICMP
@@ -226,14 +226,14 @@ fn perform_trace(
                 packet.extend_from_slice(&icmp); // ip header included
             } else if measurement_type == 2 { // UDP
                 let udp = if is_ipv6 { // TODO encode TTL in the domain name
-                    UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, "any.dnsjedi.org", tx_time, client_id, i)
+                    UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, "any.dnsjedi.org", tx_time, worker_id, i)
                 } else {
-                    UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, "any.dnsjedi.org", tx_time, client_id, i)
+                    UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, "any.dnsjedi.org", tx_time, worker_id, i)
                 };
                 packet.extend_from_slice(&udp); // ip header included
             } else if measurement_type == 3 { // TCP
                 // ACK: first 16 is the TTL, last 16 is the worker ID
-                let ack = (i as u32) << 16 | client_id as u32; // TODO test this
+                let ack = (i as u32) << 16 | worker_id as u32; // TODO test this
                 let tcp = if is_ipv6 {
                     TCPPacket::tcp_syn_ack_v6(src.get_v6().into(), dst.get_v6().into(), sport, dport, 0, ack, i, info_url)
                 } else {

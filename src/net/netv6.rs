@@ -363,7 +363,7 @@ impl super::UDPPacket {
         sport: u16,
         qname: &str,
         tx_time: u64,
-        worker_id: u8,
+        worker_id: u16,
         hop_limit: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
@@ -423,7 +423,7 @@ impl super::UDPPacket {
         tx_time: u64,
         src: u128,
         dst: u128,
-        worker_id: u8,
+        worker_id: u16,
         sport: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 characters
@@ -434,11 +434,8 @@ impl super::UDPPacket {
         let subdomain = format!("{}.{}.{}.{}.{}.{}", tx_time, src,
                                 dst, worker_id, sport, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
-
         // DNS Header
-        dns_body.write_u8(worker_id)
-            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
-        dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(worker_id).expect("Unable to write to byte buffer for UDP packet"); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -462,7 +459,7 @@ impl super::UDPPacket {
         source_address: u128,
         destination_address: u128,
         source_port: u16,
-        worker_id: u8,
+        worker_id: u16,
         chaos: &str,
     ) -> Vec<u8> {
         let destination_port = 53u16;
