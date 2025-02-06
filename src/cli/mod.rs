@@ -331,7 +331,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             record: dns_record.to_string(),
             url,
         };
-        cli_client.do_measurement_to_or(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
+        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
     } else {
         panic!("Unrecognized command");
     }
@@ -355,7 +355,7 @@ impl CliClient {
     /// * 'configurations' - a vector of configurations that are used for the measurement
     ///
     /// * 'path' - optional path to write the results to
-    async fn do_measurement_to_or(
+    async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
         cli: bool,

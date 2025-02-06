@@ -20,7 +20,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 ///
 /// # Arguments
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'tx_origins' - the unique source addresses and port combinations we use for our probes
 ///
@@ -60,7 +60,7 @@ pub fn outbound(
             cap.direction(pcap::Direction::Out).expect("Unable to set pcap direction");
             'outer: loop {
                 if *abort.lock().unwrap() {
-                    println!("[Client outbound] ABORTING");
+                    println!("[Worker outbound] ABORTING");
                     break;
                 }
                 let task;
@@ -73,7 +73,7 @@ pub fn outbound(
                         }
                         Err(e) => {
                             if e == TryRecvError::Disconnected {
-                                println!("[Client outbound] Channel disconnected");
+                                println!("[Worker outbound] Channel disconnected");
                                 break 'outer;
                             }
                             // wait some time and try again
@@ -157,7 +157,7 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Client outbound] Outbound thread finished");
+            println!("[Worker outbound] Outbound thread finished");
         }).expect("Failed to spawn outbound thread");
 }
 
@@ -175,7 +175,7 @@ pub fn outbound(
 ///
 /// * 'dst' - the destination address for the traceroutes
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'max_ttl' - the maximum TTL to use for the traceroutes (the actual TTLs used are 5 to max_ttl + 10)
 ///
