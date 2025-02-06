@@ -8,13 +8,10 @@ byteorder = "1.4.3"
 chrono = "0.4.23"
 clap = "~2"
 csv = "1.2.0"
-env_logger = "0.10.0"
 futures = "~0.1"
 futures-core = "0.3.26"
-log = "0.4.17"
 prettytable-rs = "0.10.0"
 prost = "0.11.6"
-ratelimit_meter = "5.0.0"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = { version = "0.8.3", features = ["tls"] }
 rand = "0.8"
