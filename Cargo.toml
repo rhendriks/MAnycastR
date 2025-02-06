@@ -1,5 +1,5 @@
 [package]
-name = "manycast"
+name = "manycast" # TODO change package name
 version = "0.1.0"
 edition = "2021"
 

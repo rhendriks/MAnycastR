@@ -6,17 +6,18 @@ use clap::ArgMatches;
 use futures::sync::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
-use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::Request;
 
-use custom_module::IP;
 use custom_module::verfploeter::{
-    Address, WorkerId, controller_client::ControllerClient, End, Finished, Metadata, Origin, Task, task::Data, TaskResult,
+    controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
+    Task, TaskResult, WorkerId,
 };
+use custom_module::IP;
 
+use crate::custom_module;
 use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
-use crate::custom_module;
 
 mod inbound;
 mod outbound;
@@ -53,15 +54,14 @@ impl Worker {
     /// # Arguments
     ///
     /// * 'args' - contains the parsed command-line arguments
-    pub async fn new(
-        args: &ArgMatches<'_>
-    ) -> Result<Worker, Box<dyn Error>> {
+    pub async fn new(args: &ArgMatches<'_>) -> Result<Worker, Box<dyn Error>> {
         // Get values from args
         let hostname = if args.is_present("hostname") {
             args.value_of("hostname").unwrap().parse().unwrap()
         } else {
             gethostname().into_string().expect("Unable to get hostname")
-        }.to_string();
+        }
+        .to_string();
 
         let interface = args.value_of("interface").map(|s| s.to_string());
         let orc_addr = args.value_of("orchestrator").unwrap();
@@ -111,7 +111,8 @@ impl Worker {
             let addr = format!("https://{}", address);
 
             // Load the CA certificate used to authenticate the orchestrator
-            let pem = std::fs::read_to_string("tls/orchestrator.crt").expect("Unable to read CA certificate at ./tls/orchestrator.crt");
+            let pem = std::fs::read_to_string("tls/orchestrator.crt")
+                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -120,21 +121,26 @@ impl Worker {
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
-                .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to orchestrator")
+                .tls_config(tls)
+                .expect("Unable to set TLS configuration")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
-            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to orchestrator")
+            Channel::from_shared(addr.to_owned())
+                .expect("Unable to set address")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         };
         // Create worker with secret token that is used to authenticate worker commands.
         let client = ControllerClient::new(channel);
 
         Ok(client)
     }
-
 
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
     ///
@@ -149,13 +155,12 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    fn init(
-        &mut self,
-        task: Task,
-        worker_id: u16,
-        outbound_f: Option<oneshot::Receiver<()>>,
-    ) {
-        let start_measurement = if let Data::Start(start) = task.data.unwrap() { start } else { panic!("Received non-start packet for init") };
+    fn init(&mut self, task: Task, worker_id: u16, outbound_f: Option<oneshot::Receiver<()>>) {
+        let start_measurement = if let Data::Start(start) = task.data.unwrap() {
+            start
+        } else {
+            panic!("Received non-start packet for init")
+        };
         let measurement_id = start_measurement.measurement_id;
         let is_ipv6 = start_measurement.ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
@@ -174,25 +179,33 @@ impl Worker {
             None
         };
 
-        let tx_origins: Vec<Origin> = if is_unicast {  // Use the local unicast address and CLI defined ports
+        let tx_origins: Vec<Origin> = if is_unicast {
+            // Use the local unicast address and CLI defined ports
             let sport = start_measurement.tx_origins[0].sport;
             let dport = start_measurement.tx_origins[0].dport;
 
             let unicast_ip = if is_ipv6 {
-                IP::from(local_ipv6().expect("Unable to get local unicast IPv6 address").to_string())
+                IP::from(
+                    local_ipv6()
+                        .expect("Unable to get local unicast IPv6 address")
+                        .to_string(),
+                )
             } else {
-                IP::from(local_ip().expect("Unable to get local unicast IPv4 address").to_string())
+                IP::from(
+                    local_ip()
+                        .expect("Unable to get local unicast IPv4 address")
+                        .to_string(),
+                )
             };
 
             let unicast_origin = Origin {
                 src: Some(Address::from(unicast_ip.clone())), // Unicast IP
-                sport: sport.into(), // CLI defined source port
-                dport: dport.into(), // CLI defined destination port
+                sport: sport.into(),                          // CLI defined source port
+                dport: dport.into(),                          // CLI defined destination port
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin.clone()];
-
 
             println!("[Worker] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
@@ -206,7 +219,10 @@ impl Worker {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when inbound is finished
-        let (inbound_tx_f, inbound_rx_f): (tokio::sync::mpsc::Sender<()>, tokio::sync::mpsc::Receiver<()>) = tokio::sync::mpsc::channel(1000);
+        let (inbound_tx_f, inbound_rx_f): (
+            tokio::sync::mpsc::Sender<()>,
+            tokio::sync::mpsc::Receiver<()>,
+        ) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
         // Berkeley Packet Filter (BPF) string
@@ -218,18 +234,32 @@ impl Worker {
 
         // Add filter for each address/port combination based on the measurement type
         let filter_parts: Vec<String> = match start_measurement.measurement_type {
-            1 => { // ICMP has no port numbers
+            1 => {
+                // ICMP has no port numbers
                 if is_ipv6 {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " (icmp6 and dst host {})",
+                                IP::from(origin.clone().src.unwrap()).to_string()
+                            )
+                        })
                         .collect()
                 } else {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " (icmp and dst host {})",
+                                IP::from(origin.clone().src.unwrap()).to_string()
+                            )
+                        })
                         .collect()
                 }
             }
-            2 | 4 => { // DNS A record, DNS CHAOS TXT
+            2 | 4 => {
+                // DNS A record, DNS CHAOS TXT
                 if is_ipv6 {
                     rx_origins.iter()
                         .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
@@ -240,21 +270,44 @@ impl Worker {
                         .collect()
                 }
             }
-            3 => { // TCP
+            3 => {
+                // TCP
                 let mut tcp_filters: Vec<String> = if is_ipv6 {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (ip6[6] == 6 and dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " (ip6[6] == 6 and dst host {} and dst port {} and src port {})",
+                                IP::from(origin.clone().src.unwrap()).to_string(),
+                                origin.sport,
+                                origin.dport
+                            )
+                        })
                         .collect()
                 } else {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (tcp and dst host {} and dst port {} and src port {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport))
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " (tcp and dst host {} and dst port {} and src port {})",
+                                IP::from(origin.clone().src.unwrap()).to_string(),
+                                origin.sport,
+                                origin.dport
+                            )
+                        })
                         .collect()
                 };
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if is_traceroute {
-                    let icmp_ttl_expired_filter: Vec<String> = rx_origins.iter()
-                        .map(|origin| format!(" (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string()))
+                    let icmp_ttl_expired_filter: Vec<String> = rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " (icmp and dst host {})",
+                                IP::from(origin.clone().src.unwrap()).to_string()
+                            )
+                        })
                         .collect();
                     tcp_filters.extend(icmp_ttl_expired_filter);
                 }
@@ -266,26 +319,57 @@ impl Worker {
         bpf_filter.push_str(&*filter_parts.join(" or"));
 
         // Start listening thread
-        listen(tx.clone(), inbound_rx_f, measurement_id, worker_id, is_ipv6, bpf_filter, is_traceroute, start_measurement.measurement_type, self.interface.clone());
+        listen(
+            tx.clone(),
+            inbound_rx_f,
+            measurement_id,
+            worker_id,
+            is_ipv6,
+            bpf_filter,
+            is_traceroute,
+            start_measurement.measurement_type,
+            self.interface.clone(),
+        );
 
         if is_probing {
             match start_measurement.measurement_type {
                 1 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
-                        println!("[Worker] Sending on address: {} using identifier {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.dport);
+                        println!(
+                            "[Worker] Sending on address: {} using identifier {}",
+                            IP::from(origin.clone().src.unwrap()).to_string(),
+                            origin.dport
+                        );
                     }
                 }
                 2 | 3 | 4 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
-                        println!("[Worker] Sending on address: {}, from src port {}, to dst port {}", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, origin.dport);
+                        println!(
+                            "[Worker] Sending on address: {}, from src port {}, to dst port {}",
+                            IP::from(origin.clone().src.unwrap()).to_string(),
+                            origin.sport,
+                            origin.dport
+                        );
                     }
                 }
-                _ => { () }
+                _ => (),
             }
             // Start sending thread
-            outbound(worker_id, tx_origins, outbound_rx.unwrap(), outbound_f.unwrap(), is_ipv6, is_unicast, measurement_id, start_measurement.measurement_type as u8, qname, info_url, self.interface.clone());
+            outbound(
+                worker_id,
+                tx_origins,
+                outbound_rx.unwrap(),
+                outbound_f.unwrap(),
+                is_ipv6,
+                is_unicast,
+                measurement_id,
+                start_measurement.measurement_type as u8,
+                qname,
+                info_url,
+                self.interface.clone(),
+            );
         } else {
             println!("[Worker] Not sending probes");
         }
@@ -303,19 +387,26 @@ impl Worker {
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
-                            self_clone.measurement_finish_to_server(Finished {
-                                measurement_id,
-                                worker_id: worker_id.into(),
-                            }).await.unwrap();
+                            self_clone
+                                .measurement_finish_to_server(Finished {
+                                    measurement_id,
+                                    worker_id: worker_id.into(),
+                                })
+                                .await
+                                .unwrap();
 
                             break;
                         }
 
-                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to orchestrator");
-                    };
+                        self_clone
+                            .send_result_to_server(packet)
+                            .await
+                            .expect("Unable to send task result to orchestrator");
+                    }
                     rx.close();
                 });
-            }).expect("Unable to start forwarder thread");
+            })
+            .expect("Unable to start forwarder thread");
     }
 
     /// Establish a formal connection with the orchestrator.
@@ -324,17 +415,28 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("Connecting to orchestrator");
         // Get the worker_id from the orchestrator
-        let worker_id = self.get_worker_id().await.expect("Unable to get a worker ID from the orchestrator").worker_id as u16;
+        let worker_id = self
+            .get_worker_id()
+            .await
+            .expect("Unable to get a worker ID from the orchestrator")
+            .worker_id as u16;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the orchestrator
-        let response = self.client.worker_connect(Request::new(self.metadata.clone())).await?;
-        println!("[Worker] Successfully connected with the orchestrator with worker_id: {}", worker_id);
+        let response = self
+            .client
+            .worker_connect(Request::new(self.metadata.clone()))
+            .await?;
+        println!(
+            "[Worker] Successfully connected with the orchestrator with worker_id: {}",
+            worker_id
+        );
         let mut stream = response.into_inner();
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            if *self.active.lock().unwrap() { // If we already have an active measurement
+            if *self.active.lock().unwrap() {
+                // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
                 match task.clone().data {
                     None => {
@@ -348,28 +450,44 @@ impl Worker {
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
-                            println!("[Worker] Received measurement finished signal from orchestrator");
+                            println!(
+                                "[Worker] Received measurement finished signal from orchestrator"
+                            );
                             // Close inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                                inbound_tx_f
+                                    .send(())
+                                    .await
+                                    .expect("Unable to send finish signal to inbound thread");
                             }
                             // Close outbound threads
                             if self.outbound_tx.is_some() {
-                                self.outbound_tx.clone().unwrap().send(Data::End(End {
-                                    code: 0,
-                                })).await.expect("Unable to send measurement_finished to outbound thread");
+                                self.outbound_tx
+                                    .clone()
+                                    .unwrap()
+                                    .send(Data::End(End { code: 0 }))
+                                    .await
+                                    .expect(
+                                        "Unable to send measurement_finished to outbound thread",
+                                    );
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
+                                inbound_tx_f
+                                    .send(())
+                                    .await
+                                    .expect("Unable to send finish signal to inbound thread");
                             }
                             // f_tx will be None if this worker is not probing
                             if f_tx.is_some() {
                                 // Close outbound threads
-                                f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
+                                f_tx.take()
+                                    .unwrap()
+                                    .send(())
+                                    .expect("Unable to send finish signal to outbound thread");
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
@@ -380,7 +498,10 @@ impl Worker {
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
-                            outbound_tx.send(task).await.expect("Unable to send task to outbound thread");
+                            outbound_tx
+                                .send(task)
+                                .await
+                                .expect("Unable to send task to outbound thread");
                         }
                     }
                 };
@@ -389,24 +510,28 @@ impl Worker {
             } else {
                 println!("[Worker] Starting new measurement");
 
-                let (is_probing, measurement_id) = match task.clone().data.expect("None start measurement task") {
-                    Data::Start(start) => (start.active, start.measurement_id),
-                    _ => { // First task is not a start measurement task
-                        println!("[Worker] Received non-start packet for init");
-                        continue;
-                    }
-                };
+                let (is_probing, measurement_id) =
+                    match task.clone().data.expect("None start measurement task") {
+                        Data::Start(start) => (start.active, start.measurement_id),
+                        _ => {
+                            // First task is not a start measurement task
+                            println!("[Worker] Received non-start packet for init");
+                            continue;
+                        }
+                    };
 
                 *self.active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
 
-                if is_probing { // This worker is probing
+                if is_probing {
+                    // This worker is probing
                     // Initialize signal finish channel
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
                     self.init(task, worker_id, Some(outbound_rx_f));
-                } else { // This worker is not probing
+                } else {
+                    // This worker is not probing
                     f_tx = None;
                     self.outbound_tx = None;
                     self.init(task, worker_id, None);
@@ -420,13 +545,20 @@ impl Worker {
 
     /// Send the get_worker_id command to the orchestrator to obtain a unique worker ID
     async fn get_worker_id(&mut self) -> Result<WorkerId, Box<dyn Error>> {
-        let worker_id = self.client.get_worker_id(Request::new(self.metadata.clone())).await?.into_inner();
+        let worker_id = self
+            .client
+            .get_worker_id(Request::new(self.metadata.clone()))
+            .await?
+            .into_inner();
 
         Ok(worker_id)
     }
 
     /// Send a TaskResult to the orchestrator
-    async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
+    async fn send_result_to_server(
+        &mut self,
+        task_result: TaskResult,
+    ) -> Result<(), Box<dyn Error>> {
         self.client.send_result(Request::new(task_result)).await?;
 
         Ok(())
@@ -439,10 +571,17 @@ impl Worker {
     /// # Arguments
     ///
     /// * 'finished' - the 'Finished' message to send to the orchestrator
-    async fn measurement_finish_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
-        println!("[Worker] Letting the orchestrator know that this worker finished the measurement");
+    async fn measurement_finish_to_server(
+        &mut self,
+        finished: Finished,
+    ) -> Result<(), Box<dyn Error>> {
+        println!(
+            "[Worker] Letting the orchestrator know that this worker finished the measurement"
+        );
         *self.active.lock().unwrap() = false;
-        self.client.measurement_finished(Request::new(finished)).await?;
+        self.client
+            .measurement_finished(Request::new(finished))
+            .await?;
 
         Ok(())
     }

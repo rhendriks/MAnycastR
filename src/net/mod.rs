@@ -11,11 +11,11 @@ pub(crate) mod packet;
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,                    // 16-bit Total Length
-    pub ttl: u8,                        // 8-bit Time To Live
-    pub source_address: Ipv4Addr,       // 32-bit Source IP Address
-    pub destination_address: Ipv4Addr,  // 32-bit Destination IP Address
-    pub payload: PacketPayload,         // Payload
+    pub length: u16,                   // 16-bit Total Length
+    pub ttl: u8,                       // 8-bit Time To Live
+    pub source_address: Ipv4Addr,      // 32-bit Source IP Address
+    pub destination_address: Ipv4Addr, // 32-bit Destination IP Address
+    pub payload: PacketPayload,        // Payload
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -46,21 +46,27 @@ impl From<&[u8]> for IPv4Packet {
         let payload_bytes = &cursor.into_inner()[header_length..];
         let payload = match packet_type {
             1 => {
-                if payload_bytes.len() < 8 { PacketPayload::Unimplemented } else {
+                if payload_bytes.len() < 8 {
+                    PacketPayload::Unimplemented
+                } else {
                     PacketPayload::ICMP {
                         value: ICMPPacket::from(payload_bytes),
                     }
                 }
             }
             17 => {
-                if payload_bytes.len() < 8 { PacketPayload::Unimplemented } else {
+                if payload_bytes.len() < 8 {
+                    PacketPayload::Unimplemented
+                } else {
                     PacketPayload::UDP {
                         value: UDPPacket::from(payload_bytes),
                     }
                 }
             }
             6 => {
-                if payload_bytes.len() < 20 { PacketPayload::Unimplemented } else {
+                if payload_bytes.len() < 20 {
+                    PacketPayload::Unimplemented
+                } else {
                     PacketPayload::TCP {
                         value: TCPPacket::from(payload_bytes),
                     }
@@ -90,14 +96,22 @@ impl Into<Vec<u8>> for &IPv4Packet {
         };
 
         let mut wtr = vec![];
-        wtr.write_u8(0x45).expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
-        wtr.write_u8(0x00).expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
-        wtr.write_u16::<NetworkEndian>(self.length).expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
-        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Identification
-        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
-        wtr.write_u8(self.ttl).expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
-        wtr.write_u8(payload_type).expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
-        wtr.write_u16::<NetworkEndian>(0x0000).expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
+        wtr.write_u8(0x45)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
+        wtr.write_u8(0x00)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
+        wtr.write_u16::<NetworkEndian>(self.length)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
+        wtr.write_u16::<NetworkEndian>(0x0000)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Identification
+        wtr.write_u16::<NetworkEndian>(0x0000)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
+        wtr.write_u8(self.ttl)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
+        wtr.write_u8(payload_type)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
+        wtr.write_u16::<NetworkEndian>(0x0000)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
         wtr.write_u32::<NetworkEndian>(self.source_address.into())
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
         wtr.write_u32::<NetworkEndian>(self.destination_address.into())
@@ -111,7 +125,9 @@ impl Into<Vec<u8>> for &IPv4Packet {
 
         // Add the payload
         cursor.set_position(20); // Skip the header
-        cursor.write_all(&payload).expect("Unable to write to byte buffer for IPv4 packet"); // Payload
+        cursor
+            .write_all(&payload)
+            .expect("Unable to write to byte buffer for IPv4 packet"); // Payload
 
         cursor.into_inner()
     }
@@ -143,9 +159,9 @@ impl Into<Vec<u8>> for PacketPayload {
 pub struct PseudoHeader {
     pub source_address: u32,
     pub destination_address: u32,
-    pub zeroes: u8, // 8 bits of zeros
+    pub zeroes: u8,   // 8 bits of zeros
     pub protocol: u8, // 6 for TCP, 17 for UDP
-    pub length: u16, // TCP/UDP header + data length
+    pub length: u16,  // TCP/UDP header + data length
 }
 
 /// Converting PsuedoHeader to bytes
@@ -297,7 +313,9 @@ impl ICMPPacket {
             ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
-            payload: PacketPayload::ICMP { value: packet.into() },
+            payload: PacketPayload::ICMP {
+                value: packet.into(),
+            },
         };
 
         let mut bytes: Vec<u8> = (&v4_packet).into();
@@ -313,10 +331,12 @@ impl ICMPPacket {
     fn calc_checksum(buffer: &[u8]) -> u16 {
         let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<NetworkEndian>() { // Sum all 16-bit words
+        while let Ok(word) = cursor.read_u16::<NetworkEndian>() {
+            // Sum all 16-bit words
             sum += u32::from(word);
         }
-        if let Ok(byte) = cursor.read_u8() { // If there is a byte left, sum it
+        if let Ok(byte) = cursor.read_u8() {
+            // If there is a byte left, sum it
             sum += u32::from(byte);
         }
         while sum >> 16 > 0 {
@@ -473,7 +493,6 @@ impl From<&[u8]> for DNSRecord {
             (record_type, class, body)
         };
 
-
         DNSRecord {
             transaction_id,
             flags,
@@ -542,7 +561,10 @@ impl From<&[u8]> for TXTRecord {
         TXTRecord {
             txt_length,
             // txt: read_dns_name(&mut data),
-            txt: String::from_utf8_lossy(&data.clone().into_inner()[1..(1 + txt_length as u64) as usize]).to_string(),
+            txt: String::from_utf8_lossy(
+                &data.clone().into_inner()[1..(1 + txt_length as u64) as usize],
+            )
+            .to_string(),
         }
     }
 }
@@ -600,8 +622,14 @@ impl UDPPacket {
         worker_id: u16,
         ttl: u8,
     ) -> Vec<u8> {
-        let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
-                                                       source_address, destination_address, worker_id, source_port);
+        let dns_packet = Self::create_a_record_request(
+            &domain_name,
+            transmit_time,
+            source_address,
+            destination_address,
+            worker_id,
+            source_port,
+        );
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
@@ -629,7 +657,9 @@ impl UDPPacket {
             ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
-            payload: PacketPayload::UDP { value: udp_packet.into() },
+            payload: PacketPayload::UDP {
+                value: udp_packet.into(),
+            },
         };
         (&v4_packet).into()
     }
@@ -646,12 +676,16 @@ impl UDPPacket {
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
-        let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
-                                destination_address, worker_id, source_port, domain_name);
+        let subdomain = format!(
+            "{}-{}-{}-{}-{}.{}",
+            transmit_time, source_address, destination_address, worker_id, source_port, domain_name
+        );
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap(); // Transaction ID
+        dns_body
+            .write_u16::<byteorder::BigEndian>(worker_id)
+            .unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -706,20 +740,21 @@ impl UDPPacket {
             ttl: 255,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
-            payload: PacketPayload::UDP { value: udp_packet.into() },
+            payload: PacketPayload::UDP {
+                value: udp_packet.into(),
+            },
         };
         (&v4_packet).into()
     }
 
     /// Creating a DNS TXT record request body for id.orchestrator CHAOS request
-    fn create_chaos_request(
-        worker_id: u16,
-        chaos: &str,
-    ) -> Vec<u8> {
+    fn create_chaos_request(worker_id: u16, chaos: &str) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap();
+        dns_body
+            .write_u16::<byteorder::BigEndian>(worker_id)
+            .unwrap();
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
@@ -735,7 +770,6 @@ impl UDPPacket {
         dns_body.push(0); // Terminate the QNAME
         dns_body.write_u16::<byteorder::BigEndian>(0x0010).unwrap(); // QTYPE (TXT record)
         dns_body.write_u16::<byteorder::BigEndian>(0x0003).unwrap(); // QCLASS (CHAOS)
-
 
         dns_body
     }
@@ -832,7 +866,7 @@ impl TCPPacket {
             seq,
             ack,
             offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved
-            flags: 0b00010010, // SYN and ACK flags
+            flags: 0b00010010,  // SYN and ACK flags
             checksum: 0,
             pointer: 0,
             body: info_url.bytes().collect(),
@@ -845,7 +879,7 @@ impl TCPPacket {
             source_address,
             destination_address,
             zeroes: 0,
-            protocol: 6, // TCP
+            protocol: 6,                // TCP
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
         };
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
@@ -855,7 +889,9 @@ impl TCPPacket {
             ttl,
             source_address: Ipv4Addr::from(source_address),
             destination_address: Ipv4Addr::from(destination_address),
-            payload: PacketPayload::TCP { value: packet.into() },
+            payload: PacketPayload::TCP {
+                value: packet.into(),
+            },
         };
 
         (&v4_packet).into()
