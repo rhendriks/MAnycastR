@@ -20,7 +20,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 ///
 /// # Arguments
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'tx_origins' - the unique source addresses and port combinations we use for our probes
 ///
@@ -175,7 +175,7 @@ pub fn outbound(
 ///
 /// * 'dst' - the destination address for the traceroutes
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'max_ttl' - the maximum TTL to use for the traceroutes (the actual TTLs used are 5 to max_ttl + 10)
 ///
@@ -203,7 +203,7 @@ fn perform_trace(
         let dport = origin.dport as u16;
 
         // Send traceroutes to hops 5 to max_ttl + 10 (starting at 5 to avoid the first 4 vultr hops, and adding 10 to the max_ttl in case of false RTTs)
-        // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different client may receive the destination's response)
+        // TODO implement required feedback loop that stops sending traceroutes when the destination is reached (taking into consideration a different worker may receive the destination's response)
         for i in 5..(max_ttl + 10) {
             let mut packet: Vec<u8> = Vec::new();
             packet.extend_from_slice(&ethernet_header);
@@ -232,7 +232,7 @@ fn perform_trace(
                 };
                 packet.extend_from_slice(&udp); // ip header included
             } else if measurement_type == 3 { // TCP
-                // ACK: first 16 is the TTL, last 16 is the client ID
+                // ACK: first 16 is the TTL, last 16 is the worker ID
                 let ack = (i as u32) << 16 | client_id as u32; // TODO test this
                 let tcp = if is_ipv6 {
                     TCPPacket::tcp_syn_ack_v6(src.get_v6().into(), dst.get_v6().into(), sport, dport, 0, ack, i, info_url)

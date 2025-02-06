@@ -29,20 +29,20 @@ use custom_module::verfploeter::{
 
 use crate::custom_module;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
-use crate::server::mpsc::Sender;
+use crate::orc::mpsc::Sender;
 
 /// Struct for the Server service
 ///
 /// # Fields
 ///
-/// * 'clients' - a ClientList that contains all connected clients (hostname and client ID)
+/// * 'clients' - a ClientList that contains all connected clients (hostname and worker ID)
 /// * 'senders' - a list of senders that connect to the clients, these senders are used to stream Tasks
 /// * 'cli_sender' - the sender that connects to the CLI, to stream TaskResults
 /// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
-/// * 'current_client_id' - keeps track of the last used client ID and is used to assign a unique client ID to a new connecting client
+/// * 'current_client_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each client
+/// * 'traceroute_targets' - a map that keeps track of the clients that have received probe replies for a specific target, and the 'flows' that reach each worker
 /// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
 /// * 'responsive_targets' - a list of the responsive targets that need to be measured
 #[derive(Debug, Clone)]
@@ -59,20 +59,20 @@ pub struct ControllerService {
     responsive_targets: Arc<Mutex<Vec<Address>>>,
 }
 
-/// Special Receiver struct that notices when the client disconnects.
+/// Special Receiver struct that notices when the worker disconnects.
 ///
-/// When a client drops we update the open_measurements such that the server knows this client is not participating in any measurements.
-/// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this client is finished.
+/// When a worker drops we update the open_measurements such that the orc knows this worker is not participating in any measurements.
+/// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this worker is finished.
 ///
-/// Finally, remove this client from the client list.
+/// Finally, remove this worker from the worker list.
 ///
 /// # Fields
 ///
-/// * 'inner' - the receiver that connects to the client
+/// * 'inner' - the receiver that connects to the worker
 /// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
 /// * 'cli_sender' - the sender that connects to the CLI
-/// * 'hostname' - the hostname of the client
-/// * 'clients' - a ClientList that contains all connected clients (hostname and client ID)
+/// * 'hostname' - the hostname of the worker
+/// * 'clients' - a ClientList that contains all connected clients (hostname and worker ID)
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 pub struct ClientReceiver<T> {
     inner: mpsc::Receiver<T>,
@@ -95,13 +95,13 @@ impl<T> Drop for ClientReceiver<T> {
     fn drop(&mut self) {
         println!("[Server] Client receiver has been dropped");
 
-        // Remove this client from the clients list
+        // Remove this worker from the clients list
         self.clients.lock().unwrap().clients.retain(|client| {
             let Some(metadata) = &client.metadata else { panic!("Client without metadata") };
             metadata.hostname != self.hostname
         });
 
-        // // Handle the open measurements that involve this client
+        // // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
         if open_measurements.len() > 0 {
             for (measurement_id, remaining) in open_measurements.clone().iter() {
@@ -109,19 +109,19 @@ impl<T> Drop for ClientReceiver<T> {
                 if remaining == &0 {
                     continue;
                 }
-                // If this is the last client for this open measurement
+                // If this is the last worker for this open measurement
                 if remaining == &1 {
-                    // The server no longer has to wait for this client
+                    // The orc no longer has to wait for this worker
                     open_measurements.remove(&measurement_id);
 
-                    println!("[Server] The last client for a measurement dropped, sending measurement finished signal to CLI");
+                    println!("[Server] The last worker for a measurement dropped, sending measurement finished signal to CLI");
                     *self.active.lock().unwrap() = false;
                     match self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())) {
                         Ok(_) => (),
                         Err(_) => println!("[Server] Failed to send measurement finished signal to CLI")
                     }
                 } else { // If there are more clients still performing this measurement
-                    // The server no longer has to wait for this client
+                    // The orc no longer has to wait for this worker
                     *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
                 }
             }
@@ -131,7 +131,7 @@ impl<T> Drop for ClientReceiver<T> {
 
 /// Special Receiver struct that notices when the CLI disconnects.
 ///
-/// When a CLI disconnects we cancel all open measurements. We set this server as available for receiving a new measurement.
+/// When a CLI disconnects we cancel all open measurements. We set this orc as available for receiving a new measurement.
 ///
 /// Furthermore, if a measurement is active, we send a termination message to all clients to quit the current measurement.
 ///
@@ -169,7 +169,7 @@ impl<T> Drop for CLIReceiver<T> {
                 })),
             };
 
-            // Tell each client to terminate the measurement
+            // Tell each worker to terminate the measurement
             for client in self.senders.lock().unwrap().iter().cloned() {
                 let end_task = end_task.clone();
 
@@ -191,7 +191,7 @@ impl<T> Drop for CLIReceiver<T> {
 /// Handles communication with the clients and the CLI
 #[tonic::async_trait]
 impl Controller for ControllerService {
-    /// Called by the client when it has finished its current measurement.
+    /// Called by the worker when it has finished its current measurement.
     ///
     /// When all connected clients have finished this measurement, it will notify the CLI that the measurement is finished.
     ///
@@ -224,13 +224,13 @@ impl Controller for ControllerService {
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
-            if remaining == &(1u32) { // If this is the last client we are finished
+            if remaining == &(1u32) { // If this is the last worker we are finished
                 println!("{}", finished_measurement.client_id);
                 println!("[Server] All clients finished");
 
                 open_measurements.remove(&measurement_id);
                 true // Finished
-            } else { // If this is not the last client, decrement the amount of remaining clients
+            } else { // If this is not the last worker, decrement the amount of remaining clients
                 print!("{},", finished_measurement.client_id);
                 *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
                 false // Not finished yet
@@ -241,7 +241,7 @@ impl Controller for ControllerService {
             // There is no longer an active measurement
             *self.active.lock().unwrap() = false;
 
-            // Send an ack to the client that it has finished
+            // Send an ack to the worker that it has finished
             return match tx.send(Ok(TaskResult::default())).await {
                 Ok(_) => Ok(Response::new(Ack {
                     success: true,
@@ -253,7 +253,7 @@ impl Controller for ControllerService {
                 })),
             };
         } else {
-            // Send an ack to the client that it has finished
+            // Send an ack to the worker that it has finished
             Ok(Response::new(Ack {
                 success: true,
                 error_message: "".to_string(),
@@ -263,25 +263,25 @@ impl Controller for ControllerService {
 
     type ClientConnectStream = ClientReceiver<Result<Task, Status>>;
 
-    /// Handles a client connecting to this server formally.
+    /// Handles a worker connecting to this orc formally.
     ///
-    /// Returns the receiver side of a stream to which the server will send tasks
+    /// Returns the receiver side of a stream to which the orc will send tasks
     ///
     /// # Arguments
     ///
-    /// * 'request' - a Metadata message containing the hostname of the client
+    /// * 'request' - a Metadata message containing the hostname of the worker
     async fn client_connect(
         &self,
         request: Request<Metadata>,
     ) -> Result<Response<Self::ClientConnectStream>, Status> {
         let hostname = request.into_inner().hostname;
-        println!("[Server] New client connected: {}", hostname);
+        println!("[Server] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
         // Store the stream sender to send tasks through later
         self.senders.lock().unwrap().push(tx);
 
-        // Create stream receiver for the client
+        // Create stream receiver for the worker
         let client_rx = ClientReceiver {
             inner: rx,
             open_measurements: self.open_measurements.clone(),
@@ -291,7 +291,7 @@ impl Controller for ControllerService {
             active: self.active.clone(),
         };
 
-        // Send the stream receiver to the client
+        // Send the stream receiver to the worker
         Ok(Response::new(client_rx))
     }
     type DoMeasurementStream = CLIReceiver<Result<TaskResult, Status>>;
@@ -325,7 +325,7 @@ impl Controller for ControllerService {
 
         // If there already is an active measurement, we skip
         {
-            // If the server is already working on another measurement
+            // If the orc is already working on another measurement
             let mut active = self.active.lock().unwrap();
             if *active {
                 println!("[Server] There is already an active measurement, returning");
@@ -381,14 +381,14 @@ impl Controller for ControllerService {
             .map(|client| client.client_id)
             .collect();
 
-        // Check if the CLI requested a client-selective probing measurement
+        // Check if the CLI requested a worker-selective probing measurement
         let mut selected_clients: Vec<u32> = scheduled_measurement.clients;
 
-        // Make sure all client IDs are valid
+        // Make sure all worker IDs are valid
         if selected_clients.iter().any(|client| !client_list_u32.contains(client)) {
             println!("[Server] Client ID requested that is not connected, terminating measurement.");
             *self.active.lock().unwrap() = false;
-            return Err(Status::new(tonic::Code::Cancelled, "One or more client IDs are not connected."));
+            return Err(Status::new(tonic::Code::Cancelled, "One or more worker IDs are not connected."));
         }
 
         // Create a measurement from the ScheduleMeasurement
@@ -399,9 +399,9 @@ impl Controller for ControllerService {
         } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown clients are in the list
             if scheduled_measurement.configurations.iter().any(|conf| !client_list_u32.contains(&conf.client_id) && conf.client_id != u32::MAX) {
-                println!("[Server] Unknown client in configuration list, terminating measurement.");
+                println!("[Server] Unknown worker in configuration list, terminating measurement.");
                 *self.active.lock().unwrap() = false;
-                return Err(Status::new(tonic::Code::Cancelled, "Unknown client in configuration list"));
+                return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration list"));
             }
             // Update selected_clients to contain all clients that are in the configuration list
             for configuration in &scheduled_measurement.configurations {
@@ -415,7 +415,7 @@ impl Controller for ControllerService {
                 }
             }
 
-            vec![]  // Return an empty list, as we will add the origins per client
+            vec![]  // Return an empty list, as we will add the origins per worker
         } else {
             vec![scheduled_measurement.origin.clone().unwrap()]
         };
@@ -462,9 +462,9 @@ impl Controller for ControllerService {
         let mut current_active_client = 0;
         for sender in senders.iter() {
             let mut client_tx_origins = tx_origins.clone();
-            // Add all configuration probing origins assigned to this client
+            // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
-                // If the client is selected to perform the measurement (or all clients are selected (u32::MAX))
+                // If the worker is selected to perform the measurement (or all clients are selected (u32::MAX))
                 if (configuration.client_id == *client_list_u32.get(current_client).unwrap()) | (configuration.client_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
                         client_tx_origins.push(origin.clone());
@@ -472,16 +472,16 @@ impl Controller for ControllerService {
                 }
             }
 
-            // Check if the current client is selected to send probes
+            // Check if the current worker is selected to send probes
             let is_probing = if selected_clients.is_empty() {
-                // No client-selective probing
+                // No worker-selective probing
                 if client_tx_origins.len() == 0 {
                     false // No probe origins -> not probing
                 } else {
                     true
                 }
             } else {
-                // Make sure the current client is selected to perform the measurement
+                // Make sure the current worker is selected to perform the measurement
                 selected_clients.contains(client_list_u32.get(current_client).expect(&*format!("Client with ID {} not found", current_client)))
             };
             if is_probing { current_active_client += 1; }
@@ -518,17 +518,17 @@ impl Controller for ControllerService {
         if !is_divide {
             println!("[Server] {} clients will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_clients, current_active_client, inter_client_interval);
         } else {
-            println!("[Server] {} clients will listen for probe replies, {} client will send out probes to a different chunk of the destination addresses", number_of_clients, current_active_client);
+            println!("[Server] {} clients will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_clients, current_active_client);
         }
 
         // Shared variable to keep track of the number of clients that have finished
         let clients_finished = Arc::new(Mutex::new(0));
-        // Shared channel that clients will wait for till the last client has finished
+        // Shared channel that clients will wait for till the last worker has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
         let mut active_client_i: u64 = 0; // Index for active clients
-        let mut all_client_i = 0; // Index for the client list
+        let mut all_client_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-        // TODO rate-limit at the client to not send bursts for each chunk
+        // TODO rate-limit at the worker to not send bursts for each chunk
         let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
 
         if responsive {
@@ -537,7 +537,7 @@ impl Controller for ControllerService {
             let (tx_f_2, rx_f_2) = tokio::sync::broadcast::channel::<()>(1);
 
 
-            println!("Probing for responsive targets from server...");
+            println!("Probing for responsive targets from orc...");
             let responsive_targets = self.responsive_targets.clone();
             spawn(async move { // thread probing for responsiveness
                 let p_rate = Duration::from_nanos(((1.0 / rate as f64) * 1_000_000_000.0) as u64); // p_rate without chunk size
@@ -656,24 +656,24 @@ impl Controller for ControllerService {
             });
 
         } else {
-            // Create a thread that streams tasks for each client
+            // Create a thread that streams tasks for each worker
             for sender in senders.iter() {
                 let sender = sender.clone();
-                // This client's unique ID
+                // This worker's unique ID
                 let client_id = *client_list_u32.get(all_client_i as usize).unwrap();
                 all_client_i += 1;
                 let clients = selected_clients.clone();
                 // If clients is empty, all clients are probing, otherwise only the clients in the list are probing
                 let is_probing = clients.len() == 0 || clients.contains(&client_id);
 
-                // Get the hitlist for this client
+                // Get the hitlist for this worker
                 let hitlist_targets = if !is_probing {
                     vec![]
                 } else if is_divide {
-                    // Each client gets its own chunk of the hitlist
+                    // Each worker gets its own chunk of the hitlist
                     let targets_chunk = dst_addresses.len() / current_active_client as usize;
 
-                    // Get start and end index of targets to probe for this client
+                    // Get start and end index of targets to probe for this worker
                     let start_index = active_client_i as usize * targets_chunk;
                     let end_index = if active_client_i == current_active_client - 1 {
                         dst_addresses.len() // End of the list
@@ -687,7 +687,7 @@ impl Controller for ControllerService {
                     dst_addresses.clone()
                 };
 
-                // increment if this client is sending probes
+                // increment if this worker is sending probes
                 if is_probing { active_client_i += 1; }
 
                 let tx_f = tx_f.clone();
@@ -706,7 +706,7 @@ impl Controller for ControllerService {
                     for chunk in hitlist_targets.chunks(chunk_size) {
                         // If the CLI disconnects during task distribution, abort
                         if *is_active.lock().unwrap() == false {
-                            clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                            clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                             if clients_finished.lock().unwrap().clone() == number_of_clients {
                                 println!("[Server] CLI disconnected during task distribution");
                                 tx_f.send(()).expect("Failed to send finished signal");
@@ -721,12 +721,12 @@ impl Controller for ControllerService {
                                 })),
                             };
 
-                            // Send packet to client
+                            // Send packet to worker
                             match sender.send(Ok(task)).await {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    println!("[Server] Failed to send task {:?} to client {}", e, client_id);
-                                    if sender.is_closed() { // If the client is no longer connected
+                                    println!("[Server] Failed to send task {:?} to worker {}", e, client_id);
+                                    if sender.is_closed() { // If the worker is no longer connected
                                         println!("[Server] Client {} is no longer connected and removed from the measurement", client_id);
                                         break;
                                     }
@@ -737,13 +737,13 @@ impl Controller for ControllerService {
                         interval.tick().await;
                     }
 
-                    clients_finished.lock().unwrap().add_assign(1); // This client is 'finished'
+                    clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                     if clients_finished.lock().unwrap().clone() == number_of_clients {
                         println!("[Server] Measurement finished, awaiting clients... ");
                         // Send a message to the other sending threads to let them know the measurement is finished
                         tx_f.send(()).expect("Failed to send finished signal");
                     } else {
-                        // Wait for the last client to finish
+                        // Wait for the last worker to finish
                         rx_f.recv().await.expect("Failed to receive finished signal");
 
                         // If the CLI disconnects whilst waiting for the finished signal, abort
@@ -752,21 +752,21 @@ impl Controller for ControllerService {
                         }
                     }
 
-                    // Sleep 1 second to give the client time to finish the measurement and receive the last responses (traceroute takes longer)
+                    // Sleep 1 second to give the worker time to finish the measurement and receive the last responses (traceroute takes longer)
                     if is_traceroute {
                         tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
                     } else {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
 
-                    // Send a message to the client to let it know it has received everything for the current measurement
+                    // Send a message to the worker to let it know it has received everything for the current measurement
                     match sender.send(Ok(Task {
                         data: Some(TaskEnd(End {
                             code: 0,
                         })),
                     })).await {
                         Ok(_) => (),
-                        Err(e) => println!("[Server] Failed to send 'end message' {:?} to client {}", e, client_id),
+                        Err(e) => println!("[Server] Failed to send 'end message' {:?} to worker {}", e, client_id),
                     }
                 });
             }
@@ -790,7 +790,7 @@ impl Controller for ControllerService {
         Ok(Response::new(self.clients.lock().unwrap().clone()))
     }
 
-    /// Receive a TaskResult from the client and put it in the stream towards the CLI
+    /// Receive a TaskResult from the worker and put it in the stream towards the CLI
     ///
     /// # Arguments
     ///
@@ -837,7 +837,7 @@ impl Controller for ControllerService {
                     _ => (IP::None, IP::None),
                 };
 
-                // Get port combination that the client received
+                // Get port combination that the worker received
                 let (probe_sport, probe_dport) = match value.clone() {
                     PingResult(_) => {
                         (0, 0)
@@ -851,7 +851,7 @@ impl Controller for ControllerService {
                     _ => (0, 0)
                 };
 
-                // Create origin flows (i.e., a single flow for each client that has received probe replies)
+                // Create origin flows (i.e., a single flow for each worker that has received probe replies)
                 let origin_flow = Origin {
                     src: Some(Address::from(probe_src)),
                     sport: probe_sport,
@@ -883,7 +883,7 @@ impl Controller for ControllerService {
                     // Keep track of all clients that have received probe replies for this target
                     if !clients.contains(&client_id) {
                         clients.push(client_id);
-                        trace_origins.push(origin_flow); // First time we see this client receive a probe reply -> we add this origin flow for this client
+                        trace_origins.push(origin_flow); // First time we see this worker receive a probe reply -> we add this origin flow for this worker
                     }
                 } else {
                     map.insert(probe_dst, (vec![client_id], Instant::now(), ttl, vec![origin_flow]));
@@ -909,13 +909,13 @@ impl Controller for ControllerService {
         }
     }
 
-    /// Handles a client requesting a client ID.
+    /// Handles a worker requesting a worker ID.
     ///
-    /// Returns a unique client ID.
+    /// Returns a unique worker ID.
     ///
     /// # Arguments
     ///
-    /// * 'request' - Metadata message that contains the client's hostname
+    /// * 'request' - Metadata message that contains the worker's hostname
     ///
     /// # Errors
     ///
@@ -931,12 +931,12 @@ impl Controller for ControllerService {
         // Check if the hostname already exists
         for client in clients_list.clone().clients.into_iter() {
             if hostname == client.metadata.unwrap().hostname {
-                println!("[Server] Refusing client as the hostname already exists: {}", hostname);
+                println!("[Server] Refusing worker as the hostname already exists: {}", hostname);
                 return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
             }
         }
 
-        // Obtain unique client id
+        // Obtain unique worker id
         let client_id = {
             let mut current_client_id = self.current_client_id.lock().unwrap();
             let client_id = *current_client_id;
@@ -944,7 +944,7 @@ impl Controller for ControllerService {
             client_id
         };
 
-        // Add the client to the client list
+        // Add the worker to the worker list
         let new_client = Client {
             client_id,
             metadata: Some(Metadata {
@@ -953,7 +953,7 @@ impl Controller for ControllerService {
         };
         clients_list.clients.push(new_client);
 
-        // Accept the client and give it a unique client ID
+        // Accept the worker and give it a unique worker ID
         Ok(Response::new(ClientId {
             client_id,
         }))
@@ -1012,9 +1012,9 @@ async fn traceroute_orchestrator(
                 };
 
                 // TODO make sure client_id is mapped to the right sender
-                // TODO when client IDs don't start at 1, this will fail
+                // TODO when worker IDs don't start at 1, this will fail
                 for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
-                    // Sleep 1 second between each client to avoid rate limiting
+                    // Sleep 1 second between each worker to avoid rate limiting
                     // tokio::time::sleep(Duration::from_secs(1)).await;
                     // TODO will fail when clients have been instructed to end
                     senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
@@ -1024,9 +1024,9 @@ async fn traceroute_orchestrator(
     });
 }
 
-/// Start the server.
+/// Start the orc.
 ///
-/// Starts the server on the specified port.
+/// Starts the orc on the specified port.
 ///
 /// # Arguments
 ///
@@ -1053,7 +1053,7 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 
     let svc = ControllerServer::new(controller);
 
-    // if TLS is enabled create the server using a TLS configuration
+    // if TLS is enabled create the orc using a TLS configuration
     if args.is_present("tls") {
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls())).expect("Failed to load TLS certificate")
@@ -1075,17 +1075,17 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 }
 
 // 1. Generate private key:
-// openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
+// openssl genpkey -algorithm RSA -out orc.key -pkeyopt rsa_keygen_bits:2048
 // 2. Generate certificate signing request:
-// openssl req -new -key server.key -out server.csr
+// openssl req -new -key orc.key -out orc.csr
 // 3. Generate self-signed certificate:
-// openssl x509 -req -in server.csr -signkey server.key -out server.crt -days 3650
-// 4. Distribute server.crt to clients
+// openssl x509 -req -in orc.csr -signkey orc.key -out orc.crt -days 3650
+// 4. Distribute orc.crt to clients
 fn load_tls() -> Identity {
     // Load TLS certificate
-    let cert = fs::read("tls/server.crt").expect("Unable to read certificate file at ./tls/server.crt");
+    let cert = fs::read("tls/orc.crt").expect("Unable to read certificate file at ./tls/orc.crt");
     // Load TLS private key
-    let key = fs::read("tls/server.key").expect("Unable to read key file at ./tls/server.key");
+    let key = fs::read("tls/orc.key").expect("Unable to read key file at ./tls/orc.key");
 
     // Create TLS configuration
     let identity = Identity::from_pem(cert, key);
@@ -1174,7 +1174,7 @@ async fn listen_for_responses(
 
     // Start listening
     loop {
-        if rx_f.try_recv().is_ok() { // Check if the server has finished probing for responsive targets
+        if rx_f.try_recv().is_ok() { // Check if the orc has finished probing for responsive targets
             println!("received finished signal");
             break;
         }
@@ -1210,7 +1210,7 @@ async fn listen_for_responses(
 ///
 /// Awaits responsive targets and instructs the clients to probe them.
 ///
-/// Clients will be instructed to probe the responsive targets in a round-robin fashion, with the configured delay between each client.
+/// Clients will be instructed to probe the responsive targets in a round-robin fashion, with the configured delay between each worker.
 ///
 /// # Arguments
 ///
@@ -1218,7 +1218,7 @@ async fn listen_for_responses(
 ///
 /// # Returns
 ///
-/// A result containing channel senders for each client.
+/// A result containing channel senders for each worker.
 async fn send_responsive(
     senders: Vec<Sender<Result<Task, Status>>>,
     responsive_targets: Arc<Mutex<Vec<Address>>>,
@@ -1234,20 +1234,20 @@ async fn send_responsive(
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
 
-            // Check if the server has finished probing for responsive targets
+            // Check if the orc has finished probing for responsive targets
             if rx_f.try_recv().is_ok() {
                 println!("received finished signal");
 
                 // Send finished signal to all clients
                 for sender in senders.iter() {
-                    // Send a message to the client to let it know it has received everything for the current measurement
+                    // Send a message to the worker to let it know it has received everything for the current measurement
                     match sender.send(Ok(Task {
                         data: Some(TaskEnd(End {
                             code: 0,
                         })),
                     })).await {
                         Ok(_) => (),
-                        Err(_) => println!("[Server] Failed to send 'end message' to client"),
+                        Err(_) => println!("[Server] Failed to send 'end message' to worker"),
                     }
                 }
                 return;
@@ -1261,7 +1261,7 @@ async fn send_responsive(
             all_targets.drain(..n).collect()
         };
 
-        // Send to client with 'client_interval' gaps
+        // Send to worker with 'client_interval' gaps
         let senders = senders.clone();
         spawn(async move {
             let task = Task {
@@ -1271,19 +1271,19 @@ async fn send_responsive(
             };
 
             for sender in senders.iter() {
-                // Send packet to client
+                // Send packet to worker
                 match sender.send(Ok(task.clone())).await {
                     Ok(_) => (),
                     Err(e) => {
-                        println!("[Server] Failed to send task {:?} to client", e);
-                        if sender.is_closed() { // If the client is no longer connected
+                        println!("[Server] Failed to send task {:?} to worker", e);
+                        if sender.is_closed() { // If the worker is no longer connected
                             println!("[Server] Client is no longer connected and removed from the measurement");
                             continue;
                         }
                     }
                 }
 
-                // Sleep for the client interval
+                // Sleep for the worker interval
                 tokio::time::sleep(Duration::from_secs(client_interval)).await;
             }
         });

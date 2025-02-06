@@ -713,7 +713,7 @@ impl UDPPacket {
         (&v4_packet).into()
     }
 
-    /// Creating a DNS TXT record request body for id.server CHAOS request
+    /// Creating a DNS TXT record request body for id.orc CHAOS request
     fn create_chaos_request(
         client_id: u8,
         chaos: &str,
@@ -730,7 +730,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question (id.server)
+        // DNS Question (id.orc)
         for label in chaos.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();

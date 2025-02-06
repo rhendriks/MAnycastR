@@ -131,7 +131,7 @@ pub fn get_pcap(
 ///
 /// * 'dst' - the destination address for the ping packet
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
@@ -197,7 +197,7 @@ pub fn create_ping(
 ///
 /// * 'origin' - the source address and port values we use for our probes
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'dst' - the destination address for the UDP packet
 ///
@@ -256,7 +256,7 @@ pub fn create_udp(
 ///
 /// * 'dst' - the destination address for the TCP packet
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -278,7 +278,7 @@ pub fn create_tcp(
         .unwrap()
         .as_millis() as u32; // The least significant bits are kept
     let seq = 0; // information in seq gets lost
-    // for MAnycast the ACK is the client ID, for GCD the ACK is the transmit time
+    // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
     let ack = if !gcd {
         client_id as u32
     } else {

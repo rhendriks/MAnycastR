@@ -13,7 +13,7 @@ use crate::custom_module::verfploeter::{
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayload, TXTRecord, packet::get_pcap};
 
 /// Listen for incoming packets
-/// Creates two threads, one that listens on the socket and another that forwards results to the server and shuts down the receiving socket when appropriate.
+/// Creates two threads, one that listens on the socket and another that forwards results to the orc and shuts down the receiving socket when appropriate.
 /// Makes sure that the received packets are valid and belong to the current measurement.
 ///
 /// # Arguments
@@ -24,7 +24,7 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayl
 ///
 /// * 'measurement_id' - the ID of the current measurement
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'is_ipv6' - whether to parse the packets as IPv6 or IPv4
 ///
@@ -51,7 +51,7 @@ pub fn listen(
     if_name: Option<String>,
 ) {
     println!("[Client inbound] Started listener with filter {}", filter);
-    // Result queue to store incoming pings, and take them out when sending the TaskResults to the server
+    // Result queue to store incoming pings, and take them out when sending the TaskResults to the orc
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
@@ -148,7 +148,7 @@ pub fn listen(
                      stats.if_dropped.with_separator());
         }).expect("Failed to spawn listener_thread");
 
-    // Thread for sending the received replies to the server as TaskResult
+    // Thread for sending the received replies to the orc as TaskResult
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
@@ -158,11 +158,11 @@ pub fn listen(
             *exit_flag.lock().unwrap() = true;
 
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to server");
+            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to orc");
         }).expect("Failed to spawn result_sender_thread");
 }
 
-/// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main client class.
+/// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main worker class.
 ///
 /// # Arguments
 ///
@@ -170,7 +170,7 @@ pub fn listen(
 ///
 /// * 'rx_f' - channel that is used to signal the end of the measurement
 ///
-/// * 'client_id' - the unique client ID of this client
+/// * 'client_id' - the unique worker ID of this worker
 ///
 /// * 'rq_sender' - contains a vector of all received replies as VerfploeterResult
 fn handle_results(
@@ -180,22 +180,22 @@ fn handle_results(
     rq_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>,
 ) {
     loop {
-        // Every second, forward the ping results to the server
+        // Every second, forward the ping results to the orc
         sleep(Duration::from_secs(1));
 
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
 
-        // Send the result to the client handler
+        // Send the result to the worker handler
         tx.send(
             TaskResult {
                 client_id: client_id as u32,
                 result_list: rq,
             }
-        ).expect("Failed to send TaskResult to client handler");
+        ).expect("Failed to send TaskResult to worker handler");
 
-        // Exit the thread if client sends us the signal it's finished
+        // Exit the thread if worker sends us the signal it's finished
         if let Ok(_) = rx_f.try_recv() {
             // We are finished
             break;

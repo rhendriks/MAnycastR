@@ -18,7 +18,7 @@
 //! # Measurements
 //!
 //! A measurement consists of multiple tasks that are executed by the workers.
-//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the server.
+//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orc.
 //! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
 //! These clients then stream back the results to the orchestrator, as they receive replies.
 //! The orchestrator forwards these results to the CLI.
@@ -33,14 +33,14 @@
 //! * **Source address** - the source address from which the probes are to be sent out
 //! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
-//! * **Rate** - The rate (packets / second) at which each client will send out probes (default: 1000)
+//! * **Rate** - The rate (packets / second) at which each worker will send out probes (default: 1000)
 //! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
 //! * **Stream** - Stream the results to the command-line interface
 //! * **Shuffle** - Shuffle the hitlist before sending out probes
-//! * **Unicast** - Probe the targets using the unicast address of each client
+//! * **Unicast** - Probe the targets using the unicast address of each worker
 //! * **Traceroute** - Probe the targets using traceroute (currently broken)
-//! * **Divide** - Divide the hitlist into equal separate parts for each client (divide and conquer)
-//! * **Interval** - Interval between separate client's probes to the same target (default: 1s)
+//! * **Divide** - Divide the hitlist into equal separate parts for each worker (divide and conquer)
+//! * **Interval** - Interval between separate worker's probes to the same target (default: 1s)
 //! * **Address** - Source IP to use for the probes
 //! * **Source port** - Source port to use for the probes (default: 62321)
 //! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
@@ -48,30 +48,30 @@
 //!
 //! # Results
 //!
-//! The CLI will await task results after sending its command to the server.
-//! When the server is finished it will notify the CLI, after which it prints out all task results on the command-line interface, and writes them to a .csv file (with the current timestamp encoded in the filename).
+//! The CLI will await task results after sending its command to the orchestrator.
+//! When the orchestrator is finished it will notify the CLI, after which it prints out all task results on the command-line interface, and writes them to a .csv file (with the current timestamp encoded in the filename).
 //!
 //! # Usage
 //!
-//! First, run the central server.
+//! First, run the central orchestrator.
 //! ```
-//! server -p [PORT NUMBER]
+//! orc -p [PORT NUMBER]
 //! ```
 //!
-//! Next, run one or more clients.
+//! Next, run one or more workers.
 //! ```
-//! client -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
+//! worker -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
 //! ```
-//! Server address has format IPv4:port (e.g., 187.0.0.0:50001), '-a SOURCE IP' is optional.
+//! Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001), '-a SOURCE IP' is optional.
 //!
-//! To confirm that the clients are connected, you can run the client-list command on the CLI.
+//! To confirm that the workers are connected, you can run the worker-list command on the CLI.
 //! ```
-//! cli -s [SERVER ADDRESS] client-list
+//! cli -s [ORCHESTRATOR ADDRESS] worker-list
 //! ```
 //!
 //! Finally, you can perform a measurement.
 //! ```
-//! cli -s [SERVER ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
+//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
 //! ```
 //!
 //! * SOURCE IP is the IPv4 address from which to send the probes.
@@ -96,45 +96,45 @@
 //!
 //! * --live - Check results for Anycast targets as they come in live (unimplemented)
 //!
-//! * --unicast - Probe the targets using the unicast address of each client
+//! * --unicast - Probe the targets using the unicast address of each worker
 //!
 //! * --traceroute - Probe the targets using traceroute (broken)
 //!
-//! * --divide - Divide the hitlist into equal separate parts for each client (divide and conquer)
+//! * --divide - Divide the hitlist into equal separate parts for each worker (divide and conquer)
 //!
-//! * --i - Interval between separate client's probes to the same target [default: 1s]
+//! * --i - Interval between separate worker's probes to the same target [default: 1s]
 //!
-//! # Additional client options
+//! # Additional worker options
 //!
-//! * --multi-probing - Enable multi-source probing, i.e., the client will send out probes from all addresses
+//! * --multi-probing - Enable multi-source probing, i.e., the worker will send out probes from all addresses
 //!
 //! # Measurement details
 //!
 //! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
-//! * Each client probes a target address, approximately 1 second after the previous client sent out theirs.
+//! * Each worker probes a target address, approximately 1 second after the previous worker sent out theirs.
 //! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
 //! * The rate of the measurements is adjustable.
 //! * The clients that have to send out probes can be specified.
 //!
 //! # Robustness
 //!
-//! * A list of connected clients is maintained by the server and clients that disconnect are removed.
-//! * Clients disconnecting during measurements are handled and the server will finish the measurement as well as possible.
+//! * A list of connected workers is maintained by the orchestrator and workers that disconnect are removed.
+//! * Workers disconnecting during measurements are handled and the orchestrator will finish the measurement as well as possible.
 //! * CLI disconnecting during a measurement will result in the measurement being cancelled, to avoid unnecessary probes from being sent out (this allows for cancellation of measurements by forcefully closing the CLI during a measurement).
-//! * Both server and client enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if there is still a measurement active.
-//! * The server ensures that measurements are started and ended properly.
+//! * Both orchestrator and workers enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if there is still a measurement active.
+//! * The orchestrator ensures that measurements are started and ended properly.
 //!
 //! # Probe details
 //!
 //! ICMP
 //! * ICMP ECHO requests (pings) are sent out using a unique payload that contains information about the transmission.
 //! * This payload is echoed back by ICMP-responsive hosts, and the received ECHO replies are verified to be part of the current measurement.
-//! * From the reply payloads we extract information that give us information from the client that sent the probe.
+//! * From the reply payloads we extract information that give us information from the worker that sent the probe.
 //!
 //! UDP
 //! * DNS A Record requests are sent using UDP, within the subdomain of the A Record we encode information.
 //! * Since the record does not exist, a DNS server will echo back the domain name, we use this domain to verify the reply is part of our measurement.
-//! * Furthermore, we extract information from the subdomain to obtain information from the client that sent the probe.
+//! * Furthermore, we extract information from the subdomain to obtain information from the worker that sent the probe.
 //!
 //! TCP
 //! * We send TCP SYN/ACK packets to high port numbers, such that it is very unlikely that there is a TCP service running on that port.
@@ -161,7 +161,7 @@
 //!
 //! # gRPC
 //!
-//! Communication between client, CLI, and server is achieved using tonic (a rust implementation of gRPC) <https://github.com/hyperium/tonic>.
+//! Communication between worker, CLI, and orchestrator is achieved using tonic (a rust implementation of gRPC) <https://github.com/hyperium/tonic>.
 //!
 //! The protocol definitions are in /proto/verfploeter.proto
 //!
@@ -173,12 +173,12 @@ extern crate log;
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 mod cli;
-mod server;
-mod client;
+mod orc;
+mod worker;
 mod net;
 mod custom_module;
 
-/// Parse command line input and start MAnycastR server, client, or CLI
+/// Parse command line input and start MAnycastR orc, worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
@@ -189,15 +189,15 @@ fn main() {
     // Parse the command-line arguments
     let matches = parse_cmd();
 
-    if let Some(client_matches) = matches.subcommand_matches("client") {
-        println!("[Main] Executing client version {}", env!("GIT_HASH"));
+    if let Some(client_matches) = matches.subcommand_matches("worker") {
+        println!("[Main] Executing worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { client::Client::new(client_matches).await.expect("Unable to create a client (make sure the Server address is correct, and that the Server is running)") });
+        let _ = rt.block_on(async { worker::Client::new(client_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
 
         return;
     }
@@ -209,15 +209,15 @@ fn main() {
 
         let _ = cli::execute(cli_matches);
         return;
-    } else if let Some(server_matches) = matches.subcommand_matches("server") {
-        println!("[Main] Executing server version {}", env!("GIT_HASH"));
+    } else if let Some(server_matches) = matches.subcommand_matches("orc") {
+        println!("[Main] Executing orc version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { server::start(server_matches).await.unwrap() });
+        let _ = rt.block_on(async { orc::start(server_matches).await.unwrap() });
     }
 }
 
@@ -227,7 +227,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
-            SubCommand::with_name("server").about("Launches the MAnycastR server")
+            SubCommand::with_name("orc").about("Launches the MAnycastR orc")
                 .arg(
                     Arg::with_name("port")
                         .long("port")
@@ -241,17 +241,17 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(false)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt and server.key in ./tls/)")
+                        .help("Use TLS for communication with the orc (requires orc.crt and orc.key in ./tls/)")
                 )
         )
         .subcommand(
-            SubCommand::with_name("client").about("Launches the MAnycastR client")
+            SubCommand::with_name("worker").about("Launches the MAnycastR worker")
                 .arg(
-                    Arg::with_name("server")
+                    Arg::with_name("orc")
                         .short("s")
                         .takes_value(true)
                         .required(true)
-                        .help("hostname/ip address:port of the server")
+                        .help("hostname/ip address:port of the orc")
                 )
                 .arg(
                     Arg::with_name("hostname")
@@ -259,14 +259,14 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .short("h")
                         .takes_value(true)
                         .required(false)
-                        .help("hostname for this client (default: $HOSTNAME)")
+                        .help("hostname for this worker (default: $HOSTNAME)")
                 )
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
                 )
                 .arg(
                     Arg::with_name("interface")
@@ -280,21 +280,21 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("cli").about("MAnycastR CLI")
                 .arg(
-                    Arg::with_name("server")
+                    Arg::with_name("orc")
                         .short("s")
                         .takes_value(true)
                         .required(true)
-                        .help("hostname/ip address:port of the server (e.g., [::1]:50001 for localhost)")
+                        .help("hostname/ip address:port of the orc (e.g., [::1]:50001 for localhost)")
                 )
                 .arg(
                     Arg::with_name("tls")
                         .long("tls")
                         .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the server (requires server.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
                 )
-                .subcommand(SubCommand::with_name("client-list").about("retrieves a list of currently connected clients from the server"))
-                .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated client")
+                .subcommand(SubCommand::with_name("worker-list").about("retrieves a list of currently connected clients from the orc"))
+                .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated worker")
                     .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
                         .required(true)
                         .index(1)
@@ -310,7 +310,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .takes_value(true)
                         .required(false)
                         .default_value("1000")
-                        .help("The rate at which this measurement is to be performed at each client (number of probes / second) [default: 1000]")
+                        .help("The rate at which this measurement is to be performed at each worker (number of probes / second) [default: 1000]")
                     )
                     .arg(Arg::with_name("CLIENTS")
                         .long("clients")
@@ -335,7 +335,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("unicast")
                         .takes_value(false)
                         .required(false)
-                        .help("Probe the targets using the unicast address of each client (GCD measurement)")
+                        .help("Probe the targets using the unicast address of each worker (GCD measurement)")
                     )
                     .arg(Arg::with_name("TRACEROUTE")
                         .long("traceroute")
@@ -349,13 +349,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .takes_value(true)
                         .required(false)
                         .default_value("1")
-                        .help("Interval between separate client's probes to the same target [default: 1s]")
+                        .help("Interval between separate worker's probes to the same target [default: 1s]")
                     )
                     .arg(Arg::with_name("DIVIDE")
                         .long("divide")
                         .takes_value(false)
                         .required(false)
-                        .help("Divide the hitlist into equal separate parts for each client (divide-and-conquer)")
+                        .help("Divide the hitlist into equal separate parts for each worker (divide-and-conquer)")
                     )
                     .arg(Arg::with_name("ADDRESS")
                         .long("addr")

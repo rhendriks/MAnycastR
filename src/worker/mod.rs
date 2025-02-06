@@ -14,22 +14,22 @@ use custom_module::verfploeter::{
     Address, ClientId, controller_client::ControllerClient, End, Finished, Metadata, Origin, Task, task::Data, TaskResult,
 };
 
-use crate::client::inbound::listen;
-use crate::client::outbound::outbound;
+use crate::worker::inbound::listen;
+use crate::worker::outbound::outbound;
 use crate::custom_module;
 
 mod inbound;
 mod outbound;
 
-/// The client that is run at the anycast sites and performs measurements as instructed by the server.
+/// The worker that is run at the anycast sites and performs measurements as instructed by the orc.
 ///
-/// The client is responsible for establishing a connection with the server, receiving tasks, and performing measurements.
+/// The worker is responsible for establishing a connection with the orc, receiving tasks, and performing measurements.
 ///
 /// # Fields
 ///
-/// * 'grpc_client' - the client connection with the server
-/// * 'metadata' - used to store this client's hostname and unique client ID
-/// * 'active' - boolean value that is set to true when the client is currently doing a measurement
+/// * 'grpc_client' - the worker connection with the orc
+/// * 'metadata' - used to store this worker's hostname and unique worker ID
+/// * 'active' - boolean value that is set to true when the worker is currently doing a measurement
 /// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
@@ -46,7 +46,7 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a client instance, which includes establishing a connection with the server.
+    /// Create a worker instance, which includes establishing a connection with the orc.
     ///
     /// Extracts the parameters of the command-line arguments.
     ///
@@ -64,8 +64,8 @@ impl Client {
         }.to_string();
 
         let interface = args.value_of("interface").map(|s| s.to_string());
-        let server_addr = args.value_of("server").unwrap();
-        // This client's metadata (shared with the Server)
+        let server_addr = args.value_of("orc").unwrap();
+        // This worker's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
         };
@@ -73,7 +73,7 @@ impl Client {
         let fqdn = args.value_of("tls");
         let client = Client::connect(server_addr.parse().unwrap(), fqdn).await?;
 
-        // Initialize a client instance
+        // Initialize a worker instance
         let mut client_class = Client {
             grpc_client: client,
             metadata,
@@ -89,13 +89,13 @@ impl Client {
         Ok(client_class)
     }
 
-    /// Connect to the server.
+    /// Connect to the orc.
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the server in string format, containing both the IPv4 address and port number
+    /// * 'address' - the address of the orc in string format, containing both the IPv4 address and port number
     ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the server certificate (if TLS is enabled)
+    /// * 'fqdn' - an optional string that contains the FQDN of the orc certificate (if TLS is enabled)
     ///
     /// # Example
     ///
@@ -110,8 +110,8 @@ impl Client {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            // Load the CA certificate used to authenticate the server
-            let pem = std::fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            // Load the CA certificate used to authenticate the orc
+            let pem = std::fs::read_to_string("tls/orc.crt").expect("Unable to read CA certificate at ./tls/orc.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -121,32 +121,32 @@ impl Client {
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
                 .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to server")
+                .connect().await.expect("Unable to connect to orc")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
             Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to server")
+                .connect().await.expect("Unable to connect to orc")
         };
-        // Create client with secret token that is used to authenticate client commands.
+        // Create worker with secret token that is used to authenticate worker commands.
         let client = ControllerClient::new(channel);
 
         Ok(client)
     }
 
 
-    /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the server.
+    /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orc.
     ///
     /// Extracts the protocol type from the measurement definition, and determines which source address to use.
     /// Creates a socket to send out probes and receive replies with, calls the appropriate inbound & outbound functions.
-    /// Creates an additional thread that forwards task results to the server.
+    /// Creates an additional thread that forwards task results to the orc.
     ///
     /// # Arguments
     ///
-    /// * 'task' - the first 'Task' message sent by the server, that contains the measurement definition
+    /// * 'task' - the first 'Task' message sent by the orc, that contains the measurement definition
     ///
-    /// * 'client_id' - the unique ID of this client
+    /// * 'client_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
     fn init(
@@ -190,7 +190,7 @@ impl Client {
                 dport: dport.into(), // CLI defined destination port
             };
 
-            // We only listen to our own unicast address (each client has its own unicast address)
+            // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin.clone()];
 
 
@@ -198,11 +198,11 @@ impl Client {
             // Use the local unicast address
             vec![unicast_origin]
         } else {
-            // Use the sender origins set by the server
+            // Use the sender origins set by the orc
             start_measurement.tx_origins
         };
 
-        // Channel for sending from inbound to the server forwarder thread
+        // Channel for sending from inbound to the orc forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when inbound is finished
@@ -291,7 +291,7 @@ impl Client {
         }
 
         let mut self_clone = self.clone();
-        // Thread that listens for task results from inbound and forwards them to the server
+        // Thread that listens for task results from inbound and forwards them to the orc
         thread::Builder::new()
             .name("forwarder_thread".to_string())
             .spawn(move || {
@@ -299,7 +299,7 @@ impl Client {
                 let _enter = rt.enter();
 
                 rt.block_on(async {
-                    // Obtain TaskResults from the unbounded channel and send them to the server
+                    // Obtain TaskResults from the unbounded channel and send them to the orc
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
@@ -311,25 +311,25 @@ impl Client {
                             break;
                         }
 
-                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to server");
+                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to orc");
                     };
                     rx.close();
                 });
             }).expect("Unable to start forwarder thread");
     }
 
-    /// Establish a formal connection with the server.
+    /// Establish a formal connection with the orc.
     ///
-    /// Obtains a unique client ID from the server, establishes a stream for receiving tasks, and handles tasks as they come in.
+    /// Obtains a unique worker ID from the orc, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("Connecting to server");
-        // Get the client_id from the server
-        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a client ID from the server").client_id as u8;
+        println!("Connecting to orc");
+        // Get the client_id from the orc
+        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a worker ID from the orc").client_id as u8;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
-        // Connect to the server
+        // Connect to the orc
         let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
-        println!("[Client] Successfully connected with the server with client_id: {}", client_id);
+        println!("[Client] Successfully connected with the orc with client_id: {}", client_id);
         let mut stream = response.into_inner();
 
         // Await tasks
@@ -366,7 +366,7 @@ impl Client {
                             for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
                                 inbound_tx_f.send(()).await.expect("Unable to send finish signal to inbound thread");
                             }
-                            // f_tx will be None if this client is not probing
+                            // f_tx will be None if this worker is not probing
                             if f_tx.is_some() {
                                 // Close outbound threads
                                 f_tx.take().unwrap().send(()).expect("Unable to send finish signal to outbound thread");
@@ -377,7 +377,7 @@ impl Client {
                         }
                     }
                     Some(task) => {
-                        // outbound_tx will be None if this client is not probing
+                        // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
                             outbound_tx.send(task).await.expect("Unable to send task to outbound thread");
@@ -400,13 +400,13 @@ impl Client {
                 *self.active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
 
-                if is_probing { // This client is probing
+                if is_probing { // This worker is probing
                     // Initialize signal finish channel
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
                     self.init(task, client_id, Some(outbound_rx_f));
-                } else { // This client is not probing
+                } else { // This worker is not probing
                     f_tx = None;
                     self.outbound_tx = None;
                     self.init(task, client_id, None);
@@ -418,29 +418,29 @@ impl Client {
         Ok(())
     }
 
-    /// Send the get_client_id command to the server to obtain a unique client ID
+    /// Send the get_client_id command to the orc to obtain a unique worker ID
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();
 
         Ok(client_id)
     }
 
-    /// Send a TaskResult to the server
+    /// Send a TaskResult to the orc
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
         self.grpc_client.send_result(Request::new(task_result)).await?;
 
         Ok(())
     }
 
-    /// Let the server know the current measurement is finished.
+    /// Let the orc know the current measurement is finished.
     ///
-    /// When a measurement is finished the server knows not to expect any more results from this client.
+    /// When a measurement is finished the orc knows not to expect any more results from this worker.
     ///
     /// # Arguments
     ///
-    /// * 'finished' - the 'Finished' message to send to the server
+    /// * 'finished' - the 'Finished' message to send to the orc
     async fn measurement_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
-        println!("[Client] Letting the server know that this client finished the measurement");
+        println!("[Client] Letting the orc know that this worker finished the measurement");
         *self.active.lock().unwrap() = false;
         self.grpc_client.measurement_finished(Request::new(finished)).await?;
 
