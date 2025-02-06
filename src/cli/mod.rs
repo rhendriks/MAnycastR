@@ -41,12 +41,12 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let orc_addr = args.value_of("orchestrator").unwrap();
+    let server_address = args.value_of("orchestrator").unwrap();
     let fqdn = args.value_of("tls");
 
     // Connect with orchestrator
-    println!("[CLI] Connecting to orchestrator - {}", orc_addr);
-    let grpc_client = CliClient::connect(orc_addr, fqdn)
+    println!("[CLI] Connecting to orchestrator - {}", server_address);
+    let grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator");
     let mut cli_client = CliClient { grpc_client };
@@ -224,17 +224,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             ); // TODO print worker hostnames
         }
 
-        // Get the type of measurement
-        let measurement_type =
-            if let Ok(measurement_type) = u32::from_str(matches.value_of("TYPE").unwrap()) {
-                measurement_type
-            } else {
-                panic!("Invalid measurement type! (can be either 1, 2, 3, or 4)")
-            };
-        // We only accept measurement types 1, 2, 3, 4
-        if (measurement_type < 1) | (measurement_type > 4) {
-            panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)")
-        }
+
+        let measurement_type: u8 = match matches.value_of("TYPE").unwrap().to_lowercase().as_str() {
+            "icmp" => 1,
+            "dns" => 2,
+            "tcp" => 3,
+            "chaos" => 4,
+            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, or CHAOS)"),
+        };
 
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 {
@@ -372,7 +369,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             workers: worker_ids,
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
-            measurement_type,
+            measurement_type: measurement_type as u32,
             unicast: is_unicast,
             ipv6: is_ipv6,
             traceroute,

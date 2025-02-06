@@ -189,7 +189,10 @@ impl Into<Vec<u8>> for PseudoHeader {
 /// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
+pub fn calculate_checksum(
+    buffer: &[u8],
+    pseudo_header: &PseudoHeader
+) -> u16 {
     let packet_len = buffer.len();
     let mut sum = 0u32;
 
@@ -683,9 +686,7 @@ impl UDPPacket {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body
-            .write_u16::<byteorder::BigEndian>(worker_id)
-            .unwrap(); // Transaction ID
+        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
