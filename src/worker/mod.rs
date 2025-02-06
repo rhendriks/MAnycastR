@@ -303,7 +303,7 @@ impl Worker {
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
-                            self_clone.measurement_finished_to_orc(Finished {
+                            self_clone.measurement_finish_to_server(Finished {
                                 measurement_id,
                                 worker_id: worker_id.into(),
                             }).await.unwrap();
@@ -439,7 +439,7 @@ impl Worker {
     /// # Arguments
     ///
     /// * 'finished' - the 'Finished' message to send to the orchestrator
-    async fn measurement_finished_to_orc(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
+    async fn measurement_finish_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Letting the orchestrator know that this worker finished the measurement");
         *self.active.lock().unwrap() = false;
         self.client.measurement_finished(Request::new(finished)).await?;
