@@ -21,13 +21,13 @@ use crate::custom_module;
 mod inbound;
 mod outbound;
 
-/// The worker that is run at the anycast sites and performs measurements as instructed by the orc.
+/// The worker that is run at the anycast sites and performs measurements as instructed by the orchestrator.
 ///
-/// The worker is responsible for establishing a connection with the orc, receiving tasks, and performing measurements.
+/// The worker is responsible for establishing a connection with the orchestrator, receiving tasks, and performing measurements.
 ///
 /// # Fields
 ///
-/// * 'grpc_client' - the worker connection with the orc
+/// * 'grpc_client' - the worker connection with the orchestrator
 /// * 'metadata' - used to store this worker's hostname and unique worker ID
 /// * 'active' - boolean value that is set to true when the worker is currently doing a measurement
 /// * 'current_measurement' - contains the ID of the current measurement
@@ -46,7 +46,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Create a worker instance, which includes establishing a connection with the orc.
+    /// Create a worker instance, which includes establishing a connection with the orchestrator.
     ///
     /// Extracts the parameters of the command-line arguments.
     ///
@@ -64,7 +64,7 @@ impl Worker {
         }.to_string();
 
         let interface = args.value_of("interface").map(|s| s.to_string());
-        let server_addr = args.value_of("orc").unwrap();
+        let server_addr = args.value_of("orchestrator").unwrap();
         // This worker's metadata (shared with the Server)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
@@ -89,13 +89,13 @@ impl Worker {
         Ok(client_class)
     }
 
-    /// Connect to the orc.
+    /// Connect to the orchestrator.
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the orc in string format, containing both the IPv4 address and port number
+    /// * 'address' - the address of the orchestrator in string format, containing both the IPv4 address and port number
     ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the orc certificate (if TLS is enabled)
+    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Example
     ///
@@ -110,8 +110,8 @@ impl Worker {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            // Load the CA certificate used to authenticate the orc
-            let pem = std::fs::read_to_string("tls/orc.crt").expect("Unable to read CA certificate at ./tls/orc.crt");
+            // Load the CA certificate used to authenticate the orchestrator
+            let pem = std::fs::read_to_string("tls/orchestrator.crt").expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -121,13 +121,13 @@ impl Worker {
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
                 .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to orc")
+                .connect().await.expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
             Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to orc")
+                .connect().await.expect("Unable to connect to orchestrator")
         };
         // Create worker with secret token that is used to authenticate worker commands.
         let client = ControllerClient::new(channel);
@@ -136,15 +136,15 @@ impl Worker {
     }
 
 
-    /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orc.
+    /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
     ///
     /// Extracts the protocol type from the measurement definition, and determines which source address to use.
     /// Creates a socket to send out probes and receive replies with, calls the appropriate inbound & outbound functions.
-    /// Creates an additional thread that forwards task results to the orc.
+    /// Creates an additional thread that forwards task results to the orchestrator.
     ///
     /// # Arguments
     ///
-    /// * 'task' - the first 'Task' message sent by the orc, that contains the measurement definition
+    /// * 'task' - the first 'Task' message sent by the orchestrator, that contains the measurement definition
     ///
     /// * 'client_id' - the unique ID of this worker
     ///
@@ -198,11 +198,11 @@ impl Worker {
             // Use the local unicast address
             vec![unicast_origin]
         } else {
-            // Use the sender origins set by the orc
+            // Use the sender origins set by the orchestrator
             start_measurement.tx_origins
         };
 
-        // Channel for sending from inbound to the orc forwarder thread
+        // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Channel for signalling when inbound is finished
@@ -291,7 +291,7 @@ impl Worker {
         }
 
         let mut self_clone = self.clone();
-        // Thread that listens for task results from inbound and forwards them to the orc
+        // Thread that listens for task results from inbound and forwards them to the orchestrator
         thread::Builder::new()
             .name("forwarder_thread".to_string())
             .spawn(move || {
@@ -299,7 +299,7 @@ impl Worker {
                 let _enter = rt.enter();
 
                 rt.block_on(async {
-                    // Obtain TaskResults from the unbounded channel and send them to the orc
+                    // Obtain TaskResults from the unbounded channel and send them to the orchestrator
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
                         if packet == TaskResult::default() {
@@ -311,25 +311,25 @@ impl Worker {
                             break;
                         }
 
-                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to orc");
+                        self_clone.send_result_to_server(packet).await.expect("Unable to send task result to orchestrator");
                     };
                     rx.close();
                 });
             }).expect("Unable to start forwarder thread");
     }
 
-    /// Establish a formal connection with the orc.
+    /// Establish a formal connection with the orchestrator.
     ///
-    /// Obtains a unique worker ID from the orc, establishes a stream for receiving tasks, and handles tasks as they come in.
+    /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("Connecting to orc");
-        // Get the client_id from the orc
-        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a worker ID from the orc").client_id as u8;
+        println!("Connecting to orchestrator");
+        // Get the client_id from the orchestrator
+        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a worker ID from the orchestrator").client_id as u8;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
-        // Connect to the orc
+        // Connect to the orchestrator
         let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
-        println!("[Client] Successfully connected with the orc with client_id: {}", client_id);
+        println!("[Client] Successfully connected with the orchestrator with client_id: {}", client_id);
         let mut stream = response.into_inner();
 
         // Await tasks
@@ -418,29 +418,29 @@ impl Worker {
         Ok(())
     }
 
-    /// Send the get_client_id command to the orc to obtain a unique worker ID
+    /// Send the get_client_id command to the orchestrator to obtain a unique worker ID
     async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
         let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();
 
         Ok(client_id)
     }
 
-    /// Send a TaskResult to the orc
+    /// Send a TaskResult to the orchestrator
     async fn send_result_to_server(&mut self, task_result: TaskResult) -> Result<(), Box<dyn Error>> {
         self.grpc_client.send_result(Request::new(task_result)).await?;
 
         Ok(())
     }
 
-    /// Let the orc know the current measurement is finished.
+    /// Let the orchestrator know the current measurement is finished.
     ///
-    /// When a measurement is finished the orc knows not to expect any more results from this worker.
+    /// When a measurement is finished the orchestrator knows not to expect any more results from this worker.
     ///
     /// # Arguments
     ///
-    /// * 'finished' - the 'Finished' message to send to the orc
+    /// * 'finished' - the 'Finished' message to send to the orchestrator
     async fn measurement_finished_to_server(&mut self, finished: Finished) -> Result<(), Box<dyn Error>> {
-        println!("[Client] Letting the orc know that this worker finished the measurement");
+        println!("[Client] Letting the orchestrator know that this worker finished the measurement");
         *self.active.lock().unwrap() = false;
         self.grpc_client.measurement_finished(Request::new(finished)).await?;
 

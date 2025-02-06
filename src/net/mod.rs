@@ -590,18 +590,18 @@ impl UDPPacket {
     }
 
     /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
-    /// source_address, destination_address, client_id, source_port, destination_port
+    /// source_address, destination_address, worker_id, source_port, destination_port
     pub fn dns_request(
         source_address: u32,
         destination_address: u32,
         source_port: u16,
         domain_name: &str,
         transmit_time: u64,
-        client_id: u8,
+        worker_id: u8,
         ttl: u8,
     ) -> Vec<u8> {
         let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
-                                                       source_address, destination_address, client_id, source_port);
+                                                       source_address, destination_address, worker_id, source_port);
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
@@ -640,18 +640,18 @@ impl UDPPacket {
         transmit_time: u64,
         source_address: u32,
         destination_address: u32,
-        client_id: u8,
+        worker_id: u8,
         source_port: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = format!("{}-{}-{}-{}-{}.{}", transmit_time, source_address,
-                                destination_address, client_id, source_port, domain_name);
+                                destination_address, worker_id, source_port, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u8(client_id)
+        dns_body.write_u8(worker_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
@@ -677,10 +677,10 @@ impl UDPPacket {
         source_address: u32,
         destination_address: u32,
         source_port: u16,
-        client_id: u8,
+        worker_id: u8,
         chaos: &str,
     ) -> Vec<u8> {
-        let dns_body = Self::create_chaos_request(client_id, chaos);
+        let dns_body = Self::create_chaos_request(worker_id, chaos);
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
@@ -713,15 +713,15 @@ impl UDPPacket {
         (&v4_packet).into()
     }
 
-    /// Creating a DNS TXT record request body for id.orc CHAOS request
+    /// Creating a DNS TXT record request body for id.orchestrator CHAOS request
     fn create_chaos_request(
-        client_id: u8,
+        worker_id: u8,
         chaos: &str,
     ) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u8(client_id)
+        dns_body.write_u8(worker_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
@@ -730,7 +730,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question (id.orc)
+        // DNS Question (id.orchestrator)
         for label in chaos.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();

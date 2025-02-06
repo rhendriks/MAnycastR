@@ -340,7 +340,7 @@ impl super::UDPPacket {
     }
 
     /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
-    /// source_address, destination_address, client_id, source_port, destination_port
+    /// source_address, destination_address, worker_id, source_port, destination_port
     ///
     /// # Arguments
     ///
@@ -354,25 +354,25 @@ impl super::UDPPacket {
     ///
     /// * 'transmit_time' - the time of transmission
     ///
-    /// * 'client_id' - the sender worker ID
+    /// * 'worker_id' - the sender worker ID
     ///
     /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn dns_request_v6(
-        source_address: u128,
-        destination_address: u128,
-        source_port: u16,
-        domain_name: &str,
-        transmit_time: u64,
-        client_id: u8,
+        src: u128,
+        dst: u128,
+        sport: u16,
+        qname: &str,
+        tx_time: u64,
+        worker_id: u8,
         hop_limit: u8,
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
-        let dns_packet = Self::create_dns_a_record_request_v6(&domain_name, transmit_time,
-                                                              source_address, destination_address, client_id, source_port);
+        let dns_packet = Self::create_dns_a_record_request_v6(&qname, tx_time,
+                                                              src, dst, worker_id, sport);
         let udp_length = (8 + dns_packet.len()) as u32;
 
         let mut udp_packet = Self {
-            source_port,
+            source_port: sport,
             destination_port,
             length: udp_length as u16,
             checksum: 0,
@@ -382,8 +382,8 @@ impl super::UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            source_address,
-            destination_address,
+            source_address: src,
+            destination_address: dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
@@ -395,8 +395,8 @@ impl super::UDPPacket {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
             hop_limit,
-            source_address: Ipv6Addr::from(source_address),
-            destination_address: Ipv6Addr::from(destination_address),
+            source_address: Ipv6Addr::from(src),
+            destination_address: Ipv6Addr::from(dst),
             payload: PacketPayload::UDP { value: udp_packet.into() },
         };
 
@@ -415,28 +415,28 @@ impl super::UDPPacket {
     ///
     /// * 'destination_address' - the destination address of the packet
     ///
-    /// * 'client_id' - the sender worker ID
+    /// * 'worker_id' - the sender worker ID
     ///
     /// * 'source_port' - the source port of the packet
     fn create_dns_a_record_request_v6(
         domain_name: &str,
-        transmit_time: u64,
-        source_address: u128,
-        destination_address: u128,
-        client_id: u8,
-        source_port: u16,
+        tx_time: u64,
+        src: u128,
+        dst: u128,
+        worker_id: u8,
+        sport: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 characters
 
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         // u128 highest value has 39 digits
-        let subdomain = format!("{}.{}.{}.{}.{}.{}", transmit_time, source_address,
-                                destination_address, client_id, source_port, domain_name);
+        let subdomain = format!("{}.{}.{}.{}.{}.{}", tx_time, src,
+                                dst, worker_id, sport, domain_name);
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u8(client_id)
+        dns_body.write_u8(worker_id)
             .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
@@ -462,11 +462,11 @@ impl super::UDPPacket {
         source_address: u128,
         destination_address: u128,
         source_port: u16,
-        client_id: u8,
+        worker_id: u8,
         chaos: &str,
     ) -> Vec<u8> {
         let destination_port = 53u16;
-        let dns_body = Self::create_chaos_request(client_id, chaos);
+        let dns_body = Self::create_chaos_request(worker_id, chaos);
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {

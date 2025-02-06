@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["main","parse_cmd"],"mod":["cli","worker","custom_module","net","orc"]};
+window.SIDEBAR_ITEMS = {"fn":["main","parse_cmd"],"mod":["cli","worker","custom_module","net","orchestrator"]};

@@ -131,7 +131,7 @@ pub fn get_pcap(
 ///
 /// * 'dst' - the destination address for the ping packet
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
@@ -141,7 +141,7 @@ pub fn get_pcap(
 pub fn create_ping(
     origin: Origin,
     dst: IP,
-    client_id: u8,
+    worker_id: u8,
     measurement_id: u32,
     info_url: &str,
 ) -> Vec<u8> {
@@ -155,14 +155,14 @@ pub fn create_ping(
         tx_time,
         src: Some(src.clone().into()),
         dst: Some(dst.clone().into()),
-        tx_client_id: client_id as u32,
+        tx_worker_id: worker_id as u32,
     };
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&payload.tx_time.to_be_bytes()); // Bytes 4 - 11 *
-    payload_bytes.extend_from_slice(&payload.tx_client_id.to_be_bytes()); // Bytes 12 - 15 *
+    payload_bytes.extend_from_slice(&payload.tx_worker_id.to_be_bytes()); // Bytes 12 - 15 *
     if let Some(source_address) = payload.src {
         match source_address.value {
             Some(V4(v4)) => payload_bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
@@ -197,7 +197,7 @@ pub fn create_ping(
 ///
 /// * 'origin' - the source address and port values we use for our probes
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'dst' - the destination address for the UDP packet
 ///
@@ -217,7 +217,7 @@ pub fn create_ping(
 pub fn create_udp(
     origin: Origin,
     dst: IP,
-    client_id: u8,
+    worker_id: u8,
     measurement_type: u8,
     is_ipv6: bool,
     dns_record: &str,
@@ -231,17 +231,17 @@ pub fn create_udp(
 
     if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, dns_record, transmit_time, client_id, 255)
+            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, dns_record, transmit_time, worker_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, client_id, dns_record)
+            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, worker_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, dns_record, transmit_time, client_id, 255)
+            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, dns_record, transmit_time, worker_id, 255)
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, client_id, dns_record)
+            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, worker_id, dns_record)
         } else {
             panic!("Invalid measurement type")
         }
@@ -256,11 +256,11 @@ pub fn create_udp(
 ///
 /// * 'dst' - the destination address for the TCP packet
 ///
-/// * 'client_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'gcd' - whether we are performing anycast-based (false) or GCD probing (true)
+/// * 'is_unicast' - whether we are performing anycast-based (false) or GCD probing (true)
 ///
 /// # Returns
 ///
@@ -268,9 +268,9 @@ pub fn create_udp(
 pub fn create_tcp(
     origin: Origin,
     dst: IP,
-    client_id: u8,
+    worker_id: u8,
     is_ipv6: bool,
-    gcd: bool,
+    is_unicast: bool,
     info_url: &str,
 ) -> Vec<u8> {
     let transmit_time = SystemTime::now()
@@ -279,8 +279,8 @@ pub fn create_tcp(
         .as_millis() as u32; // The least significant bits are kept
     let seq = 0; // information in seq gets lost
     // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
-    let ack = if !gcd {
-        client_id as u32
+    let ack = if !is_unicast {
+        worker_id as u32
     } else {
         transmit_time
     };
