@@ -354,7 +354,7 @@ impl super::UDPPacket {
     ///
     /// * 'transmit_time' - the time of transmission
     ///
-    /// * 'client_id' - the sender client ID
+    /// * 'client_id' - the sender worker ID
     ///
     /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn dns_request_v6(
@@ -415,7 +415,7 @@ impl super::UDPPacket {
     ///
     /// * 'destination_address' - the destination address of the packet
     ///
-    /// * 'client_id' - the sender client ID
+    /// * 'client_id' - the sender worker ID
     ///
     /// * 'source_port' - the source port of the packet
     fn create_dns_a_record_request_v6(

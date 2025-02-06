@@ -30,27 +30,27 @@ use custom_module::verfploeter::{
 
 use crate::custom_module;
 
-/// A CLI client that creates a connection with the 'server' and sends the desired commands based on the command-line input.
+/// A CLI worker that creates a connection with the 'orc' and sends the desired commands based on the command-line input.
 pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
 }
 
-/// Connect to the server and make it perform the CLI command from the command-line
+/// Connect to the orc and make it perform the CLI command from the command-line
 ///
 /// # Arguments
 ///
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.value_of("server").unwrap();
+    let server_address = args.value_of("orc").unwrap();
     let fqdn = args.value_of("tls");
 
-    // Create client connection with the Controller Server
+    // Create worker connection with the Controller Server
     println!("[CLI] Connecting to Controller Server at address {}", server_address);
-    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to server");
+    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to orc");
     let mut cli_client = CliClient { grpc_client };
 
-    if args.subcommand_matches("client-list").is_some() { // Perform the client-list command
+    if args.subcommand_matches("worker-list").is_some() { // Perform the worker-list command
         cli_client.list_clients_to_server().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
@@ -91,7 +91,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let client_id = if parts[0] == "ALL" { // All clients probe this configuration
                         u32::MAX
                     } else {
-                        u32::from_str(parts[0]).expect("Unable to parse configuration client ID")
+                        u32::from_str(parts[0]).expect("Unable to parse configuration worker ID")
                     };
 
                     // TODO allow for hostname as identifier
@@ -169,14 +169,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             let clients_str = matches.value_of("CLIENTS").unwrap();
             clients_str.trim_matches(|c| c == '[' || c == ']')
                 .split(',')
-                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse client ID: {:<2}", id)))
+                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse worker ID: {:<2}", id)))
                 .collect::<Vec<u32>>()
         } else {
             println!("[CLI] Probes will be sent out from all clients");
             Vec::new()
         };
         if client_ids.len() > 0 {
-            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print client hostnames
+            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print worker hostnames
         }
 
         // Get the type of measurement
@@ -282,7 +282,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         );
                     } else {
                         println!(
-                            "\t* client ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
+                            "\t* worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
                             configuration.client_id, src, sport, dport
                         );
                     }
@@ -312,7 +312,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
         }
 
-        // Create the measurement definition and send it to the server
+        // Create the measurement definition and send it to the orc
         let measurement_definition = ScheduleMeasurement {
             rate,
             clients: client_ids,
@@ -338,11 +338,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 impl CliClient {
-    /// Send the 'do_measurement' command to the server, await the measurement results, and print them out to command-line & file as CSV.
+    /// Send the 'do_measurement' command to the orc, await the measurement results, and print them out to command-line & file as CSV.
     ///
     /// # Arguments
     ///
-    /// * 'measurement_definition' - the measurement that is being requested at the server (contains all the necessary information about the upcoming measurement)
+    /// * 'measurement_definition' - the measurement that is being requested at the orc (contains all the necessary information about the upcoming measurement)
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
@@ -387,8 +387,8 @@ impl CliClient {
             }
         };
 
-        // Obtain connected client information for metadata
-        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to server failed");
+        // Obtain connected worker information for metadata
+        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to orc failed");
         let mut clients = HashMap::new();
         response.into_inner().clients.iter().for_each(|client| {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
@@ -402,13 +402,13 @@ impl CliClient {
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         } else {
-            (((clients.len() as f32 - 1.0) * interval as f32) // Last client starts probing
+            (((clients.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
         if is_divide {
-            println!("[CLI] This measurement will be divided among clients (each client will probe a unique subset of the addresses)");
+            println!("[CLI] This measurement will be divided among clients (each worker will probe a unique subset of the addresses)");
         }
         println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
 
@@ -450,8 +450,8 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the server and read from it
-        let mut stream = response.expect("Unable to obtain the server stream").into_inner();
+        // Obtain the Stream from the orc and read from it
+        let mut stream = response.expect("Unable to obtain the orc stream").into_inner();
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
@@ -557,7 +557,7 @@ impl CliClient {
         }
         file.write_all(b"# Connected clients:\n")?;
         for (id, metadata) in &clients {
-            file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write client data");
+            file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write worker data");
         }
 
         // Write configurations used for the measurement
@@ -570,7 +570,7 @@ impl CliClient {
                 } else {
                     configuration.client_id.to_string()
                 };
-                file.write_all(format!("# \t * client ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
@@ -586,13 +586,13 @@ impl CliClient {
         Ok(())
     }
 
-    /// Connect to the server
+    /// Connect to the orc
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the server (e.g., 190.100.10.10:50051)
+    /// * 'address' - the address of the orc (e.g., 190.100.10.10:50051)
     ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the server certificate (if TLS is enabled)
+    /// * 'fqdn' - an optional string that contains the FQDN of the orc certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
@@ -601,7 +601,7 @@ impl CliClient {
     /// # Examples
     ///
     /// ```
-    /// let client = CliClient::connect("190.100.10.10:50051", true).await;
+    /// let worker = CliClient::connect("190.100.10.10:50051", true).await;
     /// ```
     ///
     /// # Panics
@@ -612,14 +612,14 @@ impl CliClient {
     ///
     /// This function is async and should be awaited
     ///
-    /// tls requires a certificate at ./tls/server.crt
+    /// tls requires a certificate at ./tls/orc.crt
     async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            // Load the CA certificate used to authenticate the server
-            let pem = fs::read_to_string("tls/server.crt").expect("Unable to read CA certificate at ./tls/server.crt");
+            // Load the CA certificate used to authenticate the orc
+            let pem = fs::read_to_string("tls/orc.crt").expect("Unable to read CA certificate at ./tls/orc.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -629,25 +629,25 @@ impl CliClient {
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
                 .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to server")
+                .connect().await.expect("Unable to connect to orc")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
             Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to server")
+                .connect().await.expect("Unable to connect to orc")
         };
-        // Create client with secret token that is used to authenticate client commands.
+        // Create worker with secret token that is used to authenticate worker commands.
         let client = ControllerClient::new(channel);
 
         Ok(client)
     }
 
-    /// Sends a list clients command to the server, awaits the result, and prints it to command-line.
+    /// Sends a list clients command to the orc, awaits the result, and prints it to command-line.
     async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("[CLI] Sending list clients to server");
+        println!("[CLI] Sending list clients to orc");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await.expect("Connection to server failed");
+        let response = self.grpc_client.list_clients(request).await.expect("Connection to orc failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
@@ -772,7 +772,7 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 ///
 /// * 'result' - The VerfploeterResult that is being written to this row
 ///
-/// * 'receiver_client_id' - The client ID of the receiver
+/// * 'receiver_client_id' - The worker ID of the receiver
 ///
 /// * 'measurement_type' - The type of measurement being performed
 fn get_result(
