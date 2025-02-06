@@ -752,10 +752,7 @@ impl UDPPacket {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body
-            .write_u16::<byteorder::BigEndian>(worker_id)
-            .unwrap();
-        dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs

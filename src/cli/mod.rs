@@ -188,7 +188,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
             }
         } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
-            panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
+            panic!("Src and target addresses are not of the same type! (IPv4 & IPv6)");
         }
         // Panic if the ips in the hitlist are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
