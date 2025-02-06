@@ -18,7 +18,7 @@
 //! # Measurements
 //!
 //! A measurement consists of multiple tasks that are executed by the workers.
-//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orc.
+//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orchestrator.
 //! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
 //! These workers then stream back the results to the orchestrator, as they receive replies.
 //! The orchestrator forwards these results to the CLI.
@@ -55,7 +55,7 @@
 //!
 //! First, run the central orchestrator.
 //! ```
-//! orc -p [PORT NUMBER]
+//! orchestrator -p [PORT NUMBER]
 //! ```
 //!
 //! Next, run one or more workers.
@@ -173,12 +173,12 @@ extern crate log;
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 mod cli;
-mod orc;
+mod orchestrator;
 mod worker;
 mod net;
 mod custom_module;
 
-/// Parse command line input and start MAnycastR orchestrator (orc), worker, or CLI
+/// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
@@ -209,15 +209,15 @@ fn main() {
 
         let _ = cli::execute(cli_matches);
         return;
-    } else if let Some(server_matches) = matches.subcommand_matches("orc") {
-        println!("[Main] Executing orc version {}", env!("GIT_HASH"));
+    } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
+        println!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { orc::start(server_matches).await.unwrap() });
+        let _ = rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
     }
 }
 
@@ -227,7 +227,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
-            SubCommand::with_name("orc").about("Launches the MAnycastR orc")
+            SubCommand::with_name("orchestrator").about("Launches the MAnycastR orchestrator")
                 .arg(
                     Arg::with_name("port")
                         .long("port")
@@ -241,13 +241,13 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(false)
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt and orc.key in ./tls/)")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt and orchestrator.key in ./tls/)")
                 )
         )
         .subcommand(
             SubCommand::with_name("worker").about("Launches the MAnycastR worker")
                 .arg(
-                    Arg::with_name("orc")
+                    Arg::with_name("orchestrator")
                         .short("s")
                         .takes_value(true)
                         .required(true)
@@ -266,7 +266,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
                 .arg(
                     Arg::with_name("interface")
@@ -280,7 +280,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("cli").about("MAnycastR CLI")
                 .arg(
-                    Arg::with_name("orc")
+                    Arg::with_name("orchestrator")
                         .short("s")
                         .takes_value(true)
                         .required(true)
@@ -291,7 +291,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                         .long("tls")
                         .takes_value(true)
                         .required(false)
-                        .help("Use TLS for communication with the orchestrator (requires orc.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
                 .subcommand(SubCommand::with_name("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated worker")

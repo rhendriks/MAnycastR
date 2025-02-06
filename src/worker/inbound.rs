@@ -13,7 +13,7 @@ use crate::custom_module::verfploeter::{
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayload, TXTRecord, packet::get_pcap};
 
 /// Listen for incoming packets
-/// Creates two threads, one that listens on the socket and another that forwards results to the orc and shuts down the receiving socket when appropriate.
+/// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
 /// Makes sure that the received packets are valid and belong to the current measurement.
 ///
 /// # Arguments
@@ -51,7 +51,7 @@ pub fn listen(
     if_name: Option<String>,
 ) {
     println!("[Client inbound] Started listener with filter {}", filter);
-    // Result queue to store incoming pings, and take them out when sending the TaskResults to the orc
+    // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
     let exit_flag = Arc::new(Mutex::new(false));
@@ -148,7 +148,7 @@ pub fn listen(
                      stats.if_dropped.with_separator());
         }).expect("Failed to spawn listener_thread");
 
-    // Thread for sending the received replies to the orc as TaskResult
+    // Thread for sending the received replies to the orchestrator as TaskResult
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
@@ -158,7 +158,7 @@ pub fn listen(
             *exit_flag.lock().unwrap() = true;
 
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to orc");
+            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to orchestrator");
         }).expect("Failed to spawn result_sender_thread");
 }
 
@@ -180,7 +180,7 @@ fn handle_results(
     rq_sender: Arc<Mutex<Option<Vec<VerfploeterResult>>>>,
 ) {
     loop {
-        // Every second, forward the ping results to the orc
+        // Every second, forward the ping results to the orchestrator
         sleep(Duration::from_secs(1));
 
         // Get the current result queue, and replace it with an empty one

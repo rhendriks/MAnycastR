@@ -30,28 +30,28 @@ use custom_module::verfploeter::{
 
 use crate::custom_module;
 
-/// A CLI worker that creates a connection with the 'orc' and sends the desired commands based on the command-line input.
+/// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
 }
 
-/// Connect to the orc and make it perform the CLI command from the command-line
+/// Connect to the orchestrator and make it perform the CLI command from the command-line
 ///
 /// # Arguments
 ///
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.value_of("orc").unwrap();
+    let server_address = args.value_of("orchestrator").unwrap();
     let fqdn = args.value_of("tls");
 
-    // Create worker connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server at address {}", server_address);
-    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to orc");
+    // Connect with orchestrator
+    println!("[CLI] Connecting to orchestrator - {}", server_address);
+    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to orchestrator");
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() { // Perform the worker-list command
-        cli_client.list_clients_to_server().await
+        cli_client.list_workers().await
     } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
         // Source IP for the measurement
         let is_unicast = matches.is_present("UNICAST");
@@ -312,7 +312,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
         }
 
-        // Create the measurement definition and send it to the orc
+        // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
             clients: client_ids,
@@ -338,11 +338,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 impl CliClient {
-    /// Send the 'do_measurement' command to the orc, await the measurement results, and print them out to command-line & file as CSV.
+    /// Send the 'do_measurement' command to the orchestrator, await the measurement results, and print them out to command-line & file as CSV.
     ///
     /// # Arguments
     ///
-    /// * 'measurement_definition' - the measurement that is being requested at the orc (contains all the necessary information about the upcoming measurement)
+    /// * 'measurement_definition' - the measurement that is being requested at the orchestrator (contains all the necessary information about the upcoming measurement)
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
@@ -388,7 +388,7 @@ impl CliClient {
         };
 
         // Obtain connected worker information for metadata
-        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to orc failed");
+        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to orchestrator failed");
         let mut clients = HashMap::new();
         response.into_inner().clients.iter().for_each(|client| {
             clients.insert(client.client_id, client.metadata.clone().unwrap());
@@ -450,8 +450,8 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the orc and read from it
-        let mut stream = response.expect("Unable to obtain the orc stream").into_inner();
+        // Obtain the Stream from the orchestrator and read from it
+        let mut stream = response.expect("Unable to obtain the orchestrator stream").into_inner();
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
@@ -586,13 +586,13 @@ impl CliClient {
         Ok(())
     }
 
-    /// Connect to the orc
+    /// Connect to the orchestrator
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the orc (e.g., 190.100.10.10:50051)
+    /// * 'address' - the address of the orchestrator (e.g., 190.100.10.10:50051)
     ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the orc certificate (if TLS is enabled)
+    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
@@ -612,14 +612,14 @@ impl CliClient {
     ///
     /// This function is async and should be awaited
     ///
-    /// tls requires a certificate at ./tls/orc.crt
+    /// tls requires a certificate at ./tls/orchestrator.crt
     async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            // Load the CA certificate used to authenticate the orc
-            let pem = fs::read_to_string("tls/orc.crt").expect("Unable to read CA certificate at ./tls/orc.crt");
+            // Load the CA certificate used to authenticate the orchestrator
+            let pem = fs::read_to_string("tls/orchestrator.crt").expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -629,13 +629,13 @@ impl CliClient {
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
                 .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to orc")
+                .connect().await.expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
             Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to orc")
+                .connect().await.expect("Unable to connect to orchestrator")
         };
         // Create worker with secret token that is used to authenticate worker commands.
         let client = ControllerClient::new(channel);
@@ -643,11 +643,11 @@ impl CliClient {
         Ok(client)
     }
 
-    /// Sends a list clients command to the orc, awaits the result, and prints it to command-line.
-    async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("[CLI] Sending list clients to orc");
+    /// Sends a list worker command to the orchestrator, awaits the result, and prints it to command-line.
+    async fn list_workers(&mut self) -> Result<(), Box<dyn Error>> {
+        println!("[CLI] Requesting workers list from orchestrator");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await.expect("Connection to orc failed");
+        let response = self.grpc_client.list_workers(request).await.expect("Connection to orchestrator failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
@@ -656,15 +656,15 @@ impl CliClient {
             Cell::new("Hostname")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Client ID")
+            Cell::new("Worker ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
-        for client in response.into_inner().clients {
+        for worker in response.into_inner().workers {
             table.add_row(prettytable::row!(
-                    client.metadata.clone().unwrap().hostname,
-                    client.client_id,
+                    worker.metadata.clone().unwrap().hostname,
+                    worker.worker_id,
                 ));
         }
         table.printstd();
@@ -699,7 +699,7 @@ fn write_results(
     let mut wtr_file_traceroute = if traceroute {
         let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
         // Write header
-        wtr_file.write_record(vec!["rx_client_id", "reply_src_addr", "reply_dest_addr", "ttl", "rx_time", "tx_time", "sender_client_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
+        wtr_file.write_record(vec!["rx_worker_id", "reply_src_addr", "reply_dest_addr", "ttl", "rx_time", "tx_time", "tx_worker_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
         Some(wtr_file)
     } else {
         None
@@ -726,7 +726,7 @@ fn write_results(
                     ResultTrace(_) => true,
                     _ => false
                 };
-                let result = get_result(result, task_result.client_id, measurement_type);
+                let result = get_result(result, task_result.worker_id, measurement_type);
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
                         writer.write_record(result.clone()).expect("Failed to write payload to CLI");
@@ -752,14 +752,14 @@ fn write_results(
 /// Creates the appropriate header for the results file (based on the measurement type)
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
-    let mut header = vec!["rx_client_id"];
+    let mut header = vec!["rx_worker_id"];
     // Information contained in IPv4 header
     header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
     header.append(&mut match measurement_type {
-        1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_client_id"], // ICMP
-        2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "sender_client_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
+        1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_worker_id"], // ICMP
+        2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_worker_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
         3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
-        4 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "sender_client_id", "chaos_data"], // UDP/CHAOS
+        4 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_worker_id", "chaos_data"], // UDP/CHAOS
         _ => panic!("Undefined type.")
     });
 
@@ -772,12 +772,12 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 ///
 /// * 'result' - The VerfploeterResult that is being written to this row
 ///
-/// * 'receiver_client_id' - The worker ID of the receiver
+/// * 'rx_worker_id' - The worker ID of the receiver
 ///
 /// * 'measurement_type' - The type of measurement being performed
 fn get_result(
     result: VerfploeterResult,
-    rx_client_id: u32,
+    rx_worker_id: u32,
     measurement_type: u32,
 ) -> Vec<String> {
     match result.value.unwrap() {
@@ -787,7 +787,7 @@ fn get_result(
             let ttl = trace.ttl;
             let rx_time = trace.rx_time.to_string();
             let tx_time = trace.tx_time.to_string();
-            let tx_client_id = trace.tx_client_id.to_string();
+            let tx_worker_id = trace.tx_worker_id.to_string();
 
             return match trace.value.unwrap() {
                 Value::Ping(ping) => {
@@ -795,7 +795,7 @@ fn get_result(
                     let source = inner_ip.get_src_str();
                     let destination = inner_ip.get_dst_str();
 
-                    vec![rx_client_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time]
+                    vec![rx_worker_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time]
                 }
                 Value::Udp(udp) => {
                     let inner_ip = udp.ip_result.unwrap();
@@ -804,7 +804,7 @@ fn get_result(
                     let sport = udp.sport.to_string();
                     let dport = udp.dport.to_string();
 
-                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport]
+                    vec![rx_worker_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time, sport, dport]
                 }
                 Value::Tcp(tcp) => {
                     let inner_ip = tcp.ip_result.unwrap();
@@ -815,7 +815,7 @@ fn get_result(
                     let seq = tcp.seq.to_string();
                     let ack = tcp.ack.to_string();
 
-                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport, seq, ack]
+                    vec![rx_worker_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time, sport, dport, seq, ack]
                 },
             };
         }
@@ -832,9 +832,9 @@ fn get_result(
             let tx_time = payload.tx_time.to_string();
             let probe_src = payload.src.unwrap().to_string();
             let probe_dst = payload.dst.unwrap().to_string();
-            let tx_client_id = payload.tx_client_id.to_string();
+            let tx_worker_id = payload.tx_worker_id.to_string();
 
-            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, tx_time, probe_src, probe_dst, tx_client_id];
+            return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, tx_time, probe_src, probe_dst, tx_worker_id];
         }
         ResultUdp(udp) => {
             let rx_time = udp.rx_time.to_string();
@@ -852,16 +852,16 @@ fn get_result(
                     let tx_time = "-1".to_string();
                     let probe_src = "-1".to_string();
                     let probe_dst = "-1".to_string();
-                    let tx_client_id = "-1".to_string();
+                    let tx_worker_id = "-1".to_string();
                     let probe_sport = "-1".to_string();
                     let probe_dport = "-1".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
+                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_worker_id, probe_sport, probe_dport];
                 } else if measurement_type == 4 {
-                    let sender_client_id = "-1".to_string();
+                    let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, sender_client_id, chaos];
+                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_worker_id, chaos];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -875,17 +875,17 @@ fn get_result(
                     // IP::from(payload.source_address.unwrap()).to_string()
                     let probe_src = dns_a_record.src.unwrap().to_string();
                     let probe_dst = dns_a_record.dst.unwrap().to_string();
-                    let tx_client_id = dns_a_record.tx_client_id.to_string();
+                    let tx_worker_id = dns_a_record.tx_worker_id.to_string();
                     let probe_sport = dns_a_record.sport.to_string();
                     let probe_dport = "53".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
+                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_worker_id, probe_sport, probe_dport];
                 }
                 Some(DnsChaos(dns_chaos)) => {
-                    let tx_client_id = dns_chaos.tx_client_id.to_string();
+                    let tx_worker_id = dns_chaos.tx_worker_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_client_id, chaos];
+                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_worker_id, chaos];
                 }
                 None => {
                     panic!("No payload found for UDP result!");
@@ -903,7 +903,7 @@ fn get_result(
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
+            return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
         },
     }
 }
