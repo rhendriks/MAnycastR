@@ -1,3 +1,0 @@
-(function() {var implementors = {
-"manycast":[["impl&lt;T&gt; Stream for <a class=\"struct\" href=\"manycast/orchestrator/struct.CLIReceiver.html\" title=\"struct manycast::orchestrator::CLIReceiver\">CLIReceiver</a>&lt;T&gt;"],["impl&lt;T&gt; Stream for <a class=\"struct\" href=\"manycast/orchestrator/struct.ClientReceiver.html\" title=\"struct manycast::orchestrator::ClientReceiver\">ClientReceiver</a>&lt;T&gt;"]]
-};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

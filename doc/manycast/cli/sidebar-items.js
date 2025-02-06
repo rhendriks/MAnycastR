@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["address_feed","create_schedule_task","execute","get_header","get_result","igreedy","write_results"],"struct":["CliClient"]};
