@@ -54,7 +54,7 @@ pub struct ControllerService {
     current_measurement_id: Arc<Mutex<u32>>,
     current_worker_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>, // IP -> (workers, timestamp, ttl, flows)
+    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u32>, Instant, u8, Vec<Origin>)>>>, // IP -> (workers, timestamp, ttl, flows)
     traceroute: Arc<Mutex<bool>>,
     responsive_targets: Arc<Mutex<Vec<Address>>>,
 }
@@ -806,7 +806,7 @@ impl Controller for ControllerService {
 
         if *self.traceroute.lock().unwrap() { // If traceroute is enabled
             // Loop over the results and keep track of the clients that have received probe responses
-            let worker_id = task_result.worker_id as u8;
+            let worker_id = task_result.worker_id;
             let mut map = self.traceroute_targets.lock().await;
             for result in task_result.clone().result_list {
                 let value = result.value.unwrap();
@@ -944,7 +944,7 @@ impl Controller for ControllerService {
 
         // Add the worker to the worker list
         let new_worker = Worker {
-            worker_id: worker_id,
+            worker_id,
             metadata: Some(Metadata {
                 hostname: hostname.clone(),
             }),
@@ -968,7 +968,7 @@ impl Controller for ControllerService {
 ///
 /// * 'senders' - a shared list of senders that connect to the clients
 async fn traceroute_orchestrator(
-    targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u8>, Instant, u8, Vec<Origin>)>>>,
+    targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u32>, Instant, u8, Vec<Origin>)>>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>)
 {
     // Thread that cleans up the targets map and instruct traceroute

@@ -597,7 +597,7 @@ impl UDPPacket {
         source_port: u16,
         domain_name: &str,
         transmit_time: u64,
-        worker_id: u8,
+        worker_id: u16,
         ttl: u8,
     ) -> Vec<u8> {
         let dns_packet = Self::create_a_record_request(&domain_name, transmit_time,
@@ -640,7 +640,7 @@ impl UDPPacket {
         transmit_time: u64,
         source_address: u32,
         destination_address: u32,
-        worker_id: u8,
+        worker_id: u16,
         source_port: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
@@ -651,9 +651,7 @@ impl UDPPacket {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u8(worker_id)
-            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
-        dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -677,7 +675,7 @@ impl UDPPacket {
         source_address: u32,
         destination_address: u32,
         source_port: u16,
-        worker_id: u8,
+        worker_id: u16,
         chaos: &str,
     ) -> Vec<u8> {
         let dns_body = Self::create_chaos_request(worker_id, chaos);
@@ -715,14 +713,13 @@ impl UDPPacket {
 
     /// Creating a DNS TXT record request body for id.orchestrator CHAOS request
     fn create_chaos_request(
-        worker_id: u8,
+        worker_id: u16,
         chaos: &str,
     ) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u8(worker_id)
-            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID first 8 bits
+        dns_body.write_u16::<byteorder::BigEndian>(worker_id).unwrap();
         dns_body.write_u8(0x12).unwrap(); // Transaction ID last 8 bits
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
