@@ -1,32 +1,31 @@
-use std::{fs, io};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{fs, io};
 
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use csv::Writer;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::{Attr, Cell, color, format, Row, Table};
+use prettytable::{color, format, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::Request;
 
-use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
-    Address, Configuration, controller_client::ControllerClient, Empty,
-    Origin, ScheduleMeasurement, Targets, TaskResult,
-    trace_result::Value, udp_payload::Value::DnsARecord,
-    udp_payload::Value::DnsChaos,
-    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Tcp as ResultTcp,
-    verfploeter_result::Value::Trace as ResultTrace, verfploeter_result::Value::Udp as ResultUdp, VerfploeterResult,
+    controller_client::ControllerClient, trace_result::Value, udp_payload::Value::DnsARecord,
+    udp_payload::Value::DnsChaos, verfploeter_result::Value::Ping as ResultPing,
+    verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Trace as ResultTrace,
+    verfploeter_result::Value::Udp as ResultUdp, Address, Configuration, Empty, Origin,
+    ScheduleMeasurement, Targets, TaskResult, VerfploeterResult,
 };
+use custom_module::{Separated, IP};
 
 use crate::custom_module;
 
@@ -47,12 +46,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
     // Connect with orchestrator
     println!("[CLI] Connecting to orchestrator - {}", orc_addr);
-    let grpc_client = CliClient::connect(orc_addr, fqdn).await.expect("Unable to connect to orchestrator");
+    let grpc_client = CliClient::connect(orc_addr, fqdn)
+        .await
+        .expect("Unable to connect to orchestrator");
     let mut cli_client = CliClient { grpc_client };
 
-    if args.subcommand_matches("worker-list").is_some() { // Perform the worker-list command
+    if args.subcommand_matches("worker-list").is_some() {
+        // Perform the worker-list command
         cli_client.list_workers().await
-    } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
+    } else if let Some(matches) = args.subcommand_matches("start") {
+        // Start a Verfploeter measurement
         // Source IP for the measurement
         let is_unicast = matches.is_present("UNICAST");
         let is_divide = matches.is_present("DIVIDE");
@@ -69,7 +72,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         let src = if matches.is_present("ADDRESS") {
-            Some(Address::from(matches.value_of("ADDRESS").unwrap().to_string()))
+            Some(Address::from(
+                matches.value_of("ADDRESS").unwrap().to_string(),
+            ))
         } else {
             None
         };
@@ -79,16 +84,22 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
             let conf_file = matches.value_of("CONF").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
-            let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
+            let file = File::open(conf_file)
+                .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
             let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
                 .lines()
                 .filter_map(|l| {
                     let line = l.expect("Unable to read configuration line");
-                    if line.starts_with("#") { return None; } // Skip comments
+                    if line.starts_with("#") {
+                        return None;
+                    } // Skip comments
                     let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
-                    if parts.len() != 2 { panic!("Invalid configuration format: {}", line); }
-                    let worker_id = if parts[0] == "ALL" { // All clients probe this configuration
+                    if parts.len() != 2 {
+                        panic!("Invalid configuration format: {}", line);
+                    }
+                    let worker_id = if parts[0] == "ALL" {
+                        // All clients probe this configuration
                         u32::MAX
                     } else {
                         u32::from_str(parts[0]).expect("Unable to parse configuration worker ID")
@@ -96,11 +107,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                    if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
+                    if addr_ports.len() != 3 {
+                        panic!("Invalid configuration format: {}", line);
+                    }
                     let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let dport =
+                        u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
 
                     Some(Configuration {
                         worker_id,
@@ -117,8 +131,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
 
             // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations.first().unwrap().origin.clone().unwrap().src.unwrap().is_v6();
-            if configurations.iter().any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6) {
+            let is_ipv6 = configurations
+                .first()
+                .unwrap()
+                .origin
+                .clone()
+                .unwrap()
+                .src
+                .unwrap()
+                .is_v6();
+            if configurations
+                .iter()
+                .any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6)
+            {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
             Some(configurations)
@@ -132,21 +157,34 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the target IP addresses
-        let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
-        let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+        let hitlist_path = matches
+            .value_of("IP_FILE")
+            .expect("No hitlist file provided!");
+        let file = File::open(hitlist_path)
+            .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
 
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
-            .map(|l| {
-                Address::from(l.unwrap())
-            })
+            .map(|l| Address::from(l.unwrap()))
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
         if configurations.is_some() {
-            if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6 {
+            if configurations
+                .clone()
+                .unwrap()
+                .first()
+                .unwrap()
+                .origin
+                .clone()
+                .unwrap()
+                .src
+                .unwrap()
+                .is_v6()
+                != is_ipv6
+            {
                 panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
             }
         } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
@@ -167,22 +205,36 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the workers that have to send out probes
         let worker_ids = if matches.is_present("SELECTIVE") {
             let worker_entries = matches.value_of("SELECTIVE").unwrap();
-            worker_entries.trim_matches(|c| c == '[' || c == ']')
+            worker_entries
+                .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
-                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse worker ID: {:<2}", id)))
+                .map(|id| {
+                    u32::from_str(id.trim())
+                        .expect(&format!("Unable to parse worker ID: {:<2}", id))
+                })
                 .collect::<Vec<u32>>()
         } else {
             println!("[CLI] Probes will be sent out from all workers");
             Vec::new()
         };
         if worker_ids.len() > 0 {
-            println!("[CLI] Selective probing using the following workers: {:?}", worker_ids); // TODO print worker hostnames
+            println!(
+                "[CLI] Selective probing using the following workers: {:?}",
+                worker_ids
+            ); // TODO print worker hostnames
         }
 
         // Get the type of measurement
-        let measurement_type = if let Ok(measurement_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { measurement_type } else { panic!("Invalid measurement type! (can be either 1, 2, 3, or 4)") };
+        let measurement_type =
+            if let Ok(measurement_type) = u32::from_str(matches.value_of("TYPE").unwrap()) {
+                measurement_type
+            } else {
+                panic!("Invalid measurement type! (can be either 1, 2, 3, or 4)")
+            };
         // We only accept measurement types 1, 2, 3, 4
-        if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
+        if (measurement_type < 1) | (measurement_type > 4) {
+            panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)")
+        }
 
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 {
@@ -204,9 +256,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
+            let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321"))
+                .expect("Unable to parse source port") as u32;
             let dport = if matches.is_present("DESTINATION_PORT") {
-                u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
+                u16::from_str(matches.value_of("DESTINATION_PORT").unwrap())
+                    .expect("Unable to parse destination port") as u32
             } else {
                 if measurement_type == 2 || measurement_type == 4 {
                     53 // Default DNS destination port
@@ -224,11 +278,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             //     })
             // }]);
 
-            Some(Origin {
-                src,
-                sport,
-                dport,
-            })
+            Some(Origin { src, sport, dport })
         } else {
             None
         };
@@ -238,15 +288,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let traceroute = matches.is_present("TRACEROUTE");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).expect("Unable to parse interval");
-        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).expect("Unable to parse rate");
+        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1"))
+            .expect("Unable to parse interval");
+        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000"))
+            .expect("Unable to parse rate");
 
         let t_type = match measurement_type {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
             4 => "UDP/CHAOS",
-            _ => "Undefined (defaulting to ICMP/ping)"
+            _ => "Undefined (defaulting to ICMP/ping)",
         };
         let hitlist_length = ips.len();
 
@@ -264,8 +316,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Print the origins used
         if is_unicast {
             if let Some(origin) = &origin {
-                println!("[CLI] Unicast probing with src port {} and dst port {}",
-                         origin.sport, origin.dport);
+                println!(
+                    "[CLI] Unicast probing with src port {} and dst port {}",
+                    origin.sport, origin.dport
+                );
             }
         } else if configurations.is_some() {
             println!("[CLI] Workers send probes using the following configurations:");
@@ -325,13 +379,21 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             divide: is_divide,
             interval,
             responsive: is_responsive,
-            targets: Some(Targets {
-                dst_addresses: ips,
-            }),
+            targets: Some(Targets { dst_addresses: ips }),
             record: dns_record.to_string(),
             url,
         };
-        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
+        cli_client
+            .do_measurement_to_server(
+                measurement_definition,
+                cli,
+                shuffle,
+                hitlist_path,
+                hitlist_length,
+                configurations.unwrap_or_default(),
+                path,
+            )
+            .await
     } else {
         panic!("Unrecognized command");
     }
@@ -375,20 +437,31 @@ impl CliClient {
         let origin = if is_unicast {
             let sport = measurement_definition.origin.clone().unwrap().sport;
             let dport = measurement_definition.origin.clone().unwrap().dport;
-            format!("Unicast (source port: {}, destination port: {})", sport, dport)
+            format!(
+                "Unicast (source port: {}, destination port: {})",
+                sport, dport
+            )
         } else {
             if measurement_definition.clone().origin.is_some() {
-                let src = IP::from(measurement_definition.clone().origin.unwrap().src.unwrap()).to_string();
+                let src = IP::from(measurement_definition.clone().origin.unwrap().src.unwrap())
+                    .to_string();
                 let sport = measurement_definition.origin.clone().unwrap().sport;
                 let dport = measurement_definition.origin.clone().unwrap().dport;
-                format!("Anycast (source IP: {}, source port: {}, destination port: {})", src, sport, dport)
+                format!(
+                    "Anycast (source IP: {}, source port: {}, destination port: {})",
+                    src, sport, dport
+                )
             } else {
                 "Anycast configuration-based".to_string()
             }
         };
 
         // Obtain connected worker information for metadata
-        let response = self.grpc_client.list_workers(Request::new(Empty::default())).await.expect("Connection to orchestrator failed");
+        let response = self
+            .grpc_client
+            .list_workers(Request::new(Empty::default()))
+            .await
+            .expect("Connection to orchestrator failed");
         let mut workers = HashMap::new();
         response.into_inner().workers.iter().for_each(|worker| {
             workers.insert(worker.worker_id, worker.metadata.clone().unwrap());
@@ -410,11 +483,20 @@ impl CliClient {
         if is_divide {
             println!("[CLI] Divide-and-conquer enabled");
         }
-        println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
+        println!(
+            "[CLI] This measurement will take an estimated {:.2} minutes",
+            measurement_length
+        );
 
-        let response = self.grpc_client.do_measurement(Request::new(measurement_definition.clone())).await;
+        let response = self
+            .grpc_client
+            .do_measurement(Request::new(measurement_definition.clone()))
+            .await;
         if let Err(e) = response {
-            println!("[CLI] Orchestrator did not perform the measurement for reason: '{}'", e.message());
+            println!(
+                "[CLI] Orchestrator did not perform the measurement for reason: '{}'",
+                e.message()
+            );
             return Err(Box::new(e));
         }
         let start = SystemTime::now()
@@ -422,18 +504,29 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
-                                          timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
-                                          timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
-        println!("[CLI] Measurement started at {}", timestamp_start.format("%H:%M:%S"));
+        let timestamp_start_str = format!(
+            "{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
+            timestamp_start.year(),
+            timestamp_start.month(),
+            timestamp_start.day(),
+            timestamp_start.hour(),
+            timestamp_start.minute(),
+            timestamp_start.second()
+        );
+        println!(
+            "[CLI] Measurement started at {}",
+            timestamp_start.format("%H:%M:%S")
+        );
 
         // Progress bar
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
         let pb = ProgressBar::new(total_steps);
         pb.set_style(
-            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                .unwrap()
-                .progress_chars("#>-"),
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
         );
         let is_done = Arc::new(AtomicBool::new(false));
         let is_done_clone = is_done.clone();
@@ -450,8 +543,10 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the orchestrator and read from it
-        let mut stream = response.expect("Unable to obtain the orchestrator stream").into_inner();
+                                  // Obtain the Stream from the orchestrator and read from it
+        let mut stream = response
+            .expect("Unable to obtain the orchestrator stream")
+            .into_inner();
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
@@ -496,8 +591,14 @@ impl CliClient {
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
         println!("[CLI] Waited {:.6} seconds for results.", length);
-        println!("[CLI] Time of end measurement {}", Local::now().format("%H:%M:%S"));
-        println!("[CLI] Number of replies captured: {}", replies_count.with_separator());
+        println!(
+            "[CLI] Time of end measurement {}",
+            Local::now().format("%H:%M:%S")
+        );
+        println!(
+            "[CLI] Number of replies captured: {}",
+            replies_count.with_separator()
+        );
 
         // If the stream closed during a measurement
         if !graceful {
@@ -507,30 +608,45 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
-        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-                                        timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
-                                        timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
+        let timestamp_end_str = format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            timestamp_end.year(),
+            timestamp_end.month(),
+            timestamp_end.day(),
+            timestamp_end.hour(),
+            timestamp_end.minute(),
+            timestamp_end.second()
+        );
 
         // Determine the type of measurement
-        let measurement_type = if is_unicast {
-            "GCD_"
-        } else {
-            "MAnycast_"
-        };
+        let measurement_type = if is_unicast { "GCD_" } else { "MAnycast_" };
 
         // Output file
         let file_path = if path.is_some() {
-            if path.unwrap().ends_with('/') { // user provided a path, use default naming convention for file
-                format!("{}{}{}{}.csv", path.unwrap(), measurement_type, type_str, timestamp_end_str)
-            } else { // user provided a file (with possibly a path)
+            if path.unwrap().ends_with('/') {
+                // user provided a path, use default naming convention for file
+                format!(
+                    "{}{}{}{}.csv",
+                    path.unwrap(),
+                    measurement_type,
+                    type_str,
+                    timestamp_end_str
+                )
+            } else {
+                // user provided a file (with possibly a path)
                 format!("{}", path.unwrap())
             }
-        } else { // write file to current directory using default naming convention
-            format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)
+        } else {
+            // write file to current directory using default naming convention
+            format!(
+                "./{}{}{}.csv",
+                measurement_type, type_str, timestamp_end_str
+            )
         };
 
         // Create the output file
-        let mut file = File::create(file_path.clone()).expect(format!("Unable to create file at {}", file_path).as_str());
+        let mut file = File::create(file_path.clone())
+            .expect(format!("Unable to create file at {}", file_path).as_str());
 
         // Write metadata of measurement
         if !graceful {
@@ -538,7 +654,9 @@ impl CliClient {
         } else {
             file.write_all(b"# Completed measurement\n")?;
         }
-        if is_divide { file.write_all(b"# Divide-and-conquer measurement\n")?; }
+        if is_divide {
+            file.write_all(b"# Divide-and-conquer measurement\n")?;
+        }
         file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
@@ -553,18 +671,35 @@ impl CliClient {
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
         if !measurement_definition.workers.is_empty() {
-            file.write_all(format!("# Selective probing using the following workers: {:?}\n", measurement_definition.workers).as_ref())?;
+            file.write_all(
+                format!(
+                    "# Selective probing using the following workers: {:?}\n",
+                    measurement_definition.workers
+                )
+                .as_ref(),
+            )?;
         }
         file.write_all(b"# Connected workers:\n")?;
         for (id, metadata) in &workers {
-            file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write worker data");
+            file.write_all(
+                format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref(),
+            )
+            .expect("Failed to write worker data");
         }
 
         // Write configurations used for the measurement
         if !configurations.is_empty() {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
-                let src = IP::from(configuration.origin.clone().unwrap().src.expect("Invalid source address")).to_string();
+                let src = IP::from(
+                    configuration
+                        .origin
+                        .clone()
+                        .unwrap()
+                        .src
+                        .expect("Invalid source address"),
+                )
+                .to_string();
                 let worker_id = if configuration.worker_id == u32::MAX {
                     "ALL".to_string()
                 } else {
@@ -613,13 +748,17 @@ impl CliClient {
     /// This function is async and should be awaited
     ///
     /// tls requires a certificate at ./tls/orchestrator.crt
-    async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+    async fn connect(
+        address: &str,
+        fqdn: Option<&str>,
+    ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
             // Load the CA certificate used to authenticate the orchestrator
-            let pem = fs::read_to_string("tls/orchestrator.crt").expect("Unable to read CA certificate at ./tls/orchestrator.crt");
+            let pem = fs::read_to_string("tls/orchestrator.crt")
+                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -628,14 +767,20 @@ impl CliClient {
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
-                .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to orchestrator")
+                .tls_config(tls)
+                .expect("Unable to set TLS configuration")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
-            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to orchestrator")
+            Channel::from_shared(addr.to_owned())
+                .expect("Unable to set address")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         };
         // Create client with secret token that is used to authenticate client commands.
         let client = ControllerClient::new(channel);
@@ -647,7 +792,11 @@ impl CliClient {
     async fn list_workers(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Requesting workers list from orchestrator");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_workers(request).await.expect("Connection to orchestrator failed");
+        let response = self
+            .grpc_client
+            .list_workers(request)
+            .await
+            .expect("Connection to orchestrator failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
@@ -663,9 +812,9 @@ impl CliClient {
 
         for worker in response.into_inner().workers {
             table.add_row(prettytable::row!(
-                    worker.metadata.clone().unwrap().hostname,
-                    worker.worker_id,
-                ));
+                worker.metadata.clone().unwrap().hostname,
+                worker.worker_id,
+            ));
         }
         table.printstd();
 
@@ -694,12 +843,33 @@ fn write_results(
     traceroute: bool,
 ) {
     // CSV writer to command-line interface
-    let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
+    let mut wtr_cli = if cli {
+        Some(Writer::from_writer(io::stdout()))
+    } else {
+        None
+    };
     // Traceroute writer
     let mut wtr_file_traceroute = if traceroute {
-        let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
-        // Write header
-        wtr_file.write_record(vec!["rx_worker_id", "reply_src_addr", "reply_dest_addr", "ttl", "rx_time", "tx_time", "tx_worker_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
+        let mut wtr_file = Writer::from_writer(
+            File::create(format!("./out/traceroute.csv"))
+                .expect("Unable to create traceroute file"),
+        ); // TODO file name
+           // Write header
+        wtr_file
+            .write_record(vec![
+                "rx_worker_id",
+                "reply_src_addr",
+                "reply_dest_addr",
+                "ttl",
+                "rx_time",
+                "tx_time",
+                "tx_worker_id",
+                "reply_src_port",
+                "reply_dest_port",
+                "seq",
+                "ack",
+            ])
+            .expect("Failed to write traceroute header");
         Some(wtr_file)
     } else {
         None
@@ -710,8 +880,16 @@ fn write_results(
 
     // Write header
     let header = get_header(measurement_type);
-    if cli { wtr_cli.as_mut().unwrap().write_record(header.clone()).expect("Failed to write header to stdout") };
-    wtr_file.write_record(header).expect("Failed to write header to file");
+    if cli {
+        wtr_cli
+            .as_mut()
+            .unwrap()
+            .write_record(header.clone())
+            .expect("Failed to write header to stdout")
+    };
+    wtr_file
+        .write_record(header)
+        .expect("Failed to write header to file");
 
     tokio::spawn(async move {
         // Receive tasks from the outbound channel
@@ -724,23 +902,29 @@ fn write_results(
             for result in verfploeter_results {
                 let trace_result = match result.clone().value.unwrap() {
                     ResultTrace(_) => true,
-                    _ => false
+                    _ => false,
                 };
                 let result = get_result(result, task_result.worker_id, measurement_type);
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
-                        writer.write_record(result.clone()).expect("Failed to write payload to CLI");
+                        writer
+                            .write_record(result.clone())
+                            .expect("Failed to write payload to CLI");
                         writer.flush().expect("Failed to flush stdout");
                     }
                 };
                 // Traceroute results get written to a separate file
                 if trace_result {
                     if let Some(ref mut writer) = wtr_file_traceroute {
-                        writer.write_record(result.clone()).expect("Failed to write payload to traceroute");
+                        writer
+                            .write_record(result.clone())
+                            .expect("Failed to write payload to traceroute");
                         writer.flush().expect("Failed to flush traceroute file");
                     }
                 } else {
-                    wtr_file.write_record(result).expect("Failed to write payload to file");
+                    wtr_file
+                        .write_record(result)
+                        .expect("Failed to write payload to file");
                 }
             }
             wtr_file.flush().expect("Failed to flush file");
@@ -756,11 +940,35 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in IPv4 header
     header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
     header.append(&mut match measurement_type {
-        1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_worker_id"], // ICMP
-        2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_worker_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
+        1 => vec![
+            "rx_time",
+            "tx_time",
+            "probe_src_addr",
+            "probe_dst_addr",
+            "tx_worker_id",
+        ], // ICMP
+        2 => vec![
+            "rx_time",
+            "reply_src_port",
+            "reply_dst_port",
+            "code",
+            "tx_time",
+            "probe_src_addr",
+            "probe_dst_addr",
+            "tx_worker_id",
+            "probe_src_port",
+            "probe_dst_port",
+        ], // UDP/DNS
         3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
-        4 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_worker_id", "chaos_data"], // UDP/CHAOS
-        _ => panic!("Undefined type.")
+        4 => vec![
+            "rx_time",
+            "reply_src_port",
+            "reply_dst_port",
+            "code",
+            "tx_worker_id",
+            "chaos_data",
+        ], // UDP/CHAOS
+        _ => panic!("Undefined type."),
     });
 
     header
@@ -775,11 +983,7 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 /// * 'rx_worker_id' - The worker ID of the receiver
 ///
 /// * 'measurement_type' - The type of measurement being performed
-fn get_result(
-    result: VerfploeterResult,
-    rx_worker_id: u32,
-    measurement_type: u32,
-) -> Vec<String> {
+fn get_result(result: VerfploeterResult, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
             let ip_result = trace.ip_result.unwrap();
@@ -795,7 +999,16 @@ fn get_result(
                     let source = inner_ip.get_src_str();
                     let destination = inner_ip.get_dst_str();
 
-                    vec![rx_worker_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time]
+                    vec![
+                        rx_worker_id.to_string(),
+                        source,
+                        destination,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                    ]
                 }
                 Value::Udp(udp) => {
                     let inner_ip = udp.ip_result.unwrap();
@@ -804,7 +1017,18 @@ fn get_result(
                     let sport = udp.sport.to_string();
                     let dport = udp.dport.to_string();
 
-                    vec![rx_worker_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time, sport, dport]
+                    vec![
+                        rx_worker_id.to_string(),
+                        src,
+                        dst,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                        sport,
+                        dport,
+                    ]
                 }
                 Value::Tcp(tcp) => {
                     let inner_ip = tcp.ip_result.unwrap();
@@ -815,8 +1039,21 @@ fn get_result(
                     let seq = tcp.seq.to_string();
                     let ack = tcp.ack.to_string();
 
-                    vec![rx_worker_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_worker_id, rx_time, tx_time, sport, dport, seq, ack]
-                },
+                    vec![
+                        rx_worker_id.to_string(),
+                        src,
+                        dst,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                        sport,
+                        dport,
+                        seq,
+                        ack,
+                    ]
+                }
             };
         }
         ResultPing(ping) => {
@@ -834,7 +1071,17 @@ fn get_result(
             let probe_dst = payload.dst.unwrap().to_string();
             let tx_worker_id = payload.tx_worker_id.to_string();
 
-            return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, tx_time, probe_src, probe_dst, tx_worker_id];
+            return vec![
+                rx_worker_id.to_string(),
+                reply_src,
+                reply_dst,
+                ttl,
+                rx_time,
+                tx_time,
+                probe_src,
+                probe_dst,
+                tx_worker_id,
+            ];
         }
         ResultUdp(udp) => {
             let rx_time = udp.rx_time.to_string();
@@ -847,7 +1094,8 @@ fn get_result(
             let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
-            if udp.payload == None { // ICMP reply
+            if udp.payload == None {
+                // ICMP reply
                 if measurement_type == 2 {
                     let tx_time = "-1".to_string();
                     let probe_src = "-1".to_string();
@@ -856,12 +1104,38 @@ fn get_result(
                     let probe_sport = "-1".to_string();
                     let probe_dport = "-1".to_string();
 
-                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_worker_id, probe_sport, probe_dport];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_time,
+                        probe_src,
+                        probe_dst,
+                        tx_worker_id,
+                        probe_sport,
+                        probe_dport,
+                    ];
                 } else if measurement_type == 4 {
                     let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
-                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_worker_id, chaos];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_worker_id,
+                        chaos,
+                    ];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -879,13 +1153,39 @@ fn get_result(
                     let probe_sport = dns_a_record.sport.to_string();
                     let probe_dport = "53".to_string();
 
-                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_worker_id, probe_sport, probe_dport];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_time,
+                        probe_src,
+                        probe_dst,
+                        tx_worker_id,
+                        probe_sport,
+                        probe_dport,
+                    ];
                 }
                 Some(DnsChaos(dns_chaos)) => {
                     let tx_worker_id = dns_chaos.tx_worker_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
-                    return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_worker_id, chaos];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_worker_id,
+                        chaos,
+                    ];
                 }
                 None => {
                     panic!("No payload found for UDP result!");
@@ -903,7 +1203,17 @@ fn get_result(
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            return vec![rx_worker_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
-        },
+            return vec![
+                rx_worker_id.to_string(),
+                reply_src,
+                reply_dst,
+                ttl,
+                rx_time,
+                reply_sport,
+                reply_dport,
+                seq,
+                ack,
+            ];
+        }
     }
 }

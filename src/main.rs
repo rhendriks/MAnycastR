@@ -170,10 +170,10 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 mod cli;
+mod custom_module;
+mod net;
 mod orchestrator;
 mod worker;
-mod net;
-mod custom_module;
 
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///

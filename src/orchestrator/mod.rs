@@ -15,17 +15,18 @@ use rand::Rng;
 use tokio::spawn;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, transport::Server};
 use tonic::transport::{Identity, ServerTlsConfig};
+use tonic::{transport::Server, Request, Response, Status};
 
-use custom_module::IP;
 use custom_module::verfploeter::{
-    Ack, Address, Worker, WorkerId, WorkerList, controller_server::Controller, controller_server::ControllerServer, Empty,
-    End, Finished, ip_result::Value::Ipv4,
-    ip_result::Value::Ipv6, Metadata, Origin, ScheduleMeasurement, Start,
-    Targets, Task, task::Data::End as TaskEnd, task::Data::Start as TaskStart, task::Data::Trace as TaskTrace,
-    TaskResult, Trace, verfploeter_result::Value::Ping as PingResult, verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult,
+    controller_server::Controller, controller_server::ControllerServer, ip_result::Value::Ipv4,
+    ip_result::Value::Ipv6, task::Data::End as TaskEnd, task::Data::Start as TaskStart,
+    task::Data::Trace as TaskTrace, verfploeter_result::Value::Ping as PingResult,
+    verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult, Ack,
+    Address, Empty, End, Finished, Metadata, Origin, ScheduleMeasurement, Start, Targets, Task,
+    TaskResult, Trace, Worker, WorkerId, WorkerList,
 };
+use custom_module::IP;
 
 use crate::custom_module;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
@@ -97,7 +98,9 @@ impl<T> Drop for WorkerReceiver<T> {
 
         // Remove this worker from the workers list
         self.workers.lock().unwrap().workers.retain(|workers| {
-            let Some(metadata) = &workers.metadata else { panic!("Worker without metadata") };
+            let Some(metadata) = &workers.metadata else {
+                panic!("Worker without metadata")
+            };
             metadata.hostname != self.hostname
         });
 
@@ -116,11 +119,21 @@ impl<T> Drop for WorkerReceiver<T> {
 
                     println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
                     *self.active.lock().unwrap() = false;
-                    match self.cli_sender.lock().unwrap().clone().unwrap().try_send(Ok(TaskResult::default())) {
+                    match self
+                        .cli_sender
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .unwrap()
+                        .try_send(Ok(TaskResult::default()))
+                    {
                         Ok(_) => (),
-                        Err(_) => println!("[Orchestrator] Failed to send measurement finished signal to CLI")
+                        Err(_) => println!(
+                            "[Orchestrator] Failed to send measurement finished signal to CLI"
+                        ),
                     }
-                } else { // If there are more workers still performing this measurement
+                } else {
+                    // If there are more workers still performing this measurement
                     // The orchestrator no longer has to wait for this worker
                     *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
                 }
@@ -160,13 +173,13 @@ impl<T> Drop for CLIReceiver<T> {
 
         // If there is an active measurement we need to cancel it and notify the workers
         if *active {
-            println!("[Orchestrator] CLI dropped during an active measurement, terminating measurement");
+            println!(
+                "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
+            );
 
             // Create termination 'task'
             let end_task = Task {
-                data: Some(TaskEnd(End {
-                    code: 0,
-                })),
+                data: Some(TaskEnd(End { code: 0 })),
             };
 
             // Tell each worker to terminate the measurement
@@ -175,7 +188,10 @@ impl<T> Drop for CLIReceiver<T> {
 
                 spawn(async move {
                     if let Err(e) = worker.send(Ok(end_task)).await {
-                        println!("[Orchestrator] ERROR - Failed to terminate measurement {}", e);
+                        println!(
+                            "[Orchestrator] ERROR - Failed to terminate measurement {}",
+                            e
+                        );
                     }
                 });
             }
@@ -185,7 +201,6 @@ impl<T> Drop for CLIReceiver<T> {
         }
     }
 }
-
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -224,12 +239,14 @@ impl Controller for ControllerService {
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
-            if remaining == &(1u32) { // If this is the last worker we are finished
+            if remaining == &(1u32) {
+                // If this is the last worker we are finished
                 println!("[Orchestrator] All workers finished");
 
                 open_measurements.remove(&measurement_id);
                 true // Finished
-            } else { // If this is not the last worker, decrement the amount of remaining workers
+            } else {
+                // If this is not the last worker, decrement the amount of remaining workers
                 *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
                 false // Not finished yet
             }
@@ -327,15 +344,26 @@ impl Controller for ControllerService {
             let mut active = self.active.lock().unwrap();
             if *active {
                 println!("[Orchestrator] There is already an active measurement, returning");
-                return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"));
+                return Err(Status::new(
+                    tonic::Code::Cancelled,
+                    "There is already an active measurement",
+                ));
             }
 
             // For every open measurement
-            for (_, open) in self.open_measurements.lock().expect("No open measurements map").iter() {
+            for (_, open) in self
+                .open_measurements
+                .lock()
+                .expect("No open measurements map")
+                .iter()
+            {
                 // If there are still workers who are working on a different measurement
                 if open > &0 {
                     println!("[Orchestrator] There is already an active measurement, returning");
-                    return Err(Status::new(tonic::Code::Cancelled, "There are still workers working on an active measurement"));
+                    return Err(Status::new(
+                        tonic::Code::Cancelled,
+                        "There are still workers working on an active measurement",
+                    ));
                 }
             }
 
@@ -347,7 +375,9 @@ impl Controller for ControllerService {
             // Lock the senders mutex and remove closed senders
             self.senders.lock().unwrap().retain(|sender| {
                 if sender.is_closed() {
-                    println!("[Orchestrator] Worker unavailable, connection closed. Worker removed.");
+                    println!(
+                        "[Orchestrator] Worker unavailable, connection closed. Worker removed."
+                    );
                     false
                 } else {
                     true
@@ -374,7 +404,11 @@ impl Controller for ControllerService {
         // The measurement that the CLI wants to perform
         let scheduled_measurement = request.into_inner();
         // Create a list of the connected workers' IDs
-        let worker_ids: Vec<u32> = self.workers.lock().unwrap().workers
+        let worker_ids: Vec<u32> = self
+            .workers
+            .lock()
+            .unwrap()
+            .workers
             .iter()
             .map(|worker| worker.worker_id)
             .collect();
@@ -383,10 +417,16 @@ impl Controller for ControllerService {
         let mut probing_workers: Vec<u32> = scheduled_measurement.workers;
 
         // Make sure all worker IDs are valid
-        if probing_workers.iter().any(|worker| !worker_ids.contains(worker)) {
+        if probing_workers
+            .iter()
+            .any(|worker| !worker_ids.contains(worker))
+        {
             println!("[Orchestrator] Worker ID requested that is not connected, terminating measurement.");
             *self.active.lock().unwrap() = false;
-            return Err(Status::new(tonic::Code::Cancelled, "One or more worker IDs are not connected."));
+            return Err(Status::new(
+                tonic::Code::Cancelled,
+                "One or more worker IDs are not connected.",
+            ));
         }
 
         // Create a measurement from the ScheduleMeasurement
@@ -396,10 +436,19 @@ impl Controller for ControllerService {
             vec![scheduled_measurement.origin.clone().unwrap()] // Contains port values
         } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown workers are in the list
-            if scheduled_measurement.configurations.iter().any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX) {
-                println!("[Orchestrator] Unknown worker in configuration list, terminating measurement.");
+            if scheduled_measurement
+                .configurations
+                .iter()
+                .any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX)
+            {
+                println!(
+                    "[Orchestrator] Unknown worker in configuration list, terminating measurement."
+                );
                 *self.active.lock().unwrap() = false;
-                return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration list"));
+                return Err(Status::new(
+                    tonic::Code::Cancelled,
+                    "Unknown worker in configuration list",
+                ));
             }
             // Update selected_workers to contain all workers that are in the configuration list
             for configuration in &scheduled_measurement.configurations {
@@ -413,13 +462,16 @@ impl Controller for ControllerService {
                 }
             }
 
-            vec![]  // Return an empty list, as we will add the origins per worker
+            vec![] // Return an empty list, as we will add the origins per worker
         } else {
             vec![scheduled_measurement.origin.clone().unwrap()]
         };
 
         // Store the number of workers that will perform this measurement
-        self.open_measurements.lock().unwrap().insert(measurement_id, senders.len() as u32);
+        self.open_measurements
+            .lock()
+            .unwrap()
+            .insert(measurement_id, senders.len() as u32);
 
         let rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
@@ -428,7 +480,10 @@ impl Controller for ControllerService {
         let is_divide = scheduled_measurement.divide;
         let probing_interval = scheduled_measurement.interval as u64;
         *self.traceroute.lock().unwrap() = is_traceroute;
-        let dst_addresses = scheduled_measurement.targets.expect("Received measurement with no targets").dst_addresses;
+        let dst_addresses = scheduled_measurement
+            .targets
+            .expect("Received measurement with no targets")
+            .dst_addresses;
         let responsive = scheduled_measurement.responsive;
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
@@ -463,7 +518,9 @@ impl Controller for ControllerService {
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
-                if (configuration.worker_id == *worker_ids.get(current_worker).unwrap()) | (configuration.worker_id == u32::MAX) {
+                if (configuration.worker_id == *worker_ids.get(current_worker).unwrap())
+                    | (configuration.worker_id == u32::MAX)
+                {
                     if let Some(origin) = &configuration.origin {
                         worker_tx_origins.push(origin.clone());
                     }
@@ -480,9 +537,15 @@ impl Controller for ControllerService {
                 }
             } else {
                 // Make sure the current worker is selected to perform the measurement
-                probing_workers.contains(worker_ids.get(current_worker).expect(&*format!("Worker with ID {} not found", current_worker)))
+                probing_workers.contains(
+                    worker_ids
+                        .get(current_worker)
+                        .expect(&*format!("Worker with ID {} not found", current_worker)),
+                )
             };
-            if is_probing { current_active_worker += 1; }
+            if is_probing {
+                current_active_worker += 1;
+            }
             current_worker = current_worker + 1;
 
             let start_task = Task {
@@ -498,7 +561,7 @@ impl Controller for ControllerService {
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
-                }))
+                })),
             };
 
             match sender.try_send(Ok(start_task.clone())) {
@@ -526,44 +589,62 @@ impl Controller for ControllerService {
         let mut active_worker_i: u64 = 0; // Index for active workers
         let mut all_worker_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-        // TODO rate-limit at the worker to not send bursts for each chunk
-        let p_rate = Duration::from_nanos(((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64);
+                                     // TODO rate-limit at the worker to not send bursts for each chunk
+        let p_rate = Duration::from_nanos(
+            ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
+        );
 
         if responsive {
             // Finished signal channel
             let (tx_f, rx_f) = tokio::sync::broadcast::channel::<()>(1); // TODO replace channels with single automic bool
             let (tx_f_2, rx_f_2) = tokio::sync::broadcast::channel::<()>(1);
 
-
             println!("Probing for responsive targets from orchestrator...");
             let responsive_targets = self.responsive_targets.clone();
-            spawn(async move { // thread probing for responsiveness
+            spawn(async move {
+                // thread probing for responsiveness
                 let p_rate = Duration::from_nanos(((1.0 / rate as f64) * 1_000_000_000.0) as u64); // p_rate without chunk size
                 let mut interval = tokio::time::interval(p_rate);
                 let orc_origin = Origin {
-                    src: Some(Address::from(IP::from(local_ip().expect("Failed to get local IP").to_string()))),
+                    src: Some(Address::from(IP::from(
+                        local_ip().expect("Failed to get local IP").to_string(),
+                    ))),
                     sport: 65535, // TODO ports from task
                     dport: 62321,
                 };
 
                 // Group hitlist targets by prefix
-                let prefix_targets: HashMap<u64, Vec<Address>> = dst_addresses.iter()
-                    .fold(HashMap::new(), |mut acc, target| {
-                        let prefix = target.get_prefix();
-                        acc.entry(prefix).or_insert_with(Vec::new).push(target.clone());
-                        acc
-                    });
+                let prefix_targets: HashMap<u64, Vec<Address>> =
+                    dst_addresses
+                        .iter()
+                        .fold(HashMap::new(), |mut acc, target| {
+                            let prefix = target.get_prefix();
+                            acc.entry(prefix)
+                                .or_insert_with(Vec::new)
+                                .push(target.clone());
+                            acc
+                        });
 
                 // Channel for probing targets
                 let (tx_r, rx_r) = tokio::sync::mpsc::channel::<Address>(1000);
                 // Probe each prefix to find a responsive target, representing the prefix
-                let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> = Arc::new(Mutex::new(HashMap::new()));
+                let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> =
+                    Arc::new(Mutex::new(HashMap::new()));
 
                 // start probing thread
-                probe_targets(is_ipv6, rx_r, measurement_type as u8, orc_origin, dns_record, &info_url).await;
+                probe_targets(
+                    is_ipv6,
+                    rx_r,
+                    measurement_type as u8,
+                    orc_origin,
+                    dns_record,
+                    &info_url,
+                )
+                .await;
 
                 // Set filter
-                let bpf_filter = if is_ipv6 { // TODO test filters for all measurement types
+                let bpf_filter = if is_ipv6 {
+                    // TODO test filters for all measurement types
                     if measurement_type == 1 {
                         // ICMP echo reply
                         "icmp6 and icmp6[0] == 129"
@@ -588,7 +669,7 @@ impl Controller for ControllerService {
 
                 let prefix_map_r = prefix_map.clone();
                 // Start listening thread
-                spawn (async move {
+                spawn(async move {
                     listen_for_responses(bpf_filter, prefix_map_r, is_ipv6, rx_f_2).await;
                 });
 
@@ -601,10 +682,15 @@ impl Controller for ControllerService {
                     spawn(async move {
                         let current_prefix = chunk[0].get_prefix();
                         let r_address = Arc::new(Mutex::new(None));
-                        prefix_map.lock().unwrap().insert(current_prefix, r_address.clone());
+                        prefix_map
+                            .lock()
+                            .unwrap()
+                            .insert(current_prefix, r_address.clone());
                         for addr in chunk {
                             // Add address to the probing channel
-                            tx_r.send(addr.clone()).await.expect("Failed to send target");
+                            tx_r.send(addr.clone())
+                                .await
+                                .expect("Failed to send target");
 
                             // Sleep 1 second
                             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -640,19 +726,20 @@ impl Controller for ControllerService {
                 println!("sending finished signal");
 
                 // Send a message to the other sending threads to let them know the measurement is finished
-                tx_r.send(Address::default()).await.expect("Failed to send finished signal");
+                tx_r.send(Address::default())
+                    .await
+                    .expect("Failed to send finished signal");
                 tx_f.send(()).expect("Failed to send finished signal");
                 tx_f_2.send(()).expect("Failed to send finished signal");
-
             });
 
             println!("instructing workers to probe responsive targets...");
             let responsive_targets = self.responsive_targets.clone();
-            spawn(async move { // thread probing for responsiveness
+            spawn(async move {
+                // thread probing for responsiveness
                 send_responsive(senders, responsive_targets, probing_interval, rx_f).await;
                 println!("workers finished");
             });
-
         } else {
             // Create a thread that streams tasks for each worker
             for sender in senders.iter() {
@@ -686,7 +773,9 @@ impl Controller for ControllerService {
                 };
 
                 // increment if this worker is sending probes
-                if is_probing { active_worker_i += 1; }
+                if is_probing {
+                    active_worker_i += 1;
+                }
 
                 let tx_f = tx_f.clone();
                 let mut rx_f = tx_f.subscribe();
@@ -698,7 +787,10 @@ impl Controller for ControllerService {
                     let mut interval = tokio::time::interval(p_rate);
                     // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                     if is_probing && !is_divide {
-                        tokio::time::sleep(Duration::from_secs((active_worker_i - 1) * probing_interval)).await;
+                        tokio::time::sleep(Duration::from_secs(
+                            (active_worker_i - 1) * probing_interval,
+                        ))
+                        .await;
                     }
 
                     for chunk in hitlist_targets.chunks(chunk_size) {
@@ -706,7 +798,9 @@ impl Controller for ControllerService {
                         if *is_active.lock().unwrap() == false {
                             clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                             if clients_finished.lock().unwrap().clone() == number_of_workers {
-                                println!("[Orchestrator] CLI disconnected during task distribution");
+                                println!(
+                                    "[Orchestrator] CLI disconnected during task distribution"
+                                );
                                 tx_f.send(()).expect("Failed to send finished signal");
                             }
                             return; // abort
@@ -714,17 +808,23 @@ impl Controller for ControllerService {
 
                         if is_probing {
                             let task = Task {
-                                data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
-                                    dst_addresses: chunk.to_vec(),
-                                })),
+                                data: Some(custom_module::verfploeter::task::Data::Targets(
+                                    Targets {
+                                        dst_addresses: chunk.to_vec(),
+                                    },
+                                )),
                             };
 
                             // Send packet to worker
                             match sender.send(Ok(task)).await {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    println!("[Orchestrator] Failed to send task {:?} to worker {}", e, worker_id);
-                                    if sender.is_closed() { // If the worker is no longer connected
+                                    println!(
+                                        "[Orchestrator] Failed to send task {:?} to worker {}",
+                                        e, worker_id
+                                    );
+                                    if sender.is_closed() {
+                                        // If the worker is no longer connected
                                         println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
                                         break;
                                     }
@@ -742,7 +842,9 @@ impl Controller for ControllerService {
                         tx_f.send(()).expect("Failed to send finished signal");
                     } else {
                         // Wait for the last worker to finish
-                        rx_f.recv().await.expect("Failed to receive finished signal");
+                        rx_f.recv()
+                            .await
+                            .expect("Failed to receive finished signal");
 
                         // If the CLI disconnects whilst waiting for the finished signal, abort
                         if *is_active.lock().unwrap() == false {
@@ -758,13 +860,17 @@ impl Controller for ControllerService {
                     }
 
                     // Send a message to the worker to let it know it has received everything for the current measurement
-                    match sender.send(Ok(Task {
-                        data: Some(TaskEnd(End {
-                            code: 0,
-                        })),
-                    })).await {
+                    match sender
+                        .send(Ok(Task {
+                            data: Some(TaskEnd(End { code: 0 })),
+                        }))
+                        .await
+                    {
                         Ok(_) => (),
-                        Err(e) => println!("[Orchestrator] Failed to send 'end message' {:?} to worker {}", e, worker_id),
+                        Err(e) => println!(
+                            "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
+                            e, worker_id
+                        ),
                     }
                 });
             }
@@ -781,10 +887,7 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_workers(
-        &self,
-        _request: Request<Empty>,
-    ) -> Result<Response<WorkerList>, Status> {
+    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<WorkerList>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -797,14 +900,12 @@ impl Controller for ControllerService {
     /// # Errors
     ///
     /// Returns an error if the CLI has disconnected.
-    async fn send_result(
-        &self,
-        request: Request<TaskResult>,
-    ) -> Result<Response<Ack>, Status> {
+    async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
 
-        if *self.traceroute.lock().unwrap() { // If traceroute is enabled
+        if *self.traceroute.lock().unwrap() {
+            // If traceroute is enabled
             // Loop over the results and keep track of the clients that have received probe responses
             let worker_id = task_result.worker_id;
             let mut map = self.traceroute_targets.lock().await;
@@ -812,41 +913,65 @@ impl Controller for ControllerService {
                 let value = result.value.unwrap();
                 let (probe_dst, probe_src) = match value.clone() {
                     PingResult(value) => {
-                        match value.ip_result.unwrap().value.unwrap() { // TODO from::IP_result for IP
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
-                        }
-                    }
-                    UdpResult(value) => {
                         match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
+                            // TODO from::IP_result for IP
+                            Ipv4(v4) => (
+                                IP::V4(Ipv4Addr::from(v4.src)),
+                                IP::V4(Ipv4Addr::from(v4.dst)),
+                            ),
+                            Ipv6(v6) => (
+                                IP::V6(Ipv6Addr::from(
+                                    ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                        | v6.src.unwrap().p2 as u128,
+                                )),
+                                IP::V6(Ipv6Addr::from(
+                                    ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                        | v6.dst.unwrap().p2 as u128,
+                                )),
+                            ),
                         }
                     }
-                    TcpResult(value) => {
-                        match value.ip_result.unwrap().value.unwrap() {
-                            Ipv4(v4) => (IP::V4(Ipv4Addr::from(v4.src)), IP::V4(Ipv4Addr::from(v4.dst))),
-                            Ipv6(v6) => (IP::V6(Ipv6Addr::from(((v6.src.clone().unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128)),
-                                         IP::V6(Ipv6Addr::from(((v6.dst.clone().unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128))),
-                        }
-                    }
+                    UdpResult(value) => match value.ip_result.unwrap().value.unwrap() {
+                        Ipv4(v4) => (
+                            IP::V4(Ipv4Addr::from(v4.src)),
+                            IP::V4(Ipv4Addr::from(v4.dst)),
+                        ),
+                        Ipv6(v6) => (
+                            IP::V6(Ipv6Addr::from(
+                                ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                    | v6.src.unwrap().p2 as u128,
+                            )),
+                            IP::V6(Ipv6Addr::from(
+                                ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                    | v6.dst.unwrap().p2 as u128,
+                            )),
+                        ),
+                    },
+                    TcpResult(value) => match value.ip_result.unwrap().value.unwrap() {
+                        Ipv4(v4) => (
+                            IP::V4(Ipv4Addr::from(v4.src)),
+                            IP::V4(Ipv4Addr::from(v4.dst)),
+                        ),
+                        Ipv6(v6) => (
+                            IP::V6(Ipv6Addr::from(
+                                ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                    | v6.src.unwrap().p2 as u128,
+                            )),
+                            IP::V6(Ipv6Addr::from(
+                                ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                    | v6.dst.unwrap().p2 as u128,
+                            )),
+                        ),
+                    },
                     _ => (IP::None, IP::None),
                 };
 
                 // Get port combination that the worker received
                 let (probe_sport, probe_dport) = match value.clone() {
-                    PingResult(_) => {
-                        (0, 0)
-                    }
-                    UdpResult(value) => {
-                        (value.sport, value.dport)
-                    }
-                    TcpResult(value) => {
-                        (value.sport, value.dport)
-                    }
-                    _ => (0, 0)
+                    PingResult(_) => (0, 0),
+                    UdpResult(value) => (value.sport, value.dport),
+                    TcpResult(value) => (value.sport, value.dport),
+                    _ => (0, 0),
                 };
 
                 // Create origin flows (i.e., a single flow for each worker that has received probe replies)
@@ -857,15 +982,9 @@ impl Controller for ControllerService {
                 };
 
                 let ttl = match value {
-                    PingResult(value) => {
-                        value.ip_result.unwrap().ttl
-                    }
-                    UdpResult(value) => {
-                        value.ip_result.unwrap().ttl
-                    }
-                    TcpResult(value) => {
-                        value.ip_result.unwrap().ttl
-                    }
+                    PingResult(value) => value.ip_result.unwrap().ttl,
+                    UdpResult(value) => value.ip_result.unwrap().ttl,
+                    TcpResult(value) => value.ip_result.unwrap().ttl,
                     _ => 0,
                 } as u8;
 
@@ -884,7 +1003,10 @@ impl Controller for ControllerService {
                         trace_origins.push(origin_flow); // First time we see this worker receive a probe reply -> we add this origin flow for this worker
                     }
                 } else {
-                    map.insert(probe_dst, (vec![worker_id], Instant::now(), ttl, vec![origin_flow]));
+                    map.insert(
+                        probe_dst,
+                        (vec![worker_id], Instant::now(), ttl, vec![origin_flow]),
+                    );
                 }
             }
         }
@@ -929,8 +1051,14 @@ impl Controller for ControllerService {
         // Check if the hostname already exists
         for worker in worker_list.clone().workers.into_iter() {
             if hostname == worker.metadata.unwrap().hostname {
-                println!("[Orchestrator] Refusing worker as the hostname already exists: {}", hostname);
-                return Err(Status::new(tonic::Code::AlreadyExists, "This hostname already exists"));
+                println!(
+                    "[Orchestrator] Refusing worker as the hostname already exists: {}",
+                    hostname
+                );
+                return Err(Status::new(
+                    tonic::Code::AlreadyExists,
+                    "This hostname already exists",
+                ));
             }
         }
 
@@ -952,9 +1080,7 @@ impl Controller for ControllerService {
         worker_list.workers.push(new_worker);
 
         // Accept the worker and give it a unique worker ID
-        Ok(Response::new(WorkerId {
-            worker_id,
-        }))
+        Ok(Response::new(WorkerId { worker_id }))
     }
 }
 
@@ -969,8 +1095,8 @@ impl Controller for ControllerService {
 /// * 'senders' - a shared list of senders that connect to the clients
 async fn traceroute_orchestrator(
     targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u32>, Instant, u8, Vec<Origin>)>>>,
-    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>)
-{
+    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
+) {
     // Thread that cleans up the targets map and instruct traceroute
     spawn(async move {
         loop {
@@ -983,7 +1109,9 @@ async fn traceroute_orchestrator(
 
             for (target, (clients, timestamp, _, _)) in map.clone().iter() {
                 if Instant::now().duration_since(*timestamp) > cleanup_interval {
-                    let value = map.remove(target).expect("Failed to remove target from map");
+                    let value = map
+                        .remove(target)
+                        .expect("Failed to remove target from map");
                     if clients.len() > 1 {
                         println!("Tracerouting to {} from clients {:?}", target, clients);
                         traceroute_targets.insert(target.clone(), value);
@@ -1006,16 +1134,23 @@ async fn traceroute_orchestrator(
                         max_ttl,
                         dst: Some(Address::from(target.clone())),
                         origins: trace_origins,
-                    }))
+                    })),
                 };
 
                 // TODO make sure client_id is mapped to the right sender
                 // TODO when worker IDs don't start at 1, this will fail
-                for client_id in clients { // Instruct all clients (that received probe replies) to perform traceroute
+                for client_id in clients {
+                    // Instruct all clients (that received probe replies) to perform traceroute
                     // Sleep 1 second between each worker to avoid rate limiting
                     // tokio::time::sleep(Duration::from_secs(1)).await;
                     // TODO will fail when clients have been instructed to end
-                    senders.lock().unwrap().get(client_id as usize - 1).unwrap().try_send(Ok(traceroute_task.clone())).expect("Failed to send traceroute task");
+                    senders
+                        .lock()
+                        .unwrap()
+                        .get(client_id as usize - 1)
+                        .unwrap()
+                        .try_send(Ok(traceroute_task.clone()))
+                        .expect("Failed to send traceroute task");
                 }
             }
         }
@@ -1054,7 +1189,8 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     // if TLS is enabled create the orchestrator using a TLS configuration
     if args.is_present("tls") {
         Server::builder()
-            .tls_config(ServerTlsConfig::new().identity(load_tls())).expect("Failed to load TLS certificate")
+            .tls_config(ServerTlsConfig::new().identity(load_tls()))
+            .expect("Failed to load TLS certificate")
             .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
             .add_service(svc)
@@ -1081,9 +1217,11 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
 // 4. Distribute orchestrator.crt to clients
 fn load_tls() -> Identity {
     // Load TLS certificate
-    let cert = fs::read("tls/orchestrator.crt").expect("Unable to read certificate file at ./tls/orchestrator.crt");
+    let cert = fs::read("tls/orchestrator.crt")
+        .expect("Unable to read certificate file at ./tls/orchestrator.crt");
     // Load TLS private key
-    let key = fs::read("tls/orchestrator.key").expect("Unable to read key file at ./tls/orchestrator.key");
+    let key = fs::read("tls/orchestrator.key")
+        .expect("Unable to read key file at ./tls/orchestrator.key");
 
     // Create TLS configuration
     let identity = Identity::from_pem(cert, key);
@@ -1101,12 +1239,18 @@ async fn probe_targets(
     info_url: &str,
 ) {
     // Create capture for sending packets (not receiving)
-    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-    let mut cap = Capture::from_device(main_interface).expect("Failed to create a capture").open().expect("Failed to open capture");
+    let main_interface = Device::lookup()
+        .expect("Failed to get main interface")
+        .unwrap();
+    let mut cap = Capture::from_device(main_interface)
+        .expect("Failed to create a capture")
+        .open()
+        .expect("Failed to open capture");
     let ethernet_header = get_ethernet_header(is_ipv6, None); // TODO interface
-    // Probe targets
+                                                              // Probe targets
     while let Some(target) = targets.recv().await {
-        if target == Address::default() { // Finished signal
+        if target == Address::default() {
+            // Finished signal
             break;
         }
 
@@ -1120,7 +1264,7 @@ async fn probe_targets(
                     0,
                     info_url,
                 ));
-            },
+            }
             2 | 4 => {
                 packet.extend_from_slice(&create_udp(
                     source.clone(),
@@ -1130,7 +1274,7 @@ async fn probe_targets(
                     is_ipv6,
                     &dns_record.clone(),
                 ));
-            },
+            }
             3 => {
                 packet.extend_from_slice(&create_tcp(
                     source.clone(),
@@ -1140,7 +1284,7 @@ async fn probe_targets(
                     true,
                     info_url,
                 ));
-            },
+            }
             _ => {
                 panic!("Invalid measurement type");
             }
@@ -1158,12 +1302,19 @@ async fn listen_for_responses(
     mut rx_f: Receiver<()>,
 ) {
     // get capture interface
-    let main_interface = Device::lookup().expect("Failed to get main interface").unwrap();
-    let mut cap = Capture::from_device(main_interface).expect("Failed to get capture device")
+    let main_interface = Device::lookup()
+        .expect("Failed to get main interface")
+        .unwrap();
+    let mut cap = Capture::from_device(main_interface)
+        .expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(1_000)
-        .open().expect("Failed to open capture device").setnonblock().expect("Failed to set pcap to non-blocking mode");
-    cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
+        .open()
+        .expect("Failed to open capture device")
+        .setnonblock()
+        .expect("Failed to set pcap to non-blocking mode");
+    cap.direction(pcap::Direction::In)
+        .expect("Failed to set pcap direction"); // We only want to receive incoming packets
 
     // Set filter
     cap.filter(filter, true).expect("Failed to set pcap filter");
@@ -1172,15 +1323,14 @@ async fn listen_for_responses(
 
     // Start listening
     loop {
-        if rx_f.try_recv().is_ok() { // Check if the orchestrator has finished probing for responsive targets
+        if rx_f.try_recv().is_ok() {
+            // Check if the orchestrator has finished probing for responsive targets
             println!("received finished signal");
             break;
         }
 
         let packet = match cap.next_packet() {
-            Ok(packet) => {
-                packet
-            },
+            Ok(packet) => packet,
             Err(_) => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
@@ -1201,7 +1351,6 @@ async fn listen_for_responses(
             }
         }
     }
-
 }
 
 /// Instruct the clients to probe responsive targets.
@@ -1239,11 +1388,12 @@ async fn send_responsive(
                 // Send finished signal to all clients
                 for sender in senders.iter() {
                     // Send a message to the worker to let it know it has received everything for the current measurement
-                    match sender.send(Ok(Task {
-                        data: Some(TaskEnd(End {
-                            code: 0,
-                        })),
-                    })).await {
+                    match sender
+                        .send(Ok(Task {
+                            data: Some(TaskEnd(End { code: 0 })),
+                        }))
+                        .await
+                    {
                         Ok(_) => (),
                         Err(_) => println!("[Orchestrator] Failed to send 'end message' to worker"),
                     }
@@ -1274,7 +1424,8 @@ async fn send_responsive(
                     Ok(_) => (),
                     Err(e) => {
                         println!("[Orchestrator] Failed to send task {:?} to worker", e);
-                        if sender.is_closed() { // If the worker is no longer connected
+                        if sender.is_closed() {
+                            // If the worker is no longer connected
                             println!("[Orchestrator] Client is no longer connected and removed from the measurement");
                             continue;
                         }
@@ -1287,5 +1438,3 @@ async fn send_responsive(
         });
     }
 }
-
-

@@ -1,16 +1,18 @@
 use std::sync::{Arc, Mutex};
-use std::thread::{Builder, sleep};
+use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
-use crate::custom_module::Separated;
 use crate::custom_module::verfploeter::{
-    Address, address::Value::V4, address::Value::V6, DnsARecord, DnsChaos, ip_result, ip_result::Value::Ipv4 as ip_IPv4, ip_result::Value::Ipv6 as ip_IPv6,
-    IpResult, IPv4Result, IPv6, IPv6Result, PingPayload,
-    PingResult, TaskResult, TcpResult, trace_result, TraceResult, udp_payload, UdpPayload,
-    UdpResult, verfploeter_result::Value, VerfploeterResult,
+    address::Value::V4, address::Value::V6, ip_result, ip_result::Value::Ipv4 as ip_IPv4,
+    ip_result::Value::Ipv6 as ip_IPv6, trace_result, udp_payload, verfploeter_result::Value,
+    Address, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result, IpResult, PingPayload, PingResult,
+    TaskResult, TcpResult, TraceResult, UdpPayload, UdpResult, VerfploeterResult,
 };
-use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, netv6::IPv6Packet, PacketPayload, TXTRecord, packet::get_pcap};
+use crate::custom_module::Separated;
+use crate::net::{
+    netv6::IPv6Packet, packet::get_pcap, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord,
+};
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
@@ -158,8 +160,10 @@ pub fn listen(
             *exit_flag.lock().unwrap() = true;
 
             // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default()).expect("Failed to send 'finished' signal to orchestrator");
-        }).expect("Failed to spawn result_sender_thread");
+            tx.send(TaskResult::default())
+                .expect("Failed to send 'finished' signal to orchestrator");
+        })
+        .expect("Failed to spawn result_sender_thread");
 }
 
 /// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main worker class.
@@ -186,14 +190,12 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
-
         // Send the result to the worker handler
-        tx.send(
-            TaskResult {
-                worker_id: worker_id as u32,
-                result_list: rq,
-            }
-        ).expect("Failed to send TaskResult to worker handler");
+        tx.send(TaskResult {
+            worker_id: worker_id as u32,
+            result_list: rq,
+        })
+        .expect("Failed to send TaskResult to worker handler");
 
         // Exit the thread if worker sends us the signal it's finished
         if let Ok(_) = rx_f.try_recv() {
@@ -218,19 +220,24 @@ fn handle_results(
 /// The function returns None if the packet is too short to contain an IPv4 header.
 fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // IPv4 20 minimum
-    if packet_bytes.len() < 20 { return None; }
+    if packet_bytes.len() < 20 {
+        return None;
+    }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
 
     // Create a VerfploeterResult for the received ping reply
-    return Some((IpResult {
-        value: Some(ip_result::Value::Ipv4(IPv4Result {
-            src: u32::from(packet.source_address),
-            dst: u32::from(packet.destination_address),
-        })),
-        ttl: packet.ttl as u32,
-    }, packet.payload));
+    return Some((
+        IpResult {
+            value: Some(ip_result::Value::Ipv4(IPv4Result {
+                src: u32::from(packet.source_address),
+                dst: u32::from(packet.destination_address),
+            })),
+            ttl: packet.ttl as u32,
+        },
+        packet.payload,
+    ));
 }
 
 /// Parse packet bytes into an IPv6 header, returns the IP result for this header and the payload.
@@ -248,25 +255,30 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 /// The function returns None if the packet is too short to contain an IPv6 header.
 fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // IPv6 40 minimum
-    if packet_bytes.len() < 40 { return None; }
+    if packet_bytes.len() < 40 {
+        return None;
+    }
 
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
     // Create a VerfploeterResult for the received ping reply
-    return Some((IpResult {
-        value: Some(ip_result::Value::Ipv6(IPv6Result {
-            src: Some(IPv6 {
-                p1: (u128::from(packet.source_address) >> 64) as u64,
-                p2: u128::from(packet.source_address) as u64,
-            }),
-            dst: Some(IPv6 {
-                p1: (u128::from(packet.destination_address) >> 64) as u64,
-                p2: u128::from(packet.destination_address) as u64,
-            }),
-        })),
-        ttl: packet.hop_limit as u32,
-    }, packet.payload));
+    return Some((
+        IpResult {
+            value: Some(ip_result::Value::Ipv6(IPv6Result {
+                src: Some(IPv6 {
+                    p1: (u128::from(packet.source_address) >> 64) as u64,
+                    p2: u128::from(packet.source_address) as u64,
+                }),
+                dst: Some(IPv6 {
+                    p1: (u128::from(packet.destination_address) >> 64) as u64,
+                    p2: u128::from(packet.destination_address) as u64,
+                }),
+            })),
+            ttl: packet.hop_limit as u32,
+        },
+        packet.payload,
+    ));
 }
 
 /// Parse ICMPv4 packets (including v4 headers) into a VerfploeterResult.
@@ -286,10 +298,7 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
 ///
 /// The function also discards packets that do not belong to the current measurement.
-fn parse_icmpv4(
-    packet_bytes: &[u8],
-    measurement_id: u32,
-) -> Option<VerfploeterResult> {
+fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -297,10 +306,18 @@ fn parse_icmpv4(
 
     // Obtain the payload
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        if *&icmp_packet.icmp_type != 0 { return None; } // Only parse ICMP echo replies
+        if *&icmp_packet.icmp_type != 0 {
+            return None;
+        } // Only parse ICMP echo replies
 
-        if *&icmp_packet.body.len() < 4 { return None; }
-        let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() { s } else { return None; };
+        if *&icmp_packet.body.len() < 4 {
+            return None;
+        }
+        let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() {
+            s
+        } else {
+            return None;
+        };
         let pkt_measurement_id = u32::from_be_bytes(s);
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
@@ -357,10 +374,7 @@ fn parse_icmpv4(
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
 ///
 /// The function also discards packets that do not belong to the current measurement.
-fn parse_icmpv6(
-    packet_bytes: &[u8],
-    measurement_id: u32,
-) -> Option<VerfploeterResult> {
+fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -368,10 +382,18 @@ fn parse_icmpv6(
 
     // Obtain the payload
     return if let PacketPayload::ICMP { value } = payload {
-        if *&value.icmp_type != 129 { return None; } // Only parse ICMP echo replies
+        if *&value.icmp_type != 129 {
+            return None;
+        } // Only parse ICMP echo replies
 
-        if *&value.body.len() < 4 { return None; }
-        let s = if let Ok(s) = *&value.body[0..4].try_into() { s } else { return None; };
+        if *&value.body.len() < 4 {
+            return None;
+        }
+        let s = if let Ok(s) = *&value.body[0..4].try_into() {
+            s
+        } else {
+            return None;
+        };
         let pkt_measurement_id = u32::from_be_bytes(s);
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (value.body.len() < 48) {
@@ -435,11 +457,13 @@ fn parse_icmpv6(
 fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if is_ipv6 {
-        match parse_ipv6(packet_bytes) { //v6
+        match parse_ipv6(packet_bytes) {
+            //v6
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
         }
-    } else { // v4
+    } else {
+        // v4
         match parse_ipv4(packet_bytes) {
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
@@ -448,7 +472,8 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
 
     // 2. ICMP time exceeded header
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        if (!is_ipv6 & (icmp_packet.icmp_type != 11)) | (is_ipv6 & (icmp_packet.icmp_type != 3)) { // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
+        if (!is_ipv6 & (icmp_packet.icmp_type != 11)) | (is_ipv6 & (icmp_packet.icmp_type != 3)) {
+            // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
             return None;
         }
 
@@ -458,7 +483,9 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
             let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
 
             // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv6_header.is_none() { return None; }
+            if ipv6_header.is_none() {
+                return None;
+            }
 
             ipv6_header.unwrap()
         } else {
@@ -466,7 +493,9 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
             let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
 
             // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv4_header.is_none() { return None; }
+            if ipv4_header.is_none() {
+                return None;
+            }
             ipv4_header.unwrap()
         };
 
@@ -474,7 +503,9 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
         return match ip_payload_probe {
             PacketPayload::UDP { value: udp_header } => {
                 let inner_payload = udp_header.body.as_slice();
-                if inner_payload.len() < 10 { return None; }
+                if inner_payload.len() < 10 {
+                    return None;
+                }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
                 let tx_worker_id = u32::from(inner_payload[8]);
@@ -496,16 +527,16 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                             dport: udp_header.destination_port as u32,
                             code: 16,
                             ip_result: Some(ip_result_probe),
-                            payload: Some(UdpPayload {
-                                value: None,
-                            }),
+                            payload: Some(UdpPayload { value: None }),
                         })),
                     })),
                 })
             }
             PacketPayload::TCP { value: tcp_header } => {
                 let inner_payload = tcp_header.body.as_slice();
-                if inner_payload.len() < 10 { return None; }
+                if inner_payload.len() < 10 {
+                    return None;
+                }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
                 let tx_worker_id = u32::from(inner_payload[8]);
@@ -534,7 +565,9 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
             }
             PacketPayload::ICMP { value: icmp_header } => {
                 let inner_payload = icmp_header.body.as_slice();
-                if inner_payload.len() < 10 { return None; }
+                if inner_payload.len() < 10 {
+                    return None;
+                }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
                 let tx_worker_id = u32::from(inner_payload[8]);
@@ -582,17 +615,15 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
 /// The function returns None if the packet is not an ICMP destination unreachable packet or if the packet is too short to contain the necessary information.
 ///
 /// The function also discards packets that do not belong to the current measurement.
-fn parse_icmp_dst_unreachable(
-    packet_bytes: &[u8],
-    is_ipv6: bool,
-) -> Option<VerfploeterResult> {
+fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if is_ipv6 {
         match parse_ipv6(packet_bytes) {
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
         }
-    } else { // v4
+    } else {
+        // v4
         match parse_ipv4(packet_bytes) {
             None => return None, // Unable to parse IPv4 header
             Some((ip_result, payload)) => (Some(ip_result), payload),
@@ -602,9 +633,11 @@ fn parse_icmp_dst_unreachable(
     // 2. Parse ICMP header
     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
         // Make sure that this packet belongs to this measurement (if not we discard and continue)
-        if !is_ipv6 & (icmp_packet.icmp_type != 3) { // Code 3 (v4) => destination unreachable
+        if !is_ipv6 & (icmp_packet.icmp_type != 3) {
+            // Code 3 (v4) => destination unreachable
             return None;
-        } else if is_ipv6 & (icmp_packet.icmp_type != 1) { // Code 1 (v6) => destination unreachable
+        } else if is_ipv6 & (icmp_packet.icmp_type != 1) {
+            // Code 1 (v6) => destination unreachable
             return None;
         }
         let reply_code = icmp_packet.code as u32;
@@ -647,7 +680,8 @@ fn parse_icmp_dst_unreachable(
             probe_sport = udp_header.source_port as u32;
 
             // 3.3 DNS header
-            if udp_header.body.len() >= 60 { // Rough minimum size for DNS A packet with our domain
+            if udp_header.body.len() >= 60 {
+                // Rough minimum size for DNS A packet with our domain
                 udp_payload = parse_dns_a_record(udp_header.body.as_slice(), is_ipv6);
             }
         }
@@ -704,7 +738,7 @@ fn parse_icmp_dst_unreachable(
         Some(VerfploeterResult {
             value: Some(Value::Udp(UdpResult {
                 rx_time,
-                sport: 0, // ICMP replies have no port numbers
+                sport: 0,                // ICMP replies have no port numbers
                 dport: reply_identifier, // ICMP replies use the destination port value of a measurement as identifier
                 code: reply_code,
                 ip_result,
@@ -731,10 +765,7 @@ fn parse_icmp_dst_unreachable(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv4(
-    packet_bytes: &[u8],
-    measurement_type: u32,
-) -> Option<VerfploeterResult> {
+fn parse_udpv4(packet_bytes: &[u8], measurement_type: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -744,7 +775,9 @@ fn parse_udpv4(
     if let PacketPayload::UDP { value: udp_packet } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         // TODO body packet length is variable based on the domain name used in the measurement
-        if ((measurement_type == 2) & (udp_packet.body.len() < 66)) | ((measurement_type == 4) & (udp_packet.body.len() < 10)) {
+        if ((measurement_type == 2) & (udp_packet.body.len() < 66))
+            | ((measurement_type == 4) & (udp_packet.body.len() < 10))
+        {
             return None;
         }
 
@@ -791,10 +824,7 @@ fn parse_udpv4(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv6(
-    packet_bytes: &[u8],
-    measurement_type: u32,
-) -> Option<VerfploeterResult> {
+fn parse_udpv6(packet_bytes: &[u8], measurement_type: u32) -> Option<VerfploeterResult> {
     let (ip_result, payload) = match parse_ipv6(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
@@ -804,7 +834,9 @@ fn parse_udpv6(
     return if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         // TODO use 'get_domain_length'
-        if ((measurement_type == 2) & (value.body.len() < 66))| ((measurement_type == 4) & (value.body.len() < 10)) {
+        if ((measurement_type == 2) & (value.body.len() < 66))
+            | ((measurement_type == 4) & (value.body.len() < 10))
+        {
             return None;
         }
 
@@ -854,11 +886,13 @@ fn parse_udpv6(
 fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
-    // Get the information from the domain, continue to the next packet if it does not follow the format
+                                // Get the information from the domain, continue to the next packet if it does not follow the format
     if is_ipv6 {
         let parts: Vec<&str> = domain.split('.').collect();
         // Our domains have 8 'parts' separated by 7 dots
-        if parts.len() != 8 { return None; }
+        if parts.len() != 8 {
+            return None;
+        }
 
         let tx_time = match parts[0].parse::<u64>() {
             Ok(t) => t,
@@ -903,7 +937,9 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
     } else {
         let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
         // Our domains have 5 'parts' separated by 4 dashes
-        if parts.len() != 5 { return None; }
+        if parts.len() != 5 {
+            return None;
+        }
 
         let tx_time = match parts[0].parse::<u64>() {
             Ok(t) => t,
@@ -1000,7 +1036,8 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<VerfploeterResult> {
     // Obtain the payload
     return if let PacketPayload::TCP { value: tcp_packet } = ip_payload {
-        if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) { // We assume all packets with RST or RST+ACK flags are replies
+        if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) {
+            // We assume all packets with RST or RST+ACK flags are replies
             return None;
         }
 

@@ -1,23 +1,20 @@
+use crate::custom_module::verfploeter::address::Value::{V4, V6};
+use crate::custom_module::verfploeter::{Origin, PingPayload};
+use crate::custom_module::IP;
+use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
+use mac_address::{get_mac_address, mac_address_by_name};
+use pcap::{Active, Capture, Device};
 use std::io;
+use std::io::BufRead;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
-use mac_address::{get_mac_address, mac_address_by_name};
-use crate::custom_module::IP;
-use crate::custom_module::verfploeter::{Origin, PingPayload};
-use crate::custom_module::verfploeter::address::Value::{V4, V6};
-use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use std::io::BufRead;
-use pcap::{Active, Capture, Device};
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
 /// # Arguments
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
-pub fn get_ethernet_header(
-    is_ipv6: bool,
-    if_name: Option<String>
-) -> Vec<u8> {
+pub fn get_ethernet_header(is_ipv6: bool, if_name: Option<String>) -> Vec<u8> {
     // Get the src MAC for interface, if provided
     let mac_src = if let Some(if_name) = if_name.clone() {
         if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
@@ -27,9 +24,7 @@ pub fn get_ethernet_header(
         }
     } else {
         match get_mac_address() {
-            Ok(Some(ma)) => {
-                ma.bytes().to_vec()
-            },
+            Ok(Some(ma)) => ma.bytes().to_vec(),
             Ok(None) => panic!("No MAC address found."),
             Err(e) => panic!("{:?}", e),
         }
@@ -56,13 +51,20 @@ pub fn get_ethernet_header(
                 if parts[3].split(':').all(|s| s == "00") {
                     continue;
                 }
-                if if_name.is_some() { // Match on the interface name TODO match for default interface as well
+                if if_name.is_some() {
+                    // Match on the interface name TODO match for default interface as well
                     if parts[5] == if_name.clone().unwrap() {
-                        mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                        mac_dst = parts[3]
+                            .split(':')
+                            .map(|s| u8::from_str_radix(s, 16).unwrap())
+                            .collect();
                         break;
                     }
                 } else {
-                    mac_dst = parts[3].split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+                    mac_dst = parts[3]
+                        .split(':')
+                        .map(|s| u8::from_str_radix(s, 16).unwrap())
+                        .collect();
                     break;
                 }
             }
@@ -71,11 +73,7 @@ pub fn get_ethernet_header(
     child.wait().expect("Failed to wait on child");
 
     // Construct the ethernet header
-    let ether_type = if is_ipv6 {
-        0x86DDu16
-    } else {
-        0x0800u16
-    };
+    let ether_type = if is_ipv6 { 0x86DDu16 } else { 0x0800u16 };
     let mut ethernet_header: Vec<u8> = Vec::new();
     ethernet_header.extend_from_slice(&mac_dst);
     ethernet_header.extend_from_slice(&mac_src);
@@ -105,23 +103,27 @@ pub fn get_ethernet_header(
 /// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
 ///
 /// The pcap object is set to capture packets on the main interface.
-pub fn get_pcap(
-    if_name: Option<String>,
-    buffer_size: i32
-) -> Capture<Active> {    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
+pub fn get_pcap(if_name: Option<String>, buffer_size: i32) -> Capture<Active> {
+    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
     let interface = if let Some(if_name) = if_name {
-        Device::list().expect("Failed to get interfaces")
+        Device::list()
+            .expect("Failed to get interfaces")
             .into_iter()
             .find(|iface| iface.name == if_name)
             .expect("Failed to find interface")
     } else {
-        Device::lookup().expect("Failed to get main interface").unwrap()
+        Device::lookup()
+            .expect("Failed to get main interface")
+            .unwrap()
     };
-    let cap = Capture::from_device(interface).expect("Failed to get capture device")
+    let cap = Capture::from_device(interface)
+        .expect("Failed to get capture device")
         .immediate_mode(true)
         .buffer_size(buffer_size) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
-        .open().expect("Failed to open capture device")
-        .setnonblock().expect("Failed to set pcap to non-blocking mode");
+        .open()
+        .expect("Failed to open capture device")
+        .setnonblock()
+        .expect("Failed to set pcap to non-blocking mode");
     cap
 }
 
@@ -187,9 +189,25 @@ pub fn create_ping(
     }
 
     if src.is_v6() {
-        ICMPPacket::echo_request_v6(origin.sport as u16, 2, payload_bytes, src.get_v6().into(), IP::from(dst.clone()).get_v6().into(), 255, info_url)
+        ICMPPacket::echo_request_v6(
+            origin.sport as u16,
+            2,
+            payload_bytes,
+            src.get_v6().into(),
+            IP::from(dst.clone()).get_v6().into(),
+            255,
+            info_url,
+        )
     } else {
-        ICMPPacket::echo_request(origin.dport as u16, 2, payload_bytes, src.get_v4().into(), IP::from(dst.clone()).get_v4().into(), 255, info_url)
+        ICMPPacket::echo_request(
+            origin.dport as u16,
+            2,
+            payload_bytes,
+            src.get_v4().into(),
+            IP::from(dst.clone()).get_v4().into(),
+            255,
+            info_url,
+        )
     }
 }
 
@@ -233,17 +251,45 @@ pub fn create_udp(
 
     if is_ipv6 {
         if measurement_type == 2 {
-            UDPPacket::dns_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, qname, tx_time, worker_id, 255)
+            UDPPacket::dns_request_v6(
+                src.get_v6().into(),
+                dst.get_v6().into(),
+                sport,
+                qname,
+                tx_time,
+                worker_id,
+                255,
+            )
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(src.get_v6().into(), dst.get_v6().into(), sport, worker_id, qname)
+            UDPPacket::chaos_request_v6(
+                src.get_v6().into(),
+                dst.get_v6().into(),
+                sport,
+                worker_id,
+                qname,
+            )
         } else {
             panic!("Invalid measurement type")
         }
     } else {
         if measurement_type == 2 {
-            UDPPacket::dns_request(src.get_v4().into(), dst.get_v4().into(), sport, qname, tx_time, worker_id, 255)
+            UDPPacket::dns_request(
+                src.get_v4().into(),
+                dst.get_v4().into(),
+                sport,
+                qname,
+                tx_time,
+                worker_id,
+                255,
+            )
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(src.get_v4().into(), dst.get_v4().into(), sport, worker_id, qname)
+            UDPPacket::chaos_request(
+                src.get_v4().into(),
+                dst.get_v4().into(),
+                sport,
+                worker_id,
+                qname,
+            )
         } else {
             panic!("Invalid measurement type")
         }
@@ -280,7 +326,7 @@ pub fn create_tcp(
         .unwrap()
         .as_millis() as u32; // The least significant bits are kept
     let seq = 0; // information in seq gets lost
-    // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
+                 // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
     let ack = if !is_unicast {
         worker_id as u32
     } else {
@@ -291,11 +337,29 @@ pub fn create_tcp(
         let src = IP::from(origin.src.expect("None IP address")).get_v6();
         let dest = IP::from(dst.clone()).get_v6();
 
-        TCPPacket::tcp_syn_ack_v6(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255, info_url)
+        TCPPacket::tcp_syn_ack_v6(
+            src.into(),
+            dest.into(),
+            origin.sport as u16,
+            origin.dport as u16,
+            seq,
+            ack,
+            255,
+            info_url,
+        )
     } else {
         let src = IP::from(origin.src.expect("None IP address")).get_v4();
         let dest = IP::from(dst.clone()).get_v4();
 
-        TCPPacket::tcp_syn_ack(src.into(), dest.into(), origin.sport as u16, origin.dport as u16, seq, ack, 255, info_url)
+        TCPPacket::tcp_syn_ack(
+            src.into(),
+            dest.into(),
+            origin.sport as u16,
+            origin.dport as u16,
+            seq,
+            ack,
+            255,
+            info_url,
+        )
     }
 }
