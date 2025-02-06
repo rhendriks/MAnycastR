@@ -198,7 +198,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Shuffle the hitlist, if desired
         let shuffle = matches.is_present("SHUFFLE");
         if shuffle {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
         }
 
