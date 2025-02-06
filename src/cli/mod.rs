@@ -42,12 +42,12 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.value_of("orchestrator").unwrap();
+    let orc_addr = args.value_of("orchestrator").unwrap();
     let fqdn = args.value_of("tls");
 
     // Connect with orchestrator
-    println!("[CLI] Connecting to orchestrator - {}", server_address);
-    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to orchestrator");
+    println!("[CLI] Connecting to orchestrator - {}", orc_addr);
+    let grpc_client = CliClient::connect(orc_addr, fqdn).await.expect("Unable to connect to orchestrator");
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() { // Perform the worker-list command
@@ -164,19 +164,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             ips.as_mut_slice().shuffle(&mut rng);
         }
 
-        // Get the clients that have to send out probes
-        let client_ids = if matches.is_present("CLIENTS") {
-            let clients_str = matches.value_of("CLIENTS").unwrap();
-            clients_str.trim_matches(|c| c == '[' || c == ']')
+        // Get the workers that have to send out probes
+        let worker_ids = if matches.is_present("SELECTIVE") {
+            let worker_entries = matches.value_of("SELECTIVE").unwrap();
+            worker_entries.trim_matches(|c| c == '[' || c == ']')
                 .split(',')
                 .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse worker ID: {:<2}", id)))
                 .collect::<Vec<u32>>()
         } else {
-            println!("[CLI] Probes will be sent out from all clients");
+            println!("[CLI] Probes will be sent out from all workers");
             Vec::new()
         };
-        if client_ids.len() > 0 {
-            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print worker hostnames
+        if worker_ids.len() > 0 {
+            println!("[CLI] Selective probing using the following workers: {:?}", worker_ids); // TODO print worker hostnames
         }
 
         // Get the type of measurement
@@ -216,7 +216,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
 
             // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
-            //     client_id: u32::MAX,
+            //     worker_id: u32::MAX,
             //     origin: Some(Origin {
             //         source_address: source_ip,
             //         source_port,
@@ -258,17 +258,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         );
 
         if is_responsive {
-            println!("[CLI] Measurement will be performed in responsive mode (only probing responsive addresses, checked by the Server)");
+            println!("[CLI] Responsive mode enabled");
         }
 
         // Print the origins used
         if is_unicast {
             if let Some(origin) = &origin {
-                println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
+                println!("[CLI] Unicast probing with src port {} and dst port {}",
                          origin.sport, origin.dport);
             }
         } else if configurations.is_some() {
-            println!("[CLI] Clients send probes using the following configurations:");
+            println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.clone().unwrap() {
                 if let Some(origin) = &configuration.origin {
                     let src = IP::from(origin.src.clone().unwrap()).to_string();
@@ -277,7 +277,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     if configuration.worker_id == u32::MAX {
                         println!(
-                            "\t* All clients, source IP: {}, source port: {}, destination port: {}",
+                            "\t* All workers, source IP: {}, source port: {}, destination port: {}",
                             src, sport, dport
                         );
                     } else {
@@ -292,7 +292,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             if let Some(origin) = &origin {
                 let src = IP::from(origin.src.clone().unwrap()).to_string();
                 println!(
-                    "[CLI] Clients send probes using the following origin: source IP: {}, source port: {}, destination port: {}",
+                    "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
                     src, origin.sport, origin.dport
                 );
             }
@@ -315,7 +315,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
-            workers: client_ids,
+            workers: worker_ids,
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
             measurement_type,
@@ -331,7 +331,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             record: dns_record.to_string(),
             url,
         };
-        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
+        cli_client.do_measurement_to_or(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
     } else {
         panic!("Unrecognized command");
     }
@@ -355,7 +355,7 @@ impl CliClient {
     /// * 'configurations' - a vector of configurations that are used for the measurement
     ///
     /// * 'path' - optional path to write the results to
-    async fn do_measurement_to_server(
+    async fn do_measurement_to_or(
         &mut self,
         measurement_definition: ScheduleMeasurement,
         cli: bool,
@@ -367,7 +367,7 @@ impl CliClient {
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
-        let rate = measurement_definition.rate;
+        let probing_rate = measurement_definition.rate;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.unicast;
         let is_traceroute = measurement_definition.traceroute;
@@ -394,27 +394,27 @@ impl CliClient {
             workers.insert(worker.worker_id, worker.metadata.clone().unwrap());
         });
 
-        // TODO measurement length does not take into account that not all clients may participate
+        // TODO measurement length does not take into account that not all workers may participate
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (rate * workers.len() as u32) as f32) + 1.0) / 60.0
+            ((hitlist_length as f32 / (probing_rate * workers.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
-            ((hitlist_length as f32 / rate as f32) // Time to probe all addresses
+            ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         } else {
             (((workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
-                + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
+                + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
         if is_divide {
-            println!("[CLI] This measurement will be divided among clients (each worker will probe a unique subset of the addresses)");
+            println!("[CLI] Divide-and-conquer enabled");
         }
         println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
 
         let response = self.grpc_client.do_measurement(Request::new(measurement_definition.clone())).await;
         if let Err(e) = response {
-            println!("[CLI] Server did not perform the measurement for reason: '{}'", e.message());
+            println!("[CLI] Orchestrator did not perform the measurement for reason: '{}'", e.message());
             return Err(Box::new(e));
         }
         let start = SystemTime::now()
@@ -547,7 +547,7 @@ impl CliClient {
         }
         file.write_all(format!("# Measurement type: {}\n", type_str).as_ref())?;
         // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
-        file.write_all(format!("# Probing rate: {}\n", rate.with_separator()).as_ref())?;
+        file.write_all(format!("# Probing rate: {}\n", probing_rate.with_separator()).as_ref())?;
         file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
@@ -565,12 +565,12 @@ impl CliClient {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
                 let src = IP::from(configuration.origin.clone().unwrap().src.expect("Invalid source address")).to_string();
-                let client_id = if configuration.worker_id == u32::MAX {
+                let worker_id = if configuration.worker_id == u32::MAX {
                     "ALL".to_string()
                 } else {
                     configuration.worker_id.to_string()
                 };
-                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
@@ -637,7 +637,7 @@ impl CliClient {
             Channel::from_shared(addr.to_owned()).expect("Unable to set address")
                 .connect().await.expect("Unable to connect to orchestrator")
         };
-        // Create worker with secret token that is used to authenticate worker commands.
+        // Create client with secret token that is used to authenticate client commands.
         let client = ControllerClient::new(channel);
 
         Ok(client)
