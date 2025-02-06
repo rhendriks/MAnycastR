@@ -167,9 +167,6 @@
 //!
 //! From these definitions code is generated using protobuf (done in build.rs).
 
-extern crate env_logger;
-extern crate log;
-
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 mod cli;
@@ -182,10 +179,6 @@ mod custom_module;
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
-    // Setup logging with the default environment, with filter at 'info' level
-    let env = env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info");
-    env_logger::Builder::from_env(env).init();
-
     // Parse the command-line arguments
     let matches = parse_cmd();
 
