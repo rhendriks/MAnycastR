@@ -295,7 +295,7 @@ fn parse_cmd<'a>() -> ArgMatches<'a> {
                     .arg(Arg::with_name("TYPE")
                         .required(true)
                         .index(2)
-                        .help("The type of measurement (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                        .help("The type of measurement (ICMP, DNS, TCP,CHAOS)")
                     )
                     .arg(Arg::with_name("RATE")
                         .long("rate")
