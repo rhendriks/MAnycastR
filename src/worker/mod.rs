@@ -11,7 +11,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 use custom_module::IP;
 use custom_module::verfploeter::{
-    Address, ClientId, controller_client::ControllerClient, End, Finished, Metadata, Origin, Task, task::Data, TaskResult,
+    Address, WorkerId, controller_client::ControllerClient, End, Finished, Metadata, Origin, Task, task::Data, TaskResult,
 };
 
 use crate::worker::inbound::listen;
@@ -74,7 +74,7 @@ impl Worker {
         let client = Worker::connect(server_addr.parse().unwrap(), fqdn).await?;
 
         // Initialize a worker instance
-        let mut client_class = Worker {
+        let mut worker = Worker {
             grpc_client: client,
             metadata,
             active: Arc::new(Mutex::new(false)),
@@ -84,9 +84,9 @@ impl Worker {
             interface,
         };
 
-        client_class.connect_to_server().await?;
+        worker.connect_to_server().await?;
 
-        Ok(client_class)
+        Ok(worker)
     }
 
     /// Connect to the orchestrator.
@@ -305,7 +305,7 @@ impl Worker {
                         if packet == TaskResult::default() {
                             self_clone.measurement_finished_to_server(Finished {
                                 measurement_id,
-                                client_id: client_id.into(),
+                                worker_id: client_id.into(),
                             }).await.unwrap();
 
                             break;
@@ -324,12 +324,12 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("Connecting to orchestrator");
         // Get the client_id from the orchestrator
-        let client_id: u8 = self.get_client_id_to_server().await.expect("Unable to get a worker ID from the orchestrator").client_id as u8;
+        let worker_id: u8 = self.get_worker_id().await.expect("Unable to get a worker ID from the orchestrator").worker_id as u8;
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the orchestrator
-        let response = self.grpc_client.client_connect(Request::new(self.metadata.clone())).await?;
-        println!("[Client] Successfully connected with the orchestrator with client_id: {}", client_id);
+        let response = self.grpc_client.worker_connect(Request::new(self.metadata.clone())).await?;
+        println!("[Client] Successfully connected with the orchestrator with client_id: {}", worker_id);
         let mut stream = response.into_inner();
 
         // Await tasks
@@ -405,11 +405,11 @@ impl Worker {
                     let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
                     f_tx = Some(outbound_tx_f);
 
-                    self.init(task, client_id, Some(outbound_rx_f));
+                    self.init(task, worker_id, Some(outbound_rx_f));
                 } else { // This worker is not probing
                     f_tx = None;
                     self.outbound_tx = None;
-                    self.init(task, client_id, None);
+                    self.init(task, worker_id, None);
                 }
             }
         }
@@ -419,8 +419,8 @@ impl Worker {
     }
 
     /// Send the get_client_id command to the orchestrator to obtain a unique worker ID
-    async fn get_client_id_to_server(&mut self) -> Result<ClientId, Box<dyn Error>> {
-        let client_id = self.grpc_client.get_client_id(Request::new(self.metadata.clone())).await?.into_inner();
+    async fn get_worker_id(&mut self) -> Result<WorkerId, Box<dyn Error>> {
+        let client_id = self.grpc_client.get_worker_id(Request::new(self.metadata.clone())).await?.into_inner();
 
         Ok(client_id)
     }

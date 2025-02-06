@@ -190,7 +190,7 @@ fn handle_results(
         // Send the result to the worker handler
         tx.send(
             TaskResult {
-                client_id: client_id as u32,
+                worker_id: client_id as u32,
                 result_list: rq,
             }
         ).expect("Failed to send TaskResult to worker handler");
@@ -309,7 +309,7 @@ fn parse_icmpv4(
         }
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-        let tx_client_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
+        let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
         let src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
         let dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
@@ -331,7 +331,7 @@ fn parse_icmpv4(
                     dst: Some(Address {
                         value: Some(V4(dst)),
                     }),
-                    tx_client_id,
+                    tx_worker_id,
                 }),
             })),
         })
@@ -380,7 +380,7 @@ fn parse_icmpv6(
         }
 
         let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let tx_client_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
+        let tx_worker_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
         let probe_src = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
         let probe_dst = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
 
@@ -408,7 +408,7 @@ fn parse_icmpv6(
                             p2: probe_dst as u64,
                         })),
                     }),
-                    tx_client_id,
+                    tx_worker_id,
                 }),
             })),
         })
@@ -477,7 +477,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                 if inner_payload.len() < 10 { return None; }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_client_id = u32::from(inner_payload[8]);
+                let tx_worker_id = u32::from(inner_payload[8]);
                 let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
@@ -489,7 +489,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                             .unwrap()
                             .as_nanos() as u64,
                         tx_time,
-                        tx_client_id,
+                        tx_worker_id,
                         value: Some(trace_result::Value::Udp(UdpResult {
                             rx_time: 0,
                             sport: udp_header.source_port as u32,
@@ -508,7 +508,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                 if inner_payload.len() < 10 { return None; }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_client_id = u32::from(inner_payload[8]);
+                let tx_worker_id = u32::from(inner_payload[8]);
                 let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
@@ -520,7 +520,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                             .unwrap()
                             .as_nanos() as u64,
                         tx_time,
-                        tx_client_id,
+                        tx_worker_id,
                         value: Some(trace_result::Value::Tcp(TcpResult {
                             rx_time: 0,
                             sport: tcp_header.source_port as u32,
@@ -537,7 +537,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                 if inner_payload.len() < 10 { return None; }
 
                 let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_client_id = u32::from(inner_payload[8]);
+                let tx_worker_id = u32::from(inner_payload[8]);
                 let probe_ttl = u32::from(inner_payload[9]);
 
                 Some(VerfploeterResult {
@@ -549,7 +549,7 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
                             .unwrap()
                             .as_nanos() as u64,
                         tx_time,
-                        tx_client_id,
+                        tx_worker_id,
                         value: Some(trace_result::Value::Ping(PingResult {
                             rx_time: 0,
                             ip_result: Some(ip_result_probe),
@@ -611,7 +611,7 @@ fn parse_icmp_dst_unreachable(
         let reply_identifier = icmp_packet.identifier as u32;
         let mut probe_sport = 0u32;
         let mut udp_payload = None;
-        let tx_client_id = 0u32;
+        let tx_worker_id = 0u32;
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -694,7 +694,7 @@ fn parse_icmp_dst_unreachable(
                     tx_time: 0,
                     src: probe_src,
                     dst: probe_dst,
-                    tx_client_id,
+                    tx_worker_id,
                     sport: probe_sport,
                 })),
             })
@@ -872,7 +872,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
             Ok(s) => s,
             Err(_) => return None,
         };
-        let tx_client_id = match parts[3].parse::<u8>() {
+        let tx_worker_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
@@ -896,7 +896,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
                         p2: probe_dst as u64,
                     })),
                 }),
-                tx_client_id: tx_client_id as u32,
+                tx_worker_id: tx_worker_id as u32,
                 sport: probe_sport as u32,
             })),
         })
@@ -917,7 +917,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
             Ok(s) => s,
             Err(_) => return None,
         };
-        let tx_client_id = match parts[3].parse::<u8>() {
+        let tx_worker_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
@@ -935,7 +935,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
                 dst: Some(Address {
                     value: Some(V4(probe_dst)),
                 }),
-                tx_client_id: tx_client_id as u32,
+                tx_worker_id: tx_worker_id as u32,
                 sport: probe_sport as u32,
             })),
         })
@@ -959,12 +959,12 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
     let record = DNSRecord::from(packet_bytes);
 
     // 8 right most bits are the client_id
-    let tx_client_id = ((record.transaction_id >> 8) & 0xFF) as u32;
+    let tx_worker_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {
         return Some(UdpPayload {
             value: Some(udp_payload::Value::DnsChaos(DnsChaos {
-                tx_client_id,
+                tx_worker_id,
                 chaos_data: "Not implemented".to_string(),
             })),
         });
@@ -976,7 +976,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 
     return Some(UdpPayload {
         value: Some(udp_payload::Value::DnsChaos(DnsChaos {
-            tx_client_id,
+            tx_worker_id,
             chaos_data,
         })),
     });
