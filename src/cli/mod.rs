@@ -230,11 +230,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             "dns" => 2,
             "tcp" => 3,
             "chaos" => 4,
-            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, or CHAOS)"),
+            "all" => 255,
+            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
         };
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == 4 {
+        let dns_record = if measurement_type == 4 || measurement_type == 255 {
             if matches.is_present("HOSTNAME") {
                 matches.value_of("HOSTNAME").unwrap()
             } else {
@@ -295,7 +296,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
             4 => "UDP/CHAOS",
-            _ => "Undefined (defaulting to ICMP/ping)",
+            255 => "All (ICMP,UDP,TCP)",
+            _ => "ICMP/ping",
         };
         let hitlist_length = ips.len();
 
@@ -363,6 +365,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
         }
 
+        // TODO fails for measurements with a large hitlist
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
