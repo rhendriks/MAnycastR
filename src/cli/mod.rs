@@ -41,8 +41,8 @@ pub struct CliClient {
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.value_of("orchestrator").unwrap();
-    let fqdn = args.value_of("tls");
+    let server_address = args.get_one::<String>("orchestrator").unwrap();
+    let fqdn = args.get_one::<String>("tls");
 
     // Connect with orchestrator
     println!("[CLI] Connecting to orchestrator - {}", server_address);
@@ -57,32 +57,32 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a Verfploeter measurement
         // Source IP for the measurement
-        let is_unicast = matches.is_present("UNICAST");
-        let is_divide = matches.is_present("DIVIDE");
-        let is_responsive = matches.is_present("RESPONSIVE");
+        let is_unicast = matches.contains_id("UNICAST");
+        let is_divide = matches.contains_id("DIVIDE");
+        let is_responsive = matches.contains_id("RESPONSIVE");
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
         // Get optional opt-out URL
-        let url = if matches.is_present("URL") {
-            matches.value_of("URL").unwrap().to_string()
+        let url = if matches.contains_id("URL") {
+            matches.get_one::<String>("URL").unwrap().to_string()
         } else {
             "".to_string()
         };
 
-        let src = if matches.is_present("ADDRESS") {
+        let src = if matches.contains_id("ADDRESS") {
             Some(Address::from(
-                matches.value_of("ADDRESS").unwrap().to_string(),
+                matches.get_one::<String>("ADDRESS").unwrap().to_string(),
             ))
         } else {
             None
         };
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.is_present("CONF") && !is_unicast {
+        let configurations = if matches.contains_id("CONF") && !is_unicast {
             // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
-            let conf_file = matches.value_of("CONF").unwrap();
+            let conf_file = matches.get_one::<String>("CONF").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
                 .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
@@ -158,7 +158,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Get the target IP addresses
         let hitlist_path = matches
-            .value_of("IP_FILE")
+            .get_one::<String>("IP_FILE")
             .expect("No hitlist file provided!");
         let file = File::open(hitlist_path)
             .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
@@ -196,15 +196,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Shuffle the hitlist, if desired
-        let shuffle = matches.is_present("SHUFFLE");
+        let shuffle = matches.contains_id("SHUFFLE");
         if shuffle {
             let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
         }
 
         // Get the workers that have to send out probes
-        let worker_ids = if matches.is_present("SELECTIVE") {
-            let worker_entries = matches.value_of("SELECTIVE").unwrap();
+        let worker_ids = if matches.contains_id("SELECTIVE") {
+            let worker_entries = matches.get_one::<String>("SELECTIVE").unwrap();
             worker_entries
                 .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
@@ -225,7 +225,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
 
-        let measurement_type: u8 = match matches.value_of("TYPE").unwrap().to_lowercase().as_str() {
+        let measurement_type: u8 = match matches.get_one::<String>("TYPE").unwrap().to_lowercase().as_str() {
             "icmp" => 1,
             "dns" => 2,
             "tcp" => 3,
@@ -236,14 +236,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 || measurement_type == 255 {
-            if matches.is_present("HOSTNAME") {
-                matches.value_of("HOSTNAME").unwrap()
+            if matches.contains_id("HOSTNAME") {
+                matches.get_one::<String>("HOSTNAME").unwrap()
             } else {
                 "hostname.bind"
             }
         } else if measurement_type == 2 {
-            if matches.is_present("HOSTNAME") {
-                matches.value_of("HOSTNAME").unwrap()
+            if matches.contains_id("HOSTNAME") {
+                matches.get_one::<String>("HOSTNAME").unwrap()
             } else {
                 "any.dnsjedi.org" // TODO what default record to use for A
             }
@@ -254,10 +254,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321"))
-                .expect("Unable to parse source port") as u32;
-            let dport = if matches.is_present("DESTINATION_PORT") {
-                u16::from_str(matches.value_of("DESTINATION_PORT").unwrap())
+            let sport: u32 = matches.get_one::<String>("SOURCE_PORT").unwrap().parse::<u16>().expect("Invalid source port") as u32;
+            let dport = if matches.contains_id("DESTINATION_PORT") {
+                u16::from_str(matches.get_one::<String>("DESTINATION_PORT").unwrap())
                     .expect("Unable to parse destination port") as u32
             } else {
                 if measurement_type == 2 || measurement_type == 4 {
@@ -282,13 +281,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli = matches.is_present("STREAM");
-        let traceroute = matches.is_present("TRACEROUTE");
+        let cli = matches.contains_id("STREAM");
+        let traceroute = matches.contains_id("TRACEROUTE");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1"))
+        let interval = u32::from_str(matches.get_one::<String>("INTERVAL").expect("Invalid interval value"))
             .expect("Unable to parse interval");
-        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000"))
+        let rate = u32::from_str(matches.get_one::<String>("RATE").expect("Invalid probing rate value"))
             .expect("Unable to parse rate");
 
         let t_type = match measurement_type {
@@ -352,7 +351,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // get optional path to write results to TODO ensure path is valid before measurement start
-        let path = matches.value_of("OUT");
+        let path = matches.get_one::<String>("OUT");
         if path.is_some() {
             // Make sure path is valid
             // Output file
@@ -425,7 +424,7 @@ impl CliClient {
         hitlist: &str,
         hitlist_length: usize,
         configurations: Vec<Configuration>,
-        path: Option<&str>,
+        path: Option<&String>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
@@ -750,7 +749,7 @@ impl CliClient {
     /// tls requires a certificate at ./tls/orchestrator.crt
     async fn connect(
         address: &str,
-        fqdn: Option<&str>,
+        fqdn: Option<&String>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection

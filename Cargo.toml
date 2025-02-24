@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 byteorder = "1.4.3"
 chrono = "0.4.23"
-clap = "~2"
+clap = "4.5.30"
 csv = "1.2.0"
 futures = "~0.1"
 futures-core = "0.3.26"

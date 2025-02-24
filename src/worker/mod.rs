@@ -54,23 +54,23 @@ impl Worker {
     /// # Arguments
     ///
     /// * 'args' - contains the parsed command-line arguments
-    pub async fn new(args: &ArgMatches<'_>) -> Result<Worker, Box<dyn Error>> {
+    pub async fn new(args: &ArgMatches) -> Result<Worker, Box<dyn Error>> {
         // Get values from args
-        let hostname = if args.is_present("hostname") {
-            args.value_of("hostname").unwrap().parse().unwrap()
+        let hostname = if args.contains_id("hostname") {
+            args.get_one::<String>("hostname").unwrap().parse().unwrap()
         } else {
             gethostname().into_string().expect("Unable to get hostname")
         }
         .to_string();
 
-        let interface = args.value_of("interface").map(|s| s.to_string());
-        let orc_addr = args.value_of("orchestrator").unwrap();
+        let interface = args.get_one::<String>("interface").map(|s| s.to_string());
+        let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
         };
         // let is_tls = args.is_present("tls");
-        let fqdn = args.value_of("tls");
+        let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn).await?;
 
         // Initialize a worker instance
@@ -104,7 +104,7 @@ impl Worker {
     /// ```
     async fn connect(
         address: String,
-        fqdn: Option<&str>,
+        fqdn: Option<&String>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection
