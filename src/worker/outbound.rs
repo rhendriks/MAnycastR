@@ -1,5 +1,4 @@
 extern crate mac_address;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

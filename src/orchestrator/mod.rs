@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::ops::{Add, AddAssign};
+use std::ops::AddAssign;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -1165,8 +1165,8 @@ async fn traceroute_orchestrator(
 ///
 /// * 'args' - the parsed command-line arguments
 pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    let port = args.get_one::<String>("port").expect("No port specified");
-    let addr: SocketAddr = "[::]:".to_string().add(port).parse().unwrap();
+    let port = *args.get_one::<u16>("port").unwrap();
+    let addr: SocketAddr = format!("[::]:{}", port).parse().unwrap();
 
     // Get a random measurement ID to start with
     let measurement_id = rand::rng().random_range(0..u32::MAX);
