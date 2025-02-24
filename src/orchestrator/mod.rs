@@ -1164,8 +1164,8 @@ async fn traceroute_orchestrator(
 /// # Arguments
 ///
 /// * 'args' - the parsed command-line arguments
-pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    let port = args.value_of("port").expect("No port specified");
+pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+    let port = args.get_one::<String>("port").expect("No port specified");
     let addr: SocketAddr = "[::]:".to_string().add(port).parse().unwrap();
 
     // Get a random measurement ID to start with
@@ -1187,12 +1187,12 @@ pub async fn start(args: &ArgMatches<'_>) -> Result<(), Box<dyn std::error::Erro
     let svc = ControllerServer::new(controller);
 
     // if TLS is enabled create the orchestrator using a TLS configuration
-    if args.is_present("tls") {
+    if args.contains_id("tls") {
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
-            .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
+            .http2_keepalive_interval(Some(Duration::from_secs(60)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
             .await?;
