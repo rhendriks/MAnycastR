@@ -1284,6 +1284,10 @@ async fn probe_targets(
                     true,
                     info_url,
                 ));
+            },
+
+            255 => {
+                // all measurement types TODO
             }
             _ => {
                 panic!("Invalid measurement type");

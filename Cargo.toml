@@ -11,7 +11,7 @@ csv = "1.2.0"
 futures = "~0.1"
 futures-core = "0.3.26"
 prettytable-rs = "0.10.0"
-prost = "0.13.4"
+prost = "0.13.5"
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = { version = "0.12.3", features = ["tls"] }
 rand = "0.9.0"

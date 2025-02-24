@@ -138,6 +138,9 @@ pub fn outbound(
                                             println!("Failed to send ICMP packet: {}", e)
                                         });
                                     }
+                                },
+                                255 => {
+                                    // TODO all
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }

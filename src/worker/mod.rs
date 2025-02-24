@@ -313,6 +313,36 @@ impl Worker {
                 }
                 tcp_filters
             }
+            255 => {
+                // All
+                if is_ipv6 {
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " ((ip6[6] == 17 or ip6[6] == 6) and dst host {} and src port {} and dst port {}) or (icmp6 and dst host {})",
+                                IP::from(origin.clone().src.unwrap()).to_string(),
+                                origin.sport,
+                                origin.dport,
+                                IP::from(origin.clone().src.unwrap()).to_string()
+                            )
+                        })
+                        .collect()
+                } else {
+                    rx_origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                " ((udp or tcp) and dst host {} and src port {} and dst port {}) or (icmp and dst host {})",
+                                IP::from(origin.clone().src.unwrap()).to_string(),
+                                origin.sport,
+                                origin.dport,
+                                IP::from(origin.clone().src.unwrap()).to_string()
+                            )
+                        })
+                        .collect()
+                }
+            },
             _ => panic!("Invalid measurement type"),
         };
 
@@ -343,11 +373,11 @@ impl Worker {
                         );
                     }
                 }
-                2 | 3 | 4 => {
+                2 | 3 | 4 | 255 => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
-                            "[Worker] Sending on address: {}, from src port {}, to dst port {}",
+                            "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
                             IP::from(origin.clone().src.unwrap()).to_string(),
                             origin.sport,
                             origin.dport
