@@ -254,10 +254,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let sport: u32 = matches.get_one::<String>("SOURCE_PORT").unwrap().parse::<u16>().expect("Invalid source port") as u32;
+            let sport: u32 = *matches.get_one::<u16>("SOURCE_PORT").unwrap() as u32;
             let dport = if matches.contains_id("DESTINATION_PORT") {
-                u16::from_str(matches.get_one::<String>("DESTINATION_PORT").unwrap())
-                    .expect("Unable to parse destination port") as u32
+                *matches.get_one::<u16>("DESTINATION_PORT").unwrap() as u32
             } else {
                 if measurement_type == 2 || measurement_type == 4 {
                     53 // Default DNS destination port
@@ -285,11 +284,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let traceroute = matches.contains_id("TRACEROUTE");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = u32::from_str(matches.get_one::<String>("INTERVAL").expect("Invalid interval value"))
-            .expect("Unable to parse interval");
-        let rate = u32::from_str(matches.get_one::<String>("RATE").expect("Invalid probing rate value"))
-            .expect("Unable to parse rate");
-
+        let interval = *matches.get_one::<u32>("INTERVAL").unwrap();
+        let rate = *matches.get_one::<u32>("RATE").unwrap();
         let t_type = match measurement_type {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
