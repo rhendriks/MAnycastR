@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use futures::Future;
 use pcap::Capture;
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
@@ -40,7 +39,7 @@ pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
-    finish_rx: futures::sync::oneshot::Receiver<()>,
+    finish_rx: futures::channel::oneshot::Receiver<()>,
     is_ipv6: bool,
     is_unicast: bool,
     measurement_id: u32,
@@ -50,7 +49,13 @@ pub fn outbound(
     if_name: Option<String>,
 ) {
     let abort = Arc::new(Mutex::new(false));
-    abort_handler(abort.clone(), finish_rx);
+
+    // handle possible abort signal from the orchestrator
+    let abort_c = abort.clone();
+    tokio::spawn(async move {
+        finish_rx.await.ok();
+        *abort_c.lock().unwrap() = true;
+    });
 
     thread::Builder::new()
         .name("outbound".to_string())
@@ -308,21 +313,4 @@ fn perform_trace(
                 .expect("Failed to send traceroute packet");
         }
     }
-}
-
-/// Spawns a thread that waits for a possible abort signal.
-///
-/// # Arguments
-///
-/// * 'abort' - the shared boolean that is set to true when the measurement is aborted (exiting the outbound thread)
-///
-/// * 'finish_rx' - main thread will send a message on this channel when the measurement must be aborted
-fn abort_handler(abort: Arc<Mutex<bool>>, finish_rx: futures::sync::oneshot::Receiver<()>) {
-    thread::Builder::new()
-        .name("abort_thread".to_string())
-        .spawn(move || {
-            finish_rx.wait().ok();
-            *abort.lock().unwrap() = true;
-        })
-        .expect("Failed to spawn abort thread");
 }
