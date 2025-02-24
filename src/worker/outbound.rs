@@ -24,7 +24,7 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
-/// * 'finish_rx' - used to exit or abort the measurement
+/// * 'finish_rx' - used to exit or abort the measurement upon receiving the signal from the Orchestrator
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -39,7 +39,7 @@ pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
-    finish_rx: futures::channel::oneshot::Receiver<()>,
+    mut finish_rx: futures::channel::oneshot::Receiver<()>,
     is_ipv6: bool,
     is_unicast: bool,
     measurement_id: u32,
@@ -48,15 +48,6 @@ pub fn outbound(
     info_url: String,
     if_name: Option<String>,
 ) {
-    let abort = Arc::new(Mutex::new(false));
-
-    // handle possible abort signal from the orchestrator
-    let abort_c = abort.clone();
-    tokio::spawn(async move {
-        finish_rx.await.ok();
-        *abort_c.lock().unwrap() = true;
-    });
-
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
@@ -65,7 +56,8 @@ pub fn outbound(
             cap.direction(pcap::Direction::Out)
                 .expect("Unable to set pcap direction");
             'outer: loop {
-                if *abort.lock().unwrap() {
+                if let Ok(_) = finish_rx.try_recv() {
+                    // If the finish_rx received a signal, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
                 }
