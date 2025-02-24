@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use clap::ArgMatches;
-use futures::sync::oneshot;
+use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
