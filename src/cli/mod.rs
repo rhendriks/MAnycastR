@@ -57,32 +57,32 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a Verfploeter measurement
         // Source IP for the measurement
-        let is_unicast = *args.get_one::<bool>("UNICAST").unwrap();
-        let is_divide = *args.get_one::<bool>("DIVIDE").unwrap();
-        let is_responsive = *args.get_one::<bool>("RESPONSIVE").unwrap();
+        let is_unicast = *args.get_one::<bool>("unicast").unwrap();
+        let is_divide = *args.get_one::<bool>("divide").unwrap();
+        let is_responsive = *args.get_one::<bool>("responsive").unwrap();
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
         // Get optional opt-out URL
-        let url = if matches.contains_id("URL") {
-            matches.get_one::<String>("URL").unwrap().to_string()
+        let url = if matches.contains_id("url") {
+            matches.get_one::<String>("url").unwrap().to_string()
         } else {
             "".to_string()
         };
 
-        let src = if matches.contains_id("ADDRESS") {
+        let src = if matches.contains_id("address") {
             Some(Address::from(
-                matches.get_one::<String>("ADDRESS").unwrap().to_string(),
+                matches.get_one::<String>("address").unwrap().to_string(),
             ))
         } else {
             None
         };
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.contains_id("CONF") && !is_unicast {
+        let configurations = if matches.contains_id("conf") && !is_unicast {
             // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
-            let conf_file = matches.get_one::<String>("CONF").unwrap();
+            let conf_file = matches.get_one::<String>("conf").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
                 .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
