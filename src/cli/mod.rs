@@ -83,9 +83,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.contains_id("conf") && !is_unicast {
+        let configurations = if matches.contains_id("configuration") && !is_unicast {
             // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
-            let conf_file = matches.get_one::<String>("conf").unwrap();
+            let conf_file = matches.get_one::<String>("configuration").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
                 .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
