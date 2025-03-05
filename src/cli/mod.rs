@@ -347,28 +347,44 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // get optional path to write results to TODO ensure path is valid before measurement start
+        // get optional path to write results to
         let path = matches.get_one::<String>("out");
-        if let Some(path) = matches.get_one::<String>("out") {
-            let path = Path::new(path);
+        if let Some(path_str) = path {
+            let is_file = !path_str.ends_with('/');
+            let path = Path::new(path_str);
             println!("Output path: {:?}", path);
 
-            if path.is_dir() { // User provided directory
-                if !path.exists() {
-                    return Err("Directory does not exist".into());
-                }
-                if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
-                    return Err("Directory is not writable".into());
-                }
-            } else { // User provided file
+            if is_file { // User provided a file
                 if path.exists() {
-                    if fs::metadata(path)?.permissions().readonly() {
-                        return Err("File is not writable".into());
+                    if path.is_dir() {
+                        return Err("Path is already a directory".into());
+                    } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                        return Err("Lacking write permissions".into());
+                    } else {
+                        println!("[CLI] Overwriting existing file {} when measurement is done", path_str);
                     }
                 } else {
-                    // Attempt creating file to verify permissions
+                    println!("[CLI] Writing results to new file {}", path_str);
+
+                    // File does not yet exist, create it to verify permissions
                     fs::File::create(path).expect("Unable to create output file").sync_all().expect("Unable to sync file");
                     fs::remove_file(path).expect("Unable to remove file");
+                }
+            } else { // User provided a directory
+                if path.exists() {
+                    if !path.is_dir() {
+                        return Err("Cannot make dir, file with name already exists.".into());
+                    } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                        return Err("Path is not writable".into());
+                    } else {
+                        println!("[CLI] Writing results to existing directory {}", path_str);
+                    }
+                } else {
+                    println!("[CLI] Writing results to new directory {}", path_str);
+
+                    // Attempt creating path to verify permissions
+                    fs::create_dir_all(path).expect("Unable to create output directory");
+                    fs::remove_dir(path).expect("Unable to remove directory");
                 }
             }
         }
