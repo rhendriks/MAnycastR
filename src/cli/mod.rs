@@ -236,14 +236,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 || measurement_type == 255 {
-            if matches.contains_id("HOSTNAME") {
-                matches.get_one::<String>("HOSTNAME").unwrap()
+            if matches.contains_id("QUERY") {
+                matches.get_one::<String>("QUERY").unwrap()
             } else {
                 "hostname.bind"
             }
         } else if measurement_type == 2 {
-            if matches.contains_id("HOSTNAME") {
-                matches.get_one::<String>("HOSTNAME").unwrap()
+            if matches.contains_id("QUERY") {
+                matches.get_one::<String>("QUERY").unwrap()
             } else {
                 "any.dnsjedi.org" // TODO what default record to use for A
             }
