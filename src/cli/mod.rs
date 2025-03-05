@@ -356,9 +356,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             if is_file { // User provided a file
                 if path.exists() {
                     if path.is_dir() {
-                        println!("Path is already a directory");
+                        println!("[CLI] Path is already a directory, exiting");
                         return Err("Path is already a directory".into());
                     } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                        println!("[CLI] Lacking write permissions for file {}", path_str);
                         return Err("Lacking write permissions".into());
                     } else {
                         println!("[CLI] Overwriting existing file {} when measurement is done", path_str);
@@ -373,8 +374,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             } else { // User provided a directory
                 if path.exists() {
                     if !path.is_dir() {
+                        println!("[CLI] Path is already a file, exiting");
                         return Err("Cannot make dir, file with name already exists.".into());
                     } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                        println!("[CLI] Lacking write permissions for directory {}", path_str);
                         return Err("Path is not writable".into());
                     } else {
                         println!("[CLI] Writing results to existing directory {}", path_str);
