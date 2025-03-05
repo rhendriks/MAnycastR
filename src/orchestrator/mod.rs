@@ -1186,6 +1186,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     let svc = ControllerServer::new(controller);
 
+    println!("args {:?}", args);
+    println!("tls value {:?}", args.value_source("tls"));
     // if TLS is enabled create the orchestrator using a TLS configuration
     if args.contains_id("tls") {
         Server::builder()
@@ -1198,8 +1200,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .await?;
     } else {
         Server::builder()
-            .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
+            .http2_keepalive_interval(Some(Duration::from_secs(60)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
             .await?;
