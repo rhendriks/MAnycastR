@@ -1187,7 +1187,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let svc = ControllerServer::new(controller);
 
     // if TLS is enabled create the orchestrator using a TLS configuration
-    if let Some(true) = args.get_one::<bool>("tls") {
+    if args.get_flag("tls") {
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
