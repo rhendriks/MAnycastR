@@ -206,8 +206,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the workers that have to send out probes
-        let worker_ids = if matches.contains_id("SELECTIVE") {
-            let worker_entries = matches.get_one::<String>("SELECTIVE").unwrap();
+        let worker_ids = if matches.contains_id("selective") {
+            let worker_entries = matches.get_one::<String>("selective").unwrap();
             worker_entries
                 .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
@@ -228,7 +228,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
 
-        let measurement_type: u8 = match matches.get_one::<String>("TYPE").unwrap().to_lowercase().as_str() {
+        let measurement_type: u8 = match matches.get_one::<String>("type").unwrap().to_lowercase().as_str() {
             "icmp" => 1,
             "dns" => 2,
             "tcp" => 3,
