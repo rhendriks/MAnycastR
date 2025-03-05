@@ -55,11 +55,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Perform the worker-list command
         cli_client.list_workers().await
     } else if let Some(matches) = args.subcommand_matches("start") {
-
-        println!("matches: {:?}", matches);
-
         // Start a Verfploeter measurement
-        // Source IP for the measurement
         let is_unicast = matches.get_flag("unicast");
         let is_divide = matches.get_flag("divide");
         let is_responsive = matches.get_flag("responsive");
@@ -74,6 +70,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             "".to_string()
         };
 
+        // Source IP for the measurement
         let src = if matches.contains_id("address") {
             Some(Address::from(
                 matches.get_one::<String>("address").unwrap().to_string(),
@@ -257,9 +254,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let sport: u32 = *matches.get_one::<u16>("SOURCE_PORT").unwrap() as u32;
-            let dport = if matches.contains_id("DESTINATION_PORT") {
-                *matches.get_one::<u16>("DESTINATION_PORT").unwrap() as u32
+            let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
+            let dport = if matches.contains_id("destination port") {
+                *matches.get_one::<u16>("destination port").unwrap() as u32
             } else {
                 if measurement_type == 2 || measurement_type == 4 {
                     53 // Default DNS destination port
@@ -283,12 +280,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli =matches.get_flag("STREAM");
-        let traceroute = matches.get_flag("TRACEROUTE");
+        let cli =matches.get_flag("stream");
+        let traceroute = matches.get_flag("traceroute");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = *matches.get_one::<u32>("INTERVAL").unwrap();
-        let rate = *matches.get_one::<u32>("RATE").unwrap();
+        let interval = *matches.get_one::<u32>("interval").unwrap();
+        let rate = *matches.get_one::<u32>("rate").unwrap();
         let t_type = match measurement_type {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
