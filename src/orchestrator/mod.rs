@@ -1188,8 +1188,9 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     println!("args {:?}", args);
     println!("tls value {:?}", args.value_source("tls"));
+
     // if TLS is enabled create the orchestrator using a TLS configuration
-    if args.contains_id("tls") {
+    if let Some(true) = args.get_one::<bool>("tls") {
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
