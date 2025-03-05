@@ -57,9 +57,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a Verfploeter measurement
         // Source IP for the measurement
-        let is_unicast = matches.contains_id("UNICAST");
-        let is_divide = matches.contains_id("DIVIDE");
-        let is_responsive = matches.contains_id("RESPONSIVE");
+        let is_unicast = *args.get_one::<bool>("UNICAST").unwrap();
+        let is_divide = *args.get_one::<bool>("DIVIDE").unwrap();
+        let is_responsive = *args.get_one::<bool>("RESPONSIVE").unwrap();
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
@@ -196,7 +196,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Shuffle the hitlist, if desired
-        let shuffle = matches.contains_id("SHUFFLE");
+        let shuffle = *args.get_one::<bool>("SHUFFLE").unwrap();
         if shuffle {
             let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
@@ -280,8 +280,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli = matches.contains_id("STREAM");
-        let traceroute = matches.contains_id("TRACEROUTE");
+        let cli = *args.get_one::<bool>("STREAM").unwrap();
+        let traceroute = *args.get_one::<bool>("TRACEROUTE").unwrap();
 
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = *matches.get_one::<u32>("INTERVAL").unwrap();
