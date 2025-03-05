@@ -384,7 +384,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     // Attempt creating path to verify permissions
                     fs::create_dir_all(path).expect("Unable to create output directory");
-                    fs::remove_dir(path).expect("Unable to remove directory");
                 }
             }
         }
