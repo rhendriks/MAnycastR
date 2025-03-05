@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
+use std::path::Path;
 
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
@@ -348,16 +349,27 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // get optional path to write results to TODO ensure path is valid before measurement start
         let path = matches.get_one::<String>("out");
-        if path.is_some() {
-            // Make sure path is valid
-            // Output file
-            if path.unwrap().ends_with('/') {
-                // User provided a path (check if path is valid)
-                // TODO
-            } else {
-                // user provided a file (check if file is valid)
-                // TODO
-            };
+        if let Some(path) = matches.get_one::<String>("out") {
+            let path = Path::new(path);
+
+            if path.is_dir() { // User provided directory
+                if !path.exists() {
+                    return Err("Directory does not exist".into());
+                }
+                if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                    return Err("Directory is not writable".into());
+                }
+            } else { // User provided file
+                if path.exists() {
+                    if fs::metadata(path)?.permissions().readonly() {
+                        return Err("File is not writable".into());
+                    }
+                } else {
+                    // Attempt creating file to verify permissions
+                    fs::File::create(path).expect("Unable to create output file").sync_all().expect("Unable to sync file");
+                    fs::remove_file(path).expect("Unable to remove file");
+                }
+            }
         }
 
         // TODO fails for measurements with a large hitlist
