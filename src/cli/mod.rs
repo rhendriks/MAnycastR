@@ -199,7 +199,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Shuffle the hitlist, if desired
-        let shuffle = matches.get_flag("SHUFFLE");
+        let shuffle = matches.get_flag("shuffle");
         if shuffle {
             let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
