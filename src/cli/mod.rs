@@ -351,6 +351,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let path = matches.get_one::<String>("out");
         if let Some(path) = matches.get_one::<String>("out") {
             let path = Path::new(path);
+            println!("Output path: {:?}", path);
 
             if path.is_dir() { // User provided directory
                 if !path.exists() {
