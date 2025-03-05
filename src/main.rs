@@ -331,7 +331,6 @@ fn parse_cmd() -> ArgMatches {
                     .arg(Arg::new("unicast")
                         .long("unicast")
                         .action(ArgAction::SetTrue)
-                        .required(false)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
                     )
                     .arg(Arg::new("traceroute")
