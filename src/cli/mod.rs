@@ -347,7 +347,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // get optional path to write results to TODO ensure path is valid before measurement start
-        let path = matches.get_one::<String>("OUT");
+        let path = matches.get_one::<String>("out");
         if path.is_some() {
             // Make sure path is valid
             // Output file
