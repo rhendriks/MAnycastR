@@ -250,7 +250,7 @@ fn parse_cmd() -> ArgMatches {
                 .arg(
                     Arg::new("hostname")
                         .long("hostname")
-                        .short('h')
+                        .short('n')
                         .value_parser(value_parser!(String))
                         .required(false)
                         .help("hostname for this worker (default: $HOSTNAME)")
