@@ -6,11 +6,6 @@ fn main() {
     tonic_build::compile_protos("proto/verfploeter.proto")
         .unwrap_or_else(|e| panic!("Failed to compile protos {:?}", e));
 
-    println!("cargo:rustc-link-lib=static=pcap");
-    println!("cargo:rustc-link-lib=dbus-1");
-    println!("cargo:rustc-link-lib=c");
-    println!("cargo:rustc-link-lib=nsl");
-
     // Gets commit string
     let output = Command::new("git").args(&["rev-parse", "--short=7", "HEAD"]).output().unwrap();
     let git_hash = String::from_utf8(output.stdout).unwrap();
