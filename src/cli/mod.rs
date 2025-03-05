@@ -55,6 +55,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Perform the worker-list command
         cli_client.list_workers().await
     } else if let Some(matches) = args.subcommand_matches("start") {
+
+        println!("matches: {:?}", matches);
+
         // Start a Verfploeter measurement
         // Source IP for the measurement
         let is_unicast = args.get_flag("unicast");
