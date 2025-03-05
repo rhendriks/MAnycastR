@@ -352,11 +352,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if let Some(path_str) = path {
             let is_file = !path_str.ends_with('/');
             let path = Path::new(path_str);
-            println!("Output path: {:?}", path);
 
             if is_file { // User provided a file
                 if path.exists() {
                     if path.is_dir() {
+                        println!("Path is already a directory");
                         return Err("Path is already a directory".into());
                     } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
                         return Err("Lacking write permissions".into());
