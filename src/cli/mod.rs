@@ -60,9 +60,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Start a Verfploeter measurement
         // Source IP for the measurement
-        let is_unicast = args.get_flag("unicast");
-        let is_divide = *args.get_one::<bool>("divide").unwrap();
-        let is_responsive = *args.get_one::<bool>("responsive").unwrap();
+        let is_unicast = matches.get_flag("unicast");
+        let is_divide = *matches.get_one::<bool>("divide").unwrap();
+        let is_responsive = *matches.get_one::<bool>("responsive").unwrap();
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
