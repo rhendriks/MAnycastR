@@ -195,16 +195,14 @@ fn handle_results(
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
         // Do not send empty results
-        if rq.is_empty() {
-            continue;
+        if !rq.is_empty() {
+            // Send the result to the worker handler
+            tx.send(TaskResult {
+                worker_id: worker_id as u32,
+                result_list: rq,
+            })
+                .expect("Failed to send TaskResult to worker handler");
         }
-
-        // Send the result to the worker handler
-        tx.send(TaskResult {
-            worker_id: worker_id as u32,
-            result_list: rq,
-        })
-        .expect("Failed to send TaskResult to worker handler");
 
         // Exit the thread if worker sends us the signal it's finished
         if let Ok(_) = rx_f.try_recv() {
