@@ -68,7 +68,6 @@ impl Worker {
         let metadata = Metadata {
             hostname: hostname.parse().unwrap(),
         };
-        // let is_tls = args.is_present("tls");
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn).await?;
 
@@ -113,12 +112,12 @@ impl Worker {
             let pem = std::fs::read_to_string("tls/orchestrator.crt")
                 .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
-
+            // Create a TLS configuration
             let tls = ClientTlsConfig::new()
                 .ca_certificate(ca)
                 .domain_name(fqdn.unwrap());
 
-            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
+            let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
             builder
                 .tls_config(tls)
                 .expect("Unable to set TLS configuration")
@@ -183,19 +182,14 @@ impl Worker {
             let sport = start_measurement.tx_origins[0].sport;
             let dport = start_measurement.tx_origins[0].dport;
 
-            let unicast_ip = if is_ipv6 {
-                IP::from(
-                    local_ipv6()
-                        .expect("Unable to get local unicast IPv6 address")
-                        .to_string(),
-                )
-            } else {
-                IP::from(
-                    local_ip()
-                        .expect("Unable to get local unicast IPv4 address")
-                        .to_string(),
-                )
-            };
+            // Get the local unicast address
+            let unicast_ip = IP::from(
+                if is_ipv6 {
+                    local_ipv6().expect("Unable to get local unicast IPv6 address")
+                } else {
+                    local_ip().expect("Unable to get local unicast IPv4 address")
+                }.to_string()
+            );
 
             let unicast_origin = Origin {
                 src: Some(Address::from(unicast_ip.clone())), // Unicast IP
@@ -233,69 +227,49 @@ impl Worker {
 
         // Add filter for each address/port combination based on the measurement type
         let filter_parts: Vec<String> = match start_measurement.measurement_type {
-            1 => {
-                // ICMP has no port numbers
-                if is_ipv6 {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " (icmp6 and dst host {})",
-                                IP::from(origin.clone().src.unwrap()).to_string()
-                            )
-                        })
-                        .collect()
-                } else {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " (icmp and dst host {})",
-                                IP::from(origin.clone().src.unwrap()).to_string()
-                            )
-                        })
-                        .collect()
-                }
+            1 => { // ICMP
+                let filter = if is_ipv6 { "icmp6" } else { "icmp" };
+                rx_origins
+                    .iter()
+                    .map(|origin| {
+                        let src_ip = IP::from(origin.src.unwrap()).to_string();
+                        format!(" ({}) and dst host {}", filter, src_ip)
+                    })
+                    .collect::<Vec<String>>()
             }
-            2 | 4 => {
-                // DNS A record, DNS CHAOS TXT
-                if is_ipv6 {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
-                        .collect()
-                } else {
-                    rx_origins.iter()
-                        .map(|origin| format!(" (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})", IP::from(origin.clone().src.unwrap()).to_string(), origin.sport, IP::from(origin.clone().src.unwrap()).to_string()))
-                        .collect()
-                }
+            2 | 4 => { // DNS (A record, TXT record)
+                rx_origins.iter()
+                    .map(|origin| {
+                        let src_ip = IP::from(origin.src.unwrap()).to_string();
+                        let filter = if is_ipv6 {
+                            format!(
+                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})",
+                                src_ip, origin.sport, src_ip
+                            )
+                        } else {
+                            format!(
+                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})",
+                                src_ip, origin.sport, src_ip
+                            )
+                        };
+                        filter
+                    })
+                    .collect::<Vec<String>>()
+
             }
-            3 => {
-                // TCP
-                let mut tcp_filters: Vec<String> = if is_ipv6 {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " (ip6[6] == 6 and dst host {} and dst port {} and src port {})",
-                                IP::from(origin.clone().src.unwrap()).to_string(),
-                                origin.sport,
-                                origin.dport
-                            )
-                        })
-                        .collect()
-                } else {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " (tcp and dst host {} and dst port {} and src port {})",
-                                IP::from(origin.clone().src.unwrap()).to_string(),
-                                origin.sport,
-                                origin.dport
-                            )
-                        })
-                        .collect()
-                };
+            3 => { // TCP
+                let filter = if is_ipv6 { "ip6[6] == 6" } else { "tcp" };
+
+                let mut tcp_filters: Vec<String> = rx_origins
+                    .iter()
+                    .map(|origin| {
+                        let src_ip = IP::from(origin.src.unwrap()).to_string();
+                        format!(
+                            " ({}) and dst host {} and dst port {} and src port {})",
+                            filter, src_ip, origin.sport, origin.dport
+                        )
+                    })
+                    .collect();
 
                 // When tracerouting we need to listen to ICMP for TTL expired messages
                 if is_traceroute {
@@ -312,35 +286,24 @@ impl Worker {
                 }
                 tcp_filters
             }
-            255 => {
-                // All
-                if is_ipv6 {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " ((ip6[6] == 17 or ip6[6] == 6) and dst host {} and src port {} and dst port {}) or (icmp6 and dst host {})",
-                                IP::from(origin.clone().src.unwrap()).to_string(),
-                                origin.sport,
-                                origin.dport,
-                                IP::from(origin.clone().src.unwrap()).to_string()
-                            )
-                        })
-                        .collect()
+            255 => { // All
+                let (filter_p, filter_icmp) = if is_ipv6 {
+                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6")
                 } else {
-                    rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " ((udp or tcp) and dst host {} and src port {} and dst port {}) or (icmp and dst host {})",
-                                IP::from(origin.clone().src.unwrap()).to_string(),
-                                origin.sport,
-                                origin.dport,
-                                IP::from(origin.clone().src.unwrap()).to_string()
-                            )
-                        })
-                        .collect()
-                }
+                    ("(udp or tcp)", "icmp")
+                };
+
+                rx_origins
+                    .iter()
+                    .map(|origin| {
+                        let src_ip = IP::from(origin.src.unwrap()).to_string(); // Handle unwrap safely if needed
+                        format!(
+                            " (({}) and dst host {} and src port {} and dst port {}) or ({} and dst host {})",
+                            filter_p, src_ip, origin.sport, origin.dport, filter_icmp, src_ip
+                        )
+                    })
+                    .collect()
+
             },
             _ => panic!("Invalid measurement type"),
         };
@@ -367,7 +330,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {} using identifier {}",
-                            IP::from(origin.clone().src.unwrap()).to_string(),
+                            IP::from(origin.src.unwrap()).to_string(),
                             origin.dport
                         );
                     }
@@ -377,7 +340,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
-                            IP::from(origin.clone().src.unwrap()).to_string(),
+                            IP::from(origin.src.unwrap()).to_string(),
                             origin.sport,
                             origin.dport
                         );
