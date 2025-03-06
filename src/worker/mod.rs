@@ -193,8 +193,8 @@ impl Worker {
 
             let unicast_origin = Origin {
                 src: Some(Address::from(unicast_ip)), // Unicast IP
-                sport: sport.into(),                          // CLI defined source port
-                dport: dport.into(),                          // CLI defined destination port
+                sport: sport.into(), // CLI defined source port
+                dport: dport.into(), // CLI defined destination port
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
@@ -479,7 +479,7 @@ impl Worker {
                                 f_tx.take()
                                     .unwrap()
                                     .send(())
-                                    .expect("Unable to send finish signal to outbound thread");
+                                    .expect("Unable to send abort signal to outbound thread");
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
