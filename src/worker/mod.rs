@@ -553,7 +553,6 @@ impl Worker {
     ) -> Result<(), Box<dyn Error>> {
         println!("Sending task result to orchestrator");
         println!("{:?}", task_result);
-        println!("{:?}", self.client);
         self.client.send_result(Request::new(task_result)).await?;
 
         Ok(())
