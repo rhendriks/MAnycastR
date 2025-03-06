@@ -78,6 +78,10 @@ pub fn outbound(
                         }
                     };
                 }
+                println!(
+                    "received task: {:?}",
+                    task
+                );
 
                 match task {
                     End(_) => {
@@ -97,6 +101,7 @@ pub fn outbound(
                                             measurement_id,
                                             &info_url,
                                         ));
+                                        println!("sending packet");
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!("Failed to send ICMP packet: {}", e)
                                             // TODO packet loss due to libpcap error: send: Resource temporarily unavailable
