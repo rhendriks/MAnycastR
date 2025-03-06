@@ -894,11 +894,13 @@ fn write_results(
     tokio::spawn(async move {
         // Receive tasks from the outbound channel
         while let Some(task_result) = rx.recv().await {
+            println!("Received task result");
             if task_result == TaskResult::default() {
                 break;
             }
 
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
+            println!("Received {} results", verfploeter_results.len());
             for result in verfploeter_results {
                 let trace_result = match result.clone().value.unwrap() {
                     ResultTrace(_) => true,
