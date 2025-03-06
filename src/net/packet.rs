@@ -73,8 +73,6 @@ pub fn get_ethernet_header(
             }
         }
     }
-
-    println!("using dst mac: {:?}", mac_dst);
     child.wait().expect("Failed to wait on child");
 
     // Construct the ethernet header
