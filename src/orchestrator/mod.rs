@@ -901,6 +901,7 @@ impl Controller for ControllerService {
     ///
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
+        println!("Received result from worker");
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
 
@@ -1191,6 +1192,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     // if TLS is enabled create the orchestrator using a TLS configuration
     if args.get_flag("tls") {
+        println!("[Orchestrator] Starting orchestrator with TLS enabled");
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
