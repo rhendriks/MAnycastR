@@ -223,7 +223,7 @@ impl IpResult {
         match &self.value {
             Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let src = v6.src.clone().expect("None IPv6 data type");
+                let src = v6.src.expect("None IPv6 data type");
                 ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
             }
             None => String::from("None"),
@@ -234,7 +234,7 @@ impl IpResult {
         match &self.value {
             Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let dst = v6.dst.clone().expect("None IPv6 data type");
+                let dst = v6.dst.expect("None IPv6 data type");
                 ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
             }
             None => String::from("None"),

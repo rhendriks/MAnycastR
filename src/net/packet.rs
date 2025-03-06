@@ -161,8 +161,8 @@ pub fn create_ping(
     // Create ping payload
     let payload = PingPayload {
         tx_time,
-        src: Some(src.clone().into()),
-        dst: Some(dst.clone().into()),
+        src: Some(src.into()),
+        dst: Some(dst.into()),
         tx_worker_id: worker_id as u32,
     };
 
@@ -198,7 +198,7 @@ pub fn create_ping(
             2,
             payload_bytes,
             src.get_v6().into(),
-            IP::from(dst.clone()).get_v6().into(),
+            IP::from(dst).get_v6().into(),
             255,
             info_url,
         )
@@ -208,7 +208,7 @@ pub fn create_ping(
             2,
             payload_bytes,
             src.get_v4().into(),
-            IP::from(dst.clone()).get_v4().into(),
+            IP::from(dst).get_v4().into(),
             255,
             info_url,
         )
@@ -338,12 +338,9 @@ pub fn create_tcp(
     };
 
     if is_ipv6 {
-        let src = IP::from(origin.src.expect("None IP address")).get_v6();
-        let dest = IP::from(dst.clone()).get_v6();
-
         TCPPacket::tcp_syn_ack_v6(
-            src.into(),
-            dest.into(),
+            IP::from(origin.src.expect("None IP address")).get_v6().into(),
+            IP::from(dst).get_v6().into(),
             origin.sport as u16,
             origin.dport as u16,
             seq,
@@ -352,12 +349,9 @@ pub fn create_tcp(
             info_url,
         )
     } else {
-        let src = IP::from(origin.src.expect("None IP address")).get_v4();
-        let dest = IP::from(dst.clone()).get_v4();
-
         TCPPacket::tcp_syn_ack(
-            src.into(),
-            dest.into(),
+            IP::from(origin.src.expect("None IP address")).get_v4().into(),
+            IP::from(dst).get_v4().into(),
             origin.sport as u16,
             origin.dport as u16,
             seq,
