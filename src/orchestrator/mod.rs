@@ -904,9 +904,6 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
 
-        println!("Received result from worker {:?}", task_result);
-
-
         if *self.traceroute.lock().unwrap() {
             // If traceroute is enabled
             // Loop over the results and keep track of the clients that have received probe responses
@@ -1020,7 +1017,6 @@ impl Controller for ControllerService {
             sender.clone().unwrap()
         };
 
-        println!("Sending result to CLI");
         match tx.send(Ok(task_result)).await {
             Ok(_) => Ok(Response::new(Ack {
                 success: true,

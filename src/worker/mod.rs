@@ -549,8 +549,6 @@ impl Worker {
         &mut self,
         task_result: TaskResult,
     ) -> Result<(), Box<dyn Error>> {
-        println!("Sending task result to orchestrator");
-        println!("{:?}", task_result);
         self.client.send_result(Request::new(task_result)).await?;
 
         Ok(())
