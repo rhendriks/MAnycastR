@@ -242,10 +242,10 @@ fn parse_cmd() -> ArgMatches {
             Command::new("worker").about("Launches the MAnycastR worker")
                 .arg(
                     Arg::new("orchestrator")
-                        .short('o')
+                        .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("hostname/ip address:port of the orchestrator")
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
                     Arg::new("hostname")
@@ -275,10 +275,10 @@ fn parse_cmd() -> ArgMatches {
             Command::new("cli").about("MAnycastR CLI")
                 .arg(
                     Arg::new("orchestrator")
-                        .short('o')
+                        .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("hostname/ip address:port of the orchestrator (e.g., [::1]:50001 for localhost)")
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
                     Arg::new("tls")
