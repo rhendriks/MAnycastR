@@ -135,6 +135,7 @@ pub fn listen(
                 }
 
                 // Put result in transmission queue
+                println!("putting result in queue {:?}", result);
                 {
                     let mut rq_opt = rq_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {

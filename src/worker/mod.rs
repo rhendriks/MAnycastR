@@ -390,6 +390,8 @@ impl Worker {
                             break;
                         }
 
+                        println!("Forwarding task result to orchestrator {:?}", packet);
+
                         self_clone
                             .send_result_to_server(packet)
                             .await
