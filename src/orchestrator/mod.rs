@@ -301,7 +301,7 @@ impl Controller for ControllerService {
             inner: rx,
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
-            hostname: hostname.clone(),
+            hostname,
             workers: self.workers.clone(),
             active: self.active.clone(),
         };
@@ -433,7 +433,7 @@ impl Controller for ControllerService {
         let is_unicast = scheduled_measurement.unicast;
         // Get the probe origins
         let tx_origins: Vec<Origin> = if is_unicast {
-            vec![scheduled_measurement.origin.clone().unwrap()] // Contains port values
+            vec![scheduled_measurement.origin.unwrap()] // Contains port values
         } else if scheduled_measurement.configurations.len() > 0 {
             // Make sure no unknown workers are in the list
             if scheduled_measurement
@@ -464,7 +464,7 @@ impl Controller for ControllerService {
 
             vec![] // Return an empty list, as we will add the origins per worker
         } else {
-            vec![scheduled_measurement.origin.clone().unwrap()]
+            vec![scheduled_measurement.origin.unwrap()]
         };
 
         // Store the number of workers that will perform this measurement
@@ -557,14 +557,14 @@ impl Controller for ControllerService {
                     unicast: is_unicast,
                     ipv6: is_ipv6,
                     traceroute: is_traceroute,
-                    tx_origins: worker_tx_origins.clone(),
+                    tx_origins: worker_tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
                 })),
             };
 
-            match sender.try_send(Ok(start_task.clone())) {
+            match sender.try_send(Ok(start_task)) {
                 Ok(_) => (),
                 Err(e) => println!("[Orchestrator] Failed to send 'start measurement' {:?}", e),
             }
@@ -688,7 +688,7 @@ impl Controller for ControllerService {
                             .insert(current_prefix, r_address.clone());
                         for addr in chunk {
                             // Add address to the probing channel
-                            tx_r.send(addr.clone())
+                            tx_r.send(addr)
                                 .await
                                 .expect("Failed to send target");
 
@@ -797,7 +797,7 @@ impl Controller for ControllerService {
                         // If the CLI disconnects during task distribution, abort
                         if *is_active.lock().unwrap() == false {
                             clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                            if clients_finished.lock().unwrap().clone() == number_of_workers {
+                            if *clients_finished.lock().unwrap() == number_of_workers {
                                 println!(
                                     "[Orchestrator] CLI disconnected during task distribution"
                                 );
@@ -836,7 +836,7 @@ impl Controller for ControllerService {
                     }
 
                     clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                    if clients_finished.lock().unwrap().clone() == number_of_workers {
+                    if *clients_finished.lock().unwrap() == number_of_workers {
                         println!("[Orchestrator] Measurement finished, awaiting clients... ");
                         // Send a message to the other sending threads to let them know the measurement is finished
                         tx_f.send(()).expect("Failed to send finished signal");
@@ -921,11 +921,11 @@ impl Controller for ControllerService {
                             ),
                             Ipv6(v6) => (
                                 IP::V6(Ipv6Addr::from(
-                                    ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                    ((v6.src.unwrap().p1 as u128) << 64)
                                         | v6.src.unwrap().p2 as u128,
                                 )),
                                 IP::V6(Ipv6Addr::from(
-                                    ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                    ((v6.dst.unwrap().p1 as u128) << 64)
                                         | v6.dst.unwrap().p2 as u128,
                                 )),
                             ),
@@ -938,11 +938,11 @@ impl Controller for ControllerService {
                         ),
                         Ipv6(v6) => (
                             IP::V6(Ipv6Addr::from(
-                                ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                ((v6.src.unwrap().p1 as u128) << 64)
                                     | v6.src.unwrap().p2 as u128,
                             )),
                             IP::V6(Ipv6Addr::from(
-                                ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                ((v6.dst.unwrap().p1 as u128) << 64)
                                     | v6.dst.unwrap().p2 as u128,
                             )),
                         ),
@@ -954,11 +954,11 @@ impl Controller for ControllerService {
                         ),
                         Ipv6(v6) => (
                             IP::V6(Ipv6Addr::from(
-                                ((v6.src.clone().unwrap().p1 as u128) << 64)
+                                ((v6.src.unwrap().p1 as u128) << 64)
                                     | v6.src.unwrap().p2 as u128,
                             )),
                             IP::V6(Ipv6Addr::from(
-                                ((v6.dst.clone().unwrap().p1 as u128) << 64)
+                                ((v6.dst.unwrap().p1 as u128) << 64)
                                     | v6.dst.unwrap().p2 as u128,
                             )),
                         ),
@@ -994,7 +994,7 @@ impl Controller for ControllerService {
                 if map.contains_key(&probe_dst) {
                     let (workers, _, ttl_old, trace_origins) = map.get_mut(&probe_dst).unwrap();
                     // We want to keep track of the lowest TTL recorded
-                    if ttl < ttl_old.clone() {
+                    if ttl < *ttl_old {
                         *ttl_old = ttl;
                     }
                     // Keep track of all clients that have received probe replies for this target
@@ -1049,16 +1049,19 @@ impl Controller for ControllerService {
         let mut worker_list = self.workers.lock().unwrap();
 
         // Check if the hostname already exists
-        for worker in worker_list.clone().workers.into_iter() {
-            if hostname == worker.metadata.unwrap().hostname {
-                println!(
-                    "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                    hostname
-                );
-                return Err(Status::new(
-                    tonic::Code::AlreadyExists,
-                    "This hostname already exists",
-                ));
+        for worker in &worker_list.workers {
+            match &worker.metadata {
+                Some(metadata) if hostname == metadata.hostname => {
+                    println!(
+                        "[Orchestrator] Refusing worker as the hostname already exists: {}",
+                        hostname
+                    );
+                    return Err(Status::new(
+                        tonic::Code::AlreadyExists,
+                        "This hostname already exists",
+                    ));
+                }
+                _ => {} // Continue to next worker
             }
         }
 
@@ -1074,7 +1077,7 @@ impl Controller for ControllerService {
         let new_worker = Worker {
             worker_id,
             metadata: Some(Metadata {
-                hostname: hostname.clone(),
+                hostname,
             }),
         };
         worker_list.workers.push(new_worker);
@@ -1132,7 +1135,7 @@ async fn traceroute_orchestrator(
                 let traceroute_task = Task {
                     data: Some(TaskTrace(Trace {
                         max_ttl,
-                        dst: Some(Address::from(target.clone())),
+                        dst: Some(Address::from(target)),
                         origins: trace_origins,
                     })),
                 };
@@ -1258,8 +1261,8 @@ async fn probe_targets(
         match measurement_type {
             1 => {
                 packet.extend_from_slice(&create_ping(
-                    source.clone(),
-                    IP::from(target.clone()),
+                    source,
+                    IP::from(target),
                     0,
                     0,
                     info_url,
@@ -1267,18 +1270,18 @@ async fn probe_targets(
             }
             2 | 4 => {
                 packet.extend_from_slice(&create_udp(
-                    source.clone(),
-                    IP::from(target.clone()),
+                    source,
+                    IP::from(target),
                     0,
                     measurement_type,
                     is_ipv6,
-                    &dns_record.clone(),
+                    &dns_record,
                 ));
             }
             3 => {
                 packet.extend_from_slice(&create_tcp(
-                    source.clone(),
-                    IP::from(target.clone()),
+                    source,
+                    IP::from(target),
                     0,
                     is_ipv6,
                     true,
