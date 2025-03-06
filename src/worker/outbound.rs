@@ -55,7 +55,8 @@ pub fn outbound(
             cap.direction(pcap::Direction::Out)
                 .expect("Unable to set pcap direction");
             'outer: loop {
-                if let Ok(Some(())) = finish_rx.try_recv() { // TODO verify abort is working
+                if let Ok(Some(())) = finish_rx.try_recv() {
+                    // TODO verify abort is working
                     // If the finish_rx received a signal, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
@@ -98,7 +99,10 @@ pub fn outbound(
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
+                                            println!(
+                                                "[Worker outbound] Failed to send ICMP packet: {}",
+                                                e
+                                            )
                                             // TODO packet loss due to libpcap error: send: Resource temporarily unavailable
                                         });
                                     }
@@ -115,7 +119,10 @@ pub fn outbound(
                                             &qname.clone(),
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
+                                            println!(
+                                                "[Worker outbound] Failed to send ICMP packet: {}",
+                                                e
+                                            )
                                         });
                                     }
                                 }
@@ -131,10 +138,13 @@ pub fn outbound(
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
+                                            println!(
+                                                "[Worker outbound] Failed to send ICMP packet: {}",
+                                                e
+                                            )
                                         });
                                     }
-                                },
+                                }
                                 255 => {
                                     // TODO all
                                 }

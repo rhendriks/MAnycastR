@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
-use std::path::Path;
 
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
@@ -65,10 +65,15 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get optional opt-out URL
-        let url = matches.get_one::<String>("url").cloned().unwrap_or_default();
+        let url = matches
+            .get_one::<String>("url")
+            .cloned()
+            .unwrap_or_default();
 
         // Source IP for the measurement
-        let src = matches.get_one::<String>("address").map(|addr| Address::from(addr.clone()));
+        let src = matches
+            .get_one::<String>("address")
+            .map(|addr| Address::from(addr.clone()));
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.contains_id("configuration") && !is_unicast {
@@ -103,7 +108,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let dport =
+                        u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
 
                     Some(Configuration {
                         worker_id,
@@ -120,7 +126,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
 
             // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations.first().unwrap().origin.unwrap().src.unwrap().is_v6();
+            let is_ipv6 = configurations
+                .first()
+                .unwrap()
+                .origin
+                .unwrap()
+                .src
+                .unwrap()
+                .is_v6();
             if configurations
                 .iter()
                 .any(|conf| conf.origin.unwrap().src.unwrap().is_v6() != is_ipv6)
@@ -195,12 +208,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     .split(',')
                     .filter_map(|id| {
                         let id = id.trim();
-                        id.parse::<u32>().map_err(|e| {
-                            eprintln!("Unable to parse worker ID '{}': {}", id, e);
-                        }).ok()
+                        id.parse::<u32>()
+                            .map_err(|e| {
+                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
+                            })
+                            .ok()
                     })
                     .collect()
-            }
+            },
         );
 
         if worker_ids.len() > 0 {
@@ -211,7 +226,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the measurement type
-        let measurement_type: u8 = match matches.get_one::<String>("type").unwrap().to_lowercase().as_str() {
+        let measurement_type: u8 = match matches
+            .get_one::<String>("type")
+            .unwrap()
+            .to_lowercase()
+            .as_str()
+        {
             "icmp" => 1,
             "dns" => 2,
             "tcp" => 3,
@@ -223,9 +243,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 || measurement_type == 255 {
             // get CHAOS query
-            matches.get_one::<String>("QUERY").map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == 2 { // TODO change default A record value
-            matches.get_one::<String>("QUERY").map_or("any.dnsjedi.org", |q| q.as_str())
+            matches
+                .get_one::<String>("QUERY")
+                .map_or("hostname.bind", |q| q.as_str())
+        } else if measurement_type == 2 {
+            // TODO change default A record value
+            matches
+                .get_one::<String>("QUERY")
+                .map_or("any.dnsjedi.org", |q| q.as_str())
         } else {
             ""
         };
@@ -235,10 +260,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             // Obtain port values (read as u16 as is the port header size)
             let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
             // Default destination port is 53 for DNS, 63853 for all other measurements
-            let dport = matches.get_one::<u16>("destination port")
+            let dport = matches
+                .get_one::<u16>("destination port")
                 .map(|&port| port as u32)
-                .unwrap_or_else(|| if measurement_type == 2 || measurement_type == 4 { 53 } else { 63853 });
-
+                .unwrap_or_else(|| {
+                    if measurement_type == 2 || measurement_type == 4 {
+                        53
+                    } else {
+                        63853
+                    }
+                });
 
             // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
             //     worker_id: u32::MAX
@@ -327,30 +358,46 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if let Some(path_str) = path {
             let path = Path::new(path_str);
 
-            if !path_str.ends_with('/') { // User provided a file
+            if !path_str.ends_with('/') {
+                // User provided a file
                 if path.exists() {
                     if path.is_dir() {
                         println!("[CLI] Path is already a directory, exiting");
                         return Err("Path is already a directory".into());
-                    } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                    } else if fs::metadata(path)
+                        .expect("Unable to get path metadata")
+                        .permissions()
+                        .readonly()
+                    {
                         println!("[CLI] Lacking write permissions for file {}", path_str);
                         return Err("Lacking write permissions".into());
                     } else {
-                        println!("[CLI] Overwriting existing file {} when measurement is done", path_str);
+                        println!(
+                            "[CLI] Overwriting existing file {} when measurement is done",
+                            path_str
+                        );
                     }
                 } else {
                     println!("[CLI] Writing results to new file {}", path_str);
 
                     // File does not yet exist, create it to verify permissions
-                    fs::File::create(path).expect("Unable to create output file").sync_all().expect("Unable to sync file");
+                    fs::File::create(path)
+                        .expect("Unable to create output file")
+                        .sync_all()
+                        .expect("Unable to sync file");
                     fs::remove_file(path).expect("Unable to remove file");
                 }
-            } else { // User provided a directory
+            } else {
+                // User provided a directory
                 if path.exists() {
                     if !path.is_dir() {
                         println!("[CLI] Path is already a file, exiting");
                         return Err("Cannot make dir, file with name already exists.".into());
-                    } else if fs::metadata(path).expect("Unable to get path metadata").permissions().readonly() {
+                    } else if fs::metadata(path)
+                        .expect("Unable to get path metadata")
+                        .permissions()
+                        .readonly()
+                    {
                         println!("[CLI] Lacking write permissions for directory {}", path_str);
                         return Err("Path is not writable".into());
                     } else {
@@ -443,8 +490,7 @@ impl CliClient {
             )
         } else {
             if measurement_definition.origin.is_some() {
-                let src = IP::from(measurement_definition.origin.unwrap().src.unwrap())
-                    .to_string();
+                let src = IP::from(measurement_definition.origin.unwrap().src.unwrap()).to_string();
                 let sport = measurement_definition.origin.unwrap().sport;
                 let dport = measurement_definition.origin.unwrap().dport;
                 format!(

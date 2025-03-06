@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
@@ -201,7 +201,7 @@ fn handle_results(
                 worker_id: worker_id as u32,
                 result_list: rq,
             })
-                .expect("Failed to send TaskResult to worker handler");
+            .expect("Failed to send TaskResult to worker handler");
         }
 
         // Exit the thread if worker sends us the signal it's finished
