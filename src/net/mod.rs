@@ -776,6 +776,7 @@ impl UDPPacket {
 
 /// Get the length of a given domain in bytes
 /// TODO test this function
+#[allow(dead_code)]
 pub fn get_domain_bytes_length(domain: &str) -> u32 {
     let mut length = 0;
     for label in domain.split('.') {
