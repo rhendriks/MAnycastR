@@ -79,6 +79,9 @@ pub fn listen(
                     }
                 };
 
+                println!("received packet {:?}", packet);
+                println!("measurement type {:?}", measurement_type);
+
                 let mut result = if measurement_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     let icmp_result = if is_ipv6 {
@@ -190,6 +193,11 @@ fn handle_results(
 
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
+
+        // Do not send empty results
+        if rq.is_empty() {
+            continue;
+        }
 
         // Send the result to the worker handler
         tx.send(TaskResult {
