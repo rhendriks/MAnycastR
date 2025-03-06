@@ -17,7 +17,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
-
+use tonic::codec::CompressionEncoding;
 use custom_module::verfploeter::{
     controller_server::Controller, controller_server::ControllerServer, ip_result::Value::Ipv4,
     ip_result::Value::Ipv6, task::Data::End as TaskEnd, task::Data::Start as TaskStart,
@@ -1191,7 +1191,10 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         responsive_targets: Arc::new(Mutex::new(Vec::new())),
     };
 
-    let svc = ControllerServer::new(controller);
+    let svc = ControllerServer::new(controller)
+        // .accept_compressed(CompressionEncoding::Gzip) // TODO allow compressed measurement definitions (may include large hitlists)
+        .max_decoding_message_size(10 * 1024 * 1024 * 1024) // 10 GB
+        .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 
     // if TLS is enabled create the orchestrator using a TLS configuration
     if args.get_flag("tls") {
