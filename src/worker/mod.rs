@@ -55,13 +55,12 @@ impl Worker {
     ///
     /// * 'args' - contains the parsed command-line arguments
     pub async fn new(args: &ArgMatches) -> Result<Worker, Box<dyn Error>> {
-        // Get values from args
-        let hostname = if args.contains_id("hostname") {
-            args.get_one::<String>("hostname").unwrap().parse().unwrap()
-        } else {
-            gethostname().into_string().expect("Unable to get hostname")
-        }
-        .to_string();
+        // Get hostname from command line arguments or use the system hostname
+        let hostname = args
+            .get_one::<String>("hostname")
+            .map(|h| h.parse::<String>().expect("Unable to parse hostname"))
+            .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"))
+            .to_string();
 
         let interface = args.get_one::<String>("interface").map(|s| s.to_string());
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();

@@ -65,24 +65,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get optional opt-out URL
-        let url = if matches.contains_id("url") {
-            matches.get_one::<String>("url").unwrap().to_string()
-        } else {
-            "".to_string()
-        };
+        let url = matches.get_one::<String>("url").cloned().unwrap_or_default();
 
         // Source IP for the measurement
-        let src = if matches.contains_id("address") {
-            Some(Address::from(
-                matches.get_one::<String>("address").unwrap().to_string(),
-            ))
-        } else {
-            None
-        };
+        let src = matches.get_one::<String>("address").map(|addr| Address::from(addr.clone()));
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if matches.contains_id("configuration") && !is_unicast {
-            // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
             let conf_file = matches.get_one::<String>("configuration").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
@@ -204,20 +193,25 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the workers that have to send out probes
-        let worker_ids = if matches.contains_id("selective") {
-            let worker_entries = matches.get_one::<String>("selective").unwrap();
-            worker_entries
-                .trim_matches(|c| c == '[' || c == ']')
-                .split(',')
-                .map(|id| {
-                    u32::from_str(id.trim())
-                        .expect(&format!("Unable to parse worker ID: {:<2}", id))
-                })
-                .collect::<Vec<u32>>()
-        } else {
-            println!("[CLI] Probes will be sent out from all workers");
-            Vec::new()
-        };
+        let worker_ids = matches.get_one::<String>("selective").map_or_else(
+            || {
+                println!("[CLI] Probes will be sent out from all workers");
+                Vec::new()
+            },
+            |worker_entries| {
+                worker_entries
+                    .trim_matches(['[', ']'])
+                    .split(',')
+                    .filter_map(|id| {
+                        let id = id.trim();
+                        id.parse::<u32>().map_err(|e| {
+                            eprintln!("Unable to parse worker ID '{}': {}", id, e);
+                        }).ok()
+                    })
+                    .collect()
+            }
+        );
+
         if worker_ids.len() > 0 {
             println!(
                 "[CLI] Selective probing using the following workers: {:?}",
@@ -225,7 +219,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             ); // TODO print worker hostnames
         }
 
-
+        // Get the measurement type
         let measurement_type: u8 = match matches.get_one::<String>("type").unwrap().to_lowercase().as_str() {
             "icmp" => 1,
             "dns" => 2,
@@ -237,17 +231,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // CHAOS value to send in the DNS query
         let dns_record = if measurement_type == 4 || measurement_type == 255 {
-            if matches.contains_id("QUERY") {
-                matches.get_one::<String>("QUERY").unwrap()
-            } else {
-                "hostname.bind"
-            }
-        } else if measurement_type == 2 {
-            if matches.contains_id("QUERY") {
-                matches.get_one::<String>("QUERY").unwrap()
-            } else {
-                "any.dnsjedi.org" // TODO what default record to use for A
-            }
+            // get CHAOS query
+            matches.get_one::<String>("QUERY").map_or("hostname.bind", |q| q.as_str())
+        } else if measurement_type == 2 { // TODO change default A record value
+            matches.get_one::<String>("QUERY").map_or("any.dnsjedi.org", |q| q.as_str())
         } else {
             ""
         };
@@ -256,18 +243,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
             let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
-            let dport = if matches.contains_id("destination port") {
-                *matches.get_one::<u16>("destination port").unwrap() as u32
-            } else {
-                if measurement_type == 2 || measurement_type == 4 {
-                    53 // Default DNS destination port
-                } else {
-                    63853 // Default destination port
-                }
-            };
+            // Default destination port is 53 for DNS, 63853 for all other measurements
+            let dport = matches.get_one::<u16>("destination port")
+                .map(|&port| port as u32)
+                .unwrap_or_else(|| if measurement_type == 2 || measurement_type == 4 { 53 } else { 63853 });
+
 
             // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
-            //     worker_id: u32::MAX,
+            //     worker_id: u32::MAX
             //     origin: Some(Origin {
             //         source_address: source_ip,
             //         source_port,
@@ -281,7 +264,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli =matches.get_flag("stream");
+        let cli = matches.get_flag("stream");
         let traceroute = matches.get_flag("traceroute");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
@@ -320,7 +303,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.clone().unwrap() {
                 if let Some(origin) = &configuration.origin {
-                    let src = IP::from(origin.src.clone().unwrap()).to_string();
+                    let src = origin.src.unwrap().to_string();
                     let sport = origin.sport;
                     let dport = origin.dport;
 
@@ -339,7 +322,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         } else {
             if let Some(origin) = &origin {
-                let src = IP::from(origin.src.clone().unwrap()).to_string();
+                let src = origin.src.unwrap().to_string();
+
                 println!(
                     "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
                     src, origin.sport, origin.dport
@@ -350,10 +334,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // get optional path to write results to
         let path = matches.get_one::<String>("out");
         if let Some(path_str) = path {
-            let is_file = !path_str.ends_with('/');
             let path = Path::new(path_str);
 
-            if is_file { // User provided a file
+            if !path_str.ends_with('/') { // User provided a file
                 if path.exists() {
                     if path.is_dir() {
                         println!("[CLI] Path is already a directory, exiting");
