@@ -228,7 +228,7 @@ impl Worker {
         // Add filter for each address/port combination based on the measurement type
         let filter_parts: Vec<String> = match start_measurement.measurement_type {
             1 => { // ICMP
-                let filter = if is_ipv6 { "icmp6" } else { "icmp" };
+                let filter = if is_ipv6 { "icmp6 and icmp6[0] == 129" } else { "icmp and icmp[0] == 0" };
                 rx_origins
                     .iter()
                     .map(|origin| {
@@ -243,12 +243,12 @@ impl Worker {
                         let src_ip = IP::from(origin.src.unwrap()).to_string();
                         let filter = if is_ipv6 {
                             format!(
-                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})",
+                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})", // TODO filter on icmp reply type
                                 src_ip, origin.sport, src_ip
                             )
                         } else {
                             format!(
-                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})",
+                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})", // TODO filter on icmp reply type
                                 src_ip, origin.sport, src_ip
                             )
                         };
@@ -277,7 +277,7 @@ impl Worker {
                         .iter()
                         .map(|origin| {
                             format!(
-                                " (icmp and dst host {})",
+                                " (icmp and dst host {})", // TODO filter on icmp reply type
                                 IP::from(origin.src.unwrap()).to_string()
                             )
                         })
@@ -288,7 +288,7 @@ impl Worker {
             }
             255 => { // All
                 let (filter_p, filter_icmp) = if is_ipv6 {
-                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6")
+                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6") // TODO filter on icmp reply type
                 } else {
                     ("(udp or tcp)", "icmp")
                 };
