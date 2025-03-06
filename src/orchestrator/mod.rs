@@ -1340,7 +1340,6 @@ async fn listen_for_responses(
     loop {
         if rx_f.try_recv().is_ok() {
             // Check if the orchestrator has finished probing for responsive targets
-            println!("received finished signal");
             break;
         }
 
@@ -1398,8 +1397,6 @@ async fn send_responsive(
 
             // Check if the orchestrator has finished probing for responsive targets
             if rx_f.try_recv().is_ok() {
-                println!("received finished signal");
-
                 // Send finished signal to all clients
                 for sender in senders.iter() {
                     // Send a message to the worker to let it know it has received everything for the current measurement
