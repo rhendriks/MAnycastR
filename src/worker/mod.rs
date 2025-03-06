@@ -192,13 +192,13 @@ impl Worker {
             );
 
             let unicast_origin = Origin {
-                src: Some(Address::from(unicast_ip.clone())), // Unicast IP
+                src: Some(Address::from(unicast_ip)), // Unicast IP
                 sport: sport.into(),                          // CLI defined source port
                 dport: dport.into(),                          // CLI defined destination port
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
-            rx_origins = vec![unicast_origin.clone()];
+            rx_origins = vec![unicast_origin];
 
             println!("[Worker] Using local unicast IP address: {:?}", unicast_ip);
             // Use the local unicast address
@@ -278,7 +278,7 @@ impl Worker {
                         .map(|origin| {
                             format!(
                                 " (icmp and dst host {})",
-                                IP::from(origin.clone().src.unwrap()).to_string()
+                                IP::from(origin.src.unwrap()).to_string()
                             )
                         })
                         .collect();
@@ -312,7 +312,7 @@ impl Worker {
 
         // Start listening thread
         listen(
-            tx.clone(),
+            tx,
             inbound_rx_f,
             measurement_id,
             worker_id,
@@ -430,7 +430,7 @@ impl Worker {
             if *self.active.lock().unwrap() {
                 // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
-                match task.clone().data {
+                match task.data {
                     None => {
                         println!("[Worker] Received empty task, skipping");
                         continue;
@@ -454,9 +454,7 @@ impl Worker {
                             }
                             // Close outbound threads
                             if self.outbound_tx.is_some() {
-                                self.outbound_tx
-                                    .clone()
-                                    .unwrap()
+                                self.outbound_tx.clone().unwrap()
                                     .send(Data::End(End { code: 0 }))
                                     .await
                                     .expect(
