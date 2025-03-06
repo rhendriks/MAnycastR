@@ -55,7 +55,8 @@ pub fn outbound(
             cap.direction(pcap::Direction::Out)
                 .expect("Unable to set pcap direction");
             'outer: loop {
-                if let Ok(_) = finish_rx.try_recv() {
+                if let Ok(v) = finish_rx.try_recv() {
+                    println!("finish_rx: {:?}", v);
                     // If the finish_rx received a signal, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
