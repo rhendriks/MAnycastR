@@ -188,13 +188,14 @@ impl Worker {
                     local_ipv6().expect("Unable to get local unicast IPv6 address")
                 } else {
                     local_ip().expect("Unable to get local unicast IPv4 address")
-                }.to_string()
+                }
+                .to_string(),
             );
 
             let unicast_origin = Origin {
                 src: Some(Address::from(unicast_ip)), // Unicast IP
-                sport: sport.into(), // CLI defined source port
-                dport: dport.into(), // CLI defined destination port
+                sport: sport.into(),                  // CLI defined source port
+                dport: dport.into(),                  // CLI defined destination port
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
@@ -227,8 +228,13 @@ impl Worker {
 
         // Add filter for each address/port combination based on the measurement type
         let filter_parts: Vec<String> = match start_measurement.measurement_type {
-            1 => { // ICMP
-                let filter = if is_ipv6 { "icmp6 and icmp6[0] == 129" } else { "icmp and icmp[0] == 0" };
+            1 => {
+                // ICMP
+                let filter = if is_ipv6 {
+                    "icmp6 and icmp6[0] == 129"
+                } else {
+                    "icmp and icmp[0] == 0"
+                };
                 rx_origins
                     .iter()
                     .map(|origin| {
@@ -237,8 +243,10 @@ impl Worker {
                     })
                     .collect::<Vec<String>>()
             }
-            2 | 4 => { // DNS (A record, TXT record)
-                rx_origins.iter()
+            2 | 4 => {
+                // DNS (A record, TXT record)
+                rx_origins
+                    .iter()
                     .map(|origin| {
                         let src_ip = IP::from(origin.src.unwrap()).to_string();
                         let filter = if is_ipv6 {
@@ -255,9 +263,9 @@ impl Worker {
                         filter
                     })
                     .collect::<Vec<String>>()
-
             }
-            3 => { // TCP
+            3 => {
+                // TCP
                 let filter = if is_ipv6 { "ip6[6] == 6" } else { "tcp" };
 
                 let mut tcp_filters: Vec<String> = rx_origins
@@ -286,7 +294,8 @@ impl Worker {
                 }
                 tcp_filters
             }
-            255 => { // All
+            255 => {
+                // All
                 let (filter_p, filter_icmp) = if is_ipv6 {
                     ("ip6[6] == 17 or ip6[6] == 6", "icmp6") // TODO filter on icmp reply type
                 } else {
@@ -303,8 +312,7 @@ impl Worker {
                         )
                     })
                     .collect()
-
-            },
+            }
             _ => panic!("Invalid measurement type"),
         };
 
@@ -454,7 +462,9 @@ impl Worker {
                             }
                             // Close outbound threads
                             if self.outbound_tx.is_some() {
-                                self.outbound_tx.clone().unwrap()
+                                self.outbound_tx
+                                    .clone()
+                                    .unwrap()
                                     .send(Data::End(End { code: 0 }))
                                     .await
                                     .expect(

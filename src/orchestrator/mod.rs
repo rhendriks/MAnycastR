@@ -8,16 +8,6 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use clap::ArgMatches;
-use futures_core::Stream;
-use local_ip_address::local_ip;
-use pcap::{Capture, Device};
-use rand::Rng;
-use tokio::spawn;
-use tokio::sync::broadcast::Receiver;
-use tokio::sync::mpsc;
-use tonic::transport::{Identity, ServerTlsConfig};
-use tonic::{transport::Server, Request, Response, Status};
-use tonic::codec::CompressionEncoding;
 use custom_module::verfploeter::{
     controller_server::Controller, controller_server::ControllerServer, ip_result::Value::Ipv4,
     ip_result::Value::Ipv6, task::Data::End as TaskEnd, task::Data::Start as TaskStart,
@@ -27,6 +17,15 @@ use custom_module::verfploeter::{
     TaskResult, Trace, Worker, WorkerId, WorkerList,
 };
 use custom_module::IP;
+use futures_core::Stream;
+use local_ip_address::local_ip;
+use pcap::{Capture, Device};
+use rand::Rng;
+use tokio::spawn;
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc;
+use tonic::transport::{Identity, ServerTlsConfig};
+use tonic::{transport::Server, Request, Response, Status};
 
 use crate::custom_module;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
@@ -688,9 +687,7 @@ impl Controller for ControllerService {
                             .insert(current_prefix, r_address.clone());
                         for addr in chunk {
                             // Add address to the probing channel
-                            tx_r.send(addr)
-                                .await
-                                .expect("Failed to send target");
+                            tx_r.send(addr).await.expect("Failed to send target");
 
                             // Sleep 1 second
                             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -938,12 +935,10 @@ impl Controller for ControllerService {
                         ),
                         Ipv6(v6) => (
                             IP::V6(Ipv6Addr::from(
-                                ((v6.src.unwrap().p1 as u128) << 64)
-                                    | v6.src.unwrap().p2 as u128,
+                                ((v6.src.unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128,
                             )),
                             IP::V6(Ipv6Addr::from(
-                                ((v6.dst.unwrap().p1 as u128) << 64)
-                                    | v6.dst.unwrap().p2 as u128,
+                                ((v6.dst.unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128,
                             )),
                         ),
                     },
@@ -954,12 +949,10 @@ impl Controller for ControllerService {
                         ),
                         Ipv6(v6) => (
                             IP::V6(Ipv6Addr::from(
-                                ((v6.src.unwrap().p1 as u128) << 64)
-                                    | v6.src.unwrap().p2 as u128,
+                                ((v6.src.unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128,
                             )),
                             IP::V6(Ipv6Addr::from(
-                                ((v6.dst.unwrap().p1 as u128) << 64)
-                                    | v6.dst.unwrap().p2 as u128,
+                                ((v6.dst.unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128,
                             )),
                         ),
                     },
@@ -1076,9 +1069,7 @@ impl Controller for ControllerService {
         // Add the worker to the worker list
         let new_worker = Worker {
             worker_id,
-            metadata: Some(Metadata {
-                hostname,
-            }),
+            metadata: Some(Metadata { hostname }),
         };
         worker_list.workers.push(new_worker);
 
@@ -1264,13 +1255,7 @@ async fn probe_targets(
         let mut packet = ethernet_header.clone();
         match measurement_type {
             1 => {
-                packet.extend_from_slice(&create_ping(
-                    source,
-                    IP::from(target),
-                    0,
-                    0,
-                    info_url,
-                ));
+                packet.extend_from_slice(&create_ping(source, IP::from(target), 0, 0, info_url));
             }
             2 | 4 => {
                 packet.extend_from_slice(&create_udp(
@@ -1291,7 +1276,7 @@ async fn probe_targets(
                     true,
                     info_url,
                 ));
-            },
+            }
 
             255 => {
                 // all measurement types TODO

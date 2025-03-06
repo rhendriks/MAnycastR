@@ -167,7 +167,7 @@
 //!
 //! From these definitions code is generated using protobuf (done in build.rs).
 
-use clap::{Arg, ArgMatches, Command, value_parser, ArgAction};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
 mod cli;
 mod custom_module;

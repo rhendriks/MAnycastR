@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * 'is_ipv6' - whether we are using IPv6 or not
 pub fn get_ethernet_header(
     is_ipv6: bool,
-    if_name: Option<String> // TODO different interfaces may be used for different addresses
+    if_name: Option<String>, // TODO different interfaces may be used for different addresses
 ) -> Vec<u8> {
     // Get the src MAC for interface, if provided
     let mac_src = if let Some(if_name) = if_name.clone() {
@@ -54,7 +54,8 @@ pub fn get_ethernet_header(
                 if parts[3].split(':').all(|s| s == "00") {
                     continue;
                 }
-                if if_name.is_some() { // TODO dynamically retrieve the interface for the used address
+                if if_name.is_some() {
+                    // TODO dynamically retrieve the interface for the used address
                     // Match on the interface name TODO match for default interface as well
                     if parts[5] == if_name.clone().unwrap() {
                         mac_dst = parts[3]
