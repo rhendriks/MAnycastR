@@ -3,22 +3,24 @@ name = "manycast" # TODO change package name
 version = "0.1.0"
 edition = "2021"
 
+# TODO create worker lite version (deployed on anycast sites)
+
 [dependencies]
-byteorder = "1.5.0"
-chrono = "0.4.40"
-clap = "4.5.31"
-csv = "1.3.1"
-futures = "0.3.31"
-futures-core = "0.3.31"
-prettytable-rs = "0.10.0"
-prost = "0.13.5"
-tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tonic = { version = "0.12.3", features = ["tls"] }
-rand = "0.9.0"
-gethostname = "1.0.0"
-pcap = "2.2.0"
-local-ip-address = "0.6.3"
-mac_address = "1.1.8"
+byteorder = "1.5.0"# convert between byte arrays and integers
+chrono = "0.4.40"# get current time
+clap = "4.5.31"# parse command line arguments
+csv = "1.3.1" # write to CSV
+futures = "0.3.31" # async runtime
+futures-core = "0.3.31" # async runtime
+prettytable-rs = "0.10.0" # print worker-list
+prost = "0.13.5" # define gRPC messages
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
+tonic = { version = "0.12.3", features = ["tls"] } # gRPC (inter-component communication)
+rand = "0.9.0" # generate random numbers
+gethostname = "1.0.0" # get hostname
+pcap = "2.2.0" # send/receive packets
+local-ip-address = "0.6.3" # get local unicast address
+mac_address = "1.1.8" # get MAC address
 indicatif = "0.17.11" # progress bar
 
 [build-dependencies]
