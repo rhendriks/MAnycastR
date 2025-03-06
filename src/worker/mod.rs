@@ -549,9 +549,13 @@ impl Worker {
         &mut self,
         task_result: TaskResult,
     ) -> Result<(), Box<dyn Error>> {
-        self.client.send_result(Request::new(task_result)).await?;
-
-        Ok(())
+        match self.client.send_result(Request::new(task_result)).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                eprintln!("Error sending task result to server: {:?}", e);
+                Err(Box::new(e))
+            }
+        }
     }
 
     /// Let the orchestrator know the current measurement is finished.
