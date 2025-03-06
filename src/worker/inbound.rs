@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
@@ -56,9 +57,9 @@ pub fn listen(
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
-    let exit_flag = Arc::new(Mutex::new(false));
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let exit_flag_r = Arc::clone(&exit_flag);
     let rq_r = rq.clone();
-    let exit_flag_r = exit_flag.clone();
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
@@ -68,12 +69,13 @@ pub fn listen(
 
             // Listen for incoming packets
             loop {
+                // Check if we should exit
+                if exit_flag_r.load(Ordering::Relaxed) {
+                    break;
+                }
                 let packet = match cap.next_packet() {
                     Ok(packet) => packet,
                     Err(_) => {
-                        if *exit_flag_r.lock().unwrap() {
-                            break;
-                        }
                         sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
                         continue;
                     }
@@ -157,7 +159,9 @@ pub fn listen(
             handle_results(&tx, rx_f, worker_id, rq);
 
             // Close the pcap listener
-            *exit_flag.lock().unwrap() = true;
+            println!("[Worker inbound] Stopping pcap listener");
+            // Set the exit flag to true
+            exit_flag.store(true, Ordering::SeqCst);
 
             // Send default value to let the rx know this is finished
             tx.send(TaskResult::default())
