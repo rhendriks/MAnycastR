@@ -103,8 +103,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let dport =
-                        u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
 
                     Some(Configuration {
                         worker_id,
@@ -121,18 +120,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
 
             // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations
-                .first()
-                .unwrap()
-                .origin
-                .clone()
-                .unwrap()
-                .src
-                .unwrap()
-                .is_v6();
+            let is_ipv6 = configurations.first().unwrap().origin.unwrap().src.unwrap().is_v6();
             if configurations
                 .iter()
-                .any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6)
+                .any(|conf| conf.origin.unwrap().src.unwrap().is_v6() != is_ipv6)
             {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
@@ -444,18 +435,18 @@ impl CliClient {
         let is_traceroute = measurement_definition.traceroute;
         let interval = measurement_definition.interval;
         let origin = if is_unicast {
-            let sport = measurement_definition.origin.clone().unwrap().sport;
-            let dport = measurement_definition.origin.clone().unwrap().dport;
+            let sport = measurement_definition.origin.unwrap().sport;
+            let dport = measurement_definition.origin.unwrap().dport;
             format!(
                 "Unicast (source port: {}, destination port: {})",
                 sport, dport
             )
         } else {
-            if measurement_definition.clone().origin.is_some() {
-                let src = IP::from(measurement_definition.clone().origin.unwrap().src.unwrap())
+            if measurement_definition.origin.is_some() {
+                let src = IP::from(measurement_definition.origin.unwrap().src.unwrap())
                     .to_string();
-                let sport = measurement_definition.origin.clone().unwrap().sport;
-                let dport = measurement_definition.origin.clone().unwrap().dport;
+                let sport = measurement_definition.origin.unwrap().sport;
+                let dport = measurement_definition.origin.unwrap().dport;
                 format!(
                     "Anycast (source IP: {}, source port: {}, destination port: {})",
                     src, sport, dport
@@ -714,7 +705,7 @@ impl CliClient {
                 } else {
                     configuration.worker_id.to_string()
                 };
-                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
@@ -821,7 +812,7 @@ impl CliClient {
 
         for worker in response.into_inner().workers {
             table.add_row(prettytable::row!(
-                worker.metadata.clone().unwrap().hostname,
+                worker.metadata.unwrap().hostname,
                 worker.worker_id,
             ));
         }
