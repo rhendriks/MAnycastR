@@ -79,9 +79,6 @@ pub fn listen(
                     }
                 };
 
-                println!("received packet {:?}", packet);
-                println!("measurement type {:?}", measurement_type);
-
                 let mut result = if measurement_type == 1 { // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     let icmp_result = if is_ipv6 {
@@ -138,7 +135,6 @@ pub fn listen(
                 }
 
                 // Put result in transmission queue
-                println!("putting result in queue {:?}", result);
                 {
                     let mut rq_opt = rq_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
@@ -308,36 +304,29 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 ///
 /// The function also discards packets that do not belong to the current measurement.
 fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterResult> {
-    println!("parsing pingv4");
     let (ip_result, payload) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload)) => (ip_result, payload),
         None => return None,
     };
 
-    println!("parsed IP header {:?}", ip_result);
-
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
         if *&icmp_packet.icmp_type != 0 {
-            println!("none 1");
             return None;
         } // Only parse ICMP echo replies
 
         if *&icmp_packet.body.len() < 4 {
-            println!("none 2");
             return None;
         }
         let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() {
             s
         } else {
-            println!("none 3");
             return None;
         };
         let pkt_measurement_id = u32::from_be_bytes(s);
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
-            println!("none 4");
             return None;
         }
 
@@ -369,7 +358,6 @@ fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterR
             })),
         })
     } else {
-        println!("none 5");
         None
     }
 }

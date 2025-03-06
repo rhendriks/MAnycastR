@@ -78,10 +78,6 @@ pub fn outbound(
                         }
                     };
                 }
-                println!(
-                    "received task: {:?}",
-                    task
-                );
 
                 match task {
                     End(_) => {
@@ -101,9 +97,8 @@ pub fn outbound(
                                             measurement_id,
                                             &info_url,
                                         ));
-                                        println!("sending packet");
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("Failed to send ICMP packet: {}", e)
+                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
                                             // TODO packet loss due to libpcap error: send: Resource temporarily unavailable
                                         });
                                     }
@@ -120,7 +115,7 @@ pub fn outbound(
                                             &qname.clone(),
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("Failed to send ICMP packet: {}", e)
+                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
                                         });
                                     }
                                 }
@@ -136,7 +131,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
-                                            println!("Failed to send ICMP packet: {}", e)
+                                            println!("[Worker outbound] Failed to send ICMP packet: {}", e)
                                         });
                                     }
                                 },
@@ -205,7 +200,6 @@ fn perform_trace(
         panic!("Invalid measurement type")
     }
 
-    println!("performing trace from {:?} to {}", origins, dst.to_string());
     for origin in origins {
         let src = IP::from(origin.src.expect("None IP address"));
         let sport = origin.sport as u16;
