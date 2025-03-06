@@ -314,7 +314,7 @@ fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterR
         None => return None,
     };
 
-    println!("parsed IP header");
+    println!("parsed IP header {:?}", ip_result);
 
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
