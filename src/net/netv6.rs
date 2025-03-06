@@ -503,7 +503,7 @@ impl super::UDPPacket {
             next_header: 17,
         };
 
-        udp_packet.checksum = calculate_checksum_v6(udp_bytes.clone(), pseudo_header);
+        udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
 
         // Create the IPv6 packet
         let v6_packet = IPv6Packet {
