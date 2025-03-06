@@ -901,9 +901,11 @@ impl Controller for ControllerService {
     ///
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
-        println!("Received result from worker");
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
+
+        println!("Received result from worker {:?}", task_result);
+
 
         if *self.traceroute.lock().unwrap() {
             // If traceroute is enabled
@@ -1018,6 +1020,7 @@ impl Controller for ControllerService {
             sender.clone().unwrap()
         };
 
+        println!("Sending result to CLI");
         match tx.send(Ok(task_result)).await {
             Ok(_) => Ok(Response::new(Ack {
                 success: true,
