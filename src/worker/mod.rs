@@ -405,7 +405,7 @@ impl Worker {
     ///
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("Connecting to orchestrator");
+        println!("[Worker] Connecting to orchestrator");
         // Get the worker_id from the orchestrator
         let worker_id = self
             .get_worker_id()
