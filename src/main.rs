@@ -198,8 +198,6 @@ fn main() {
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
-        // TODO implement quit command to stop the CLI when user types quit in the CLI
-
         let _ = cli::execute(cli_matches);
         return;
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
@@ -245,7 +243,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
                     Arg::new("hostname")
@@ -278,7 +276,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
                     Arg::new("tls")

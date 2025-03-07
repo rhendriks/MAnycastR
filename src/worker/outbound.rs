@@ -56,7 +56,6 @@ pub fn outbound(
                 .expect("Unable to set pcap direction");
             'outer: loop {
                 if let Ok(Some(())) = finish_rx.try_recv() {
-                    // TODO verify abort is working
                     // If the finish_rx received a signal, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
