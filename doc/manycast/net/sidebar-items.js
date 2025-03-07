@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["INFO_URL"],"enum":["PacketPayload"],"fn":["calculate_checksum","read_dns_name"],"mod":["netv6"],"struct":["DNSAnswer","DNSRecord","ICMPPacket","IPv4Packet","PseudoHeader","TCPPacket","TXTRecord","UDPPacket"]};

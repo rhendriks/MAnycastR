@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":[["ControllerServer","The controller which controls and is responsible for most communication"],["_Inner",""]],"trait":[["Controller","Generated trait containing gRPC methods that should be implemented for use with ControllerServer."]]};

@@ -1,94 +1,102 @@
-use std::{fs, io};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{fs, io};
 
 use chrono::{Datelike, Local, Timelike};
 use clap::ArgMatches;
 use csv::Writer;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::{Attr, Cell, color, format, Row, Table};
+use prettytable::{color, format, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tonic::Request;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::Request;
 
-use custom_module::{IP, Separated};
 use custom_module::verfploeter::{
-    Address, Configuration, controller_client::ControllerClient, Empty,
-    Origin, ScheduleMeasurement, Targets, TaskResult,
-    trace_result::Value, udp_payload::Value::DnsARecord,
-    udp_payload::Value::DnsChaos,
-    verfploeter_result::Value::Ping as ResultPing, verfploeter_result::Value::Tcp as ResultTcp,
-    verfploeter_result::Value::Trace as ResultTrace, verfploeter_result::Value::Udp as ResultUdp, VerfploeterResult,
+    controller_client::ControllerClient, trace_result::Value, udp_payload::Value::DnsARecord,
+    udp_payload::Value::DnsChaos, verfploeter_result::Value::Ping as ResultPing,
+    verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Trace as ResultTrace,
+    verfploeter_result::Value::Udp as ResultUdp, Address, Configuration, Empty, Origin,
+    ScheduleMeasurement, Targets, TaskResult, VerfploeterResult,
 };
+use custom_module::{Separated, IP};
 
 use crate::custom_module;
 
-/// A CLI worker that creates a connection with the 'orc' and sends the desired commands based on the command-line input.
+/// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
 }
 
-/// Connect to the orc and make it perform the CLI command from the command-line
+/// Connect to the orchestrator and make it perform the CLI command from the command-line
 ///
 /// # Arguments
 ///
 /// * 'args' - contains the parsed CLI arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.value_of("orc").unwrap();
-    let fqdn = args.value_of("tls");
+    let server_address = args.get_one::<String>("orchestrator").unwrap();
+    let fqdn = args.get_one::<String>("tls");
 
-    // Create worker connection with the Controller Server
-    println!("[CLI] Connecting to Controller Server at address {}", server_address);
-    let grpc_client = CliClient::connect(server_address, fqdn).await.expect("Unable to connect to orc");
+    // Connect with orchestrator
+    println!("[CLI] Connecting to orchestrator - {}", server_address);
+    let grpc_client = CliClient::connect(server_address, fqdn)
+        .await
+        .expect("Unable to connect to orchestrator")
+        .send_compressed(CompressionEncoding::Zstd);
     let mut cli_client = CliClient { grpc_client };
 
-    if args.subcommand_matches("worker-list").is_some() { // Perform the worker-list command
-        cli_client.list_clients_to_server().await
-    } else if let Some(matches) = args.subcommand_matches("start") { // Start a Verfploeter measurement
-        // Source IP for the measurement
-        let is_unicast = matches.is_present("UNICAST");
-        let is_divide = matches.is_present("DIVIDE");
-        let is_responsive = matches.is_present("RESPONSIVE");
+    if args.subcommand_matches("worker-list").is_some() {
+        // Perform the worker-list command
+        cli_client.list_workers().await
+    } else if let Some(matches) = args.subcommand_matches("start") {
+        // Start a Verfploeter measurement
+        let is_unicast = matches.get_flag("unicast");
+        let is_divide = matches.get_flag("divide");
+        let is_responsive = matches.get_flag("responsive");
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
         // Get optional opt-out URL
-        let url = if matches.is_present("URL") {
-            matches.value_of("URL").unwrap().to_string()
-        } else {
-            "".to_string()
-        };
+        let url = matches
+            .get_one::<String>("url")
+            .cloned()
+            .unwrap_or_default();
 
-        let src = if matches.is_present("ADDRESS") {
-            Some(Address::from(matches.value_of("ADDRESS").unwrap().to_string()))
-        } else {
-            None
-        };
+        // Source IP for the measurement
+        let src = matches
+            .get_one::<String>("address")
+            .map(|addr| Address::from(addr.clone()));
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.is_present("CONF") && !is_unicast {
-            // if is_divide { panic!("Divide-and-conquer is currently unsupported for configuration based measurements.") }
-            let conf_file = matches.value_of("CONF").unwrap();
+        let configurations = if matches.contains_id("configuration") && !is_unicast {
+            let conf_file = matches.get_one::<String>("configuration").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
-            let file = File::open(conf_file).unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
+            let file = File::open(conf_file)
+                .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
             let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
                 .lines()
                 .filter_map(|l| {
                     let line = l.expect("Unable to read configuration line");
-                    if line.starts_with("#") { return None; } // Skip comments
+                    if line.starts_with("#") {
+                        return None;
+                    } // Skip comments
                     let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
-                    if parts.len() != 2 { panic!("Invalid configuration format: {}", line); }
-                    let client_id = if parts[0] == "ALL" { // All clients probe this configuration
+                    if parts.len() != 2 {
+                        panic!("Invalid configuration format: {}", line);
+                    }
+                    let worker_id = if parts[0] == "ALL" {
+                        // All clients probe this configuration
                         u32::MAX
                     } else {
                         u32::from_str(parts[0]).expect("Unable to parse configuration worker ID")
@@ -96,14 +104,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                    if addr_ports.len() != 3 { panic!("Invalid configuration format: {}", line); }
+                    if addr_ports.len() != 3 {
+                        panic!("Invalid configuration format: {}", line);
+                    }
                     let src = Address::from(addr_ports[0].to_string());
                     // Parse to u16 first, must fit in header
                     let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let dport =
+                        u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
 
                     Some(Configuration {
-                        client_id,
+                        worker_id,
                         origin: Some(Origin {
                             src: Some(src),
                             sport: sport.into(),
@@ -117,8 +128,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
 
             // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations.first().unwrap().origin.clone().unwrap().src.unwrap().is_v6();
-            if configurations.iter().any(|conf| conf.origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6) {
+            let is_ipv6 = configurations
+                .first()
+                .unwrap()
+                .origin
+                .unwrap()
+                .src
+                .unwrap()
+                .is_v6();
+            if configurations
+                .iter()
+                .any(|conf| conf.origin.unwrap().src.unwrap().is_v6() != is_ipv6)
+            {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
             Some(configurations)
@@ -132,25 +153,38 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Get the target IP addresses
-        let hitlist_path = matches.value_of("IP_FILE").expect("No hitlist file provided!");
-        let file = File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+        let hitlist_path = matches
+            .get_one::<String>("IP_FILE")
+            .expect("No hitlist file provided!");
+        let file = File::open(hitlist_path)
+            .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
         let buf_reader = BufReader::new(file);
 
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
-            .map(|l| {
-                Address::from(l.unwrap())
-            })
+            .map(|l| Address::from(l.unwrap()))
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
         if configurations.is_some() {
-            if configurations.clone().unwrap().first().unwrap().origin.clone().unwrap().src.unwrap().is_v6() != is_ipv6 {
+            if configurations
+                .clone()
+                .unwrap()
+                .first()
+                .unwrap()
+                .origin
+                .clone()
+                .unwrap()
+                .src
+                .unwrap()
+                .is_v6()
+                != is_ipv6
+            {
                 panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
             }
         } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
-            panic!("Source IP and target addresses are not of the same type! (IPv4 & IPv6)");
+            panic!("Src and target addresses are not of the same type! (IPv4 & IPv6)");
         }
         // Panic if the ips in the hitlist are not all the same type
         if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
@@ -158,45 +192,67 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Shuffle the hitlist, if desired
-        let shuffle = matches.is_present("SHUFFLE");
+        let shuffle = matches.get_flag("shuffle");
         if shuffle {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
         }
 
-        // Get the clients that have to send out probes
-        let client_ids = if matches.is_present("CLIENTS") {
-            let clients_str = matches.value_of("CLIENTS").unwrap();
-            clients_str.trim_matches(|c| c == '[' || c == ']')
-                .split(',')
-                .map(|id| u32::from_str(id.trim()).expect(&format!("Unable to parse worker ID: {:<2}", id)))
-                .collect::<Vec<u32>>()
-        } else {
-            println!("[CLI] Probes will be sent out from all clients");
-            Vec::new()
-        };
-        if client_ids.len() > 0 {
-            println!("[CLI] Client-selective probing using the following clients: {:?}", client_ids); // TODO print worker hostnames
+        // Get the workers that have to send out probes
+        let worker_ids = matches.get_one::<String>("selective").map_or_else(
+            || {
+                println!("[CLI] Probes will be sent out from all workers");
+                Vec::new()
+            },
+            |worker_entries| {
+                worker_entries
+                    .trim_matches(['[', ']'])
+                    .split(',')
+                    .filter_map(|id| {
+                        let id = id.trim();
+                        id.parse::<u32>()
+                            .map_err(|e| {
+                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
+                            })
+                            .ok()
+                    })
+                    .collect()
+            },
+        );
+
+        if worker_ids.len() > 0 {
+            println!(
+                "[CLI] Selective probing using the following workers: {:?}",
+                worker_ids
+            ); // TODO print worker hostnames
         }
 
-        // Get the type of measurement
-        let measurement_type = if let Ok(measurement_type) = u32::from_str(matches.value_of("TYPE").unwrap()) { measurement_type } else { panic!("Invalid measurement type! (can be either 1, 2, 3, or 4)") };
-        // We only accept measurement types 1, 2, 3, 4
-        if (measurement_type < 1) | (measurement_type > 4) { panic!("Invalid measurement type value! (can be either 1, 2, 3, or 4)") }
+        // Get the measurement type
+        let measurement_type: u8 = match matches
+            .get_one::<String>("type")
+            .unwrap()
+            .to_lowercase()
+            .as_str()
+        {
+            "icmp" => 1,
+            "dns" => 2,
+            "tcp" => 3,
+            "chaos" => 4,
+            "all" => 255,
+            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
+        };
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == 4 {
-            if matches.is_present("HOSTNAME") {
-                matches.value_of("HOSTNAME").unwrap()
-            } else {
-                "hostname.bind"
-            }
+        let dns_record = if measurement_type == 4 || measurement_type == 255 {
+            // get CHAOS query
+            matches
+                .get_one::<String>("query")
+                .map_or("hostname.bind", |q| q.as_str())
         } else if measurement_type == 2 {
-            if matches.is_present("HOSTNAME") {
-                matches.value_of("HOSTNAME").unwrap()
-            } else {
-                "any.dnsjedi.org" // TODO what default record to use for A
-            }
+            // TODO change default A record value
+            matches
+                .get_one::<String>("query")
+                .map_or("any.dnsjedi.org", |q| q.as_str())
         } else {
             ""
         };
@@ -204,19 +260,21 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Origin for the measurement
         let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
-            let sport = u16::from_str(matches.value_of("SOURCE_PORT").unwrap_or_else(|| "62321")).expect("Unable to parse source port") as u32;
-            let dport = if matches.is_present("DESTINATION_PORT") {
-                u16::from_str(matches.value_of("DESTINATION_PORT").unwrap()).expect("Unable to parse destination port") as u32
-            } else {
-                if measurement_type == 2 || measurement_type == 4 {
-                    53 // Default DNS destination port
-                } else {
-                    63853 // Default destination port
-                }
-            };
+            let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
+            // Default destination port is 53 for DNS, 63853 for all other measurements
+            let dport = matches
+                .get_one::<u16>("destination port")
+                .map(|&port| port as u32)
+                .unwrap_or_else(|| {
+                    if measurement_type == 2 || measurement_type == 4 {
+                        53
+                    } else {
+                        63853
+                    }
+                });
 
             // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
-            //     client_id: u32::MAX,
+            //     worker_id: u32::MAX
             //     origin: Some(Origin {
             //         source_address: source_ip,
             //         source_port,
@@ -224,29 +282,25 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             //     })
             // }]);
 
-            Some(Origin {
-                src,
-                sport,
-                dport,
-            })
+            Some(Origin { src, sport, dport })
         } else {
             None
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli = matches.is_present("STREAM");
-        let traceroute = matches.is_present("TRACEROUTE");
+        let cli = matches.get_flag("stream");
+        let traceroute = matches.get_flag("traceroute");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = u32::from_str(matches.value_of("INTERVAL").unwrap_or_else(|| "1")).expect("Unable to parse interval");
-        let rate = u32::from_str(matches.value_of("RATE").unwrap_or_else(|| "1000")).expect("Unable to parse rate");
-
+        let interval = *matches.get_one::<u32>("interval").unwrap();
+        let rate = *matches.get_one::<u32>("rate").unwrap();
         let t_type = match measurement_type {
             1 => "ICMP/ping",
             2 => "UDP/DNS",
             3 => "TCP/SYN-ACK",
             4 => "UDP/CHAOS",
-            _ => "Undefined (defaulting to ICMP/ping)"
+            255 => "All (ICMP,UDP,TCP)",
+            _ => "ICMP/ping",
         };
         let hitlist_length = ips.len();
 
@@ -258,91 +312,147 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         );
 
         if is_responsive {
-            println!("[CLI] Measurement will be performed in responsive mode (only probing responsive addresses, checked by the Server)");
+            println!("[CLI] Responsive mode enabled");
         }
 
         // Print the origins used
         if is_unicast {
             if let Some(origin) = &origin {
-                println!("[CLI] Clients send probes using their unicast source IP with source port: {}, destination port: {}",
-                         origin.sport, origin.dport);
+                println!(
+                    "[CLI] Unicast probing with src port {} and dst port {}",
+                    origin.sport, origin.dport
+                );
             }
         } else if configurations.is_some() {
-            println!("[CLI] Clients send probes using the following configurations:");
+            println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.clone().unwrap() {
                 if let Some(origin) = &configuration.origin {
-                    let src = IP::from(origin.src.clone().unwrap()).to_string();
+                    let src = origin.src.unwrap().to_string();
                     let sport = origin.sport;
                     let dport = origin.dport;
 
-                    if configuration.client_id == u32::MAX {
+                    if configuration.worker_id == u32::MAX {
                         println!(
-                            "\t* All clients, source IP: {}, source port: {}, destination port: {}",
+                            "\t* All workers, source IP: {}, source port: {}, destination port: {}",
                             src, sport, dport
                         );
                     } else {
                         println!(
                             "\t* worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                            configuration.client_id, src, sport, dport
+                            configuration.worker_id, src, sport, dport
                         );
                     }
                 }
             }
         } else {
             if let Some(origin) = &origin {
-                let src = IP::from(origin.src.clone().unwrap()).to_string();
+                let src = IP::from(origin.src.unwrap()).to_string();
+
                 println!(
-                    "[CLI] Clients send probes using the following origin: source IP: {}, source port: {}, destination port: {}",
+                    "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
                     src, origin.sport, origin.dport
                 );
             }
         }
 
-        // get optional path to write results to TODO ensure path is valid before measurement start
-        let path = matches.value_of("OUT");
-        if path.is_some() {
-            // Make sure path is valid
-            // Output file
-            if path.unwrap().ends_with('/') {
-                // User provided a path (check if path is valid)
-                // TODO
+        // get optional path to write results to
+        let path = matches.get_one::<String>("out");
+        if let Some(path_str) = path {
+            let path = Path::new(path_str);
+
+            if !path_str.ends_with('/') {
+                // User provided a file
+                if path.exists() {
+                    if path.is_dir() {
+                        println!("[CLI] Path is already a directory, exiting");
+                        return Err("Path is already a directory".into());
+                    } else if fs::metadata(path)
+                        .expect("Unable to get path metadata")
+                        .permissions()
+                        .readonly()
+                    {
+                        println!("[CLI] Lacking write permissions for file {}", path_str);
+                        return Err("Lacking write permissions".into());
+                    } else {
+                        println!(
+                            "[CLI] Overwriting existing file {} when measurement is done",
+                            path_str
+                        );
+                    }
+                } else {
+                    println!("[CLI] Writing results to new file {}", path_str);
+
+                    // File does not yet exist, create it to verify permissions
+                    File::create(path)
+                        .expect("Unable to create output file")
+                        .sync_all()
+                        .expect("Unable to sync file");
+                    fs::remove_file(path).expect("Unable to remove file");
+                }
             } else {
-                // user provided a file (check if file is valid)
-                // TODO
-            };
+                // User provided a directory
+                if path.exists() {
+                    if !path.is_dir() {
+                        println!("[CLI] Path is already a file, exiting");
+                        return Err("Cannot make dir, file with name already exists.".into());
+                    } else if fs::metadata(path)
+                        .expect("Unable to get path metadata")
+                        .permissions()
+                        .readonly()
+                    {
+                        println!("[CLI] Lacking write permissions for directory {}", path_str);
+                        return Err("Path is not writable".into());
+                    } else {
+                        println!("[CLI] Writing results to existing directory {}", path_str);
+                    }
+                } else {
+                    println!("[CLI] Writing results to new directory {}", path_str);
+
+                    // Attempt creating path to verify permissions
+                    fs::create_dir_all(path).expect("Unable to create output directory");
+                }
+            }
         }
 
-        // Create the measurement definition and send it to the orc
+        // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
-            clients: client_ids,
+            workers: worker_ids,
             origin,
             configurations: configurations.clone().unwrap_or_default(), // default is empty vector
-            measurement_type,
+            measurement_type: measurement_type as u32,
             unicast: is_unicast,
             ipv6: is_ipv6,
             traceroute,
             divide: is_divide,
             interval,
             responsive: is_responsive,
-            targets: Some(Targets {
-                dst_addresses: ips,
-            }),
+            targets: Some(Targets { dst_addresses: ips }),
             record: dns_record.to_string(),
             url,
         };
-        cli_client.do_measurement_to_server(measurement_definition, cli, shuffle, hitlist_path, hitlist_length, configurations.unwrap_or_default(), path).await
+        cli_client
+            .do_measurement_to_server(
+                measurement_definition,
+                cli,
+                shuffle,
+                hitlist_path,
+                hitlist_length,
+                configurations.unwrap_or_default(),
+                path,
+            )
+            .await
     } else {
         panic!("Unrecognized command");
     }
 }
 
 impl CliClient {
-    /// Send the 'do_measurement' command to the orc, await the measurement results, and print them out to command-line & file as CSV.
+    /// Send the 'do_measurement' command to the orchestrator, await the measurement results, and print them out to command-line & file as CSV.
     ///
     /// # Arguments
     ///
-    /// * 'measurement_definition' - the measurement that is being requested at the orc (contains all the necessary information about the upcoming measurement)
+    /// * 'measurement_definition' - the measurement that is being requested at the orchestrator (contains all the necessary information about the upcoming measurement)
     ///
     /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
     ///
@@ -363,58 +473,82 @@ impl CliClient {
         hitlist: &str,
         hitlist_length: usize,
         configurations: Vec<Configuration>,
-        path: Option<&str>,
+        path: Option<&String>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
-        let rate = measurement_definition.rate;
+        let probing_rate = measurement_definition.rate;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.unicast;
         let is_traceroute = measurement_definition.traceroute;
         let interval = measurement_definition.interval;
         let origin = if is_unicast {
-            let sport = measurement_definition.origin.clone().unwrap().sport;
-            let dport = measurement_definition.origin.clone().unwrap().dport;
-            format!("Unicast (source port: {}, destination port: {})", sport, dport)
+            let sport = measurement_definition.origin.unwrap().sport;
+            let dport = measurement_definition.origin.unwrap().dport;
+            format!(
+                "Unicast (source port: {}, destination port: {})",
+                sport, dport
+            )
         } else {
-            if measurement_definition.clone().origin.is_some() {
-                let src = IP::from(measurement_definition.clone().origin.unwrap().src.unwrap()).to_string();
-                let sport = measurement_definition.origin.clone().unwrap().sport;
-                let dport = measurement_definition.origin.clone().unwrap().dport;
-                format!("Anycast (source IP: {}, source port: {}, destination port: {})", src, sport, dport)
+            if measurement_definition.origin.is_some() {
+                let src = IP::from(measurement_definition.origin.unwrap().src.unwrap()).to_string();
+                let sport = measurement_definition.origin.unwrap().sport;
+                let dport = measurement_definition.origin.unwrap().dport;
+                format!(
+                    "Anycast (source IP: {}, source port: {}, destination port: {})",
+                    src, sport, dport
+                )
             } else {
                 "Anycast configuration-based".to_string()
             }
         };
 
         // Obtain connected worker information for metadata
-        let response = self.grpc_client.list_clients(Request::new(Empty::default())).await.expect("Connection to orc failed");
-        let mut clients = HashMap::new();
-        response.into_inner().clients.iter().for_each(|client| {
-            clients.insert(client.client_id, client.metadata.clone().unwrap());
-        });
+        let response = self
+            .grpc_client
+            .list_workers(Request::new(Empty::default()))
+            .await
+            .expect("Connection to orchestrator failed");
+        let workers: HashMap<_, _> = response.into_inner().workers.into_iter()
+            .filter_map(|worker| worker.metadata.clone().map(|metadata| (worker.worker_id, metadata)))
+            .collect();
 
-        // TODO measurement length does not take into account that not all clients may participate
+        // Get the u32s of the workers that are active
+        let active_workers = if measurement_definition.workers.is_empty() {
+            workers.keys().cloned().collect() // All workers are active
+        } else {
+            measurement_definition.workers.clone()
+        };
+
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (rate * clients.len() as u32) as f32) + 1.0) / 60.0
+            ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
-            ((hitlist_length as f32 / rate as f32) // Time to probe all addresses
+            ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         } else {
-            (((clients.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
-                + (hitlist_length as f32 / rate as f32) // Time to probe all addresses
+            (((active_workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
+                + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
         if is_divide {
-            println!("[CLI] This measurement will be divided among clients (each worker will probe a unique subset of the addresses)");
+            println!("[CLI] Divide-and-conquer enabled");
         }
-        println!("[CLI] This measurement will take an estimated {:.2} minutes", measurement_length);
+        println!(
+            "[CLI] This measurement will take an estimated {:.2} minutes",
+            measurement_length
+        );
 
-        let response = self.grpc_client.do_measurement(Request::new(measurement_definition.clone())).await;
+        let response = self
+            .grpc_client
+            .do_measurement(Request::new(measurement_definition))
+            .await;
         if let Err(e) = response {
-            println!("[CLI] Server did not perform the measurement for reason: '{}'", e.message());
+            println!(
+                "[CLI] Orchestrator did not perform the measurement for reason: '{}'",
+                e.message()
+            );
             return Err(Box::new(e));
         }
         let start = SystemTime::now()
@@ -422,18 +556,29 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
-        let timestamp_start_str = format!("{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
-                                          timestamp_start.year(), timestamp_start.month(), timestamp_start.day(),
-                                          timestamp_start.hour(), timestamp_start.minute(), timestamp_start.second());
-        println!("[CLI] Measurement started at {}", timestamp_start.format("%H:%M:%S"));
+        let timestamp_start_str = format!(
+            "{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
+            timestamp_start.year(),
+            timestamp_start.month(),
+            timestamp_start.day(),
+            timestamp_start.hour(),
+            timestamp_start.minute(),
+            timestamp_start.second()
+        );
+        println!(
+            "[CLI] Measurement started at {}",
+            timestamp_start.format("%H:%M:%S")
+        );
 
         // Progress bar
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
         let pb = ProgressBar::new(total_steps);
         pb.set_style(
-            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                .unwrap()
-                .progress_chars("#>-"),
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
         );
         let is_done = Arc::new(AtomicBool::new(false));
         let is_done_clone = is_done.clone();
@@ -450,8 +595,10 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the orc and read from it
-        let mut stream = response.expect("Unable to obtain the orc stream").into_inner();
+                                  // Obtain the Stream from the orchestrator and read from it
+        let mut stream = response
+            .expect("Unable to obtain the orchestrator stream")
+            .into_inner();
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
@@ -496,8 +643,14 @@ impl CliClient {
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
         println!("[CLI] Waited {:.6} seconds for results.", length);
-        println!("[CLI] Time of end measurement {}", Local::now().format("%H:%M:%S"));
-        println!("[CLI] Number of replies captured: {}", replies_count.with_separator());
+        println!(
+            "[CLI] Time of end measurement {}",
+            Local::now().format("%H:%M:%S")
+        );
+        println!(
+            "[CLI] Number of replies captured: {}",
+            replies_count.with_separator()
+        );
 
         // If the stream closed during a measurement
         if !graceful {
@@ -507,30 +660,45 @@ impl CliClient {
 
         // Get current timestamp and create timestamp file encoding
         let timestamp_end = Local::now();
-        let timestamp_end_str = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-                                        timestamp_end.year(), timestamp_end.month(), timestamp_end.day(),
-                                        timestamp_end.hour(), timestamp_end.minute(), timestamp_end.second());
+        let timestamp_end_str = format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            timestamp_end.year(),
+            timestamp_end.month(),
+            timestamp_end.day(),
+            timestamp_end.hour(),
+            timestamp_end.minute(),
+            timestamp_end.second()
+        );
 
         // Determine the type of measurement
-        let measurement_type = if is_unicast {
-            "GCD_"
-        } else {
-            "MAnycast_"
-        };
+        let measurement_type = if is_unicast { "GCD_" } else { "MAnycast_" };
 
         // Output file
         let file_path = if path.is_some() {
-            if path.unwrap().ends_with('/') { // user provided a path, use default naming convention for file
-                format!("{}{}{}{}.csv", path.unwrap(), measurement_type, type_str, timestamp_end_str)
-            } else { // user provided a file (with possibly a path)
+            if path.unwrap().ends_with('/') {
+                // user provided a path, use default naming convention for file
+                format!(
+                    "{}{}{}{}.csv",
+                    path.unwrap(),
+                    measurement_type,
+                    type_str,
+                    timestamp_end_str
+                )
+            } else {
+                // user provided a file (with possibly a path)
                 format!("{}", path.unwrap())
             }
-        } else { // write file to current directory using default naming convention
-            format!("./{}{}{}.csv", measurement_type, type_str, timestamp_end_str)
+        } else {
+            // write file to current directory using default naming convention
+            format!(
+                "./{}{}{}.csv",
+                measurement_type, type_str, timestamp_end_str
+            )
         };
 
         // Create the output file
-        let mut file = File::create(file_path.clone()).expect(format!("Unable to create file at {}", file_path).as_str());
+        let mut file = File::create(file_path.clone())
+            .expect(format!("Unable to create file at {}", file_path).as_str());
 
         // Write metadata of measurement
         if !graceful {
@@ -538,7 +706,9 @@ impl CliClient {
         } else {
             file.write_all(b"# Completed measurement\n")?;
         }
-        if is_divide { file.write_all(b"# Divide-and-conquer measurement\n")?; }
+        if is_divide {
+            file.write_all(b"# Divide-and-conquer measurement\n")?;
+        }
         file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
@@ -547,30 +717,47 @@ impl CliClient {
         }
         file.write_all(format!("# Measurement type: {}\n", type_str).as_ref())?;
         // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
-        file.write_all(format!("# Probing rate: {}\n", rate.with_separator()).as_ref())?;
+        file.write_all(format!("# Probing rate: {}\n", probing_rate.with_separator()).as_ref())?;
         file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if !measurement_definition.clients.is_empty() {
-            file.write_all(format!("# Client-selective probing using the following clients: {:?}\n", measurement_definition.clients).as_ref())?;
+        if active_workers.len() < workers.len() {
+            file.write_all(
+                format!(
+                    "# Selective probing using the following workers: {:?}\n",
+                    active_workers
+                )
+                .as_ref(),
+            )?;
         }
-        file.write_all(b"# Connected clients:\n")?;
-        for (id, metadata) in &clients {
-            file.write_all(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref()).expect("Failed to write worker data");
+        file.write_all(b"# Connected workers:\n")?;
+        for (id, metadata) in &workers {
+            file.write_all(
+                format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref(),
+            )
+            .expect("Failed to write worker data");
         }
 
         // Write configurations used for the measurement
         if !configurations.is_empty() {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
-                let src = IP::from(configuration.origin.clone().unwrap().src.expect("Invalid source address")).to_string();
-                let client_id = if configuration.client_id == u32::MAX {
+                let src = IP::from(
+                    configuration
+                        .origin
+                        .clone()
+                        .unwrap()
+                        .src
+                        .expect("Invalid source address"),
+                )
+                .to_string();
+                let worker_id = if configuration.worker_id == u32::MAX {
                     "ALL".to_string()
                 } else {
-                    configuration.client_id.to_string()
+                    configuration.worker_id.to_string()
                 };
-                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", client_id, src, configuration.origin.clone().unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
             }
         }
 
@@ -586,13 +773,13 @@ impl CliClient {
         Ok(())
     }
 
-    /// Connect to the orc
+    /// Connect to the orchestrator
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the orc (e.g., 190.100.10.10:50051)
+    /// * 'address' - the address of the orchestrator (e.g., 190.100.10.10:50051)
     ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the orc certificate (if TLS is enabled)
+    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
@@ -612,14 +799,18 @@ impl CliClient {
     ///
     /// This function is async and should be awaited
     ///
-    /// tls requires a certificate at ./tls/orc.crt
-    async fn connect(address: &str, fqdn: Option<&str>) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
+    /// tls requires a certificate at ./tls/orchestrator.crt
+    async fn connect(
+        address: &str,
+        fqdn: Option<&String>,
+    ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if fqdn.is_some() {
             // Secure connection
             let addr = format!("https://{}", address);
 
-            // Load the CA certificate used to authenticate the orc
-            let pem = fs::read_to_string("tls/orc.crt").expect("Unable to read CA certificate at ./tls/orc.crt");
+            // Load the CA certificate used to authenticate the orchestrator
+            let pem = fs::read_to_string("tls/orchestrator.crt")
+                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
             let tls = ClientTlsConfig::new()
@@ -628,26 +819,36 @@ impl CliClient {
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
-                .tls_config(tls).expect("Unable to set TLS configuration")
-                .connect().await.expect("Unable to connect to orc")
+                .tls_config(tls)
+                .expect("Unable to set TLS configuration")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
             let addr = format!("http://{}", address);
 
-            Channel::from_shared(addr.to_owned()).expect("Unable to set address")
-                .connect().await.expect("Unable to connect to orc")
+            Channel::from_shared(addr.to_owned())
+                .expect("Unable to set address")
+                .connect()
+                .await
+                .expect("Unable to connect to orchestrator")
         };
-        // Create worker with secret token that is used to authenticate worker commands.
+        // Create client with secret token that is used to authenticate client commands.
         let client = ControllerClient::new(channel);
 
         Ok(client)
     }
 
-    /// Sends a list clients command to the orc, awaits the result, and prints it to command-line.
-    async fn list_clients_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("[CLI] Sending list clients to orc");
+    /// Sends a list worker command to the orchestrator, awaits the result, and prints it to command-line.
+    async fn list_workers(&mut self) -> Result<(), Box<dyn Error>> {
+        println!("[CLI] Requesting workers list from orchestrator");
         let request = Request::new(Empty::default());
-        let response = self.grpc_client.list_clients(request).await.expect("Connection to orc failed");
+        let response = self
+            .grpc_client
+            .list_workers(request)
+            .await
+            .expect("Connection to orchestrator failed");
 
         // Pretty print to command-line
         let mut table = Table::new();
@@ -656,16 +857,16 @@ impl CliClient {
             Cell::new("Hostname")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Client ID")
+            Cell::new("Worker ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
-        for client in response.into_inner().clients {
+        for worker in response.into_inner().workers {
             table.add_row(prettytable::row!(
-                    client.metadata.clone().unwrap().hostname,
-                    client.client_id,
-                ));
+                worker.metadata.unwrap().hostname,
+                worker.worker_id,
+            ));
         }
         table.printstd();
 
@@ -694,12 +895,33 @@ fn write_results(
     traceroute: bool,
 ) {
     // CSV writer to command-line interface
-    let mut wtr_cli = if cli { Some(Writer::from_writer(io::stdout())) } else { None };
+    let mut wtr_cli = if cli {
+        Some(Writer::from_writer(io::stdout()))
+    } else {
+        None
+    };
     // Traceroute writer
     let mut wtr_file_traceroute = if traceroute {
-        let mut wtr_file = Writer::from_writer(File::create(format!("./out/traceroute.csv")).expect("Unable to create traceroute file"));  // TODO file name
-        // Write header
-        wtr_file.write_record(vec!["rx_client_id", "reply_src_addr", "reply_dest_addr", "ttl", "rx_time", "tx_time", "sender_client_id", "reply_src_port", "reply_dest_port", "seq", "ack"]).expect("Failed to write traceroute header");
+        let mut wtr_file = Writer::from_writer(
+            File::create(format!("./out/traceroute.csv"))
+                .expect("Unable to create traceroute file"),
+        ); // TODO file name
+           // Write header
+        wtr_file
+            .write_record(vec![
+                "rx_worker_id",
+                "reply_src_addr",
+                "reply_dest_addr",
+                "ttl",
+                "rx_time",
+                "tx_time",
+                "tx_worker_id",
+                "reply_src_port",
+                "reply_dest_port",
+                "seq",
+                "ack",
+            ])
+            .expect("Failed to write traceroute header");
         Some(wtr_file)
     } else {
         None
@@ -710,8 +932,16 @@ fn write_results(
 
     // Write header
     let header = get_header(measurement_type);
-    if cli { wtr_cli.as_mut().unwrap().write_record(header.clone()).expect("Failed to write header to stdout") };
-    wtr_file.write_record(header).expect("Failed to write header to file");
+    if cli {
+        wtr_cli
+            .as_mut()
+            .unwrap()
+            .write_record(header.clone())
+            .expect("Failed to write header to stdout")
+    };
+    wtr_file
+        .write_record(header)
+        .expect("Failed to write header to file");
 
     tokio::spawn(async move {
         // Receive tasks from the outbound channel
@@ -719,28 +949,33 @@ fn write_results(
             if task_result == TaskResult::default() {
                 break;
             }
-
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
             for result in verfploeter_results {
                 let trace_result = match result.clone().value.unwrap() {
                     ResultTrace(_) => true,
-                    _ => false
+                    _ => false,
                 };
-                let result = get_result(result, task_result.client_id, measurement_type);
+                let result = get_result(result, task_result.worker_id, measurement_type);
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
-                        writer.write_record(result.clone()).expect("Failed to write payload to CLI");
+                        writer
+                            .write_record(result.clone())
+                            .expect("Failed to write payload to CLI");
                         writer.flush().expect("Failed to flush stdout");
                     }
                 };
                 // Traceroute results get written to a separate file
                 if trace_result {
                     if let Some(ref mut writer) = wtr_file_traceroute {
-                        writer.write_record(result.clone()).expect("Failed to write payload to traceroute");
+                        writer
+                            .write_record(result.clone())
+                            .expect("Failed to write payload to traceroute");
                         writer.flush().expect("Failed to flush traceroute file");
                     }
                 } else {
-                    wtr_file.write_record(result).expect("Failed to write payload to file");
+                    wtr_file
+                        .write_record(result)
+                        .expect("Failed to write payload to file");
                 }
             }
             wtr_file.flush().expect("Failed to flush file");
@@ -752,15 +987,39 @@ fn write_results(
 /// Creates the appropriate header for the results file (based on the measurement type)
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
-    let mut header = vec!["rx_client_id"];
+    let mut header = vec!["rx_worker_id"];
     // Information contained in IPv4 header
     header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
     header.append(&mut match measurement_type {
-        1 => vec!["rx_time", "tx_time", "probe_src_addr", "probe_dst_addr", "tx_client_id"], // ICMP
-        2 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "tx_time", "probe_src_addr", "probe_dst_addr", "sender_client_id", "probe_src_port", "probe_dst_port"], // UDP/DNS
+        1 => vec![
+            "rx_time",
+            "tx_time",
+            "probe_src_addr",
+            "probe_dst_addr",
+            "tx_worker_id",
+        ], // ICMP
+        2 => vec![
+            "rx_time",
+            "reply_src_port",
+            "reply_dst_port",
+            "code",
+            "tx_time",
+            "probe_src_addr",
+            "probe_dst_addr",
+            "tx_worker_id",
+            "probe_src_port",
+            "probe_dst_port",
+        ], // UDP/DNS
         3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
-        4 => vec!["rx_time", "reply_src_port", "reply_dst_port", "code", "sender_client_id", "chaos_data"], // UDP/CHAOS
-        _ => panic!("Undefined type.")
+        4 => vec![
+            "rx_time",
+            "reply_src_port",
+            "reply_dst_port",
+            "code",
+            "tx_worker_id",
+            "chaos_data",
+        ], // UDP/CHAOS
+        _ => panic!("Undefined type."),
     });
 
     header
@@ -772,14 +1031,10 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 ///
 /// * 'result' - The VerfploeterResult that is being written to this row
 ///
-/// * 'receiver_client_id' - The worker ID of the receiver
+/// * 'rx_worker_id' - The worker ID of the receiver
 ///
 /// * 'measurement_type' - The type of measurement being performed
-fn get_result(
-    result: VerfploeterResult,
-    rx_client_id: u32,
-    measurement_type: u32,
-) -> Vec<String> {
+fn get_result(result: VerfploeterResult, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
     match result.value.unwrap() {
         ResultTrace(trace) => {
             let ip_result = trace.ip_result.unwrap();
@@ -787,7 +1042,7 @@ fn get_result(
             let ttl = trace.ttl;
             let rx_time = trace.rx_time.to_string();
             let tx_time = trace.tx_time.to_string();
-            let tx_client_id = trace.tx_client_id.to_string();
+            let tx_worker_id = trace.tx_worker_id.to_string();
 
             return match trace.value.unwrap() {
                 Value::Ping(ping) => {
@@ -795,7 +1050,16 @@ fn get_result(
                     let source = inner_ip.get_src_str();
                     let destination = inner_ip.get_dst_str();
 
-                    vec![rx_client_id.to_string(), source, destination, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time]
+                    vec![
+                        rx_worker_id.to_string(),
+                        source,
+                        destination,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                    ]
                 }
                 Value::Udp(udp) => {
                     let inner_ip = udp.ip_result.unwrap();
@@ -804,7 +1068,18 @@ fn get_result(
                     let sport = udp.sport.to_string();
                     let dport = udp.dport.to_string();
 
-                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport]
+                    vec![
+                        rx_worker_id.to_string(),
+                        src,
+                        dst,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                        sport,
+                        dport,
+                    ]
                 }
                 Value::Tcp(tcp) => {
                     let inner_ip = tcp.ip_result.unwrap();
@@ -815,8 +1090,21 @@ fn get_result(
                     let seq = tcp.seq.to_string();
                     let ack = tcp.ack.to_string();
 
-                    vec![rx_client_id.to_string(), src, dst, ttl.to_string(), source_mb, tx_client_id, rx_time, tx_time, sport, dport, seq, ack]
-                },
+                    vec![
+                        rx_worker_id.to_string(),
+                        src,
+                        dst,
+                        ttl.to_string(),
+                        source_mb,
+                        tx_worker_id,
+                        rx_time,
+                        tx_time,
+                        sport,
+                        dport,
+                        seq,
+                        ack,
+                    ]
+                }
             };
         }
         ResultPing(ping) => {
@@ -832,9 +1120,19 @@ fn get_result(
             let tx_time = payload.tx_time.to_string();
             let probe_src = payload.src.unwrap().to_string();
             let probe_dst = payload.dst.unwrap().to_string();
-            let tx_client_id = payload.tx_client_id.to_string();
+            let tx_worker_id = payload.tx_worker_id.to_string();
 
-            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, tx_time, probe_src, probe_dst, tx_client_id];
+            return vec![
+                rx_worker_id.to_string(),
+                reply_src,
+                reply_dst,
+                ttl,
+                rx_time,
+                tx_time,
+                probe_src,
+                probe_dst,
+                tx_worker_id,
+            ];
         }
         ResultUdp(udp) => {
             let rx_time = udp.rx_time.to_string();
@@ -847,21 +1145,48 @@ fn get_result(
             let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
-            if udp.payload == None { // ICMP reply
+            if udp.payload == None {
+                // ICMP reply
                 if measurement_type == 2 {
                     let tx_time = "-1".to_string();
                     let probe_src = "-1".to_string();
                     let probe_dst = "-1".to_string();
-                    let tx_client_id = "-1".to_string();
+                    let tx_worker_id = "-1".to_string();
                     let probe_sport = "-1".to_string();
                     let probe_dport = "-1".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_time,
+                        probe_src,
+                        probe_dst,
+                        tx_worker_id,
+                        probe_sport,
+                        probe_dport,
+                    ];
                 } else if measurement_type == 4 {
-                    let sender_client_id = "-1".to_string();
+                    let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, sender_client_id, chaos];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_worker_id,
+                        chaos,
+                    ];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -875,17 +1200,43 @@ fn get_result(
                     // IP::from(payload.source_address.unwrap()).to_string()
                     let probe_src = dns_a_record.src.unwrap().to_string();
                     let probe_dst = dns_a_record.dst.unwrap().to_string();
-                    let tx_client_id = dns_a_record.tx_client_id.to_string();
+                    let tx_worker_id = dns_a_record.tx_worker_id.to_string();
                     let probe_sport = dns_a_record.sport.to_string();
                     let probe_dport = "53".to_string();
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_time, probe_src, probe_dst, tx_client_id, probe_sport, probe_dport];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_time,
+                        probe_src,
+                        probe_dst,
+                        tx_worker_id,
+                        probe_sport,
+                        probe_dport,
+                    ];
                 }
                 Some(DnsChaos(dns_chaos)) => {
-                    let tx_client_id = dns_chaos.tx_client_id.to_string();
+                    let tx_worker_id = dns_chaos.tx_worker_id.to_string();
                     let chaos = dns_chaos.chaos_data;
 
-                    return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, reply_code, tx_client_id, chaos];
+                    return vec![
+                        rx_worker_id.to_string(),
+                        reply_src,
+                        reply_dst,
+                        ttl,
+                        rx_time,
+                        reply_sport,
+                        reply_dport,
+                        reply_code,
+                        tx_worker_id,
+                        chaos,
+                    ];
                 }
                 None => {
                     panic!("No payload found for UDP result!");
@@ -903,7 +1254,17 @@ fn get_result(
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
-            return vec![rx_client_id.to_string(), reply_src, reply_dst, ttl, rx_time, reply_sport, reply_dport, seq, ack];
-        },
+            return vec![
+                rx_worker_id.to_string(),
+                reply_src,
+                reply_dst,
+                ttl,
+                rx_time,
+                reply_sport,
+                reply_dport,
+                seq,
+                ack,
+            ];
+        }
     }
 }
