@@ -51,7 +51,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator")
-        .send_compressed(CompressionEncoding::Gzip);
+        .send_compressed(CompressionEncoding::Zstd);
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() {
