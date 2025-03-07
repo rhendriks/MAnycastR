@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["get_pcap","handle_results","listen_ping","listen_tcp","listen_udp","parse_chaos","parse_dns_a_record","parse_icmp_dest_unreachable","parse_icmp_time_exceeded","parse_icmpv4","parse_icmpv6","parse_ipv4","parse_ipv6","parse_tcp","parse_tcpv4","parse_tcpv6","parse_udpv4","parse_udpv6"]};

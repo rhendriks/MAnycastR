@@ -1,9 +1,11 @@
 use std::fmt::Display;
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use verfploeter::{Address, address::Value::V4, address::Value::V6, IpResult, IPv6};
+use verfploeter::{address::Value::V4, address::Value::V6, Address, IPv6, IpResult};
 
-pub mod verfploeter { tonic::include_proto!("verfploeter"); }
+pub mod verfploeter {
+    tonic::include_proto!("verfploeter");
+}
 
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,18 +35,17 @@ impl Address {
             Some(V4(v4)) => {
                 // Return the sum of first 24 bits
                 ((v4 >> 8) & 0x00FFFFFF).into()
-            },
+            }
             Some(V6(v6)) => {
                 // Return the sum of first 48 bits
                 (v6.p1 >> 16) & 0x0000FFFFFFFF
-            },
+            }
             None => 0,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IP {
     V4(Ipv4Addr),
     V6(Ipv6Addr),
@@ -118,9 +119,7 @@ impl From<IP> for Address {
                         | (v6.segments()[7] as u64),
                 })),
             },
-            IP::None => Address {
-                value: None,
-            },
+            IP::None => Address { value: None },
         }
     }
 }
@@ -135,7 +134,7 @@ impl From<&[u8]> for Address {
                 Address {
                     value: Some(V4(u32::from_be_bytes(ip))),
                 }
-            },
+            }
             16 => {
                 let mut ip = [0; 16];
                 ip.copy_from_slice(&bytes);
@@ -145,14 +144,15 @@ impl From<&[u8]> for Address {
                         p2: u64::from_be_bytes(ip[8..16].try_into().unwrap()),
                     })),
                 }
-            },
+            }
             _ => panic!("Invalid IP address length"),
         }
     }
 }
 
 // Convert String into an Address
-impl From<String> for Address { // TODO test
+impl From<String> for Address {
+    // TODO test
     fn from(s: String) -> Self {
         if let Ok(ip) = s.parse::<IpAddr>() {
             // handle standard IP string format (e.g., 2001::1, 1.1.1.1)
@@ -169,20 +169,17 @@ impl From<String> for Address { // TODO test
             }
         } else if let Ok(ip_number) = s.parse::<u128>() {
             // attempt to interpret as a raw IP number (e.g., 16843009)
-            match s.len() { // TODO do these constraints hold for all IP number lengths?
-                10 => {
-                    Address {
-                        value: Some(V4(ip_number as u32)),
-                    }
-                }
-                39 => {
-                    Address {
-                        value: Some(V6(IPv6 {
-                            p1: (ip_number >> 64) as u64,
-                            p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64,
-                        })),
-                    }
-                }
+            match s.len() {
+                // TODO do these constraints hold for all IP number lengths?
+                10 => Address {
+                    value: Some(V4(ip_number as u32)),
+                },
+                39 => Address {
+                    value: Some(V6(IPv6 {
+                        p1: (ip_number >> 64) as u64,
+                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64,
+                    })),
+                },
                 _ => panic!("Invalid IP number"),
             }
         } else {
@@ -226,7 +223,7 @@ impl IpResult {
         match &self.value {
             Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let src = v6.src.clone().expect("None IPv6 data type");
+                let src = v6.src.expect("None IPv6 data type");
                 ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
             }
             None => String::from("None"),
@@ -237,7 +234,7 @@ impl IpResult {
         match &self.value {
             Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
             Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
-                let dst = v6.dst.clone().expect("None IPv6 data type");
+                let dst = v6.dst.expect("None IPv6 data type");
                 ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
             }
             None => String::from("None"),

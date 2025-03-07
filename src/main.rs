@@ -11,16 +11,16 @@
 //! It allows for performing synchronized probes from a distributed set of nodes.
 //! To achieve this, it uses three components (all in the same binary):
 //!
-//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected clients to perform the measurement
+//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected workers to perform the measurement
 //! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the orchestrator
 //! * [Worker](worker) - the worker connects to the orchestrator and awaits tasks to send out probes and listen for incoming replies
 //!
 //! # Measurements
 //!
 //! A measurement consists of multiple tasks that are executed by the workers.
-//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orc.
+//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orchestrator.
 //! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
-//! These clients then stream back the results to the orchestrator, as they receive replies.
+//! These workers then stream back the results to the orchestrator, as they receive replies.
 //! The orchestrator forwards these results to the CLI.
 //!
 //! The measurement are probing measurements, which can be:
@@ -34,7 +34,7 @@
 //! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
 //! * **Type of measurement** - ICMP, UDP, or TCP
 //! * **Rate** - The rate (packets / second) at which each worker will send out probes (default: 1000)
-//! * **Clients** - The clients that will send out probes for this measurement (default: all clients send probes)
+//! * **Workers** - The workers that will send out probes for this measurement (default: all workers send probes)
 //! * **Stream** - Stream the results to the command-line interface
 //! * **Shuffle** - Shuffle the hitlist before sending out probes
 //! * **Unicast** - Probe the targets using the unicast address of each worker
@@ -44,7 +44,7 @@
 //! * **Address** - Source IP to use for the probes
 //! * **Source port** - Source port to use for the probes (default: 62321)
 //! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
-//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by clients)
+//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by workers)
 //!
 //! # Results
 //!
@@ -55,7 +55,7 @@
 //!
 //! First, run the central orchestrator.
 //! ```
-//! orc -p [PORT NUMBER]
+//! orchestrator -p [PORT NUMBER]
 //! ```
 //!
 //! Next, run one or more workers.
@@ -71,7 +71,7 @@
 //!
 //! Finally, you can perform a measurement.
 //! ```
-//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [CLIENTS] --stream --shuffle
+//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [WORKERS] --stream --shuffle
 //! ```
 //!
 //! * SOURCE IP is the IPv4 address from which to send the probes.
@@ -80,9 +80,9 @@
 //!
 //! * TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
 //!
-//! * RATE the rate (packets / second) at which clients will sent out probes.
+//! * RATE the rate (packets / second) at which workers will sent out probes.
 //!
-//! * CLIENTS is an optional command that is used to specify which clients have to send out probes (omitting this means all clients will send out probes).
+//! * WORKERS is an optional command that is used to specify which workers have to send out probes (omitting this means all workers will send out probes).
 //!
 //! The hitlist can be shuffled by using the --shuffle option in the command.
 //!
@@ -110,11 +110,11 @@
 //!
 //! # Measurement details
 //!
-//! * Measurements are performed in parallel; all clients send out their probes at the same time and in the same order.
+//! * Measurements are performed in parallel; all workers send out their probes at the same time and in the same order.
 //! * Each worker probes a target address, approximately 1 second after the previous worker sent out theirs.
-//! * Clients can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
+//! * Workers can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
 //! * The rate of the measurements is adjustable.
-//! * The clients that have to send out probes can be specified.
+//! * The workers that have to send out probes can be specified.
 //!
 //! # Robustness
 //!
@@ -167,29 +167,22 @@
 //!
 //! From these definitions code is generated using protobuf (done in build.rs).
 
-extern crate env_logger;
-extern crate log;
-
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
 mod cli;
-mod orc;
-mod worker;
-mod net;
 mod custom_module;
+mod net;
+mod orchestrator;
+mod worker;
 
-/// Parse command line input and start MAnycastR orc, worker, or CLI
+/// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
-    // Setup logging with the default environment, with filter at 'info' level
-    let env = env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info");
-    env_logger::Builder::from_env(env).init();
-
     // Parse the command-line arguments
     let matches = parse_cmd();
 
-    if let Some(client_matches) = matches.subcommand_matches("worker") {
+    if let Some(worker_matches) = matches.subcommand_matches("worker") {
         println!("[Main] Executing worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -197,7 +190,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { worker::Client::new(client_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
+        let _ = rt.block_on(async { worker::Worker::new(worker_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
 
         return;
     }
@@ -205,212 +198,213 @@ fn main() {
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
-        // TODO implement quit command to stop the CLI when user types quit in the CLI
-
         let _ = cli::execute(cli_matches);
         return;
-    } else if let Some(server_matches) = matches.subcommand_matches("orc") {
-        println!("[Main] Executing orc version {}", env!("GIT_HASH"));
+    } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
+        println!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { orc::start(server_matches).await.unwrap() });
+        let _ = rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
     }
 }
 
-fn parse_cmd<'a>() -> ArgMatches<'a> {
-    App::new("MAnycastR")
+fn parse_cmd() -> ArgMatches {
+    Command::new("MAnycastR") // TODO change name
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
         .subcommand(
-            SubCommand::with_name("orc").about("Launches the MAnycastR orc")
+            Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
                 .arg(
-                    Arg::with_name("port")
+                    Arg::new("port")
                         .long("port")
-                        .short("p")
-                        .takes_value(true)
+                        .short('p')
+                        .value_parser(value_parser!(u16))
                         .required(false)
+                        .default_value("50001")
                         .help("Port to listen on [default: 50001]")
                 )
                 .arg(
-                    Arg::with_name("tls")
+                    Arg::new("tls")
                         .long("tls")
-                        .takes_value(false)
+                        .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt and orc.key in ./tls/)")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt and orchestrator.key in ./tls/)")
                 )
         )
         .subcommand(
-            SubCommand::with_name("worker").about("Launches the MAnycastR worker")
+            Command::new("worker").about("Launches the MAnycastR worker")
                 .arg(
-                    Arg::with_name("orc")
-                        .short("s")
-                        .takes_value(true)
+                    Arg::new("orchestrator")
+                        .short('a')
+                        .value_parser(value_parser!(String))
                         .required(true)
-                        .help("hostname/ip address:port of the orc")
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
-                    Arg::with_name("hostname")
+                    Arg::new("hostname")
                         .long("hostname")
-                        .short("h")
-                        .takes_value(true)
+                        .short('n')
+                        .value_parser(value_parser!(String))
                         .required(false)
                         .help("hostname for this worker (default: $HOSTNAME)")
                 )
                 .arg(
-                    Arg::with_name("tls")
+                    Arg::new("tls")
                         .long("tls")
-                        .takes_value(true)
+                        .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
                 .arg(
-                    Arg::with_name("interface")
+                    Arg::new("interface")
                         .long("interface")
-                        .short("i")
-                        .takes_value(true)
+                        .short('i')
+                        .value_parser(value_parser!(String))
                         .required(false)
                         .help("Interface to use for sending probes (will use the default interface if not specified)")
                 )
         )
         .subcommand(
-            SubCommand::with_name("cli").about("MAnycastR CLI")
+            Command::new("cli").about("MAnycastR CLI")
                 .arg(
-                    Arg::with_name("orc")
-                        .short("s")
-                        .takes_value(true)
+                    Arg::new("orchestrator")
+                        .short('a')
+                        .value_parser(value_parser!(String))
                         .required(true)
-                        .help("hostname/ip address:port of the orc (e.g., [::1]:50001 for localhost)")
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
                 )
                 .arg(
-                    Arg::with_name("tls")
+                    Arg::new("tls")
                         .long("tls")
-                        .takes_value(true)
+                        .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Use TLS for communication with the orc (requires orc.crt in ./tls/), takes a FQDN as argument")
+                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
-                .subcommand(SubCommand::with_name("worker-list").about("retrieves a list of currently connected clients from the orc"))
-                .subcommand(SubCommand::with_name("start").about("performs MAnycastR on the indicated worker")
-                    .arg(Arg::with_name("IP_FILE").help("A file that contains IP addresses to probe")
+                .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
+                .subcommand(Command::new("start").about("performs MAnycastR on the indicated worker")
+                    .arg(Arg::new("IP_FILE").help("A file that contains IP addresses to probe")
                         .required(true)
                         .index(1)
                     )
-                    .arg(Arg::with_name("TYPE")
-                        .required(true)
-                        .index(2)
-                        .help("The type of measurement (1: ICMP, 2: UDP/DNS, 3: TCP, 4: UDP/CHAOS)")
+                    .arg(Arg::new("type")
+                        .long("type")
+                        .short('t')
+                        .value_parser(value_parser!(String))
+                        .required(false)
+                        .default_value("icmp")
+                        .help("The type of measurement (icmp, dns, tcp, chaos, all) [default: icmp]")
                     )
-                    .arg(Arg::with_name("RATE")
+                    .arg(Arg::new("rate")
                         .long("rate")
-                        .short("r")
-                        .takes_value(true)
+                        .short('r')
+                        .value_parser(value_parser!(u32))
                         .required(false)
                         .default_value("1000")
-                        .help("The rate at which this measurement is to be performed at each worker (number of probes / second) [default: 1000]")
+                        .help("Probing rate at each worker (number of outgoing packets / second) [default: 1000]")
                     )
-                    .arg(Arg::with_name("CLIENTS")
-                        .long("clients")
-                        .short("c")
-                        .takes_value(true)
+                    .arg(Arg::new("selective")
+                        .long("selective")
+                        .short('x')
+                        .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Specify which clients have to send out probes (all connected clients will listen for packets) [client_id1,client_id2,...]")
+                        .help("Specify which workers have to send out probes (all connected workers will listen for packets) [worker_id1,worker_id2,...]")
                     )
-                    .arg(Arg::with_name("STREAM")
+                    .arg(Arg::new("stream")
                         .long("stream")
-                        .takes_value(false)
+                        .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Stream results to stdout")
                     )
-                    .arg(Arg::with_name("SHUFFLE")
+                    .arg(Arg::new("shuffle")
                         .long("shuffle")
-                        .takes_value(false)
+                        .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Randomly shuffle the ip file")
                     )
-                    .arg(Arg::with_name("UNICAST")
+                    .arg(Arg::new("unicast")
                         .long("unicast")
-                        .takes_value(false)
-                        .required(false)
+                        .action(ArgAction::SetTrue)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
                     )
-                    .arg(Arg::with_name("TRACEROUTE")
+                    .arg(Arg::new("traceroute")
                         .long("traceroute")
-                        .takes_value(false)
+                        .action(ArgAction::SetTrue)
                         .required(false)
                         .help("This option is currently broken")
                     )
-                    .arg(Arg::with_name("INTERVAL")
+                    .arg(Arg::new("interval")
                         .long("interval")
-                        .short("i")
-                        .takes_value(true)
+                        .short('i')
+                        .value_parser(value_parser!(u32))
                         .required(false)
                         .default_value("1")
                         .help("Interval between separate worker's probes to the same target [default: 1s]")
                     )
-                    .arg(Arg::with_name("DIVIDE")
+                    .arg(Arg::new("divide")
                         .long("divide")
-                        .takes_value(false)
+                        .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Divide the hitlist into equal separate parts for each worker (divide-and-conquer)")
                     )
-                    .arg(Arg::with_name("ADDRESS")
+                    .arg(Arg::new("address")
                         .long("addr")
-                        .short("a")
-                        .takes_value(true)
+                        .short('a')
+                        .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Source IP to use for the probes")
+                        .help("Source address to use for the probes")
                     )
-                    .arg(Arg::with_name("SOURCE_PORT")
+                    .arg(Arg::new("source port")
                         .long("sport")
-                        .short("s")
-                        .takes_value(true)
+                        .short('s')
+                        .value_parser(value_parser!(u16))
                         .required(false)
                         .default_value("62321")
                         .help("Source port to use (default 62321)")
                     )
-                    .arg(Arg::with_name("DESTINATION_PORT")
+                    .arg(Arg::new("destination port")
                         .long("dport")
-                        .short("d")
-                        .takes_value(true)
+                        .short('d')
+                        .value_parser(value_parser!(u16))
                         .required(false)
                         .help("Destination port to use (default DNS: 53, TCP: 63853)")
                     )
-                    .arg(Arg::with_name("CONF")
+                    .arg(Arg::new("configuration")
                         .long("conf")
-                        .short("f")
-                        .takes_value(true)
+                        .short('f')
+                        .value_parser(value_parser!(String))
                         .required(false)
                         .help("Path to the configuration file")
                     )
-                    .arg(Arg::with_name("HOSTNAME")
-                        .long("hostname")
-                        .short("h")
-                        .takes_value(true)
+                    .arg(Arg::new("query")
+                        .long("query")
+                        .short('q')
+                        .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Specify hostname record to request (chaos default: hostname.bind, A default: google.com)")
+                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)")
                     )
-                    .arg(Arg::with_name("RESPONSIVE")
+                    .arg(Arg::new("responsive")
                         .long("responsive")
-                        .short("v")
-                        .takes_value(false)
+                        .short('v')
+                        .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("First check if the target is responsive using the Server before sending probes from clients [UNIMPLEMENTED]")
+                        .help("First check if the target is responsive using the orchestrator before sending probes from workers [UNIMPLEMENTED]")
                     )
-                    .arg(Arg::with_name("OUT")
+                    .arg(Arg::new("out")
                         .long("out")
-                        .short("o")
-                        .takes_value(true)
+                        .short('o')
+                        .value_parser(value_parser!(String))
                         .required(false)
                         .help("Optional path and/or filename to store the results of the measurement (default ./)")
                     )
-                    .arg(Arg::with_name("URL")
+                    .arg(Arg::new("url")
                         .long("url")
-                        .short("u")
-                        .takes_value(true)
+                        .short('u')
+                        .value_parser(value_parser!(String))
                         .required(false)
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
                     )
