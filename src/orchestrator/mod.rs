@@ -26,7 +26,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
-
+use tonic::codec::CompressionEncoding;
 use crate::custom_module;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 use crate::orchestrator::mpsc::Sender;
@@ -336,6 +336,12 @@ impl Controller for ControllerService {
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         println!("[Orchestrator] Received CLI measurement request for measurement");
+
+        if let Some(header) = request.metadata().get("grpc-encoding") {
+            println!("Compression enabled: {:?}", header);
+        } else {
+            println!("No compression detected {:?}", request.metadata());
+        }
 
         // If there already is an active measurement, we skip
         {
@@ -1179,7 +1185,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     };
 
     let svc = ControllerServer::new(controller)
-        // .accept_compressed(CompressionEncoding::Gzip) // TODO allow compressed measurement definitions (may include large hitlists)
+        .accept_compressed(CompressionEncoding::Gzip) // TODO allow compressed measurement definitions (may include large hitlists)
         .max_decoding_message_size(10 * 1024 * 1024 * 1024) // 10 GB
         .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 

@@ -15,7 +15,7 @@ futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
 prost = "0.13.5" # define gRPC messages
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
-tonic = { version = "0.12.3", features = ["tls"] } # gRPC (inter-component communication)
+tonic = { version = "0.12.3", features = ["tls", "gzip"] } # gRPC (inter-component communication)
 rand = "0.9.0" # generate random numbers
 gethostname = "1.0.0" # get hostname
 pcap = "2.2.0" # send/receive packets

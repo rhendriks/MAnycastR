@@ -16,6 +16,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::{color, format, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -49,7 +50,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     println!("[CLI] Connecting to orchestrator - {}", server_address);
     let grpc_client = CliClient::connect(server_address, fqdn)
         .await
-        .expect("Unable to connect to orchestrator");
+        .expect("Unable to connect to orchestrator")
+        .send_compressed(CompressionEncoding::Gzip);
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() {
