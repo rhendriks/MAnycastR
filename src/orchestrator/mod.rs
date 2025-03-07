@@ -337,12 +337,6 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         println!("[Orchestrator] Received CLI measurement request for measurement");
 
-        if let Some(header) = request.metadata().get("grpc-encoding") {
-            println!("Compression enabled: {:?}", header);
-        } else {
-            println!("No compression detected {:?}", request.metadata());
-        }
-
         // If there already is an active measurement, we skip
         {
             // If the orchestrator is already working on another measurement
