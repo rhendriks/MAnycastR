@@ -6,7 +6,6 @@ use clap::ArgMatches;
 use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
-use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -72,8 +71,9 @@ impl Worker {
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
             .await.expect("Unable to connect to orchestrator")
-            .accept_compressed(CompressionEncoding::Zstd)
-            .send_compressed(CompressionEncoding::Zstd);
+            // .accept_compressed(CompressionEncoding::Zstd) // TODO assess performance impact
+            // .send_compressed(CompressionEncoding::Zstd)
+            ;
 
         // Initialize a worker instance
         let mut worker = Worker {
