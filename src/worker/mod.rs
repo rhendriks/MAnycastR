@@ -255,12 +255,12 @@ impl Worker {
                         let src_ip = IP::from(origin.src.unwrap()).to_string();
                         let filter = if is_ipv6 {
                             format!(
-                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and dst host {})", // TODO filter on icmp reply type
+                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and icmp6[0] == 1 and dst host {})",
                                 src_ip, origin.sport, src_ip
                             )
                         } else {
                             format!(
-                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and dst host {})", // TODO filter on icmp reply type
+                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and icmp[0] == 3 and dst host {})",
                                 src_ip, origin.sport, src_ip
                             )
                         };
@@ -277,7 +277,7 @@ impl Worker {
                     .map(|origin| {
                         let src_ip = IP::from(origin.src.unwrap()).to_string();
                         format!(
-                            " ({}) and dst host {} and dst port {} and src port {})",
+                            " ({}) and dst host {} and dst port {} and src port {}",
                             filter, src_ip, origin.sport, origin.dport
                         )
                     })
@@ -289,7 +289,7 @@ impl Worker {
                         .iter()
                         .map(|origin| {
                             format!(
-                                " (icmp and dst host {})", // TODO filter on icmp reply type
+                                " (icmp and icmp[0] == 11 and dst host {})",
                                 IP::from(origin.src.unwrap()).to_string()
                             )
                         })
@@ -301,7 +301,7 @@ impl Worker {
             255 => {
                 // All
                 let (filter_p, filter_icmp) = if is_ipv6 {
-                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6") // TODO filter on icmp reply type
+                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6")
                 } else {
                     ("(udp or tcp)", "icmp")
                 };
@@ -311,7 +311,7 @@ impl Worker {
                     .map(|origin| {
                         let src_ip = IP::from(origin.src.unwrap()).to_string(); // Handle unwrap safely if needed
                         format!(
-                            " (({}) and dst host {} and src port {} and dst port {}) or ({} and dst host {})",
+                            " (({}) and dst host {} and src port {} and dst port {}) or ({} and dst host {})", // TODO filter on icmp reply type (echo reply, or unreachable)
                             filter_p, src_ip, origin.sport, origin.dport, filter_icmp, src_ip
                         )
                     })
