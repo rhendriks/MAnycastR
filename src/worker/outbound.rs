@@ -120,7 +120,7 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!(
-                                                "[Worker outbound] Failed to send ICMP packet: {}",
+                                                "[Worker outbound] Failed to send UDP packet: {}",
                                                 e
                                             )
                                         });
@@ -139,7 +139,7 @@ pub fn outbound(
                                         ));
                                         cap.sendpacket(packet).unwrap_or_else(|e| {
                                             println!(
-                                                "[Worker outbound] Failed to send ICMP packet: {}",
+                                                "[Worker outbound] Failed to send TCP packet: {}",
                                                 e
                                             )
                                         });
