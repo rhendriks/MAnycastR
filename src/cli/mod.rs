@@ -246,12 +246,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let dns_record = if measurement_type == 4 || measurement_type == 255 {
             // get CHAOS query
             matches
-                .get_one::<String>("QUERY")
+                .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
         } else if measurement_type == 2 {
             // TODO change default A record value
             matches
-                .get_one::<String>("QUERY")
+                .get_one::<String>("query")
                 .map_or("any.dnsjedi.org", |q| q.as_str())
         } else {
             ""
