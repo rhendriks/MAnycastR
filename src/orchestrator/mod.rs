@@ -1185,7 +1185,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     };
 
     let svc = ControllerServer::new(controller)
-        .accept_compressed(CompressionEncoding::Gzip) // TODO allow compressed measurement definitions (may include large hitlists)
+        .accept_compressed(CompressionEncoding::Zstd) // TODO allow compressed measurement definitions (may include large hitlists)
         .max_decoding_message_size(10 * 1024 * 1024 * 1024) // 10 GB
         .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 
