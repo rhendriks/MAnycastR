@@ -383,7 +383,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     println!("[CLI] Writing results to new file {}", path_str);
 
                     // File does not yet exist, create it to verify permissions
-                    fs::File::create(path)
+                    File::create(path)
                         .expect("Unable to create output file")
                         .sync_all()
                         .expect("Unable to sync file");
@@ -414,7 +414,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // TODO fails for measurements with a large hitlist
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
@@ -510,20 +509,25 @@ impl CliClient {
             .list_workers(Request::new(Empty::default()))
             .await
             .expect("Connection to orchestrator failed");
-        let mut workers = HashMap::new();
-        response.into_inner().workers.iter().for_each(|worker| {
-            workers.insert(worker.worker_id, worker.metadata.clone().unwrap());
-        });
+        let workers: HashMap<_, _> = response.into_inner().workers.into_iter()
+            .filter_map(|worker| worker.metadata.clone().map(|metadata| (worker.worker_id, metadata)))
+            .collect();
 
-        // TODO measurement length does not take into account that not all workers may participate
+        // Get the u32s of the workers that are active
+        let active_workers = if measurement_definition.workers.is_empty() {
+            workers.keys().cloned().collect() // All workers are active
+        } else {
+            measurement_definition.workers.clone()
+        };
+
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (probing_rate * workers.len() as u32) as f32) + 1.0) / 60.0
+            ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0) / 60.0
         } else if is_unicast {
             ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         } else {
-            (((workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
+            (((active_workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
@@ -538,7 +542,7 @@ impl CliClient {
 
         let response = self
             .grpc_client
-            .do_measurement(Request::new(measurement_definition.clone()))
+            .do_measurement(Request::new(measurement_definition))
             .await;
         if let Err(e) = response {
             println!(
@@ -718,11 +722,11 @@ impl CliClient {
         file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
         file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
         file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if !measurement_definition.workers.is_empty() {
+        if active_workers.len() < workers.len() {
             file.write_all(
                 format!(
                     "# Selective probing using the following workers: {:?}\n",
-                    measurement_definition.workers
+                    active_workers
                 )
                 .as_ref(),
             )?;
