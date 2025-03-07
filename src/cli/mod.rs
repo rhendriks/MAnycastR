@@ -346,7 +346,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         } else {
             if let Some(origin) = &origin {
-                let src = origin.src.unwrap().to_string();
+                let src = IP::from(origin.src.unwrap()).to_string();
 
                 println!(
                     "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
