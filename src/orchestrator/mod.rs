@@ -643,16 +643,15 @@ impl Controller for ControllerService {
 
                 // Set filter
                 let bpf_filter = if is_ipv6 {
-                    // TODO test filters for all measurement types
                     if measurement_type == 1 {
                         // ICMP echo reply
                         "icmp6 and icmp6[0] == 129"
                     } else if measurement_type == 2 | 4 {
                         // DNS response
-                        "ip6[6] == 17 and src port 53" // TODO source port and dst port
+                        "ip6[6] == 17 and src port 53"
                     } else {
                         // TCP RST (no tcp for ipv6)
-                        "ip6[6] == 6 and (ip6[53] & 4) != 0" // TODO source port and dst port
+                        "ip6[6] == 6 and (ip6[53] & 4) != 0"
                     }
                 } else {
                     if measurement_type == 1 {
@@ -1179,7 +1178,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     };
 
     let svc = ControllerServer::new(controller)
-        .accept_compressed(CompressionEncoding::Zstd) // TODO allow compressed measurement definitions (may include large hitlists)
+        .accept_compressed(CompressionEncoding::Zstd)
         .max_decoding_message_size(10 * 1024 * 1024 * 1024) // 10 GB
         .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 

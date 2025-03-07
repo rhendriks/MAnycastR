@@ -838,7 +838,7 @@ fn parse_udpv6(packet_bytes: &[u8], measurement_type: u32) -> Option<Verfploeter
     };
 
     // Obtain the payload
-    return if let PacketPayload::UDP { value } = payload {
+    if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
         // TODO use 'get_domain_length'
         if ((measurement_type == 2) & (value.body.len() < 66))
@@ -872,7 +872,7 @@ fn parse_udpv6(packet_bytes: &[u8], measurement_type: u32) -> Option<Verfploeter
         })
     } else {
         None
-    };
+    }
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
