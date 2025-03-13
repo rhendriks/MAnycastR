@@ -869,6 +869,7 @@ impl CliClient {
             ));
         }
         table.printstd();
+        println!("[CLI] Total workers: {}", table.len() - 1);
 
         Ok(())
     }
