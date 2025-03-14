@@ -12,6 +12,8 @@ use custom_module::IP;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 
+use afpacket;
+
 /// Spawns thread that sends out ICMP, UDP, or TCP probes.
 ///
 /// # Arguments
