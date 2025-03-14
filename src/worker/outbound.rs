@@ -48,11 +48,17 @@ pub fn outbound(
     info_url: String,
     if_name: Option<String>,
 ) {
+    let mut cap = pcap::Capture::from_device("eth0")
+        .unwrap()
+        .promisc(true)
+        .snaplen(65535)
+        .open()
+        .unwrap();
     // thread::Builder::new()
     //     .name("outbound".to_string())
     //     .spawn(move || {
     //         let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
-    //         // let mut cap = get_pcap(if_name, 100_000_000); // TODO use single pcap for in- and outbound
+    //         let mut cap = get_pcap(if_name, 100_000_000); // TODO use single pcap for in- and outbound
     //         // cap.direction(pcap::Direction::Out)
     //         //     .expect("Unable to set pcap direction");
     //         'outer: loop {
