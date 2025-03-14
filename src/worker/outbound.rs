@@ -12,7 +12,7 @@ use custom_module::IP;
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 
-use afpacket;
+use pnet::datalink::{self, Channel, DataLinkSender};
 
 /// Spawns thread that sends out ICMP, UDP, or TCP probes.
 ///
@@ -48,6 +48,19 @@ pub fn outbound(
     info_url: String,
     if_name: Option<String>,
 ) {
+    let interface_name = "eth0"; // Change this to your network interface
+    let interfaces = datalink::interfaces();
+
+    let interface = interfaces.into_iter()
+        .find(|iface| iface.name == interface_name)
+        .expect("Failed to find interface");
+
+    let (mut tx, _rx) = match datalink::channel(&interface, Default::default()) {
+        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => panic!("Unsupported channel type"),
+        Err(e) => panic!("Failed to create datalink channel: {}", e),
+    };
+
     // thread::Builder::new()
     //     .name("outbound".to_string())
     //     .spawn(move || {
