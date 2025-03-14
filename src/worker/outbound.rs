@@ -4,6 +4,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
+use pcap;
+
 use crate::custom_module;
 use custom_module::verfploeter::task::Data::{End, Targets, Trace};
 use custom_module::verfploeter::{task::Data, Origin};

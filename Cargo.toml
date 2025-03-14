@@ -18,7 +18,7 @@ tokio = { version = "1.44.1", features = ["rt-multi-thread", "macros", "sync", "
 tonic = { version = "0.12.3", features = ["tls", "zstd"] } # gRPC (inter-component communication)
 rand = "0.9.0" # generate random numbers
 gethostname = "1.0.0" # get hostname
-#pcap = "2.2.0" # send/receive packets
+pcap = "2.2.0" # send/receive packets
 #pnet = "0.35.0" # send/receive packets
 #libc = "0.2"
 #afpacket = "0.2.3"
