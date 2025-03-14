@@ -9,6 +9,8 @@ use local_ip_address::{local_ip, local_ipv6};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
+use pnet::datalink::{self, Channel as SocketChannel};
+
 use custom_module::verfploeter::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
     Task, TaskResult, WorkerId,
@@ -322,6 +324,20 @@ impl Worker {
 
         bpf_filter.push_str(&*filter_parts.join(" or"));
 
+        // Get the network interface TODO: make this configurable
+        let interface_name = "enp1s0"; // Change this to your network interface
+        let interfaces = datalink::interfaces();
+
+        let interface = interfaces.into_iter()
+            .find(|iface| iface.name == interface_name)
+            .expect("Failed to find interface");
+
+        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
+            Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
+            Ok(_) => panic!("Unsupported channel type"),
+            Err(e) => panic!("Failed to create datalink channel: {}", e),
+        };
+
         // Start listening thread
         listen(
             tx,
@@ -333,6 +349,7 @@ impl Worker {
             is_traceroute,
             start_measurement.measurement_type,
             self.interface.clone(),
+            socket_rx,
         );
 
         if is_probing {
@@ -373,6 +390,7 @@ impl Worker {
                 qname,
                 info_url,
                 self.interface.clone(),
+                socket_tx
             );
         } else {
             println!("[Worker] Not sending probes");
