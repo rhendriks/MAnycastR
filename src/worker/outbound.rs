@@ -4,8 +4,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
-use pcap;
-
 use crate::custom_module;
 use custom_module::verfploeter::task::Data::{End, Targets, Trace};
 use custom_module::verfploeter::{task::Data, Origin};
@@ -48,12 +46,6 @@ pub fn outbound(
     info_url: String,
     if_name: Option<String>,
 ) {
-    let mut cap = pcap::Capture::from_device("eth0")
-        .unwrap()
-        .promisc(true)
-        .snaplen(65535)
-        .open()
-        .unwrap();
     // thread::Builder::new()
     //     .name("outbound".to_string())
     //     .spawn(move || {
