@@ -4,13 +4,14 @@ use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
+use pnet::datalink::DataLinkReceiver;
+
 use crate::custom_module::verfploeter::{
     address::Value::V4, address::Value::V6, ip_result, ip_result::Value::Ipv4 as ip_IPv4,
     ip_result::Value::Ipv6 as ip_IPv6, trace_result, udp_payload, verfploeter_result::Value,
     Address, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result, IpResult, PingPayload, PingResult,
     TaskResult, TcpResult, TraceResult, UdpPayload, UdpResult, VerfploeterResult,
 };
-use crate::custom_module::Separated;
 use crate::net::{
     netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord,
 };
@@ -52,6 +53,7 @@ pub fn listen(
     is_traceroute: bool,
     measurement_type: u32,
     if_name: Option<String>,
+    mut socket_rx: Box<dyn DataLinkReceiver>,
 ) {
     println!("[Worker inbound] Started listener with filter {}", filter);
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
@@ -60,97 +62,97 @@ pub fn listen(
     let exit_flag = Arc::new(AtomicBool::new(false));
     let exit_flag_r = Arc::clone(&exit_flag);
     let rq_r = rq.clone();
-    // Builder::new()
-    //     .name("listener_thread".to_string())
-    //     .spawn(move || {
-    //         // let mut cap = get_pcap(if_name, 100_000_000);
-    //         // cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
-    //         // cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
-    //
-    //         // Listen for incoming packets
-    //         loop {
-    //             // Check if we should exit
-    //             if exit_flag_r.load(Ordering::Relaxed) {
-    //                 break;
-    //             }
-    //             let packet = match cap.next_packet() {
-    //                 Ok(packet) => packet,
-    //                 Err(_) => {
-    //                     sleep(Duration::from_millis(1)); // Sleep to let the pcap buffer fill up and free the CPU
-    //                     continue;
-    //                 }
-    //             };
-    //
-    //             let mut result = if measurement_type == 1 { // ICMP
-    //                 // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-    //                 let icmp_result = if is_ipv6 {
-    //                     parse_icmpv6(&packet.data[14..], measurement_id)
-    //                 } else {
-    //                     parse_icmpv4(&packet.data[14..], measurement_id)
-    //                 };
-    //
-    //                 icmp_result
-    //             } else if measurement_type == 2 || measurement_type == 4 { // DNS A
-    //                 let udp_result = if is_ipv6 {
-    //                     if packet.data[20] == 17 { // 17 is the protocol number for UDP
-    //                         parse_udpv6(&packet.data[14..], measurement_type)
-    //                     } else {
-    //                         if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
-    //                             parse_icmp_dst_unreachable(&packet.data[14..], true)
-    //                         } else {
-    //                             None
-    //                         }
-    //                     }
-    //                 } else {
-    //                     if packet.data[23] == 17 { // 17 is the protocol number for UDP
-    //                         parse_udpv4(&packet.data[14..], measurement_type)
-    //                     } else {
-    //                         if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
-    //                             parse_icmp_dst_unreachable(&packet.data[14..], false)
-    //                         } else {
-    //                             None
-    //                         }
-    //                     }
-    //                 };
-    //
-    //                 udp_result
-    //             } else if measurement_type == 3 { // TCP
-    //                 let tcp_result = if is_ipv6 {
-    //                     parse_tcpv6(&packet.data[14..])
-    //                 } else {
-    //                     parse_tcpv4(&packet.data[14..])
-    //                 };
-    //
-    //                 tcp_result
-    //             } else {
-    //                 panic!("Invalid measurement type");
-    //             };
-    //
-    //             // Attempt to parse the packet as an ICMP time exceeded packet
-    //             if is_traceroute && (result == None) {
-    //                 result = parse_icmp_ttl_exceeded(&packet.data[14..], is_ipv6);
-    //             }
-    //
-    //             // Invalid packets have value None
-    //             if result == None {
-    //                 continue;
-    //             }
-    //
-    //             // Put result in transmission queue
-    //             {
-    //                 let mut rq_opt = rq_r.lock().unwrap();
-    //                 if let Some(ref mut x) = *rq_opt {
-    //                     x.push(result.unwrap())
-    //                 }
-    //             }
-    //         }
-    //
-    //         let stats = cap.stats().expect("Failed to get pcap stats");
-    //         println!("[Worker inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
-    //                  stats.received.with_separator(),
-    //                  stats.dropped.with_separator(),
-    //                  stats.if_dropped.with_separator());
-    //     }).expect("Failed to spawn listener_thread");
+    Builder::new()
+        .name("listener_thread".to_string())
+        .spawn(move || {
+            // let mut cap = get_pcap(if_name, 100_000_000);
+            // cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
+            // cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
+
+            // Listen for incoming packets
+            loop {
+                // Check if we should exit
+                if exit_flag_r.load(Ordering::Relaxed) {
+                    break;
+                }
+                let packet = match socket_rx.next() {
+                    Ok(packet) => packet,
+                    Err(_) => {
+                        sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill
+                        continue;
+                    }
+                };
+
+                let mut result = if measurement_type == 1 { // ICMP
+                    // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
+                    let icmp_result = if is_ipv6 {
+                        parse_icmpv6(&packet[14..], measurement_id)
+                    } else {
+                        parse_icmpv4(&packet[14..], measurement_id)
+                    };
+
+                    icmp_result
+                } else if measurement_type == 2 || measurement_type == 4 { // DNS A
+                    let udp_result = if is_ipv6 {
+                        if packet[20] == 17 { // 17 is the protocol number for UDP
+                            parse_udpv6(&packet[14..], measurement_type)
+                        } else {
+                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
+                                parse_icmp_dst_unreachable(&packet[14..], true)
+                            } else {
+                                None
+                            }
+                        }
+                    } else {
+                        if packet[23] == 17 { // 17 is the protocol number for UDP
+                            parse_udpv4(&packet[14..], measurement_type)
+                        } else {
+                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
+                                parse_icmp_dst_unreachable(&packet[14..], false)
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    udp_result
+                } else if measurement_type == 3 { // TCP
+                    let tcp_result = if is_ipv6 {
+                        parse_tcpv6(&packet[14..])
+                    } else {
+                        parse_tcpv4(&packet[14..])
+                    };
+
+                    tcp_result
+                } else {
+                    panic!("Invalid measurement type");
+                };
+
+                // Attempt to parse the packet as an ICMP time exceeded packet
+                if is_traceroute && (result == None) {
+                    result = parse_icmp_ttl_exceeded(&packet[14..], is_ipv6);
+                }
+
+                // Invalid packets have value None
+                if result == None {
+                    continue;
+                }
+
+                // Put result in transmission queue
+                {
+                    let mut rq_opt = rq_r.lock().unwrap();
+                    if let Some(ref mut x) = *rq_opt {
+                        x.push(result.unwrap())
+                    }
+                }
+            }
+
+            // let stats = cap.stats().expect("Failed to get pcap stats");
+            // println!("[Worker inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
+            //          stats.received.with_separator(),
+            //          stats.dropped.with_separator(),
+            //          stats.if_dropped.with_separator());
+        }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the orchestrator as TaskResult
     Builder::new()
