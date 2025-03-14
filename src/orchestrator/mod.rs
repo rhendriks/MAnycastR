@@ -19,7 +19,6 @@ use custom_module::verfploeter::{
 use custom_module::IP;
 use futures_core::Stream;
 use local_ip_address::local_ip;
-use pcap::{Capture, Device};
 use rand::Rng;
 use tokio::spawn;
 use tokio::sync::broadcast::Receiver;
@@ -1236,13 +1235,13 @@ async fn probe_targets(
     info_url: &str,
 ) {
     // Create capture for sending packets (not receiving)
-    let main_interface = Device::lookup()
-        .expect("Failed to get main interface")
-        .unwrap();
-    let mut cap = Capture::from_device(main_interface)
-        .expect("Failed to create a capture")
-        .open()
-        .expect("Failed to open capture");
+    // let main_interface = Device::lookup()
+    //     .expect("Failed to get main interface")
+    //     .unwrap();
+    // let mut cap = Capture::from_device(main_interface)
+    //     .expect("Failed to create a capture")
+    //     .open()
+    //     .expect("Failed to open capture");
     let ethernet_header = get_ethernet_header(is_ipv6, None); // TODO interface
                                                               // Probe targets
     while let Some(target) = targets.recv().await {
@@ -1285,7 +1284,7 @@ async fn probe_targets(
             }
         }
 
-        cap.sendpacket(packet).expect("Failed to send packet");
+        // cap.sendpacket(packet).expect("Failed to send packet");
     }
 }
 
@@ -1296,25 +1295,27 @@ async fn listen_for_responses(
     is_ipv6: bool,
     mut rx_f: Receiver<()>,
 ) {
-    // get capture interface
-    let main_interface = Device::lookup()
-        .expect("Failed to get main interface")
-        .unwrap();
-    let mut cap = Capture::from_device(main_interface)
-        .expect("Failed to get capture device")
-        .immediate_mode(true)
-        .buffer_size(1_000)
-        .open()
-        .expect("Failed to open capture device")
-        .setnonblock()
-        .expect("Failed to set pcap to non-blocking mode");
-    cap.direction(pcap::Direction::In)
-        .expect("Failed to set pcap direction"); // We only want to receive incoming packets
 
-    // Set filter
-    cap.filter(filter, true).expect("Failed to set pcap filter");
 
-    cap = cap.setnonblock().unwrap();
+    // // get capture interface
+    // let main_interface = Device::lookup()
+    //     .expect("Failed to get main interface")
+    //     .unwrap();
+    // let mut cap = Capture::from_device(main_interface)
+    //     .expect("Failed to get capture device")
+    //     .immediate_mode(true)
+    //     .buffer_size(1_000)
+    //     .open()
+    //     .expect("Failed to open capture device")
+    //     .setnonblock()
+    //     .expect("Failed to set pcap to non-blocking mode");
+    // cap.direction(pcap::Direction::In)
+    //     .expect("Failed to set pcap direction"); // We only want to receive incoming packets
+    //
+    // // Set filter
+    // cap.filter(filter, true).expect("Failed to set pcap filter");
+    //
+    // cap = cap.setnonblock().unwrap();
 
     // Start listening
     loop {
@@ -1323,27 +1324,27 @@ async fn listen_for_responses(
             break;
         }
 
-        let packet = match cap.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
+        // let packet = match cap.next_packet() {
+        //     Ok(packet) => packet,
+        //     Err(_) => {
+        //         tokio::time::sleep(Duration::from_millis(100)).await;
+        //         continue;
+        //     }
+        // };
         // Get source address
-        let src = if is_ipv6 {
-            Address::from(&packet.data[22..38])
-        } else {
-            Address::from(&packet.data[26..30])
-        };
+        // let src = if is_ipv6 {
+        //     Address::from(&packet.data[22..38])
+        // } else {
+        //     Address::from(&packet.data[26..30])
+        // };
 
-        let prefix = src.get_prefix();
-        if let Some(addr) = prefix_map.lock().unwrap().get(&prefix) {
-            let mut addr = addr.lock().unwrap();
-            if addr.is_none() {
-                *addr = Some(src);
-            }
-        }
+        // let prefix = src.get_prefix();
+        // if let Some(addr) = prefix_map.lock().unwrap().get(&prefix) {
+        //     let mut addr = addr.lock().unwrap();
+        //     if addr.is_none() {
+        //         *addr = Some(src);
+        //     }
+        // }
     }
 }
 
