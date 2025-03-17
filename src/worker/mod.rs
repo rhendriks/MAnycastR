@@ -30,9 +30,9 @@ mod outbound;
 ///
 /// # Fields
 ///
-/// * 'grpc_client' - the worker connection with the orchestrator
+/// * 'client' - the worker gRPC connection with the orchestrator
 /// * 'metadata' - used to store this worker's hostname and unique worker ID
-/// * 'active' - boolean value that is set to true when the worker is currently doing a measurement
+/// * 'is_active' - boolean value that is set to true when the worker is currently doing a measurement
 /// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
@@ -40,7 +40,7 @@ mod outbound;
 pub struct Worker {
     client: ControllerClient<Channel>,
     metadata: Metadata,
-    active: Arc<Mutex<bool>>,
+    is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
@@ -78,7 +78,7 @@ impl Worker {
         let mut worker = Worker {
             client,
             metadata,
-            active: Arc::new(Mutex::new(false)),
+            is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
@@ -164,7 +164,6 @@ impl Worker {
         let measurement_id = start_measurement.measurement_id;
         let is_ipv6 = start_measurement.ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let is_traceroute = start_measurement.traceroute;
         let is_unicast = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let qname = start_measurement.record;
@@ -264,7 +263,6 @@ impl Worker {
             measurement_id,
             worker_id,
             is_ipv6,
-            is_traceroute,
             start_measurement.measurement_type,
             socket_rx,
         );
@@ -374,7 +372,7 @@ impl Worker {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            if *self.active.lock().unwrap() {
+            if *self.is_active.lock().unwrap() {
                 // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
                 match task.data {
@@ -459,7 +457,7 @@ impl Worker {
                         }
                     };
 
-                *self.active.lock().unwrap() = true;
+                *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
 
                 if is_probing {
@@ -517,7 +515,7 @@ impl Worker {
         println!(
             "[Worker] Letting the orchestrator know that this worker finished the measurement"
         );
-        *self.active.lock().unwrap() = false;
+        *self.is_active.lock().unwrap() = false;
         self.client
             .measurement_finished(Request::new(finished))
             .await?;
