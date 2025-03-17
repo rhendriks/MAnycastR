@@ -12,9 +12,7 @@ use crate::custom_module::verfploeter::{
     Address, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result, IpResult, PingPayload, PingResult,
     TaskResult, TcpResult, TraceResult, UdpPayload, UdpResult, VerfploeterResult,
 };
-use crate::net::{
-    netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord,
-};
+use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
@@ -70,7 +68,8 @@ pub fn listen(
                 if exit_flag_r.load(Ordering::Relaxed) {
                     break;
                 }
-                let packet = match socket_rx.next() { // TODO blocking call (use
+                let packet = match socket_rx.next() {
+                    // TODO blocking call (use
                     Ok(packet) => packet,
                     Err(_) => {
                         sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill
@@ -78,7 +77,8 @@ pub fn listen(
                     }
                 };
 
-                let mut result = if measurement_type == 1 { // ICMP
+                let mut result = if measurement_type == 1 {
+                    // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     let icmp_result = if is_ipv6 {
                         parse_icmpv6(&packet[14..], measurement_id)
@@ -87,22 +87,27 @@ pub fn listen(
                     };
 
                     icmp_result
-                } else if measurement_type == 2 || measurement_type == 4 { // DNS A
+                } else if measurement_type == 2 || measurement_type == 4 {
+                    // DNS A
                     let udp_result = if is_ipv6 {
-                        if packet[20] == 17 { // 17 is the protocol number for UDP
+                        if packet[20] == 17 {
+                            // 17 is the protocol number for UDP
                             parse_udpv6(&packet[14..], measurement_type)
                         } else {
-                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
+                            if measurement_type == 2 {
+                                // We only parse icmp responses to DNS requests for A records
                                 parse_icmp_dst_unreachable(&packet[14..], true)
                             } else {
                                 None
                             }
                         }
                     } else {
-                        if packet[23] == 17 { // 17 is the protocol number for UDP
+                        if packet[23] == 17 {
+                            // 17 is the protocol number for UDP
                             parse_udpv4(&packet[14..], measurement_type)
                         } else {
-                            if measurement_type == 2 { // We only parse icmp responses to DNS requests for A records
+                            if measurement_type == 2 {
+                                // We only parse icmp responses to DNS requests for A records
                                 parse_icmp_dst_unreachable(&packet[14..], false)
                             } else {
                                 None
@@ -111,7 +116,8 @@ pub fn listen(
                     };
 
                     udp_result
-                } else if measurement_type == 3 { // TCP
+                } else if measurement_type == 3 {
+                    // TCP
                     let tcp_result = if is_ipv6 {
                         parse_tcpv6(&packet[14..])
                     } else {
@@ -143,8 +149,12 @@ pub fn listen(
                 }
             }
 
-            println!("[Worker inbound] Stopped pnet listener (received {} packets)", received);
-        }).expect("Failed to spawn listener_thread");
+            println!(
+                "[Worker inbound] Stopped pnet listener (received {} packets)",
+                received
+            );
+        })
+        .expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the orchestrator as TaskResult
     Builder::new()

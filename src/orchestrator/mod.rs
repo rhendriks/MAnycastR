@@ -1,28 +1,27 @@
 use std::collections::HashMap;
 use std::fs;
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::{Duration};
+use std::time::Duration;
 
+use crate::custom_module;
+use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::verfploeter::{
-    controller_server::Controller, controller_server::ControllerServer,
-    task::Data::End as TaskEnd, task::Data::Start as TaskStart, Ack,
-    Empty, End, Finished, Metadata, Origin, ScheduleMeasurement, Start, Targets, Task,
-    TaskResult, Worker, WorkerId, WorkerList,
+    controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
+    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, WorkerList,
 };
 use futures_core::Stream;
 use rand::Rng;
 use tokio::spawn;
 use tokio::sync::mpsc;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
-use tonic::codec::CompressionEncoding;
-use crate::custom_module;
-use crate::orchestrator::mpsc::Sender;
 
 /// Struct for the orchestrator service
 ///
@@ -630,9 +629,7 @@ impl Controller for ControllerService {
                     if *is_active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                         if *clients_finished.lock().unwrap() == number_of_workers {
-                            println!(
-                                "[Orchestrator] CLI disconnected during task distribution"
-                            );
+                            println!("[Orchestrator] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send finished signal");
                         }
                         return; // abort
@@ -640,11 +637,9 @@ impl Controller for ControllerService {
 
                     if is_probing {
                         let task = Task {
-                            data: Some(custom_module::verfploeter::task::Data::Targets(
-                                Targets {
-                                    dst_addresses: chunk.to_vec(),
-                                },
-                            )),
+                            data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                                dst_addresses: chunk.to_vec(),
+                            })),
                         };
 
                         // Send packet to worker

@@ -1,10 +1,10 @@
-use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::thread;
 use clap::ArgMatches;
 use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
+use std::error::Error;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -226,13 +226,26 @@ impl Worker {
 
         // Look for the interface that uses the listening IP address
         let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
-        let interface = if let Some(interface) = interfaces.iter().find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip))) {
-            println!("[Worker] Found interface: {}, for address {}", interface.name, addr);
+        let interface = if let Some(interface) = interfaces
+            .iter()
+            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip)))
+        {
+            println!(
+                "[Worker] Found interface: {}, for address {}",
+                interface.name, addr
+            );
             interface.clone() // Return the found interface
         } else {
             // Use the default interface (first non-loopback interface)
-            let interface = interfaces.into_iter().filter(|iface| !iface.is_loopback()).next().expect("Failed to find default interface");
-            println!("[Worker] No interface found for address: {}, using default interface {}", addr, interface.name);
+            let interface = interfaces
+                .into_iter()
+                .filter(|iface| !iface.is_loopback())
+                .next()
+                .expect("Failed to find default interface");
+            println!(
+                "[Worker] No interface found for address: {}, using default interface {}",
+                addr, interface.name
+            );
             interface
         };
 
@@ -294,7 +307,7 @@ impl Worker {
                 qname,
                 info_url,
                 interface_name,
-                socket_tx
+                socket_tx,
             );
         } else {
             println!("[Worker] Not sending probes");

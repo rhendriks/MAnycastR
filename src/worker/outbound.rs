@@ -1,6 +1,6 @@
 extern crate mac_address;
 use std::thread;
-use std::time::{Duration};
+use std::time::Duration;
 
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
@@ -12,7 +12,6 @@ use custom_module::IP;
 use pnet::datalink::DataLinkSender;
 
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
-
 
 /// Spawns thread that sends out ICMP, UDP, or TCP probes.
 ///
@@ -47,7 +46,7 @@ pub fn outbound(
     qname: String,
     info_url: String,
     if_name: String,
-    mut socket_tx: Box<dyn DataLinkSender>
+    mut socket_tx: Box<dyn DataLinkSender>,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
