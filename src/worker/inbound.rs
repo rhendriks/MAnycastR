@@ -70,7 +70,7 @@ pub fn listen(
                 if exit_flag_r.load(Ordering::Relaxed) {
                     break;
                 }
-                let packet = match socket_rx.next() {
+                let packet = match socket_rx.next() { // TODO blocking call (use
                     Ok(packet) => packet,
                     Err(_) => {
                         sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill
@@ -152,8 +152,8 @@ pub fn listen(
         .spawn(move || {
             handle_results(&tx, rx_f, worker_id, rq);
 
-            // Close the pcap listener
-            println!("[Worker inbound] Stopping pcap listener");
+            // Close the listener
+            println!("[Worker inbound] Stopping listener");
             // Set the exit flag to true
             exit_flag.store(true, Ordering::SeqCst);
 
