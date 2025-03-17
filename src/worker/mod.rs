@@ -241,7 +241,7 @@ impl Worker {
             interface.clone() // Return the found interface
         } else {
             // Use the default interface (first interface)
-            let interface = interfaces.into_iter().next().expect("Failed to find default interface");
+            let interface = interfaces.into_iter().filter(|iface| !iface.is_loopback()).next().expect("Failed to find default interface");
             println!("[Worker] No interface found for address: {}, using default interface {}", addr, interface.name);
             interface
         };
