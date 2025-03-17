@@ -284,6 +284,8 @@ impl ICMPPacket {
     /// * 'destination_address' - the destination address of the packet
     ///
     /// * 'ttl' - the time to live of the packet
+    ///
+    /// * 'info_url' - the URL to be added to the packet payload (e.g., opt-out URL)
     pub fn echo_request(
         identifier: u16,
         sequence_number: u16,
