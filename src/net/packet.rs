@@ -15,9 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
+///
+/// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(
     is_ipv6: bool,
-    if_name: String, // TODO different interfaces may be used for different addresses
+    if_name: String,
 ) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
@@ -81,6 +83,8 @@ pub fn get_ethernet_header(
 /// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
+///
+/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
 ///
@@ -168,7 +172,7 @@ pub fn create_ping(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'dns_record' - the DNS record to request
+/// * 'qname' - the DNS record to request
 ///
 /// # Returns
 ///
@@ -253,6 +257,8 @@ pub fn create_udp(
 ///
 /// * 'is_unicast' - whether we are performing anycast-based (false) or GCD probing (true)
 ///
+/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+///
 /// # Returns
 ///
 /// A TCP packet (including the IP header) as a byte vector.
@@ -322,14 +328,6 @@ pub fn create_tcp(
 /// If the address is not a valid IP address.
 ///
 /// If the prefix is not a valid prefix.
-///
-/// # Example
-///
-/// ```
-/// is_in_prefix("1.1.1.1", "1.1.1.0/24") // true
-///
-/// is_in_prefix("2001:db8::1", "2001:db8::/32") // true
-/// ```
 pub fn is_in_prefix(address: String, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
     let address = address
