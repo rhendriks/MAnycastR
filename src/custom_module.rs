@@ -30,6 +30,7 @@ impl Address {
     ///
     /// /24 for IPv4 and /48 for IPv6
     ///
+    #[allow(dead_code)]
     pub fn get_prefix(&self) -> u64 {
         match &self.value {
             Some(V4(v4)) => {

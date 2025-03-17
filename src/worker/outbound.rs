@@ -5,7 +5,7 @@ use std::time::{Duration};
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
-use custom_module::verfploeter::task::Data::{End, Targets, Trace};
+use custom_module::verfploeter::task::Data::{End, Targets};
 use custom_module::verfploeter::{task::Data, Origin};
 use custom_module::IP;
 
@@ -148,20 +148,6 @@ pub fn outbound(
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
                         }
-                    }
-                    Trace(trace) => {
-                        // perform_trace(
-                        //     trace.origins,
-                        //     is_ipv6,
-                        //     ethernet_header.clone(),
-                        //     &mut cap,
-                        //     IP::from(trace.dst.expect("None IP address")),
-                        //     worker_id,
-                        //     trace.max_ttl as u8,
-                        //     measurement_type,
-                        //     &info_url,
-                        // );
-                        continue;
                     }
                     _ => continue, // Invalid measurement
                 };

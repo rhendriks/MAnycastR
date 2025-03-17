@@ -18,9 +18,7 @@ tokio = { version = "1.44.1", features = ["rt-multi-thread", "macros", "sync", "
 tonic = { version = "0.12.3", features = ["tls", "zstd"] } # gRPC (inter-component communication)
 rand = "0.9.0" # generate random numbers
 gethostname = "1.0.0" # get hostname
-pnet = "0.35.0" # send/receive packets
-#afpacket = "0.2.3" # send/receive packets (problem: not macos/windows compatible + requires sudo or rawsocket privileges)
-# pcap # problem: libpcap dependency and cannot statically link
+pnet = "0.35.0" # create raw socket for sending/receiving packets
 local-ip-address = "0.6.3" # get local unicast address
 mac_address = "1.1.8" # get MAC address
 indicatif = "0.17.11" # progress bar

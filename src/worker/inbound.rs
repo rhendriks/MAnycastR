@@ -49,13 +49,11 @@ pub fn listen(
     measurement_id: u32,
     worker_id: u16,
     is_ipv6: bool,
-    filter: String,
     is_traceroute: bool,
     measurement_type: u32,
-    if_name: Option<String>,
     mut socket_rx: Box<dyn DataLinkReceiver>,
 ) {
-    println!("[Worker inbound] Started listener with filter {}", filter);
+    println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
     // Exit flag for pcap listener
@@ -65,11 +63,8 @@ pub fn listen(
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
-            // let mut cap = get_pcap(if_name, 100_000_000);
-            // cap.direction(pcap::Direction::In).expect("Failed to set pcap direction"); // We only want to receive incoming packets
-            // cap.filter(&*filter, true).expect("Failed to set pcap filter"); // Set the appropriate filter
-
             // Listen for incoming packets
+            let mut received: u32 = 0;
             loop {
                 // Check if we should exit
                 if exit_flag_r.load(Ordering::Relaxed) {
@@ -140,6 +135,7 @@ pub fn listen(
 
                 // Put result in transmission queue
                 {
+                    received += 1;
                     let mut rq_opt = rq_r.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
@@ -147,11 +143,7 @@ pub fn listen(
                 }
             }
 
-            // let stats = cap.stats().expect("Failed to get pcap stats");
-            // println!("[Worker inbound] Stopped pcap listener (received {} packets, dropped {} packets, if_dropped {} packets)",
-            //          stats.received.with_separator(),
-            //          stats.dropped.with_separator(),
-            //          stats.if_dropped.with_separator());
+            println!("[Worker inbound] Stopped pnet listener (received {} packets)", received);
         }).expect("Failed to spawn listener_thread");
 
     // Thread for sending the received replies to the orchestrator as TaskResult
