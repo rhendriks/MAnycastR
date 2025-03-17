@@ -332,7 +332,7 @@ impl Worker {
             .find(|iface| iface.name == interface_name)
             .expect("Failed to find interface");
 
-        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
+        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) { // TODO use self.interface
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),
             Err(e) => panic!("Failed to create datalink channel: {}", e),
@@ -345,10 +345,8 @@ impl Worker {
             measurement_id,
             worker_id,
             is_ipv6,
-            bpf_filter,
             is_traceroute,
             start_measurement.measurement_type,
-            self.interface.clone(),
             socket_rx,
         );
 
