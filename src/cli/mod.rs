@@ -21,11 +21,11 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
 use custom_module::verfploeter::{
-    controller_client::ControllerClient, trace_result::Value, udp_payload::Value::DnsARecord,
+    controller_client::ControllerClient, udp_payload::Value::DnsARecord,
     udp_payload::Value::DnsChaos, verfploeter_result::Value::Ping as ResultPing,
-    verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Trace as ResultTrace,
-    verfploeter_result::Value::Udp as ResultUdp, Address, Configuration, Empty, Origin,
-    ScheduleMeasurement, Targets, TaskResult, VerfploeterResult,
+    verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Udp as ResultUdp,
+    Address, Configuration, Empty, Origin, ScheduleMeasurement, Targets, TaskResult,
+    VerfploeterResult,
 };
 use custom_module::{Separated, IP};
 
@@ -36,11 +36,11 @@ pub struct CliClient {
     grpc_client: ControllerClient<Channel>,
 }
 
-/// Connect to the orchestrator and make it perform the CLI command from the command-line
+/// Execute the command-line arguments and send the desired commands to the orchestrator.
 ///
 /// # Arguments
 ///
-/// * 'args' - contains the parsed CLI arguments
+/// * 'args' - the user-defined command-line arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.get_one::<String>("orchestrator").unwrap();
@@ -448,23 +448,23 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 impl CliClient {
-    /// Send the 'do_measurement' command to the orchestrator, await the measurement results, and print them out to command-line & file as CSV.
+    /// Perform a measurement at the orchestrator, await measurement results, and write them to a file.
     ///
     /// # Arguments
     ///
-    /// * 'measurement_definition' - the measurement that is being requested at the orchestrator (contains all the necessary information about the upcoming measurement)
+    /// * 'measurement_definition' - measurement definition created from the command-line arguments
     ///
-    /// * 'cli' - a boolean that determines whether the results should be printed to the command-line (will be true if --stream was added to the start command)
+    /// * 'cli' - boolean whether the results should be streamed to the CLI or not
     ///
-    /// * 'shuffle' - a boolean whether the hitlist has been shuffled or not
+    /// * 'shuffle' - boolean whether the hitlist should be shuffled or not
     ///
-    /// * 'hitlist' - the name of the hitlist file that was used for this measurement
+    /// * 'hitlist' - hitlist file path
     ///
-    /// * 'hitlist_length' - the length of the hitlist
+    /// * 'hitlist_length' - length of hitlist (i.e., number of target addresses)
     ///
-    /// * 'configurations' - a vector of configurations that are used for the measurement
+    /// * 'configurations' - specifies the source IP and ports to use for each worker
     ///
-    /// * 'path' - optional path to write the results to
+    /// * 'path' - optional path for output file (default is current directory)
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
@@ -480,7 +480,6 @@ impl CliClient {
         let probing_rate = measurement_definition.rate;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.unicast;
-        let is_traceroute = measurement_definition.traceroute;
         let interval = measurement_definition.interval;
         let origin = if is_unicast {
             let sport = measurement_definition.origin.unwrap().sport;
@@ -629,7 +628,7 @@ impl CliClient {
         let temp_file = File::create("manycastr_results_feed").expect("Unable to create file");
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, temp_file, measurement_type, is_traceroute);
+        write_results(rx_r, cli, temp_file, measurement_type);
 
         let mut replies_count = 0;
         while let Ok(Some(task_result)) = stream.message().await {
@@ -786,29 +785,21 @@ impl CliClient {
     ///
     /// # Arguments
     ///
-    /// * 'address' - the address of the orchestrator (e.g., 190.100.10.10:50051)
+    /// * 'address' - the address of the orchestrator (e.g., 10.10.10.10:50051)
     ///
     /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
-    /// A Result containing the ControllerClient and a Boxed Error if the connection fails
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let worker = CliClient::connect("190.100.10.10:50051", true).await;
-    /// ```
+    /// A gRPC client that is connected to the orchestrator
     ///
     /// # Panics
     ///
-    /// If the connection fails
+    /// If the connection to the orchestrator fails
     ///
     /// # Remarks
     ///
-    /// This function is async and should be awaited
-    ///
-    /// tls requires a certificate at ./tls/orchestrator.crt
+    /// TLS enabled requires a certificate at ./tls/orchestrator.crt
     async fn connect(
         address: &str,
         fqdn: Option<&String>,
@@ -884,55 +875,26 @@ impl CliClient {
     }
 }
 
-/// Write the results to the command-line interface and a file
+/// Writes the results to a file (and optionally to the command-line)
 ///
 /// # Arguments
 ///
-/// * 'rx' - Receives task results to be written
+/// * 'rx' - The receiver channel that receives the results
 ///
 /// * 'cli' - A boolean that determines whether the results should be printed to the command-line
 ///
 /// * 'file' - The file to which the results should be written
 ///
 /// * 'measurement_type' - The type of measurement being performed
-///
-/// * 'traceroute' - If true, it will handle traceroute results (which are written to a separate file)
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
     cli: bool,
     file: File,
     measurement_type: u32,
-    traceroute: bool,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if cli {
         Some(Writer::from_writer(io::stdout()))
-    } else {
-        None
-    };
-    // Traceroute writer
-    let mut wtr_file_traceroute = if traceroute {
-        let mut wtr_file = Writer::from_writer(
-            File::create(format!("./out/traceroute.csv"))
-                .expect("Unable to create traceroute file"),
-        ); // TODO file name
-           // Write header
-        wtr_file
-            .write_record(vec![
-                "rx_worker_id",
-                "reply_src_addr",
-                "reply_dest_addr",
-                "ttl",
-                "rx_time",
-                "tx_time",
-                "tx_worker_id",
-                "reply_src_port",
-                "reply_dest_port",
-                "seq",
-                "ack",
-            ])
-            .expect("Failed to write traceroute header");
-        Some(wtr_file)
     } else {
         None
     };
@@ -961,11 +923,9 @@ fn write_results(
             }
             let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
             for result in verfploeter_results {
-                let trace_result = match result.clone().value.unwrap() {
-                    ResultTrace(_) => true,
-                    _ => false,
-                };
                 let result = get_result(result, task_result.worker_id, measurement_type);
+
+                // Write to command-line
                 if cli {
                     if let Some(ref mut writer) = wtr_cli {
                         writer
@@ -974,19 +934,11 @@ fn write_results(
                         writer.flush().expect("Failed to flush stdout");
                     }
                 };
-                // Traceroute results get written to a separate file
-                if trace_result {
-                    if let Some(ref mut writer) = wtr_file_traceroute {
-                        writer
-                            .write_record(result.clone())
-                            .expect("Failed to write payload to traceroute");
-                        writer.flush().expect("Failed to flush traceroute file");
-                    }
-                } else {
-                    wtr_file
-                        .write_record(result)
-                        .expect("Failed to write payload to file");
-                }
+
+                // Write to file
+                wtr_file
+                    .write_record(result)
+                    .expect("Failed to write payload to file");
             }
             wtr_file.flush().expect("Failed to flush file");
         }
@@ -994,7 +946,11 @@ fn write_results(
     });
 }
 
-/// Creates the appropriate header for the results file (based on the measurement type)
+/// Creates the appropriate CSV header for the results file (based on the measurement type)
+///
+/// # Arguments
+///
+/// * 'measurement_type' - The type of measurement being performed
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
     let mut header = vec!["rx_worker_id"];
@@ -1046,77 +1002,6 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 /// * 'measurement_type' - The type of measurement being performed
 fn get_result(result: VerfploeterResult, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
     match result.value.unwrap() {
-        ResultTrace(trace) => {
-            let ip_result = trace.ip_result.unwrap();
-            let source_mb = ip_result.get_src_str();
-            let ttl = trace.ttl;
-            let rx_time = trace.rx_time.to_string();
-            let tx_time = trace.tx_time.to_string();
-            let tx_worker_id = trace.tx_worker_id.to_string();
-
-            return match trace.value.unwrap() {
-                Value::Ping(ping) => {
-                    let inner_ip = ping.ip_result.unwrap();
-                    let source = inner_ip.get_src_str();
-                    let destination = inner_ip.get_dst_str();
-
-                    vec![
-                        rx_worker_id.to_string(),
-                        source,
-                        destination,
-                        ttl.to_string(),
-                        source_mb,
-                        tx_worker_id,
-                        rx_time,
-                        tx_time,
-                    ]
-                }
-                Value::Udp(udp) => {
-                    let inner_ip = udp.ip_result.unwrap();
-                    let src = inner_ip.get_src_str();
-                    let dst = inner_ip.get_dst_str();
-                    let sport = udp.sport.to_string();
-                    let dport = udp.dport.to_string();
-
-                    vec![
-                        rx_worker_id.to_string(),
-                        src,
-                        dst,
-                        ttl.to_string(),
-                        source_mb,
-                        tx_worker_id,
-                        rx_time,
-                        tx_time,
-                        sport,
-                        dport,
-                    ]
-                }
-                Value::Tcp(tcp) => {
-                    let inner_ip = tcp.ip_result.unwrap();
-                    let src = inner_ip.get_src_str();
-                    let dst = inner_ip.get_dst_str();
-                    let sport = tcp.sport.to_string();
-                    let dport = tcp.dport.to_string();
-                    let seq = tcp.seq.to_string();
-                    let ack = tcp.ack.to_string();
-
-                    vec![
-                        rx_worker_id.to_string(),
-                        src,
-                        dst,
-                        ttl.to_string(),
-                        source_mb,
-                        tx_worker_id,
-                        rx_time,
-                        tx_time,
-                        sport,
-                        dport,
-                        seq,
-                        ack,
-                    ]
-                }
-            };
-        }
         ResultPing(ping) => {
             let rx_time = ping.rx_time.to_string();
 
@@ -1275,6 +1160,9 @@ fn get_result(result: VerfploeterResult, rx_worker_id: u32, measurement_type: u3
                 seq,
                 ack,
             ];
+        }
+        _ => {
+            panic!("Undefined type.")
         }
     }
 }
