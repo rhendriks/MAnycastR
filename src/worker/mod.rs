@@ -224,20 +224,8 @@ impl Worker {
         // Get the network interface to use
         let interfaces = datalink::interfaces();
 
-        println!("Interfaces: {:?}", interfaces);
-
-        // print all ip addresses
-        for interface in interfaces.clone().into_iter() {
-            println!("interface: {}", interface.name);
-            for ip in interface.ips.iter() {
-                println!("IP: {}", ip.to_string());
-            }
-        }
-
         // Look for the interface that uses the listening IP address
         let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
-
-        // TODO implement prefix matching (address is a single IP, iface.ips contains prefixes
         let interface = if let Some(interface) = interfaces.iter().find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip))) {
             println!("[Worker] Found interface: {}, for address {}", interface.name, addr);
             interface.clone() // Return the found interface
