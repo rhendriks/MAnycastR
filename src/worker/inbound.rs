@@ -30,13 +30,9 @@ use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayl
 ///
 /// * 'is_ipv6' - whether to parse the packets as IPv6 or IPv4
 ///
-/// * 'filter' - the pcap filter to use
-///
-/// * 'traceroute' - whether to handle additional traceroute packets (ICMP time exceeded)
-///
 /// * 'measurement_type' - the type of measurement being performed
 ///
-/// * 'if_name' - the name of the interface to listen on (default is the main interface)
+/// * 'socket_rx' - the socket to listen on
 ///
 /// # Panics
 ///
@@ -47,7 +43,6 @@ pub fn listen(
     measurement_id: u32,
     worker_id: u16,
     is_ipv6: bool,
-    is_traceroute: bool,
     measurement_type: u32,
     mut socket_rx: Box<dyn DataLinkReceiver>,
 ) {
@@ -69,7 +64,7 @@ pub fn listen(
                     break;
                 }
                 let packet = match socket_rx.next() {
-                    // TODO blocking call (use
+                    // TODO blocking call
                     Ok(packet) => packet,
                     Err(_) => {
                         sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill
@@ -77,7 +72,7 @@ pub fn listen(
                     }
                 };
 
-                let mut result = if measurement_type == 1 {
+                let result = if measurement_type == 1 {
                     // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     let icmp_result = if is_ipv6 {
@@ -128,11 +123,6 @@ pub fn listen(
                 } else {
                     panic!("Invalid measurement type");
                 };
-
-                // Attempt to parse the packet as an ICMP time exceeded packet
-                if is_traceroute && (result == None) {
-                    result = parse_icmp_ttl_exceeded(&packet[14..], is_ipv6);
-                }
 
                 // Invalid packets have value None
                 if result == None {
@@ -465,6 +455,7 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterR
 /// # Remarks
 ///
 /// The function returns None if the packet is not an ICMP time exceeded packet or if the packet is too short to contain the necessary information.
+#[allow(dead_code)]
 fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<VerfploeterResult> {
     // 1. Parse IP header
     let (ip_result, payload) = if is_ipv6 {
