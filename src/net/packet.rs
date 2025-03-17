@@ -5,8 +5,10 @@ use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use mac_address::{mac_address_by_name};
 use std::io;
 use std::io::BufRead;
+use std::net::{IpAddr};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use pnet::ipnetwork::IpNetwork;
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
@@ -293,5 +295,63 @@ pub fn create_tcp(
             255,
             info_url,
         )
+    }
+}
+
+/// Checks if the given address is in the given prefix.
+///
+/// # Arguments
+///
+/// * 'address' - the address to check
+///
+/// * 'prefix' - the prefix to check against
+///
+/// # Returns
+///
+/// True if the address is in the prefix, false otherwise.
+///
+/// # Panics
+///
+/// If the address is not a valid IP address.
+///
+/// If the prefix is not a valid prefix.
+///
+/// # Example
+///
+/// ```
+/// is_in_prefix("1.1.1.1", "1.1.1.0/24") // true
+///
+/// is_in_prefix("2001:db8::1", "2001:db8::/32") // true
+/// ```
+pub fn is_in_prefix(
+    address: String,
+    prefix: &IpNetwork
+) -> bool {
+    // Parse the address from String to IpAddr
+    let ip_address = address.parse::<IpAddr>().expect("Invalid IP address format");
+
+    match ip_address {
+        IpAddr::V4(ipv4) => {
+            // Check for IPv4 matching
+            if let IpNetwork::V4(network_ip) = prefix {
+                let network_ip_u32 = u32::from(network_ip.ip());
+                let subnet_mask = u32::from(network_ip.mask());
+                let ip_u32 = u32::from(ipv4) & subnet_mask;
+                network_ip_u32 == ip_u32
+            } else {
+                false
+            }
+        }
+        IpAddr::V6(ipv6) => {
+            // Check for IPv6 matching
+            if let IpNetwork::V6(network_ip) = prefix {
+                let network_ip_u128 = u128::from(network_ip.ip());
+                let subnet_mask = u128::from(network_ip.mask());
+                let ip_u128 = u128::from(ipv6) & subnet_mask;
+                network_ip_u128 == ip_u128
+            } else {
+                false
+            }
+        }
     }
 }
