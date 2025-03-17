@@ -27,13 +27,19 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'gcd' - whether we are sending probes with unicast or anycast
+/// * 'is_unicast' - whether we are sending probes with unicast or anycast
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
 /// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
 ///
-/// * 'chaos' - the domain name to use for CHAOS measurements
+/// * 'qname' - the domain name to use for DNS measurements
+///
+/// * 'info_url' - URL to encode in payload (e.g., opt-out URL)
+///
+/// * 'if_name' - the name of the network interface to use
+///
+/// * 'socket_tx' - the sender object to send packets
 pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
