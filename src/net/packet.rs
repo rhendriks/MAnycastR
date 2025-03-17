@@ -323,32 +323,23 @@ pub fn create_tcp(
 ///
 /// is_in_prefix("2001:db8::1", "2001:db8::/32") // true
 /// ```
-pub fn is_in_prefix(
-    address: String,
-    prefix: &IpNetwork
-) -> bool {
-    // Parse the address from String to IpAddr
-    let ip_address = address.parse::<IpAddr>().expect("Invalid IP address format");
+pub fn is_in_prefix(address: String, prefix: &IpNetwork) -> bool {
+    // Convert the address string to an IpAddr
+    let address = address.parse::<IpAddr>().expect("Invalid IP address format");
 
-    match ip_address {
+    match address {
         IpAddr::V4(ipv4) => {
-            // Check for IPv4 matching
             if let IpNetwork::V4(network_ip) = prefix {
-                let network_ip_u32 = u32::from(network_ip.ip());
-                let subnet_mask = u32::from(network_ip.mask());
-                let ip_u32 = u32::from(ipv4) & subnet_mask;
-                network_ip_u32 == ip_u32
+                // Use the contains method to check if the IP is in the network range
+                network_ip.contains(ipv4)
             } else {
                 false
             }
         }
         IpAddr::V6(ipv6) => {
-            // Check for IPv6 matching
             if let IpNetwork::V6(network_ip) = prefix {
-                let network_ip_u128 = u128::from(network_ip.ip());
-                let subnet_mask = u128::from(network_ip.mask());
-                let ip_u128 = u128::from(ipv6) & subnet_mask;
-                network_ip_u128 == ip_u128
+                // Use the contains method to check if the IP is in the network range
+                network_ip.contains(ipv6)
             } else {
                 false
             }
