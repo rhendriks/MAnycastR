@@ -17,6 +17,7 @@ use custom_module::verfploeter::{
 use custom_module::IP;
 
 use crate::custom_module;
+use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
 
@@ -236,11 +237,12 @@ impl Worker {
         // Look for the interface that uses the listening IP address
         let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
 
-        let interface = if let Some(interface) = interfaces.iter().find(|iface| iface.ips.iter().any(|ip| ip.to_string() == addr)) {
+        // TODO implement prefix matching (address is a single IP, iface.ips contains prefixes
+        let interface = if let Some(interface) = interfaces.iter().find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip))) {
             println!("[Worker] Found interface: {}, for address {}", interface.name, addr);
             interface.clone() // Return the found interface
         } else {
-            // Use the default interface (first interface)
+            // Use the default interface (first non-loopback interface)
             let interface = interfaces.into_iter().filter(|iface| !iface.is_loopback()).next().expect("Failed to find default interface");
             println!("[Worker] No interface found for address: {}, using default interface {}", addr, interface.name);
             interface
