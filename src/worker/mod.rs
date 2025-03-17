@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
 use clap::ArgMatches;
 use futures::channel::oneshot;
 use gethostname::gethostname;
@@ -36,7 +35,6 @@ mod outbound;
 /// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
-/// * 'interface' - interface name to connect to (connect to default if None)
 #[derive(Clone)]
 pub struct Worker {
     client: ControllerClient<Channel>,
@@ -224,6 +222,16 @@ impl Worker {
 
         // Get the network interface to use
         let interfaces = datalink::interfaces();
+
+        println!("Interfaces: {:?}", interfaces);
+
+        // print all ip addresses
+        for interface in interfaces.clone().into_iter() {
+            println!("interface: {}", interface.name);
+            for ip in interface.ips.iter() {
+                println!("IP: {}", ip.to_string());
+            }
+        }
 
         // Look for the interface that uses the listening IP address
         let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
