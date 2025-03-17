@@ -46,7 +46,7 @@ pub fn outbound(
     measurement_type: u8,
     qname: String,
     info_url: String,
-    if_name: Option<String>,
+    if_name: String,
     mut socket_tx: Box<dyn DataLinkSender>
 ) {
     thread::Builder::new()
@@ -136,7 +136,7 @@ pub fn outbound(
                                     eprintln!("[Worker outbound] Failed to send ICMP packet: {}", e);
                                     failed += 1;
                                 },
-                                None => eprintln!("Failed to send packet: No Tx interface"),
+                                None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
                             }
                         }
                     }

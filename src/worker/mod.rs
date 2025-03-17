@@ -45,7 +45,6 @@ pub struct Worker {
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
-    interface: Option<String>,
 }
 
 impl Worker {
@@ -64,7 +63,6 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"))
             .to_string();
 
-        let interface = args.get_one::<String>("interface").map(|s| s.to_string());
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
@@ -85,7 +83,6 @@ impl Worker {
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
-            interface,
         };
 
         worker.connect_to_server().await?;
@@ -225,19 +222,25 @@ impl Worker {
         ) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        // Get the network interface TODO: make this configurable
-        let interface_name = "enp1s0"; // Change this to your network interface
+        // Get the network interface to use
         let interfaces = datalink::interfaces();
 
-        println!("Interfaces: {:?}", interfaces); // TODO test
+        // Look for the interface that uses the listening IP address
+        let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
 
-        let interface = interfaces.into_iter()
-            .find(|iface| iface.name == interface_name)
-            .expect("Failed to find interface");
+        let interface = if let Some(interface) = interfaces.iter().find(|iface| iface.ips.iter().any(|ip| ip.to_string() == addr)) {
+            println!("[Worker] Found interface: {}, for address {}", interface.name, addr);
+            interface.clone() // Return the found interface
+        } else {
+            // Use the default interface (first interface)
+            let interface = interfaces.into_iter().next().expect("Failed to find default interface");
+            println!("[Worker] No interface found for address: {}, using default interface {}", addr, interface.name);
+            interface
+        };
 
-
-        // TODO may need multiple sockets when using multiple interfaces
-        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) { // TODO use self.interface
+        let interface_name = interface.name.clone();
+        // Create a socket to send out probes and receive replies with
+        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),
             Err(e) => panic!("Failed to create datalink channel: {}", e),
@@ -292,7 +295,7 @@ impl Worker {
                 start_measurement.measurement_type as u8,
                 qname,
                 info_url,
-                self.interface.clone(),
+                interface_name,
                 socket_tx
             );
         } else {

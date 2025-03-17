@@ -2,7 +2,7 @@ use crate::custom_module::verfploeter::address::Value::{V4, V6};
 use crate::custom_module::verfploeter::{Origin, PingPayload};
 use crate::custom_module::IP;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use mac_address::{get_mac_address, mac_address_by_name};
+use mac_address::{mac_address_by_name};
 use std::io;
 use std::io::BufRead;
 use std::process::{Command, Stdio};
@@ -15,22 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * 'is_ipv6' - whether we are using IPv6 or not
 pub fn get_ethernet_header(
     is_ipv6: bool,
-    if_name: Option<String>, // TODO different interfaces may be used for different addresses
+    if_name: String, // TODO different interfaces may be used for different addresses
 ) -> Vec<u8> {
-    // Get the src MAC for interface, if provided
-    let mac_src = if let Some(if_name) = if_name.clone() {
-        if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
-            mac.bytes().to_vec()
-        } else {
-            panic!("No MAC address found for interface: {}", if_name);
-        }
-    } else {
-        match get_mac_address() {
-            Ok(Some(ma)) => ma.bytes().to_vec(),
-            Ok(None) => panic!("No MAC address found."),
-            Err(e) => panic!("{:?}", e),
-        }
-    };
+    // Get the source MAC address for the used interface
+    let mac_src = mac_address_by_name(&if_name)
+        .expect(&format!{"No MAC address found for interface: {}", if_name}).unwrap().bytes().to_vec();
 
     // Run the sudo arp command (for the destination MAC addresses)
     let mut child = Command::new("cat")
@@ -53,17 +42,8 @@ pub fn get_ethernet_header(
                 if parts[3].split(':').all(|s| s == "00") {
                     continue;
                 }
-                if if_name.is_some() {
-                    // TODO dynamically retrieve the interface for the used address
-                    // Match on the interface name TODO match for default interface as well
-                    if parts[5] == if_name.clone().unwrap() {
-                        mac_dst = parts[3]
-                            .split(':')
-                            .map(|s| u8::from_str_radix(s, 16).unwrap())
-                            .collect();
-                        break;
-                    }
-                } else {
+                // Match on the interface name
+                if parts[5] == if_name {
                     mac_dst = parts[3]
                         .split(':')
                         .map(|s| u8::from_str_radix(s, 16).unwrap())
