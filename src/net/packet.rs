@@ -2,13 +2,13 @@ use crate::custom_module::verfploeter::address::Value::{V4, V6};
 use crate::custom_module::verfploeter::{Origin, PingPayload};
 use crate::custom_module::IP;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use mac_address::{mac_address_by_name};
+use mac_address::mac_address_by_name;
+use pnet::ipnetwork::IpNetwork;
 use std::io;
 use std::io::BufRead;
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
-use pnet::ipnetwork::IpNetwork;
 
 /// Returns the ethernet header to use for the outbound packets.
 ///
@@ -21,7 +21,10 @@ pub fn get_ethernet_header(
 ) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
-        .expect(&format!{"No MAC address found for interface: {}", if_name}).unwrap().bytes().to_vec();
+        .expect(&format! {"No MAC address found for interface: {}", if_name})
+        .unwrap()
+        .bytes()
+        .to_vec();
 
     // Run the sudo arp command (for the destination MAC addresses)
     let mut child = Command::new("cat")
@@ -275,7 +278,9 @@ pub fn create_tcp(
 
     if is_ipv6 {
         TCPPacket::tcp_syn_ack_v6(
-            IP::from(origin.src.expect("None IP address")).get_v6().into(),
+            IP::from(origin.src.expect("None IP address"))
+                .get_v6()
+                .into(),
             IP::from(dst).get_v6().into(),
             origin.sport as u16,
             origin.dport as u16,
@@ -286,7 +291,9 @@ pub fn create_tcp(
         )
     } else {
         TCPPacket::tcp_syn_ack(
-            IP::from(origin.src.expect("None IP address")).get_v4().into(),
+            IP::from(origin.src.expect("None IP address"))
+                .get_v4()
+                .into(),
             IP::from(dst).get_v4().into(),
             origin.sport as u16,
             origin.dport as u16,
@@ -325,7 +332,9 @@ pub fn create_tcp(
 /// ```
 pub fn is_in_prefix(address: String, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
-    let address = address.parse::<IpAddr>().expect("Invalid IP address format");
+    let address = address
+        .parse::<IpAddr>()
+        .expect("Invalid IP address format");
 
     match address {
         IpAddr::V4(ipv4) => {

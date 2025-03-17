@@ -509,8 +509,16 @@ impl CliClient {
             .list_workers(Request::new(Empty::default()))
             .await
             .expect("Connection to orchestrator failed");
-        let workers: HashMap<_, _> = response.into_inner().workers.into_iter()
-            .filter_map(|worker| worker.metadata.clone().map(|metadata| (worker.worker_id, metadata)))
+        let workers: HashMap<_, _> = response
+            .into_inner()
+            .workers
+            .into_iter()
+            .filter_map(|worker| {
+                worker
+                    .metadata
+                    .clone()
+                    .map(|metadata| (worker.worker_id, metadata))
+            })
             .collect();
 
         // Get the u32s of the workers that are active
@@ -521,7 +529,8 @@ impl CliClient {
         };
 
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0) / 60.0
+            ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0)
+                / 60.0
         } else if is_unicast {
             ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
