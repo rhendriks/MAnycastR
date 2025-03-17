@@ -19,14 +19,6 @@ pub struct IPv6Packet {
 }
 
 /// Convert bytes into an IPv6Packet
-///
-/// # Arguments
-///
-/// * 'data' - the bytes to convert
-///
-/// # Remarks
-///
-/// Extension headers are not supported and will result in an Unimplemented PacketPayload
 impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
@@ -104,15 +96,11 @@ impl From<&[u8]> for IPv6Packet {
 }
 
 /// Convert an IPv6Packet into bytes
-///
-/// # Arguments
-///
-/// * 'self' - the IPv6Packet to convert
 impl Into<Vec<u8>> for IPv6Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
-        // Write traffic class 0x60 and flow label 0x000000
-        wtr.write_u32::<NetworkEndian>(0x60000000)
+        // Write traffic class 0x60 and flow label 0x003a7d
+        wtr.write_u32::<NetworkEndian>(0x60003a7d)
             .expect("Unable to write to byte buffer for IPv6Packet");
         wtr.write_u16::<NetworkEndian>(self.payload_length)
             .expect("Unable to write to byte buffer for IPv6Packet");
@@ -178,12 +166,14 @@ impl ICMPPacket {
     /// * 'destination_address' - the destination address of the packet
     ///
     /// * 'hop_limit' - the hop limit (TTL) of the packet
+    ///
+    /// * 'info_url' - URL encoded in packet payload (e.g., opt-out URL)
     pub fn echo_request_v6(
         identifier: u16,
         sequence_number: u16,
         body: Vec<u8>,
-        source_address: u128,
-        destination_address: u128,
+        src: u128,
+        dst: u128,
         hop_limit: u8,
         info_url: &str,
     ) -> Vec<u8> {
@@ -201,10 +191,10 @@ impl ICMPPacket {
         // Append a pseudo header to the ICMP packet bytes
         let mut psuedo_header: Vec<u8> = Vec::new();
         psuedo_header
-            .write_u128::<NetworkEndian>(source_address)
+            .write_u128::<NetworkEndian>(src)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
-            .write_u128::<NetworkEndian>(destination_address)
+            .write_u128::<NetworkEndian>(dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
             .write_u32::<NetworkEndian>((8 + body_len + info_url.bytes().len() as u16) as u32) // ICMP length
@@ -221,8 +211,8 @@ impl ICMPPacket {
             payload_length: 8 + body_len + info_url.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58,                                              // ICMPv6
             hop_limit,
-            source_address: Ipv6Addr::from(source_address),
-            destination_address: Ipv6Addr::from(destination_address),
+            source_address: Ipv6Addr::from(src),
+            destination_address: Ipv6Addr::from(dst),
             payload: PacketPayload::ICMP {
                 value: packet.into(),
             },
@@ -302,20 +292,22 @@ impl super::UDPPacket {
     ///
     /// # Arguments
     ///
-    /// * 'source_address' - the source address of the packet
+    /// * 'src' - the source address of the packet
     ///
-    /// * 'destination_address' - the destination address of the packet
+    /// * 'dst' - the destination address of the packet
     ///
-    /// * 'source_port' - the source port of the packet
+    /// * 'sport' - the source port of the packet
     ///
-    /// * 'destination_port' - the destination port of the packet
+    /// * 'dport' - the destination port of the packet
     ///
     /// * 'body' - the payload of the packet
+    ///
+    /// * 'info_url' - URL encoded in packet payload (e.g., opt-out URL)
     pub fn udp_request_v6(
-        source_address: u128,
-        destination_address: u128,
-        source_port: u16,
-        destination_port: u16,
+        src: u128,
+        dst: u128,
+        sport: u16,
+        dport: u16,
         body: Vec<u8>,
         info_url: &str,
     ) -> Vec<u8> {
@@ -323,8 +315,8 @@ impl super::UDPPacket {
         let udp_length = (8 + body.len() + info_url.bytes().len()) as u32;
 
         let mut packet = Self {
-            source_port,
-            destination_port,
+            source_port: sport,
+            destination_port: dport,
             length: udp_length as u16,
             checksum: 0,
             body,
@@ -334,8 +326,8 @@ impl super::UDPPacket {
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
-            source_address,
-            destination_address,
+            source_address: src,
+            destination_address: dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
@@ -357,15 +349,15 @@ impl super::UDPPacket {
     ///
     /// # Arguments
     ///
-    /// * 'source_address' - the source address of the packet
+    /// * 'src' - the source address of the packet
     ///
-    /// * 'destination_address' - the destination address of the packet
+    /// * 'dst' - the destination address of the packet
     ///
-    /// * 'source_port' - the source port of the packet
+    /// * 'sport' - the source port of the packet
     ///
-    /// * 'domain_name' - the domain name of the A record (excluding encoded values)
+    /// * 'qname' - the domain name of the A record (excluding encoded values)
     ///
-    /// * 'transmit_time' - the time of transmission
+    /// * 'tx_time' - the time of transmission
     ///
     /// * 'worker_id' - the sender worker ID
     ///
@@ -424,15 +416,15 @@ impl super::UDPPacket {
     ///
     /// * 'domain_name' - the domain name of the A record (excluding encoded values)
     ///
-    /// * 'transmit_time' - the time of transmission
+    /// * 'tx_time' - the time of transmission
     ///
-    /// * 'source_address' - the source address of the packet
+    /// * 'src' - the source address of the packet
     ///
-    /// * 'destination_address' - the destination address of the packet
+    /// * 'dst' - the destination address of the packet
     ///
     /// * 'worker_id' - the sender worker ID
     ///
-    /// * 'source_port' - the source port of the packet
+    /// * 'sport' - the source port of the packet
     fn create_dns_a_record_request_v6(
         domain_name: &str,
         tx_time: u64,
@@ -475,9 +467,9 @@ impl super::UDPPacket {
 
     /// Create a UDP packet with a CHAOS TXT record request.
     pub fn chaos_request_v6(
-        source_address: u128,
-        destination_address: u128,
-        source_port: u16,
+        src: u128,
+        dst: u128,
+        sport: u16,
         worker_id: u16,
         chaos: &str,
     ) -> Vec<u8> {
@@ -486,7 +478,7 @@ impl super::UDPPacket {
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
-            source_port,
+            source_port: sport,
             destination_port,
             length: udp_length as u16,
             checksum: 0,
@@ -496,8 +488,8 @@ impl super::UDPPacket {
         let udp_bytes: Vec<u8> = (&udp_packet).into();
 
         let pseudo_header = PseudoHeaderv6 {
-            source_address,
-            destination_address,
+            source_address: src,
+            destination_address: dst,
             zeros: 0,
             length: udp_length,
             next_header: 17,
@@ -510,8 +502,8 @@ impl super::UDPPacket {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
             hop_limit: 255,
-            source_address: Ipv6Addr::from(source_address),
-            destination_address: Ipv6Addr::from(destination_address),
+            source_address: Ipv6Addr::from(src),
+            destination_address: Ipv6Addr::from(dst),
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -526,32 +518,34 @@ impl super::TCPPacket {
     ///
     /// # Arguments
     ///
-    /// * 'source_address' - the source address of the packet
+    /// * 'src' - the source address of the packet
     ///
-    /// * 'destination_address' - the destination address of the packet
+    /// * 'dst' - the destination address of the packet
     ///
-    /// * 'source_port' - the source port of the packet
+    /// * 'sport' - the source port of the packet
     ///
-    /// * 'destination_port' - the destination port of the packet
+    /// * 'dport' - the destination port of the packet
     ///
     /// * 'seq' - the sequence number of the packet
     ///
     /// * 'ack' - the acknowledgment number of the packet
     ///
     /// * 'hop_limit' - the hop limit (TTL) of the packet
+    ///
+    /// * 'info_url' - URL encoded in packet payload (e.g., opt-out URL)
     pub fn tcp_syn_ack_v6(
-        source_address: u128,
-        destination_address: u128,
-        source_port: u16,
-        destination_port: u16,
+        src: u128,
+        dst: u128,
+        sport: u16,
+        dport: u16,
         seq: u32,
         ack: u32,
         hop_limit: u8,
         info_url: &str,
     ) -> Vec<u8> {
         let mut packet = Self {
-            source_port,
-            destination_port,
+            source_port: sport,
+            destination_port: dport,
             seq,
             ack,
             offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved
@@ -564,8 +558,8 @@ impl super::TCPPacket {
 
         let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            source_address,
-            destination_address,
+            source_address: src,
+            destination_address: dst,
             zeros: 0,
             next_header: 6,             // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
@@ -576,8 +570,8 @@ impl super::TCPPacket {
             payload_length: bytes.len() as u16,
             next_header: 6, // TCP
             hop_limit,
-            source_address: Ipv6Addr::from(source_address),
-            destination_address: Ipv6Addr::from(destination_address),
+            source_address: Ipv6Addr::from(src),
+            destination_address: Ipv6Addr::from(dst),
             payload: PacketPayload::TCP {
                 value: packet.into(),
             },
