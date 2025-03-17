@@ -115,7 +115,6 @@ pub fn outbound(
                                 }
                                 3 => {
                                     for dst in &targets.dst_addresses {
-                                        let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
                                             origin.clone(),
                                             IP::from(dst.clone()),
