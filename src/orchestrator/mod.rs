@@ -35,9 +35,6 @@ use crate::orchestrator::mpsc::Sender;
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'traceroute_targets' - a map that keeps track of the workers that have received probe replies for a specific target, and the 'flows' that reach each worker
-/// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
-/// * 'responsive_targets' - a list of the responsive targets that need to be measured
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     workers: Arc<Mutex<WorkerList>>,
@@ -666,7 +663,6 @@ impl Controller for ControllerService {
                             }
                         }
                     }
-
                     interval.tick().await;
                 }
 
