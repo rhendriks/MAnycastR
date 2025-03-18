@@ -132,15 +132,8 @@
 //!
 //! # Requirements
 //!
-//! rustup
-//! ```
-//! rustup install stable
-//! ```
-//!
-//! protobuf-compiler
-//! ```
-//! apt-get install protobuf-compiler
-//! ```
+//! * rustup
+//! * protobuf-compiler
 //!
 //! # Installation
 //!
@@ -189,7 +182,7 @@
 //!
 //! Advise is to run the container with network host mode.
 //! Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
-//! ```
+//! ```bash
 //! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
 //! ```
 //!
