@@ -135,6 +135,7 @@ pub fn outbound(
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
+                            println!("sending packet with length {}", packet.len());
                             match socket_tx.send_to(&packet, None) {
                                 Some(Ok(())) => sent += 1,
                                 Some(Err(e)) => {

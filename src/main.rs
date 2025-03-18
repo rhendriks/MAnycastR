@@ -1,4 +1,4 @@
-//! This project is an implementation of Verfploeter <https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf>.
+//! This project is an extended implementation of Verfploeter <https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf>.
 //!
 //! It is an extension of the original Verfploeter code <https://github.com/Woutifier/verfploeter>.
 //!

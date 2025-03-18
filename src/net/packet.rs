@@ -37,7 +37,7 @@ pub fn get_ethernet_header(
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
-    let mut mac_dst = vec![];
+    let mut mac_dst = Vec::with_capacity(6);
     let reader = io::BufReader::new(output);
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
@@ -64,7 +64,7 @@ pub fn get_ethernet_header(
 
     // Construct the ethernet header
     let ether_type = if is_ipv6 { 0x86DDu16 } else { 0x0800u16 };
-    let mut ethernet_header: Vec<u8> = Vec::new();
+    let mut ethernet_header: Vec<u8> = Vec::with_capacity(14);
     ethernet_header.extend_from_slice(&mac_dst);
     ethernet_header.extend_from_slice(&mac_src);
     ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
