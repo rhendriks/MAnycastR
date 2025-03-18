@@ -1,10 +1,5 @@
-// This file is used in combination with rust protobuf https://docs.rs/protobuf/latest/protobuf/
-// https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
-// This file details the protocol buffers, which contain the data exchanged between the orchestrator/workers/CLI.
-
-// version of protocol buffer used
 syntax = "proto3";
-package verfploeter;
+package manycastr;
 
 // The controller which controls and is responsible for most communication
 service Controller {

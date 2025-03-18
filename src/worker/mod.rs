@@ -10,7 +10,7 @@ use tonic::Request;
 
 use pnet::datalink::{self, Channel as SocketChannel};
 
-use custom_module::verfploeter::{
+use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
     Task, TaskResult, WorkerId,
 };

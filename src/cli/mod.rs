@@ -20,7 +20,7 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
-use custom_module::verfploeter::{
+use custom_module::manycastr::{
     controller_client::ControllerClient, udp_payload::Value::DnsARecord,
     udp_payload::Value::DnsChaos, verfploeter_result::Value::Ping as ResultPing,
     verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Udp as ResultUdp,
