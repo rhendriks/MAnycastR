@@ -21,7 +21,7 @@
 //!
 //! Deployment of MAnycastR consists of three components:
 //!
-//! * [Orchestrator](orc) - a central controller orchestrating measurements
+//! * [Orchestrator](orchestrator) - a central controller orchestrating measurements
 //! * [CLI](cli) - Command-line interface scheduling measurements at the orchestrator and collecting results
 //! * [Worker](worker) - worker deployed on anycast sites, performing measurements
 //!
@@ -137,23 +137,61 @@
 //! rustup install stable
 //! ```
 //!
-//! gcc
-//! ```
-//! apt-get install gcc
-//! ```
-//!
 //! protobuf-compiler
 //! ```
 //! apt-get install protobuf-compiler
 //! ```
 //!
-//! # gRPC
+//! # Installation
 //!
-//! Communication between worker, CLI, and orchestrator is achieved using tonic (a rust implementation of gRPC) <https://github.com/hyperium/tonic>.
+//! ## Cargo (static binary)
 //!
-//! The protocol definitions are in /proto/manycastr.proto
+//! ### Install rustup
+//! ```bash
+//! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+//! source $HOME/.cargo/env
+//! ```
 //!
-//! From these definitions code is generated using protobuf (done in build.rs).
+//! ### Install protobuf-compiler
+//! ```bash
+//! apt-get install protobuf-compiler
+//! ```
+//!
+//! ### Clone the repository
+//! ```bash
+//! git clone <repo>
+//! cd <repo_dir>
+//! ```
+//!
+//! ### Compile the code (16 MB binary)
+//! ```bash
+//! cargo build --release --target x86_64-unknown-linux-musl
+//! ```
+//!
+//! ### Optionally strip the binary (16 MB -> 7.7 MB)
+//! ```bash
+//! strip target/x86_64-unknown-linux-musl/release/manycast
+//! ```
+//!
+//! Next, distribute the binary to the workers.
+//!
+//! Workers need either sudo or the CAP_NET_RAW capability to send out packets.
+//! ```bash
+//! sudo setcap cap_net_raw,cap_net_admin=eip manycast
+//! ```
+//!
+//! ## Docker
+//!
+//! ### Build the Docker image
+//! ```bash
+//! docker build -t manycast .
+//! ```
+//!
+//! Advise is to run the container with network host mode.
+//! Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
+//! ```
+//! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
+//! ```
 //!
 //! # Future
 //!

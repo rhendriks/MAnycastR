@@ -286,13 +286,13 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'measurement_id' - the ID of the current measurement
+/// * `measurement_id` - the ID of the current measurement
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received ping reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received ping reply
 ///
 /// # Remarks
 ///
@@ -362,13 +362,13 @@ fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterR
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'measurement_id' - the ID of the current measurement
+/// * `measurement_id` - the ID of the current measurement
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received ping reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received ping reply
 ///
 /// # Remarks
 ///
@@ -444,13 +444,13 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32) -> Option<VerfploeterR
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'is_ipv6' - whether to parse the packet as IPv6 or IPv4
+/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received ping reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received ping reply
 ///
 /// # Remarks
 ///
@@ -604,13 +604,13 @@ fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verfplo
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'is_ipv6' - whether to parse the packet as IPv6 or IPv4
+/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received ping reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received ping reply
 ///
 /// # Remarks
 ///
@@ -762,7 +762,7 @@ fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Verf
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received UDP reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received UDP reply
 ///
 /// # Remarks
 ///
@@ -815,13 +815,13 @@ fn parse_udpv4(packet_bytes: &[u8], measurement_type: u32) -> Option<Verfploeter
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'measurement_type' - the type of measurement being performed
+/// * `measurement_type` - the type of measurement being performed
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received UDP reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received UDP reply
 ///
 /// # Remarks
 ///
@@ -874,13 +874,13 @@ fn parse_udpv6(packet_bytes: &[u8], measurement_type: u32) -> Option<Verfploeter
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * 'is_ipv6' - whether to parse the packet as IPv6 or IPv4
+/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
 ///
 /// # Returns
 ///
-/// * 'Option<UdpPayload>' - the UDP payload containing the DNS A record
+/// * `Option<UdpPayload>` - the UDP payload containing the DNS A record
 ///
 /// # Remarks
 ///
@@ -984,11 +984,11 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// # Returns
 ///
-/// * 'Option<UdpPayload>' - the UDP payload containing the DNS Chaos record
+/// * `Option<UdpPayload>` - the UDP payload containing the DNS Chaos record
 ///
 /// # Remarks
 ///
@@ -1024,13 +1024,13 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 ///
 /// # Arguments
 ///
-/// * 'ip_payload' - the IP payload to parse
+/// * `ip_payload` - the IP payload to parse
 ///
-/// * 'ip_result' - the IP result for the IP header
+/// * `ip_result` - the IP result for the IP header
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received TCP reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received TCP reply
 ///
 /// # Remarks
 ///
@@ -1067,11 +1067,11 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Verfploet
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received TCP reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received TCP reply
 ///
 /// # Remarks
 ///
@@ -1088,11 +1088,11 @@ fn parse_tcpv4(packet_bytes: &[u8]) -> Option<VerfploeterResult> {
 ///
 /// # Arguments
 ///
-/// * 'packet_bytes' - the bytes of the packet to parse
+/// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// # Returns
 ///
-/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received TCP reply
+/// * `Option<VerfploeterResult>` - the VerfploeterResult for the received TCP reply
 ///
 /// # Remarks
 ///
