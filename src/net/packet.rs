@@ -1,11 +1,12 @@
-use crate::custom_module::verfploeter::address::Value::{V4, V6};
-use crate::custom_module::verfploeter::{Origin, PingPayload};
+use crate::custom_module::manycastr::address::Value::{V4, V6};
+use crate::custom_module::manycastr::{Origin, PingPayload};
 use crate::custom_module::IP;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use mac_address::{get_mac_address, mac_address_by_name};
-use pcap::{Active, Capture, Device};
+use mac_address::mac_address_by_name;
+use pnet::ipnetwork::IpNetwork;
 use std::io;
 use std::io::BufRead;
+use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,24 +15,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
+///
+/// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(
     is_ipv6: bool,
-    if_name: Option<String>, // TODO different interfaces may be used for different addresses
+    if_name: String,
 ) -> Vec<u8> {
-    // Get the src MAC for interface, if provided
-    let mac_src = if let Some(if_name) = if_name.clone() {
-        if let Ok(Some(mac)) = mac_address_by_name(&if_name) {
-            mac.bytes().to_vec()
-        } else {
-            panic!("No MAC address found for interface: {}", if_name);
-        }
-    } else {
-        match get_mac_address() {
-            Ok(Some(ma)) => ma.bytes().to_vec(),
-            Ok(None) => panic!("No MAC address found."),
-            Err(e) => panic!("{:?}", e),
-        }
-    };
+    // Get the source MAC address for the used interface
+    let mac_src = mac_address_by_name(&if_name)
+        .expect(&format! {"No MAC address found for interface: {}", if_name})
+        .unwrap()
+        .bytes()
+        .to_vec();
 
     // Run the sudo arp command (for the destination MAC addresses)
     let mut child = Command::new("cat")
@@ -42,7 +37,7 @@ pub fn get_ethernet_header(
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
-    let mut mac_dst = vec![];
+    let mut mac_dst = Vec::with_capacity(6);
     let reader = io::BufReader::new(output);
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
@@ -54,17 +49,8 @@ pub fn get_ethernet_header(
                 if parts[3].split(':').all(|s| s == "00") {
                     continue;
                 }
-                if if_name.is_some() {
-                    // TODO dynamically retrieve the interface for the used address
-                    // Match on the interface name TODO match for default interface as well
-                    if parts[5] == if_name.clone().unwrap() {
-                        mac_dst = parts[3]
-                            .split(':')
-                            .map(|s| u8::from_str_radix(s, 16).unwrap())
-                            .collect();
-                        break;
-                    }
-                } else {
+                // Match on the interface name
+                if parts[5] == if_name {
                     mac_dst = parts[3]
                         .split(':')
                         .map(|s| u8::from_str_radix(s, 16).unwrap())
@@ -78,57 +64,12 @@ pub fn get_ethernet_header(
 
     // Construct the ethernet header
     let ether_type = if is_ipv6 { 0x86DDu16 } else { 0x0800u16 };
-    let mut ethernet_header: Vec<u8> = Vec::new();
+    let mut ethernet_header: Vec<u8> = Vec::with_capacity(14);
     ethernet_header.extend_from_slice(&mac_dst);
     ethernet_header.extend_from_slice(&mac_src);
     ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
 
     ethernet_header
-}
-
-/// Create a pcap capture object with the given filter.
-///
-/// # Arguments
-///
-/// * 'if_name' - the interface to attach the pcap to
-///
-/// * 'buffer_size' - the buffer size for the pcap
-///
-/// # Returns
-///
-/// * 'Capture<Active>' - the pcap capture object
-///
-/// # Panics
-///
-/// Panics if the pcap object cannot be created or the filter cannot be set.
-///
-/// # Remarks
-///
-/// The pcap object is set to non-blocking immediate mode and listens for incoming packets only.
-///
-/// The pcap object is set to capture packets on the main interface.
-pub fn get_pcap(if_name: Option<String>, buffer_size: i32) -> Capture<Active> {
-    // Capture packets with pcap on the main interface TODO try PF_RING and evaluate performance gain (e.g., https://github.com/szymonwieloch/rust-rawsock) (might just do eBPF in the future, hold off on this time investment)
-    let interface = if let Some(if_name) = if_name {
-        Device::list()
-            .expect("Failed to get interfaces")
-            .into_iter()
-            .find(|iface| iface.name == if_name)
-            .expect("Failed to find interface")
-    } else {
-        Device::lookup()
-            .expect("Failed to get main interface")
-            .unwrap()
-    };
-    let cap = Capture::from_device(interface)
-        .expect("Failed to get capture device")
-        .immediate_mode(true)
-        .buffer_size(buffer_size) // TODO set buffer size based on probing rate (default 1,000,000) (this sacrifices memory for performance (at 21% currently))
-        .open()
-        .expect("Failed to open capture device")
-        .setnonblock()
-        .expect("Failed to set pcap to non-blocking mode");
-    cap
 }
 
 /// Creates a ping packet.
@@ -142,6 +83,8 @@ pub fn get_pcap(if_name: Option<String>, buffer_size: i32) -> Capture<Active> {
 /// * 'worker_id' - the unique worker ID of this worker
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
+///
+/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
 ///
@@ -229,7 +172,7 @@ pub fn create_ping(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'dns_record' - the DNS record to request
+/// * 'qname' - the DNS record to request
 ///
 /// # Returns
 ///
@@ -314,6 +257,8 @@ pub fn create_udp(
 ///
 /// * 'is_unicast' - whether we are performing anycast-based (false) or GCD probing (true)
 ///
+/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+///
 /// # Returns
 ///
 /// A TCP packet (including the IP header) as a byte vector.
@@ -339,7 +284,9 @@ pub fn create_tcp(
 
     if is_ipv6 {
         TCPPacket::tcp_syn_ack_v6(
-            IP::from(origin.src.expect("None IP address")).get_v6().into(),
+            IP::from(origin.src.expect("None IP address"))
+                .get_v6()
+                .into(),
             IP::from(dst).get_v6().into(),
             origin.sport as u16,
             origin.dport as u16,
@@ -350,7 +297,9 @@ pub fn create_tcp(
         )
     } else {
         TCPPacket::tcp_syn_ack(
-            IP::from(origin.src.expect("None IP address")).get_v4().into(),
+            IP::from(origin.src.expect("None IP address"))
+                .get_v4()
+                .into(),
             IP::from(dst).get_v4().into(),
             origin.sport as u16,
             origin.dport as u16,
@@ -359,5 +308,48 @@ pub fn create_tcp(
             255,
             info_url,
         )
+    }
+}
+
+/// Checks if the given address is in the given prefix.
+///
+/// # Arguments
+///
+/// * 'address' - the address to check
+///
+/// * 'prefix' - the prefix to check against
+///
+/// # Returns
+///
+/// True if the address is in the prefix, false otherwise.
+///
+/// # Panics
+///
+/// If the address is not a valid IP address.
+///
+/// If the prefix is not a valid prefix.
+pub fn is_in_prefix(address: String, prefix: &IpNetwork) -> bool {
+    // Convert the address string to an IpAddr
+    let address = address
+        .parse::<IpAddr>()
+        .expect("Invalid IP address format");
+
+    match address {
+        IpAddr::V4(ipv4) => {
+            if let IpNetwork::V4(network_ip) = prefix {
+                // Use the contains method to check if the IP is in the network range
+                network_ip.contains(ipv4)
+            } else {
+                false
+            }
+        }
+        IpAddr::V6(ipv6) => {
+            if let IpNetwork::V6(network_ip) = prefix {
+                // Use the contains method to check if the IP is in the network range
+                network_ip.contains(ipv6)
+            } else {
+                false
+            }
+        }
     }
 }

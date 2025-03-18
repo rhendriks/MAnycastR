@@ -1,55 +1,75 @@
-//! This project is an implementation of Verfploeter <https://conferences.sigcomm.org/imc/2017/papers/imc17-final46.pdf>.
+//! # MAnycastR
 //!
-//! It is an extension of the original Verfploeter code <https://github.com/Woutifier/verfploeter>.
+//! MAnycastR (Measuring Anycast Reloaded) is a tool designed to measure anycast infrastructure.
 //!
-//! Designed to:
-//! 1. measure external anycast infrastructure (using the MAnycast2 and Great-Circle-Distance techniques)
-//! 2. measure anycast infrastructure itself (catchment analysis, detecting anycast site fliping, latency to the Internet, ...)
+//! This includes:
+//!
+//! i) Measuring external anycast infrastructure
+//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
+//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
+//!
+//! ii) Measuring anycast infrastructure itself
+//! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
+//! * [Site flipping]() (detecting network regions experiencing anycast site flipping)
+//! * Anycast latency (measuring RTT between the Internet and the anycast infrastructure)
+//! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites to the Internet)
+//! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+//!
+//! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 //!
 //! # The components
 //!
-//! It allows for performing synchronized probes from a distributed set of nodes.
-//! To achieve this, it uses three components (all in the same binary):
+//! Deployment of MAnycastR consists of three components:
 //!
-//! * [Orchestrator](orchestrator) - a central controller that receives a measurement definition from the CLI and sends instructions to the connected workers to perform the measurement
-//! * [CLI](cli) - a locally ran instructor that takes a user command-line argument and creates a measurement definition that is sent to the orchestrator
-//! * [Worker](worker) - the worker connects to the orchestrator and awaits tasks to send out probes and listen for incoming replies
+//! * [Orchestrator](orchestrator) - a central controller orchestrating measurements
+//! * [CLI](cli) - Command-line interface scheduling measurements at the orchestrator and collecting results
+//! * [Worker](worker) - worker deployed on anycast sites, performing measurements
 //!
-//! # Measurements
+//! # Measurement process
 //!
-//! A measurement consists of multiple tasks that are executed by the workers.
-//! A measurement is created by locally running the CLI using a command, from this command a measurement definition is created which is sent to the orchestrator.
-//! The orchestrator performs this measurement by sending tasks to the workers, who perform the desired measurement by sending out probes.
-//! These workers then stream back the results to the orchestrator, as they receive replies.
-//! The orchestrator forwards these results to the CLI.
+//! A measurement is started by running the CLI, which can be executed e.g., locally or on a VM.
+//! The CLI sends a measurement definition based on the arguments provided when running the `start` command.
+//! Example commands will be provided in the Usage section.
 //!
-//! The measurement are probing measurements, which can be:
-//! * ICMP ECHO requests
-//! * UDP DNS A Record requests
-//! * TCP SYN/ACK probes
-//! * UDP CHAOS requests
+//! Upon receiving a measurement definition, the orchestrator instructs the workers to start the measurement.
+//! Workers perform measurements by sending and receiving probes.
+//!
+//! Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
+//! The CLI writes results to a CSV file.
+//!
+//! # Measurement types
+//!
+//! Measurements can be;
+//! * `icmp` ICMP ECHO requests
+//! * `dns` UDP DNS A Record requests
+//! * `tcp` TCP SYN/ACK probes
+//! * `chaos` UDP DNS TXT CHAOS requests
+//!
+//! # Measurement parameters
 //!
 //! When creating a measurement you can specify:
-//! * **Source address** - the source address from which the probes are to be sent out
-//! * **Destination addresses** - the target addresses that will be probed (i.e., a hitlist)
-//! * **Type of measurement** - ICMP, UDP, or TCP
-//! * **Rate** - The rate (packets / second) at which each worker will send out probes (default: 1000)
-//! * **Workers** - The workers that will send out probes for this measurement (default: all workers send probes)
-//! * **Stream** - Stream the results to the command-line interface
-//! * **Shuffle** - Shuffle the hitlist before sending out probes
-//! * **Unicast** - Probe the targets using the unicast address of each worker
-//! * **Traceroute** - Probe the targets using traceroute (currently broken)
-//! * **Divide** - Divide the hitlist into equal separate parts for each worker (divide and conquer)
-//! * **Interval** - Interval between separate worker's probes to the same target (default: 1s)
-//! * **Address** - Source IP to use for the probes
-//! * **Source port** - Source port to use for the probes (default: 62321)
-//! * **Destination port** - Destination port to use for the probes (default: DNS: 53, TCP: 63853)
-//! * **Conf** - Path to a configuration file (allowing for complex configurations of source address, port values used by workers)
 //!
-//! # Results
+//! ## Variables
+//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers)
+//! * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
+//! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
+//! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
+//! * **Interval** - interval between separate worker's probes to the same target (default: 1s)
+//! * **Address** - source anycast address to use for the probes
+//! * **Source port** - source port to use for the probes (default: 62321)
+//! * **Destination port** - destination port to use for the probes (default: DNS: 53, TCP: 63853)
+//! * **Configuration** - path to a configuration file (allowing for complex configurations of source address, port values used by workers)
+//! * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
+//! * **Responsive** - check if a target is responsive before probing from all workers (unimplemented)
+//! * **Out** - path to file or directory to store measurement results (default: ./)
+//! * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 //!
-//! The CLI will await task results after sending its command to the orchestrator.
-//! When the orchestrator is finished it will notify the CLI, after which it prints out all task results on the command-line interface, and writes them to a .csv file (with the current timestamp encoded in the filename).
+//! ## Flags
+//! * **Stream** - stream results to the command-line interface (optional)
+//! * **Shuffle** - shuffle the hitlist
+//! * **Unicast** - perform measurement using the unicast address of each worker
+//! * **Traceroute** - anycast traceroute (currently broken)
+//! * **Divide** - divide-and-conquer Verfploeter catchment mapping
 //!
 //! # Usage
 //!
@@ -60,112 +80,120 @@
 //!
 //! Next, run one or more workers.
 //! ```
-//! worker -h [HOSTNAME] -s [SERVER ADDRESS] -a [SOURCE IP]
+//! worker -a [ORC ADDRESS]
 //! ```
-//! Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001), '-a SOURCE IP' is optional.
+//! Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
 //!
 //! To confirm that the workers are connected, you can run the worker-list command on the CLI.
 //! ```
-//! cli -s [ORCHESTRATOR ADDRESS] worker-list
+//! cli -a [ORC ADDRESS] worker-list
 //! ```
 //!
 //! Finally, you can perform a measurement.
 //! ```
-//! cli -s [ORCHESTRATOR ADDRESS] start [SOURCE IP] [HITLIST] [TYPE] [RATE] [WORKERS] --stream --shuffle
+//! cli -a [ORC ADDRESS] start [parameters]
 //! ```
 //!
-//! * SOURCE IP is the IPv4 address from which to send the probes.
+//! ## Examples
 //!
-//! * HITLIST should be the filename of the hitlist you want to use (this file has to be in src/data).
+//! ### Verfploeter catchment mapping using ICMPv4
 //!
-//! * TYPE integer value of desired type of measurement (1 - ICMP; 2 - UDP; 3 - TCP).
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv
+//! ```
 //!
-//! * RATE the rate (packets / second) at which workers will sent out probes.
+//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv
 //!
-//! * WORKERS is an optional command that is used to specify which workers have to send out probes (omitting this means all workers will send out probes).
+//! With this measurement each target receives a probe from each worker.
+//! Filtering on sender == receiver allows for calculating anycast RTTs.
 //!
-//! The hitlist can be shuffled by using the --shuffle option in the command.
+//! ### Divide-and-conquer Verfploeter catchment mapping using TCPv4
 //!
-//! Hitlist format is a list of addresses (can be regular IPs (e.g., 1.1.1.1), or IP numbers (e.g., 16843009)
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
+//! ```
 //!
-//! Hitlist may not mix IPv4 and IPv6 addresses.
+//! hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 //!
-//! The output of the measurement will be printed to command-line (if --stream is used in the command), and be stored in src/out as a CSV file.
+//! Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe each target.
+//! Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
+//! Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
 //!
-//! # Additional CLI options
+//! ### Unicast latency measurement using ICMPv6
 //!
-//! * --live - Check results for Anycast targets as they come in live (unimplemented)
+//! ```
+//! cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast
+//! ```
 //!
-//! * --unicast - Probe the targets using the unicast address of each worker
+//! Since the hitlist contains IPv6 addresses, the workers will probe the targets using their IPv6 unicast address.
 //!
-//! * --traceroute - Probe the targets using traceroute (broken)
-//!
-//! * --divide - Divide the hitlist into equal separate parts for each worker (divide and conquer)
-//!
-//! * --i - Interval between separate worker's probes to the same target [default: 1s]
-//!
-//! # Additional worker options
-//!
-//! * --multi-probing - Enable multi-source probing, i.e., the worker will send out probes from all addresses
-//!
-//! # Measurement details
-//!
-//! * Measurements are performed in parallel; all workers send out their probes at the same time and in the same order.
-//! * Each worker probes a target address, approximately 1 second after the previous worker sent out theirs.
-//! * Workers can be created with a custom source address that is used in the probes (overwriting the source specified by the CLI).
-//! * The rate of the measurements is adjustable.
-//! * The workers that have to send out probes can be specified.
-//!
-//! # Robustness
-//!
-//! * A list of connected workers is maintained by the orchestrator and workers that disconnect are removed.
-//! * Workers disconnecting during measurements are handled and the orchestrator will finish the measurement as well as possible.
-//! * CLI disconnecting during a measurement will result in the measurement being cancelled, to avoid unnecessary probes from being sent out (this allows for cancellation of measurements by forcefully closing the CLI during a measurement).
-//! * Both orchestrator and workers enforce the policy that only a single measurement can be active at a time, they will refuse a new measurement if there is still a measurement active.
-//! * The orchestrator ensures that measurements are started and ended properly.
-//!
-//! # Probe details
-//!
-//! ICMP
-//! * ICMP ECHO requests (pings) are sent out using a unique payload that contains information about the transmission.
-//! * This payload is echoed back by ICMP-responsive hosts, and the received ECHO replies are verified to be part of the current measurement.
-//! * From the reply payloads we extract information that give us information from the worker that sent the probe.
-//!
-//! UDP
-//! * DNS A Record requests are sent using UDP, within the subdomain of the A Record we encode information.
-//! * Since the record does not exist, a DNS server will echo back the domain name, we use this domain to verify the reply is part of our measurement.
-//! * Furthermore, we extract information from the subdomain to obtain information from the worker that sent the probe.
-//!
-//! TCP
-//! * We send TCP SYN/ACK packets to high port numbers, such that it is very unlikely that there is a TCP service running on that port.
-//! * This ensures that we will not create any TCP states on the probed targets. Responsive hosts will send back a TCP RST packet.
-//! * Inside the port numbers and ACK number of the probe we encode information that gets echoed back in the RST reply.
-//! * To verify a received TCP RST is part of our measurement, we verify the port numbers have valid values.
+//! This feature gives the latency between all anycast sites and each target in the hitlist.
+//! Filtering on the lowest unicast RTTs indicates the best anycast site for each target.
 //!
 //! # Requirements
 //!
-//! rustup
-//! ```
-//! rustup install stable
+//! * rustup
+//! * protobuf-compiler
+//!
+//! # Installation
+//!
+//! ## Cargo (static binary)
+//!
+//! ### Install rustup
+//! ```bash
+//! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+//! source $HOME/.cargo/env
 //! ```
 //!
-//! gcc
-//! ```
-//! apt-get install gcc
-//! ```
-//!
-//! protobuf-compiler
-//! ```
+//! ### Install protobuf-compiler
+//! ```bash
 //! apt-get install protobuf-compiler
 //! ```
 //!
-//! # gRPC
+//! ### Clone the repository
+//! ```bash
+//! git clone <repo>
+//! cd <repo_dir>
+//! ```
 //!
-//! Communication between worker, CLI, and orchestrator is achieved using tonic (a rust implementation of gRPC) <https://github.com/hyperium/tonic>.
+//! ### Compile the code (16 MB binary)
+//! ```bash
+//! cargo build --release --target x86_64-unknown-linux-musl
+//! ```
 //!
-//! The protocol definitions are in /proto/verfploeter.proto
+//! ### Optionally strip the binary (16 MB -> 7.7 MB)
+//! ```bash
+//! strip target/x86_64-unknown-linux-musl/release/manycast
+//! ```
 //!
-//! From these definitions code is generated using protobuf (done in build.rs).
+//! Next, distribute the binary to the workers.
+//!
+//! Workers need either sudo or the CAP_NET_RAW capability to send out packets.
+//! ```bash
+//! sudo setcap cap_net_raw,cap_net_admin=eip manycast
+//! ```
+//!
+//! ## Docker
+//!
+//! ### Build the Docker image
+//! ```bash
+//! docker build -t manycast .
+//! ```
+//!
+//! Advise is to run the container with network host mode.
+//! Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
+//! ```bash
+//! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
+//! ```
+//!
+//! # Future
+//!
+//! * Responsiveness pre-check
+//! * Anycast traceroute
+//! * Allow feed of targets (instead of a pre-defined hitlist)
+//! * Multiple packets per <worker, target> pair
+//! * Synchronous unicast and anycast measurements
+//! * Anycast latency using divide-and-conquer (probe 1; assess catching anycast site - probe 2; probe from catching site to obtain latency)
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
@@ -259,14 +287,6 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .required(false)
                         .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
-                )
-                .arg(
-                    Arg::new("interface")
-                        .long("interface")
-                        .short('i')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Interface to use for sending probes (will use the default interface if not specified)")
                 )
         )
         .subcommand(

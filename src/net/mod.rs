@@ -102,7 +102,7 @@ impl Into<Vec<u8>> for &IPv4Packet {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
         wtr.write_u16::<NetworkEndian>(self.length)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
-        wtr.write_u16::<NetworkEndian>(0x0000)
+        wtr.write_u16::<NetworkEndian>(0x3a7d)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Identification
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
@@ -284,6 +284,8 @@ impl ICMPPacket {
     /// * 'destination_address' - the destination address of the packet
     ///
     /// * 'ttl' - the time to live of the packet
+    ///
+    /// * 'info_url' - the URL to be added to the packet payload (e.g., opt-out URL)
     pub fn echo_request(
         identifier: u16,
         sequence_number: u16,
