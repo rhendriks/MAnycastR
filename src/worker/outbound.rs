@@ -5,8 +5,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
-use custom_module::verfploeter::task::Data::{End, Targets};
-use custom_module::verfploeter::{task::Data, Origin};
+use custom_module::manycastr::task::Data::{End, Targets};
+use custom_module::manycastr::{task::Data, Origin};
 use custom_module::IP;
 
 use pnet::datalink::DataLinkSender;

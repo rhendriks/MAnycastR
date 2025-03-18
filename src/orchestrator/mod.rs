@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::custom_module;
 use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
-use custom_module::verfploeter::{
+use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
     task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
     ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, WorkerList,
@@ -637,7 +637,7 @@ impl Controller for ControllerService {
 
                     if is_probing {
                         let task = Task {
-                            data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
+                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                                 dst_addresses: chunk.to_vec(),
                             })),
                         };

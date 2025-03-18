@@ -1,10 +1,10 @@
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use verfploeter::{address::Value::V4, address::Value::V6, Address, IPv6, IpResult};
+use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6, IpResult};
 
-pub mod verfploeter {
-    tonic::include_proto!("verfploeter");
+pub mod manycastr {
+    tonic::include_proto!("manycastr");
 }
 
 impl Display for Address {
@@ -222,8 +222,8 @@ impl Display for IPv6 {
 impl IpResult {
     pub fn get_src_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
-            Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
+            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
+            Some(manycastr::ip_result::Value::Ipv6(v6)) => {
                 let src = v6.src.expect("None IPv6 data type");
                 ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
             }
@@ -233,8 +233,8 @@ impl IpResult {
 
     pub fn get_dst_str(&self) -> String {
         match &self.value {
-            Some(verfploeter::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
-            Some(verfploeter::ip_result::Value::Ipv6(v6)) => {
+            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
+            Some(manycastr::ip_result::Value::Ipv6(v6)) => {
                 let dst = v6.dst.expect("None IPv6 data type");
                 ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
             }
