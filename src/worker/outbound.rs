@@ -1,4 +1,3 @@
-extern crate mac_address;
 use std::thread;
 use std::time::Duration;
 

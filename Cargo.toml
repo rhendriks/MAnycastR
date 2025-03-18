@@ -1,9 +1,7 @@
 [package]
-name = "manycast" # TODO change package name
+name = "manycast"
 version = "0.1.0"
 edition = "2021"
-
-# TODO create worker lite version (deployed on anycast sites)
 
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
