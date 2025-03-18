@@ -143,11 +143,11 @@ message Targets {
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
   uint32 worker_id = 1;
-  repeated VerfploeterResult result_list = 2;
+  repeated Reply result_list = 2;
 }
 
-// A result, either a PingResult, UDPResult, or TCPResult
-message VerfploeterResult {
+// A reply, either a PingResult, UDPResult, or TCPResult
+message Reply {
   oneof value {
     PingResult ping = 1;
     UDPResult udp = 2;

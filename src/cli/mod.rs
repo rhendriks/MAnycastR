@@ -22,10 +22,10 @@ use tonic::Request;
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, udp_payload::Value::DnsARecord,
-    udp_payload::Value::DnsChaos, verfploeter_result::Value::Ping as ResultPing,
-    verfploeter_result::Value::Tcp as ResultTcp, verfploeter_result::Value::Udp as ResultUdp,
+    udp_payload::Value::DnsChaos, reply::Value::Ping as ResultPing,
+    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp,
     Address, Configuration, Empty, Origin, ScheduleMeasurement, Targets, TaskResult,
-    VerfploeterResult,
+    Reply,
 };
 use custom_module::{Separated, IP};
 
@@ -58,7 +58,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Perform the worker-list command
         cli_client.list_workers().await
     } else if let Some(matches) = args.subcommand_matches("start") {
-        // Start a Verfploeter measurement
+        // Start a MAnycastR measurement
         let is_unicast = matches.get_flag("unicast");
         let is_divide = matches.get_flag("divide");
         let is_responsive = matches.get_flag("responsive");
@@ -921,8 +921,8 @@ fn write_results(
             if task_result == TaskResult::default() {
                 break;
             }
-            let verfploeter_results: Vec<VerfploeterResult> = task_result.result_list;
-            for result in verfploeter_results {
+            let results: Vec<Reply> = task_result.result_list;
+            for result in results {
                 let result = get_result(result, task_result.worker_id, measurement_type);
 
                 // Write to command-line
@@ -991,16 +991,16 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
     header
 }
 
-/// Get the result (csv row) from a VerfploeterResult message
+/// Get the result (csv row) from a Reply message
 ///
 /// # Arguments
 ///
-/// * 'result' - The VerfploeterResult that is being written to this row
+/// * `result` - The Reply that is being written to this row
 ///
-/// * 'rx_worker_id' - The worker ID of the receiver
+/// * `x_worker_id` - The worker ID of the receiver
 ///
-/// * 'measurement_type' - The type of measurement being performed
-fn get_result(result: VerfploeterResult, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
+/// * `measurement_type` - The type of measurement being performed
+fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
     match result.value.unwrap() {
         ResultPing(ping) => {
             let rx_time = ping.rx_time.to_string();
