@@ -1,0 +1,54 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    # Set up Rust
+    - name: Set up Rust
+      uses: actions/setup-rust@v1
+      with:
+        rust-version: stable
+    
+    # Install necessary tools
+    - name: Install cargo-outdated, cargo-udeps, and protobuf compiler
+      run: |
+        cargo install cargo-outdated cargo-udeps
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
+    # Check for unused dependencies using cargo-udeps
+    - name: Check for unused dependencies
+      run: cargo udeps --all
+    
+    # Linting with Clippy
+    - name: Run Clippy
+      run: cargo clippy --verbose -- -D warnings
+
+    # Check code formatting with cargo fmt
+    - name: Check Formatting
+      run: cargo fmt -- --check
+
+    # Build the project
+    - name: Build
+      run: cargo build --verbose
+
+    # Run tests
+    - name: Run tests
+      run: cargo test --verbose
+
+    # Check for outdated dependencies
+    - name: Check for outdated dependencies
+      run: cargo outdated
