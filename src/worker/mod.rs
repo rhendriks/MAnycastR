@@ -1,21 +1,23 @@
-use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 use clap::ArgMatches;
 use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
+use std::error::Error;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
-use custom_module::verfploeter::{
+use pnet::datalink::{self, Channel as SocketChannel};
+
+use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
     Task, TaskResult, WorkerId,
 };
 use custom_module::IP;
 
 use crate::custom_module;
+use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
 
@@ -28,22 +30,20 @@ mod outbound;
 ///
 /// # Fields
 ///
-/// * 'grpc_client' - the worker connection with the orchestrator
+/// * 'client' - the worker gRPC connection with the orchestrator
 /// * 'metadata' - used to store this worker's hostname and unique worker ID
-/// * 'active' - boolean value that is set to true when the worker is currently doing a measurement
+/// * 'is_active' - boolean value that is set to true when the worker is currently doing a measurement
 /// * 'current_measurement' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
 /// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
-/// * 'interface' - interface name to connect to (connect to default if None)
 #[derive(Clone)]
 pub struct Worker {
     client: ControllerClient<Channel>,
     metadata: Metadata,
-    active: Arc<Mutex<bool>>,
+    is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
     inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
-    interface: Option<String>,
 }
 
 impl Worker {
@@ -62,7 +62,6 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"))
             .to_string();
 
-        let interface = args.get_one::<String>("interface").map(|s| s.to_string());
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
@@ -79,11 +78,10 @@ impl Worker {
         let mut worker = Worker {
             client,
             metadata,
-            active: Arc::new(Mutex::new(false)),
+            is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
             inbound_tx_f: None,
-            interface,
         };
 
         worker.connect_to_server().await?;
@@ -166,7 +164,6 @@ impl Worker {
         let measurement_id = start_measurement.measurement_id;
         let is_ipv6 = start_measurement.ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let is_traceroute = start_measurement.traceroute;
         let is_unicast = start_measurement.unicast;
         let is_probing = start_measurement.active;
         let qname = start_measurement.record;
@@ -223,104 +220,41 @@ impl Worker {
         ) = tokio::sync::mpsc::channel(1000);
         self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
-        // Berkeley Packet Filter (BPF) string
-        let mut bpf_filter = if is_ipv6 {
-            "ip6 and".to_string()
+        // Get the network interface to use
+        let interfaces = datalink::interfaces();
+
+        // Look for the interface that uses the listening IP address
+        let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
+        let interface = if let Some(interface) = interfaces
+            .iter()
+            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip)))
+        {
+            println!(
+                "[Worker] Found interface: {}, for address {}",
+                interface.name, addr
+            );
+            interface.clone() // Return the found interface
         } else {
-            "ip and".to_string()
+            // Use the default interface (first non-loopback interface)
+            let interface = interfaces
+                .into_iter()
+                .filter(|iface| !iface.is_loopback())
+                .next()
+                .expect("Failed to find default interface");
+            println!(
+                "[Worker] No interface found for address: {}, using default interface {}",
+                addr, interface.name
+            );
+            interface
         };
 
-        // Add filter for each address/port combination based on the measurement type
-        let filter_parts: Vec<String> = match start_measurement.measurement_type {
-            1 => {
-                // ICMP
-                let filter = if is_ipv6 {
-                    "icmp6 and icmp6[0] == 129"
-                } else {
-                    "icmp and icmp[0] == 0"
-                };
-                rx_origins
-                    .iter()
-                    .map(|origin| {
-                        let src_ip = IP::from(origin.src.unwrap()).to_string();
-                        format!(" ({}) and dst host {}", filter, src_ip)
-                    })
-                    .collect::<Vec<String>>()
-            }
-            2 | 4 => {
-                // DNS (A record, TXT record)
-                rx_origins
-                    .iter()
-                    .map(|origin| {
-                        let src_ip = IP::from(origin.src.unwrap()).to_string();
-                        let filter = if is_ipv6 {
-                            format!(
-                                " (ip6[6] == 17 and dst host {} and src port 53 and dst port {}) or (icmp6 and icmp6[0] == 1 and dst host {})",
-                                src_ip, origin.sport, src_ip
-                            )
-                        } else {
-                            format!(
-                                " (udp and dst host {} and src port 53 and dst port {}) or (icmp and icmp[0] == 3 and dst host {})",
-                                src_ip, origin.sport, src_ip
-                            )
-                        };
-                        filter
-                    })
-                    .collect::<Vec<String>>()
-            }
-            3 => {
-                // TCP
-                let filter = if is_ipv6 { "ip6[6] == 6" } else { "tcp" };
-
-                let mut tcp_filters: Vec<String> = rx_origins
-                    .iter()
-                    .map(|origin| {
-                        let src_ip = IP::from(origin.src.unwrap()).to_string();
-                        format!(
-                            " ({}) and dst host {} and dst port {} and src port {}",
-                            filter, src_ip, origin.sport, origin.dport
-                        )
-                    })
-                    .collect();
-
-                // When tracerouting we need to listen to ICMP for TTL expired messages
-                if is_traceroute {
-                    let icmp_ttl_expired_filter: Vec<String> = rx_origins
-                        .iter()
-                        .map(|origin| {
-                            format!(
-                                " (icmp and icmp[0] == 11 and dst host {})",
-                                IP::from(origin.src.unwrap()).to_string()
-                            )
-                        })
-                        .collect();
-                    tcp_filters.extend(icmp_ttl_expired_filter);
-                }
-                tcp_filters
-            }
-            255 => {
-                // All
-                let (filter_p, filter_icmp) = if is_ipv6 {
-                    ("ip6[6] == 17 or ip6[6] == 6", "icmp6")
-                } else {
-                    ("(udp or tcp)", "icmp")
-                };
-
-                rx_origins
-                    .iter()
-                    .map(|origin| {
-                        let src_ip = IP::from(origin.src.unwrap()).to_string(); // Handle unwrap safely if needed
-                        format!(
-                            " (({}) and dst host {} and src port {} and dst port {}) or ({} and dst host {})", // TODO filter on icmp reply type (echo reply, or unreachable)
-                            filter_p, src_ip, origin.sport, origin.dport, filter_icmp, src_ip
-                        )
-                    })
-                    .collect()
-            }
-            _ => panic!("Invalid measurement type"),
+        let interface_name = interface.name.clone();
+        // Create a socket to send out probes and receive replies with
+        let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
+            Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
+            Ok(_) => panic!("Unsupported channel type"),
+            Err(e) => panic!("Failed to create datalink channel: {}", e),
         };
-
-        bpf_filter.push_str(&*filter_parts.join(" or"));
 
         // Start listening thread
         listen(
@@ -329,10 +263,8 @@ impl Worker {
             measurement_id,
             worker_id,
             is_ipv6,
-            bpf_filter,
-            is_traceroute,
             start_measurement.measurement_type,
-            self.interface.clone(),
+            socket_rx,
         );
 
         if is_probing {
@@ -372,7 +304,8 @@ impl Worker {
                 start_measurement.measurement_type as u8,
                 qname,
                 info_url,
-                self.interface.clone(),
+                interface_name,
+                socket_tx,
             );
         } else {
             println!("[Worker] Not sending probes");
@@ -439,7 +372,7 @@ impl Worker {
 
         // Await tasks
         while let Some(task) = stream.message().await? {
-            if *self.active.lock().unwrap() {
+            if *self.is_active.lock().unwrap() {
                 // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
                 match task.data {
@@ -524,7 +457,7 @@ impl Worker {
                         }
                     };
 
-                *self.active.lock().unwrap() = true;
+                *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
 
                 if is_probing {
@@ -582,7 +515,7 @@ impl Worker {
         println!(
             "[Worker] Letting the orchestrator know that this worker finished the measurement"
         );
-        *self.active.lock().unwrap() = false;
+        *self.is_active.lock().unwrap() = false;
         self.client
             .measurement_finished(Request::new(finished))
             .await?;

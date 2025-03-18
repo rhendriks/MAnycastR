@@ -1,10 +1,5 @@
-// This file is used in combination with rust protobuf https://docs.rs/protobuf/latest/protobuf/
-// https://blog.logrocket.com/rust-and-grpc-a-complete-guide/
-// This file details the protocol buffers, which contain the data exchanged between the orchestrator/workers/CLI.
-
-// version of protocol buffer used
 syntax = "proto3";
-package verfploeter;
+package manycastr;
 
 // The controller which controls and is responsible for most communication
 service Controller {
@@ -53,7 +48,7 @@ message ScheduleMeasurement {
   bool ipv6 = 7;
   bool traceroute = 8;
   uint32 interval = 9;
-  bool responsive = 10;
+  bool responsive = 10; // TODO unimplemented
   bool divide = 11;
   Targets targets = 12;
   string record = 13; // Record to send CHAOS (TXT) or A/AAAA requests for
@@ -148,11 +143,11 @@ message Targets {
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
   uint32 worker_id = 1;
-  repeated VerfploeterResult result_list = 2;
+  repeated Reply result_list = 2;
 }
 
-// A result, either a PingResult, UDPResult, or TCPResult
-message VerfploeterResult {
+// A reply, either a PingResult, UDPResult, or TCPResult
+message Reply {
   oneof value {
     PingResult ping = 1;
     UDPResult udp = 2;

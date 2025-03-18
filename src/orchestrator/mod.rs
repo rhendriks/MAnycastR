@@ -1,35 +1,27 @@
 use std::collections::HashMap;
 use std::fs;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::custom_module;
+use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
-use custom_module::verfploeter::{
-    controller_server::Controller, controller_server::ControllerServer, ip_result::Value::Ipv4,
-    ip_result::Value::Ipv6, task::Data::End as TaskEnd, task::Data::Start as TaskStart,
-    task::Data::Trace as TaskTrace, verfploeter_result::Value::Ping as PingResult,
-    verfploeter_result::Value::Tcp as TcpResult, verfploeter_result::Value::Udp as UdpResult, Ack,
-    Address, Empty, End, Finished, Metadata, Origin, ScheduleMeasurement, Start, Targets, Task,
-    TaskResult, Trace, Worker, WorkerId, WorkerList,
+use custom_module::manycastr::{
+    controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
+    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, WorkerList,
 };
-use custom_module::IP;
 use futures_core::Stream;
-use local_ip_address::local_ip;
-use pcap::{Capture, Device};
 use rand::Rng;
 use tokio::spawn;
-use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
-use tonic::codec::CompressionEncoding;
-use crate::custom_module;
-use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
-use crate::orchestrator::mpsc::Sender;
 
 /// Struct for the orchestrator service
 ///
@@ -42,9 +34,6 @@ use crate::orchestrator::mpsc::Sender;
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'traceroute_targets' - a map that keeps track of the workers that have received probe replies for a specific target, and the 'flows' that reach each worker
-/// * 'traceroute' - a boolean value that is set to true when traceroute measurements are being performed
-/// * 'responsive_targets' - a list of the responsive targets that need to be measured
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     workers: Arc<Mutex<WorkerList>>,
@@ -54,9 +43,6 @@ pub struct ControllerService {
     current_measurement_id: Arc<Mutex<u32>>,
     current_worker_id: Arc<Mutex<u32>>,
     active: Arc<Mutex<bool>>,
-    traceroute_targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u32>, Instant, u8, Vec<Origin>)>>>, // IP -> (workers, timestamp, ttl, flows)
-    traceroute: Arc<Mutex<bool>>,
-    responsive_targets: Arc<Mutex<Vec<Address>>>,
 }
 
 /// Special Receiver struct that notices when the worker disconnects.
@@ -478,12 +464,10 @@ impl Controller for ControllerService {
         let is_traceroute = scheduled_measurement.traceroute;
         let is_divide = scheduled_measurement.divide;
         let probing_interval = scheduled_measurement.interval as u64;
-        *self.traceroute.lock().unwrap() = is_traceroute;
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
             .dst_addresses;
-        let responsive = scheduled_measurement.responsive;
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
@@ -502,11 +486,6 @@ impl Controller for ControllerService {
                     rx_origins.push(origin.clone());
                 }
             }
-        }
-
-        // If traceroute is enabled, start a thread that handles when and how the workers should perform traceroute
-        if is_traceroute {
-            traceroute_orchestrator(self.traceroute_targets.clone(), self.senders.clone()).await;
         }
 
         // Notify all senders that a new measurement is starting
@@ -593,283 +572,133 @@ impl Controller for ControllerService {
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
 
-        if responsive {
-            // Finished signal channel
-            let (tx_f, rx_f) = tokio::sync::broadcast::channel::<()>(1); // TODO replace channels with single automic bool
-            let (tx_f_2, rx_f_2) = tokio::sync::broadcast::channel::<()>(1);
+        // Create a thread that streams tasks for each worker
+        for sender in senders.iter() {
+            let sender = sender.clone();
+            // This worker's unique ID
+            let worker_id = *worker_ids.get(all_worker_i as usize).unwrap();
+            all_worker_i += 1;
+            let workers = probing_workers.clone();
+            // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
+            let is_probing = workers.len() == 0 || workers.contains(&worker_id);
 
-            println!("Probing for responsive targets from orchestrator...");
-            let responsive_targets = self.responsive_targets.clone();
+            // Get the hitlist for this worker
+            let hitlist_targets = if !is_probing {
+                vec![]
+            } else if is_divide {
+                // Each worker gets its own chunk of the hitlist
+                let targets_chunk = dst_addresses.len() / current_active_worker as usize;
+
+                // Get start and end index of targets to probe for this worker
+                let start_index = active_worker_i as usize * targets_chunk;
+                let end_index = if active_worker_i == current_active_worker - 1 {
+                    dst_addresses.len() // End of the list
+                } else {
+                    start_index + targets_chunk
+                };
+
+                dst_addresses[start_index..end_index].to_vec()
+            } else {
+                // All workers get the same hitlist
+                dst_addresses.clone()
+            };
+
+            // increment if this worker is sending probes
+            if is_probing {
+                active_worker_i += 1;
+            }
+
+            let tx_f = tx_f.clone();
+            let mut rx_f = tx_f.subscribe();
+            let clients_finished = workers_finished.clone();
+            let is_active = self.active.clone();
+
             spawn(async move {
-                // thread probing for responsiveness
-                let p_rate = Duration::from_nanos(((1.0 / rate as f64) * 1_000_000_000.0) as u64); // p_rate without chunk size
+                // Send out packets at the required interval
                 let mut interval = tokio::time::interval(p_rate);
-                let orc_origin = Origin {
-                    src: Some(Address::from(IP::from(
-                        local_ip().expect("Failed to get local IP").to_string(),
-                    ))),
-                    sport: 65535, // TODO ports from task
-                    dport: 62321,
-                };
+                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+                if is_probing && !is_divide {
+                    tokio::time::sleep(Duration::from_secs(
+                        (active_worker_i - 1) * probing_interval,
+                    ))
+                    .await;
+                }
 
-                // Group hitlist targets by prefix
-                let prefix_targets: HashMap<u64, Vec<Address>> =
-                    dst_addresses
-                        .iter()
-                        .fold(HashMap::new(), |mut acc, target| {
-                            let prefix = target.get_prefix();
-                            acc.entry(prefix)
-                                .or_insert_with(Vec::new)
-                                .push(target.clone());
-                            acc
-                        });
-
-                // Channel for probing targets
-                let (tx_r, rx_r) = tokio::sync::mpsc::channel::<Address>(1000);
-                // Probe each prefix to find a responsive target, representing the prefix
-                let prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>> =
-                    Arc::new(Mutex::new(HashMap::new()));
-
-                // start probing thread
-                probe_targets(
-                    is_ipv6,
-                    rx_r,
-                    measurement_type as u8,
-                    orc_origin,
-                    dns_record,
-                    &info_url,
-                )
-                .await;
-
-                // Set filter
-                let bpf_filter = if is_ipv6 {
-                    if measurement_type == 1 {
-                        // ICMP echo reply
-                        "icmp6 and icmp6[0] == 129"
-                    } else if measurement_type == 2 | 4 {
-                        // DNS response
-                        "ip6[6] == 17 and src port 53"
-                    } else {
-                        // TCP RST (no tcp for ipv6)
-                        "ip6[6] == 6 and (ip6[53] & 4) != 0"
-                    }
-                } else {
-                    if measurement_type == 1 {
-                        // ICMP echo reply
-                        "icmp and icmp[0] == 0"
-                    } else if measurement_type == 2 | 4 {
-                        // DNS response
-                        "udp and src port 53"
-                    } else {
-                        "tcp and tcp[13] & 4 != 0"
-                    }
-                };
-
-                let prefix_map_r = prefix_map.clone();
-                // Start listening thread
-                spawn(async move {
-                    listen_for_responses(bpf_filter, prefix_map_r, is_ipv6, rx_f_2).await;
-                });
-
-                for chunk in prefix_targets.values() {
-                    let chunk = chunk.clone();
-                    let responsive_targets = responsive_targets.clone();
-                    let prefix_map = prefix_map.clone();
-                    let tx_r = tx_r.clone();
-
-                    spawn(async move {
-                        let current_prefix = chunk[0].get_prefix();
-                        let r_address = Arc::new(Mutex::new(None));
-                        prefix_map
-                            .lock()
-                            .unwrap()
-                            .insert(current_prefix, r_address.clone());
-                        for addr in chunk {
-                            // Add address to the probing channel
-                            tx_r.send(addr).await.expect("Failed to send target");
-
-                            // Sleep 1 second
-                            tokio::time::sleep(Duration::from_secs(1)).await;
-
-                            // See if a responsive address has been found for this prefix
-                            if let Some(addr) = r_address.lock().unwrap().clone() {
-                                // Add the responsive target to the list (if we found one)
-                                responsive_targets.lock().unwrap().push(addr);
-                                break;
-                            }
+                for chunk in hitlist_targets.chunks(chunk_size) {
+                    // If the CLI disconnects during task distribution, abort
+                    if *is_active.lock().unwrap() == false {
+                        clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+                        if *clients_finished.lock().unwrap() == number_of_workers {
+                            println!("[Orchestrator] CLI disconnected during task distribution");
+                            tx_f.send(()).expect("Failed to send finished signal");
                         }
-
-                        // Remove the prefix from the hashmap
-                        prefix_map.lock().unwrap().remove(&current_prefix);
-                    });
-
-                    interval.tick().await; // rate limit
-                }
-                println!("[Orchestrator] Finished probing for responsive targets");
-
-                // 10 seconds time for remaining prefixes that are being probed TODO make this dynamic
-                tokio::time::sleep(Duration::from_secs(10)).await;
-
-                // Wait for all workers to finish (i.e., responsive_targets is emptied)
-                loop {
-                    if responsive_targets.lock().unwrap().len() == 0 {
-                        break;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-                }
-
-                println!("sending finished signal");
-
-                // Send a message to the other sending threads to let them know the measurement is finished
-                tx_r.send(Address::default())
-                    .await
-                    .expect("Failed to send finished signal");
-                tx_f.send(()).expect("Failed to send finished signal");
-                tx_f_2.send(()).expect("Failed to send finished signal");
-            });
-
-            println!("instructing workers to probe responsive targets...");
-            let responsive_targets = self.responsive_targets.clone();
-            spawn(async move {
-                // thread probing for responsiveness
-                send_responsive(senders, responsive_targets, probing_interval, rx_f).await;
-                println!("workers finished");
-            });
-        } else {
-            // Create a thread that streams tasks for each worker
-            for sender in senders.iter() {
-                let sender = sender.clone();
-                // This worker's unique ID
-                let worker_id = *worker_ids.get(all_worker_i as usize).unwrap();
-                all_worker_i += 1;
-                let workers = probing_workers.clone();
-                // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-                let is_probing = workers.len() == 0 || workers.contains(&worker_id);
-
-                // Get the hitlist for this worker
-                let hitlist_targets = if !is_probing {
-                    vec![]
-                } else if is_divide {
-                    // Each worker gets its own chunk of the hitlist
-                    let targets_chunk = dst_addresses.len() / current_active_worker as usize;
-
-                    // Get start and end index of targets to probe for this worker
-                    let start_index = active_worker_i as usize * targets_chunk;
-                    let end_index = if active_worker_i == current_active_worker - 1 {
-                        dst_addresses.len() // End of the list
-                    } else {
-                        start_index + targets_chunk
-                    };
-
-                    dst_addresses[start_index..end_index].to_vec()
-                } else {
-                    // All workers get the same hitlist
-                    dst_addresses.clone()
-                };
-
-                // increment if this worker is sending probes
-                if is_probing {
-                    active_worker_i += 1;
-                }
-
-                let tx_f = tx_f.clone();
-                let mut rx_f = tx_f.subscribe();
-                let clients_finished = workers_finished.clone();
-                let is_active = self.active.clone();
-
-                spawn(async move {
-                    // Send out packets at the required interval
-                    let mut interval = tokio::time::interval(p_rate);
-                    // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                    if is_probing && !is_divide {
-                        tokio::time::sleep(Duration::from_secs(
-                            (active_worker_i - 1) * probing_interval,
-                        ))
-                        .await;
+                        return; // abort
                     }
 
-                    for chunk in hitlist_targets.chunks(chunk_size) {
-                        // If the CLI disconnects during task distribution, abort
-                        if *is_active.lock().unwrap() == false {
-                            clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                            if *clients_finished.lock().unwrap() == number_of_workers {
+                    if is_probing {
+                        let task = Task {
+                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                                dst_addresses: chunk.to_vec(),
+                            })),
+                        };
+
+                        // Send packet to worker
+                        match sender.send(Ok(task)).await {
+                            Ok(_) => (),
+                            Err(e) => {
                                 println!(
-                                    "[Orchestrator] CLI disconnected during task distribution"
+                                    "[Orchestrator] Failed to send task {:?} to worker {}",
+                                    e, worker_id
                                 );
-                                tx_f.send(()).expect("Failed to send finished signal");
-                            }
-                            return; // abort
-                        }
-
-                        if is_probing {
-                            let task = Task {
-                                data: Some(custom_module::verfploeter::task::Data::Targets(
-                                    Targets {
-                                        dst_addresses: chunk.to_vec(),
-                                    },
-                                )),
-                            };
-
-                            // Send packet to worker
-                            match sender.send(Ok(task)).await {
-                                Ok(_) => (),
-                                Err(e) => {
-                                    println!(
-                                        "[Orchestrator] Failed to send task {:?} to worker {}",
-                                        e, worker_id
-                                    );
-                                    if sender.is_closed() {
-                                        // If the worker is no longer connected
-                                        println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
-                                        break;
-                                    }
+                                if sender.is_closed() {
+                                    // If the worker is no longer connected
+                                    println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
+                                    break;
                                 }
                             }
                         }
-
-                        interval.tick().await;
                     }
+                    interval.tick().await;
+                }
 
-                    clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                    if *clients_finished.lock().unwrap() == number_of_workers {
-                        println!("[Orchestrator] Measurement finished, awaiting clients... ");
-                        // Send a message to the other sending threads to let them know the measurement is finished
-                        tx_f.send(()).expect("Failed to send finished signal");
-                    } else {
-                        // Wait for the last worker to finish
-                        rx_f.recv()
-                            .await
-                            .expect("Failed to receive finished signal");
-
-                        // If the CLI disconnects whilst waiting for the finished signal, abort
-                        if *is_active.lock().unwrap() == false {
-                            return; // abort
-                        }
-                    }
-
-                    // Sleep 1 second to give the worker time to finish the measurement and receive the last responses (traceroute takes longer)
-                    if is_traceroute {
-                        tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-
-                    // Send a message to the worker to let it know it has received everything for the current measurement
-                    match sender
-                        .send(Ok(Task {
-                            data: Some(TaskEnd(End { code: 0 })),
-                        }))
+                clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+                if *clients_finished.lock().unwrap() == number_of_workers {
+                    println!("[Orchestrator] Measurement finished, awaiting clients... ");
+                    // Send a message to the other sending threads to let them know the measurement is finished
+                    tx_f.send(()).expect("Failed to send finished signal");
+                } else {
+                    // Wait for the last worker to finish
+                    rx_f.recv()
                         .await
-                    {
-                        Ok(_) => (),
-                        Err(e) => println!(
-                            "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
-                            e, worker_id
-                        ),
+                        .expect("Failed to receive finished signal");
+
+                    // If the CLI disconnects whilst waiting for the finished signal, abort
+                    if *is_active.lock().unwrap() == false {
+                        return; // abort
                     }
-                });
-            }
+                }
+
+                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses (traceroute takes longer)
+                if is_traceroute {
+                    tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
+                } else {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+
+                // Send a message to the worker to let it know it has received everything for the current measurement
+                match sender
+                    .send(Ok(Task {
+                        data: Some(TaskEnd(End { code: 0 })),
+                    }))
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(e) => println!(
+                        "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
+                        e, worker_id
+                    ),
+                }
+            });
         }
 
         let rx = CLIReceiver {
@@ -899,109 +728,6 @@ impl Controller for ControllerService {
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
-
-        if *self.traceroute.lock().unwrap() {
-            // If traceroute is enabled
-            // Loop over the results and keep track of the clients that have received probe responses
-            let worker_id = task_result.worker_id;
-            let mut map = self.traceroute_targets.lock().await;
-            for result in task_result.clone().result_list {
-                let value = result.value.unwrap();
-                let (probe_dst, probe_src) = match value.clone() {
-                    PingResult(value) => {
-                        match value.ip_result.unwrap().value.unwrap() {
-                            // TODO from::IP_result for IP
-                            Ipv4(v4) => (
-                                IP::V4(Ipv4Addr::from(v4.src)),
-                                IP::V4(Ipv4Addr::from(v4.dst)),
-                            ),
-                            Ipv6(v6) => (
-                                IP::V6(Ipv6Addr::from(
-                                    ((v6.src.unwrap().p1 as u128) << 64)
-                                        | v6.src.unwrap().p2 as u128,
-                                )),
-                                IP::V6(Ipv6Addr::from(
-                                    ((v6.dst.unwrap().p1 as u128) << 64)
-                                        | v6.dst.unwrap().p2 as u128,
-                                )),
-                            ),
-                        }
-                    }
-                    UdpResult(value) => match value.ip_result.unwrap().value.unwrap() {
-                        Ipv4(v4) => (
-                            IP::V4(Ipv4Addr::from(v4.src)),
-                            IP::V4(Ipv4Addr::from(v4.dst)),
-                        ),
-                        Ipv6(v6) => (
-                            IP::V6(Ipv6Addr::from(
-                                ((v6.src.unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128,
-                            )),
-                            IP::V6(Ipv6Addr::from(
-                                ((v6.dst.unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128,
-                            )),
-                        ),
-                    },
-                    TcpResult(value) => match value.ip_result.unwrap().value.unwrap() {
-                        Ipv4(v4) => (
-                            IP::V4(Ipv4Addr::from(v4.src)),
-                            IP::V4(Ipv4Addr::from(v4.dst)),
-                        ),
-                        Ipv6(v6) => (
-                            IP::V6(Ipv6Addr::from(
-                                ((v6.src.unwrap().p1 as u128) << 64) | v6.src.unwrap().p2 as u128,
-                            )),
-                            IP::V6(Ipv6Addr::from(
-                                ((v6.dst.unwrap().p1 as u128) << 64) | v6.dst.unwrap().p2 as u128,
-                            )),
-                        ),
-                    },
-                    _ => (IP::None, IP::None),
-                };
-
-                // Get port combination that the worker received
-                let (probe_sport, probe_dport) = match value.clone() {
-                    PingResult(_) => (0, 0),
-                    UdpResult(value) => (value.sport, value.dport),
-                    TcpResult(value) => (value.sport, value.dport),
-                    _ => (0, 0),
-                };
-
-                // Create origin flows (i.e., a single flow for each worker that has received probe replies)
-                let origin_flow = Origin {
-                    src: Some(Address::from(probe_src)),
-                    sport: probe_sport,
-                    dport: probe_dport,
-                };
-
-                let ttl = match value {
-                    PingResult(value) => value.ip_result.unwrap().ttl,
-                    UdpResult(value) => value.ip_result.unwrap().ttl,
-                    TcpResult(value) => value.ip_result.unwrap().ttl,
-                    _ => 0,
-                } as u8;
-
-                if probe_dst == IP::None {
-                    continue;
-                }
-                if map.contains_key(&probe_dst) {
-                    let (workers, _, ttl_old, trace_origins) = map.get_mut(&probe_dst).unwrap();
-                    // We want to keep track of the lowest TTL recorded
-                    if ttl < *ttl_old {
-                        *ttl_old = ttl;
-                    }
-                    // Keep track of all clients that have received probe replies for this target
-                    if !workers.contains(&worker_id) {
-                        workers.push(worker_id);
-                        trace_origins.push(origin_flow); // First time we see this worker receive a probe reply -> we add this origin flow for this worker
-                    }
-                } else {
-                    map.insert(
-                        probe_dst,
-                        (vec![worker_id], Instant::now(), ttl, vec![origin_flow]),
-                    );
-                }
-            }
-        }
 
         // Forward the result to the CLI
         let tx = {
@@ -1077,79 +803,6 @@ impl Controller for ControllerService {
     }
 }
 
-/// Start a thread that orchestrates the traceroute measurements.
-///
-/// This thread will instruct the clients to perform traceroute measurements to targets that sent probe replies toward multiple clients.
-///
-/// # Arguments
-///
-/// * 'targets' - a shared hashmap that contains the targets that have sent probe replies to multiple clients
-///
-/// * 'senders' - a shared list of senders that connect to the clients
-async fn traceroute_orchestrator(
-    targets: Arc<tokio::sync::Mutex<HashMap<IP, (Vec<u32>, Instant, u8, Vec<Origin>)>>>,
-    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
-) {
-    // Thread that cleans up the targets map and instruct traceroute
-    spawn(async move {
-        loop {
-            let cleanup_interval = Duration::from_secs(40);
-            // Sleep for the cleanup interval
-            tokio::time::sleep(cleanup_interval).await;
-            // Perform the cleanup
-            let mut map = targets.lock().await;
-            let mut traceroute_targets = HashMap::new();
-
-            for (target, (clients, timestamp, _, _)) in map.clone().iter() {
-                if Instant::now().duration_since(*timestamp) > cleanup_interval {
-                    let value = map
-                        .remove(target)
-                        .expect("Failed to remove target from map");
-                    if clients.len() > 1 {
-                        println!("Tracerouting to {} from clients {:?}", target, clients);
-                        traceroute_targets.insert(target.clone(), value);
-                    }
-                }
-            }
-
-            for (target, (clients, _, ttl, trace_origins)) in traceroute_targets {
-                // Get the upper bound TTL we should perform traceroute with
-                let max_ttl = if ttl >= 128 {
-                    255 - ttl
-                } else if ttl >= 64 {
-                    128 - ttl
-                } else {
-                    64 - ttl
-                } as u32;
-
-                let traceroute_task = Task {
-                    data: Some(TaskTrace(Trace {
-                        max_ttl,
-                        dst: Some(Address::from(target)),
-                        origins: trace_origins,
-                    })),
-                };
-
-                // TODO make sure client_id is mapped to the right sender
-                // TODO when worker IDs don't start at 1, this will fail
-                for client_id in clients {
-                    // Instruct all clients (that received probe replies) to perform traceroute
-                    // Sleep 1 second between each worker to avoid rate limiting
-                    // tokio::time::sleep(Duration::from_secs(1)).await;
-                    // TODO will fail when clients have been instructed to end
-                    senders
-                        .lock()
-                        .unwrap()
-                        .get(client_id as usize - 1)
-                        .unwrap()
-                        .try_send(Ok(traceroute_task.clone()))
-                        .expect("Failed to send traceroute task");
-                }
-            }
-        }
-    });
-}
-
 /// Start the orchestrator.
 ///
 /// Starts the orchestrator on the specified port.
@@ -1172,9 +825,6 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
         current_worker_id: Arc::new(Mutex::new(1)),
         active: Arc::new(Mutex::new(false)),
-        traceroute_targets: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        traceroute: Arc::new(Mutex::new(false)),
-        responsive_targets: Arc::new(Mutex::new(Vec::new())),
     };
 
     let svc = ControllerServer::new(controller)
@@ -1224,209 +874,4 @@ fn load_tls() -> Identity {
     let identity = Identity::from_pem(cert, key);
 
     identity
-}
-
-/// Probe targets for responsiveness.
-async fn probe_targets(
-    is_ipv6: bool,
-    mut targets: mpsc::Receiver<Address>,
-    measurement_type: u8,
-    source: Origin,
-    dns_record: String,
-    info_url: &str,
-) {
-    // Create capture for sending packets (not receiving)
-    let main_interface = Device::lookup()
-        .expect("Failed to get main interface")
-        .unwrap();
-    let mut cap = Capture::from_device(main_interface)
-        .expect("Failed to create a capture")
-        .open()
-        .expect("Failed to open capture");
-    let ethernet_header = get_ethernet_header(is_ipv6, None); // TODO interface
-                                                              // Probe targets
-    while let Some(target) = targets.recv().await {
-        if target == Address::default() {
-            // Finished signal
-            break;
-        }
-
-        let mut packet = ethernet_header.clone();
-        match measurement_type {
-            1 => {
-                packet.extend_from_slice(&create_ping(source, IP::from(target), 0, 0, info_url));
-            }
-            2 | 4 => {
-                packet.extend_from_slice(&create_udp(
-                    source,
-                    IP::from(target),
-                    0,
-                    measurement_type,
-                    is_ipv6,
-                    &dns_record,
-                ));
-            }
-            3 => {
-                packet.extend_from_slice(&create_tcp(
-                    source,
-                    IP::from(target),
-                    0,
-                    is_ipv6,
-                    true,
-                    info_url,
-                ));
-            }
-
-            255 => {
-                // all measurement types TODO
-            }
-            _ => {
-                panic!("Invalid measurement type");
-            }
-        }
-
-        cap.sendpacket(packet).expect("Failed to send packet");
-    }
-}
-
-/// Listen for responses from the targets.
-async fn listen_for_responses(
-    filter: &str,
-    prefix_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<Address>>>>>>,
-    is_ipv6: bool,
-    mut rx_f: Receiver<()>,
-) {
-    // get capture interface
-    let main_interface = Device::lookup()
-        .expect("Failed to get main interface")
-        .unwrap();
-    let mut cap = Capture::from_device(main_interface)
-        .expect("Failed to get capture device")
-        .immediate_mode(true)
-        .buffer_size(1_000)
-        .open()
-        .expect("Failed to open capture device")
-        .setnonblock()
-        .expect("Failed to set pcap to non-blocking mode");
-    cap.direction(pcap::Direction::In)
-        .expect("Failed to set pcap direction"); // We only want to receive incoming packets
-
-    // Set filter
-    cap.filter(filter, true).expect("Failed to set pcap filter");
-
-    cap = cap.setnonblock().unwrap();
-
-    // Start listening
-    loop {
-        if rx_f.try_recv().is_ok() {
-            // Check if the orchestrator has finished probing for responsive targets
-            break;
-        }
-
-        let packet = match cap.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        // Get source address
-        let src = if is_ipv6 {
-            Address::from(&packet.data[22..38])
-        } else {
-            Address::from(&packet.data[26..30])
-        };
-
-        let prefix = src.get_prefix();
-        if let Some(addr) = prefix_map.lock().unwrap().get(&prefix) {
-            let mut addr = addr.lock().unwrap();
-            if addr.is_none() {
-                *addr = Some(src);
-            }
-        }
-    }
-}
-
-/// Instruct the clients to probe responsive targets.
-///
-/// Awaits responsive targets and instructs the clients to probe them.
-///
-/// Clients will be instructed to probe the responsive targets in a round-robin fashion, with the configured delay between each worker.
-///
-/// # Arguments
-///
-/// * 'senders' - a list of senders that connect to the clients
-///
-/// # Returns
-///
-/// A result containing channel senders for each worker.
-async fn send_responsive(
-    senders: Vec<Sender<Result<Task, Status>>>,
-    responsive_targets: Arc<Mutex<Vec<Address>>>,
-    client_interval: u64,
-    mut rx_f: Receiver<()>,
-) {
-    // Create thread awaiting responsive targets and sending them to the clients
-    loop {
-        // Wait for responsive targets
-        loop {
-            if !responsive_targets.lock().unwrap().is_empty() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-
-            // Check if the orchestrator has finished probing for responsive targets
-            if rx_f.try_recv().is_ok() {
-                // Send finished signal to all clients
-                for sender in senders.iter() {
-                    // Send a message to the worker to let it know it has received everything for the current measurement
-                    match sender
-                        .send(Ok(Task {
-                            data: Some(TaskEnd(End { code: 0 })),
-                        }))
-                        .await
-                    {
-                        Ok(_) => (),
-                        Err(_) => println!("[Orchestrator] Failed to send 'end message' to worker"),
-                    }
-                }
-                return;
-            }
-        }
-
-        // Pop up to 10 targets from the list
-        let targets: Vec<Address> = {
-            let mut all_targets = responsive_targets.lock().unwrap();
-            let n = std::cmp::min(10, all_targets.len());
-            all_targets.drain(..n).collect()
-        };
-
-        // Send to worker with 'client_interval' gaps
-        let senders = senders.clone();
-        spawn(async move {
-            let task = Task {
-                data: Some(custom_module::verfploeter::task::Data::Targets(Targets {
-                    dst_addresses: targets,
-                })),
-            };
-
-            for sender in senders.iter() {
-                // Send packet to worker
-                match sender.send(Ok(task.clone())).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        println!("[Orchestrator] Failed to send task {:?} to worker", e);
-                        if sender.is_closed() {
-                            // If the worker is no longer connected
-                            println!("[Orchestrator] Client is no longer connected and removed from the measurement");
-                            continue;
-                        }
-                    }
-                }
-
-                // Sleep for the worker interval
-                tokio::time::sleep(Duration::from_secs(client_interval)).await;
-            }
-        });
-    }
 }

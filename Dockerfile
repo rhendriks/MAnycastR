@@ -1,11 +1,13 @@
 FROM rust:latest AS build
 
+# TODO build musl and run with scratch
+
 # create a new empty shell project
 RUN USER=root cargo new --bin manycast
 WORKDIR /manycast
 
 # install dependencies
-RUN apt-get update && apt-get install -y protobuf-compiler gcc libpcap0.8-dev
+RUN apt-get update && apt-get install -y protobuf-compiler
 
 # Copy over manifests
 COPY ./Cargo.toml ./Cargo.toml
@@ -26,8 +28,6 @@ RUN cargo build --release
 
 # final base
 FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y libpcap0.8
 
 # copy the build artifact from the build stage
 COPY --from=build /manycast/target/release/manycast .
