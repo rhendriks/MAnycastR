@@ -92,11 +92,10 @@ pub fn outbound(
                     }
                     Targets(targets) => {
                         for origin in &tx_origins {
-                            let mut packet = ethernet_header.clone();
-
                             match measurement_type {
-                                1 => {
+                                1 => { // ICMP
                                     for dst in &targets.dst_addresses {
+                                        let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
                                             origin.clone(),
                                             IP::from(dst.clone()),
@@ -104,10 +103,20 @@ pub fn outbound(
                                             measurement_id,
                                             &info_url,
                                         ));
+
+                                        match socket_tx.send_to(&packet, None) {
+                                            Some(Ok(())) => sent += 1,
+                                            Some(Err(e)) => {
+                                                eprintln!("[Worker outbound] Failed to send ICMP packet: {}", e);
+                                                failed += 1;
+                                            },
+                                            None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
+                                        }
                                     }
                                 }
-                                2 | 4 => {
+                                2 | 4 => { // UDP or UDP/CHAOS
                                     for dst in &targets.dst_addresses {
+                                        let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
                                             origin.clone(),
                                             IP::from(dst.clone()),
@@ -116,10 +125,20 @@ pub fn outbound(
                                             is_ipv6,
                                             &qname.clone(),
                                         ));
+
+                                        match socket_tx.send_to(&packet, None) {
+                                            Some(Ok(())) => sent += 1,
+                                            Some(Err(e)) => {
+                                                eprintln!("[Worker outbound] Failed to send UDP packet: {}", e);
+                                                failed += 1;
+                                            },
+                                            None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
+                                        }
                                     }
                                 }
-                                3 => {
+                                3 => { // TCP
                                     for dst in &targets.dst_addresses {
+                                        let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
                                             origin.clone(),
                                             IP::from(dst.clone()),
@@ -128,21 +147,21 @@ pub fn outbound(
                                             is_unicast,
                                             &info_url,
                                         ));
+
+                                        match socket_tx.send_to(&packet, None) {
+                                            Some(Ok(())) => sent += 1,
+                                            Some(Err(e)) => {
+                                                eprintln!("[Worker outbound] Failed to send TCP packet: {}", e);
+                                                failed += 1;
+                                            },
+                                            None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
+                                        }
                                     }
                                 }
                                 255 => {
                                     // TODO all
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
-                            }
-                            println!("sending packet with length {}", packet.len());
-                            match socket_tx.send_to(&packet, None) {
-                                Some(Ok(())) => sent += 1,
-                                Some(Err(e)) => {
-                                    eprintln!("[Worker outbound] Failed to send ICMP packet: {}", e);
-                                    failed += 1;
-                                },
-                                None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
                             }
                         }
                     }
