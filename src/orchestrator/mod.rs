@@ -429,11 +429,7 @@ impl Controller for ControllerService {
         {
             // Update active measurement in the worker list
             let mut workers = self.workers.lock().unwrap();
-            for worker in workers.workers.iter_mut() {
-                if probing_workers.contains(&worker.worker_id) {
-                    worker.measurements.push(measurement_id);
-                }
-            }
+            workers.workers.iter_mut().for_each(|worker| worker.measurements.push(measurement_id));
         }
 
         // Create a measurement from the ScheduleMeasurement
