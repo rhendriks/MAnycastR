@@ -862,7 +862,7 @@ impl CliClient {
             Cell::new("Worker ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Active measurements")
+            Cell::new("Status")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
@@ -872,7 +872,8 @@ impl CliClient {
             let measurements_str = if worker.measurements.is_empty() {
                 "Idle".to_string()
             } else {
-                worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" ")
+                "Active".to_string()
+                // worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" ")
             };
 
             table.add_row(prettytable::row!(
