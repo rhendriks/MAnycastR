@@ -41,18 +41,18 @@ message WorkerID {
 message ScheduleMeasurement {
   uint32 rate = 1;
   repeated uint32 workers = 2;
-  Origin origin = 3; // Default origin to use (for all workers)  // TODO combine 3 and 4 into one
-  repeated Configuration configurations = 4; // Configuration of worker and origin combinations
-  uint32 measurement_type = 5;
-  bool unicast = 6;
-  bool ipv6 = 7;
-  bool traceroute = 8;
-  uint32 interval = 9;
-  bool responsive = 10; // TODO unimplemented
-  bool divide = 11;
-  Targets targets = 12;
-  string record = 13; // Record to send CHAOS (TXT) or A/AAAA requests for
-  string url = 14;
+//  Origin origin = 3; // Default origin to use (for all workers)  // TODO combine 3 and 4 into one
+  repeated Configuration configurations = 3; // Configuration of worker and origin combinations
+  uint32 measurement_type = 4;
+  bool unicast = 5;
+  bool ipv6 = 6;
+  bool traceroute = 7;
+  uint32 interval = 8;
+  bool responsive = 9; // TODO unimplemented
+  bool divide = 10;
+  Targets targets = 11;
+  string record = 12; // Record to send CHAOS (TXT) or A/AAAA requests for
+  string url = 13;
 }
 
 // A list of workers (an empty list is used when all workers have to send out probes)
