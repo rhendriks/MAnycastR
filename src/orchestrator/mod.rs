@@ -12,7 +12,7 @@ use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
-    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata,
     ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, Status as ServerStatus,
 };
 use futures_core::Stream;
@@ -434,41 +434,34 @@ impl Controller for ControllerService {
 
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.unicast;
-        // Get the probe origins
-        let tx_origins: Vec<Origin> = if is_unicast {
-            vec![scheduled_measurement.origin.unwrap()] // Contains port values
-        } else if scheduled_measurement.configurations.len() > 0 {
-            // Make sure no unknown workers are in the list
-            if scheduled_measurement
-                .configurations
-                .iter()
-                .any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX)
-            {
-                println!(
-                    "[Orchestrator] Unknown worker in configuration list, terminating measurement."
-                );
-                *self.active.lock().unwrap() = false;
-                return Err(Status::new(
-                    tonic::Code::Cancelled,
-                    "Unknown worker in configuration list",
-                ));
-            }
-            // Update selected_workers to contain all workers that are in the configuration list
-            for configuration in &scheduled_measurement.configurations {
-                if !probing_workers.contains(&configuration.worker_id) {
-                    probing_workers.push(configuration.worker_id);
-                }
-                // All workers are selected
-                if configuration.worker_id == u32::MAX {
-                    probing_workers = vec![];
-                    break;
-                }
+
+        // Make sure no unknown workers are in the configuration
+        if scheduled_measurement
+            .configurations
+            .iter()
+            .any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX)
+        {
+            println!(
+                "[Orchestrator] Unknown worker in configuration list, terminating measurement."
+            );
+            *self.active.lock().unwrap() = false;
+            return Err(Status::new(
+                tonic::Code::Cancelled,
+                "Unknown worker in configuration",
+            ));
+        }
+        // Update selected_workers to contain all workers that are in the configuration list
+        for configuration in &scheduled_measurement.configurations {
+            // All workers are selected
+            if configuration.worker_id == u32::MAX {
+                probing_workers = vec![];
+                break;
             }
 
-            vec![] // Return an empty list, as we will add the origins per worker
-        } else {
-            vec![scheduled_measurement.origin.unwrap()]
-        };
+            if !probing_workers.contains(&configuration.worker_id) {
+                probing_workers.push(configuration.worker_id);
+            }
+        }
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -495,13 +488,13 @@ impl Controller for ControllerService {
         let _ = self.cli_sender.lock().unwrap().insert(tx);
 
         // Create a list of origins used by workers
-        let mut rx_origins = tx_origins.clone();
+        let mut rx_origins = vec![];
         // Add all configuration origins to the listen origins
-        for configuration in &scheduled_measurement.configurations {
+        for configuration in scheduled_measurement.configurations.iter() {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
-                    rx_origins.push(origin.clone());
+                    rx_origins.push(*origin);
                 }
             }
         }
@@ -510,7 +503,7 @@ impl Controller for ControllerService {
         let mut current_worker = 0;
         let mut current_active_worker = 0;
         for sender in senders.iter() {
-            let mut worker_tx_origins = tx_origins.clone();
+            let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
@@ -518,7 +511,7 @@ impl Controller for ControllerService {
                     | (configuration.worker_id == u32::MAX)
                 {
                     if let Some(origin) = &configuration.origin {
-                        worker_tx_origins.push(origin.clone());
+                        worker_tx_origins.push(*origin);
                     }
                 }
             }
