@@ -143,9 +143,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 ```
 
-#### Install protobuf-compiler
+### Install dependencies
 ```bash
-apt-get install protobuf-compiler
+apt-get install -y protobuf-compiler gcc musl-tools
+```
+
+### Add the musl target
+```bash
+rustup target add x86_64-unknown-linux-musl
 ```
 
 #### Clone the repository
