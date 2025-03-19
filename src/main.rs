@@ -10,7 +10,7 @@
 //!
 //! ii) Measuring anycast infrastructure itself
 //! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
-//! * [Site flipping]() (detecting network regions experiencing anycast site flipping)
+//! * [Site flipping](https://arxiv.org/pdf/2503.14351) (detecting network regions experiencing anycast site flipping)
 //! * Anycast latency (measuring RTT between the Internet and the anycast infrastructure)
 //! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites to the Internet)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)

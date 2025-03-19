@@ -842,14 +842,14 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
-            .await?;
+            .await.expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
-            .await?;
+            .await.expect("Failed to start orchestrator");
     }
 
     Ok(())
