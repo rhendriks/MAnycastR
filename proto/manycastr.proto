@@ -9,8 +9,8 @@ service Controller {
   rpc WorkerConnect(Metadata) returns (stream Task) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
-  // CLI asks orchestrator to list workers, orchestrator returns WorkerList
-  rpc ListWorkers(Empty) returns (WorkerList) {}
+  // CLI asks orchestrator its current status (list of connected workers and measurements)
+  rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
   // Worker obtains a unique worker ID from the orchestrator
@@ -56,14 +56,16 @@ message ScheduleMeasurement {
 }
 
 // A list of workers (an empty list is used when all workers have to send out probes)
-message WorkerList {
+message Status {
   repeated Worker workers = 1;
+  repeated fixed32 measurements = 2;
 }
 
-// A worker, containing an identifier and metadata
+// Worker definition, contains a worker ID, metadata, and a list of current measurements
 message Worker {
   fixed32 worker_id = 1;
   Metadata metadata = 2;
+  repeated fixed32 measurements = 3;
 }
 
 // Metadata (as used in worker), contains a hostname
