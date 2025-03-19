@@ -162,7 +162,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
             .lines()
-            .map(|l| Address::from(l.unwrap()))
+            .filter_map(|l| l.ok())  // Handle potential errors
+            .filter(|l| !l.trim().is_empty())  // Skip empty lines
+            .map(Address::from)
             .collect();
         let is_ipv6 = ips.first().unwrap().is_v6();
 
