@@ -860,12 +860,23 @@ impl CliClient {
             Cell::new("Worker ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Active measurements")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
+
         for worker in response.into_inner().workers {
+            let measurements_str = if worker.measurements.is_empty() {
+                "Idle".to_string()
+            } else {
+                worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" ")
+            };
+
             table.add_row(prettytable::row!(
                 worker.metadata.unwrap().hostname,
                 worker.worker_id,
+                measurements_str,
             ));
         }
         table.printstd();

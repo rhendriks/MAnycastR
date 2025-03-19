@@ -13,7 +13,7 @@ use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
     task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
-    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, WorkerList,
+    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, Status as ServerStatus,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -36,7 +36,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 #[derive(Debug, Clone)]
 pub struct ControllerService {
-    workers: Arc<Mutex<WorkerList>>,
+    workers: Arc<Mutex<ServerStatus>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
@@ -65,7 +65,7 @@ pub struct WorkerReceiver<T> {
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
-    workers: Arc<Mutex<WorkerList>>,
+    workers: Arc<Mutex<ServerStatus>>,
     active: Arc<Mutex<bool>>,
 }
 
@@ -82,12 +82,14 @@ impl<T> Drop for WorkerReceiver<T> {
         println!("[Orchestrator] Worker receiver has been dropped");
 
         // Remove this worker from the workers list
-        self.workers.lock().unwrap().workers.retain(|workers| {
-            let Some(metadata) = &workers.metadata else {
-                panic!("Worker without metadata")
-            };
-            metadata.hostname != self.hostname
-        });
+        {
+            self.workers.lock().unwrap().workers.retain(|workers| {
+                let Some(metadata) = &workers.metadata else {
+                    panic!("Worker without metadata")
+                };
+                metadata.hostname != self.hostname
+            });
+        }
 
         // // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
@@ -208,6 +210,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
         let measurement_id: u32 = finished_measurement.measurement_id;
+        let worker_id: u32 = finished_measurement.worker_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'measurement_finished' from all workers that executed this measurement
@@ -224,6 +227,13 @@ impl Controller for ControllerService {
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
+
+            // Update worker-list that this worker is no longer working on this measurement
+            let mut workers = self.workers.lock().unwrap();
+            if let Some(worker) = workers.workers.iter_mut().find(|w| w.worker_id == worker_id) {
+                worker.measurements.retain(|measurement| measurement != &measurement_id);
+            }
+
             if remaining == &(1u32) {
                 // If this is the last worker we are finished
                 println!("[Orchestrator] All workers finished");
@@ -233,6 +243,7 @@ impl Controller for ControllerService {
             } else {
                 // If this is not the last worker, decrement the amount of remaining workers
                 *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
+
                 false // Not finished yet
             }
         };
@@ -398,6 +409,7 @@ impl Controller for ControllerService {
             .map(|worker| worker.worker_id)
             .collect();
 
+
         // Check if the CLI requested a worker-selective probing measurement
         let mut probing_workers: Vec<u32> = scheduled_measurement.workers;
 
@@ -412,6 +424,16 @@ impl Controller for ControllerService {
                 tonic::Code::Cancelled,
                 "One or more worker IDs are not connected.",
             ));
+        }
+
+        {
+            // Update active measurement in the worker list
+            let mut workers = self.workers.lock().unwrap();
+            for worker in workers.workers.iter_mut() {
+                if probing_workers.contains(&worker.worker_id) {
+                    worker.measurements.push(measurement_id);
+                }
+            }
         }
 
         // Create a measurement from the ScheduleMeasurement
@@ -712,7 +734,7 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<WorkerList>, Status> {
+    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -795,6 +817,7 @@ impl Controller for ControllerService {
         let new_worker = Worker {
             worker_id,
             metadata: Some(Metadata { hostname }),
+            measurements: vec![],
         };
         worker_list.workers.push(new_worker);
 
@@ -818,7 +841,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let measurement_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
-        workers: Arc::new(Mutex::new(WorkerList::default())),
+        workers: Arc::new(Mutex::new(ServerStatus::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
