@@ -41,7 +41,6 @@ message WorkerID {
 message ScheduleMeasurement {
   uint32 rate = 1;
   repeated uint32 workers = 2;
-//  Origin origin = 3; // Default origin to use (for all workers)  // TODO combine 3 and 4 into one
   repeated Configuration configurations = 3; // Configuration of worker and origin combinations
   uint32 measurement_type = 4;
   bool unicast = 5;
