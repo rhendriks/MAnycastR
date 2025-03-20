@@ -168,6 +168,7 @@ impl Worker {
         let is_probing = start_measurement.active;
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
+        let probing_rate = start_measurement.rate;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -306,6 +307,7 @@ impl Worker {
                 info_url,
                 interface_name,
                 socket_tx,
+                probing_rate,
             );
         } else {
             println!("[Worker] Not sending probes");
