@@ -114,8 +114,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        // Rate limit the number of packets sent per second
-                                        while let Err(_) = limiter.check() {
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
 
@@ -141,8 +140,7 @@ pub fn outbound(
                                             &qname.clone(),
                                         ));
 
-                                        // Rate limit the number of packets sent per second
-                                        while let Err(_) = limiter.check() {
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
 
@@ -168,8 +166,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        // Rate limit the number of packets sent per second
-                                        while let Err(_) = limiter.check() {
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
 
