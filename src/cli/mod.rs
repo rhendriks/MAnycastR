@@ -602,8 +602,18 @@ impl CliClient {
         write_results(rx_r, cli, temp_file, measurement_type);
 
         let mut replies_count = 0;
-        while let Ok(Some(task_result)) = stream.message().await {
-            // A default result notifies the CLI that it should not expect any more results
+        'mloop: while let Some(task_result) = match stream.message().await {
+            Ok(Some(result)) => Some(result),
+            Ok(None) => {
+                eprintln!("Stream closed by orchestrator");
+                break 'mloop;
+            }, // Stream is exhausted
+            Err(e) => {
+                eprintln!("Error receiving message: {}", e);
+                break 'mloop;
+            }
+        } {
+        // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
                 tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
                 graceful = true;
