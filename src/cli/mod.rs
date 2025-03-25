@@ -175,7 +175,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // There must be a defined anycast source address, configuration, or unicast flag
-        if src.is_none() && configurations.is_empty() && !is_unicast {
+        if src.is_none() && !is_config && !is_unicast {
             panic!("No source address or configuration file provided!");
         }
 
@@ -405,6 +405,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 hitlist_length,
                 configurations,
                 path,
+                is_config,
             )
             .await
     } else {
@@ -439,6 +440,7 @@ impl CliClient {
         hitlist_length: usize,
         configurations: Vec<Configuration>,
         path: Option<&String>,
+        is_config: bool,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
@@ -729,7 +731,7 @@ impl CliClient {
         }
 
         // Write configurations used for the measurement
-        if !configurations.is_empty() {
+        if is_config {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
                 let src = IP::from(

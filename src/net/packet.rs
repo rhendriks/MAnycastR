@@ -28,6 +28,8 @@ pub fn get_ethernet_header(
         .bytes()
         .to_vec();
 
+    // TODO get dest mac address for the default gateway of the specified interface
+
     let mut child = if cfg!(target_os = "freebsd") {
         // Use the `arp -an` command for FreeBSD
         Command::new("arp")
@@ -68,7 +70,6 @@ pub fn get_ethernet_header(
                 if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
                     continue;
                 }
-
 
                 // If interface name matches, return the MAC address
                 if parts[5] == if_name {
