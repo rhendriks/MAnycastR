@@ -502,6 +502,8 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_worker = 0;
         let mut current_active_worker = 0;
+
+        println!("configurations: {:?}", scheduled_measurement.configurations);
         for sender in senders.iter() {
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
@@ -566,7 +568,7 @@ impl Controller for ControllerService {
         let number_of_workers = senders.len() as u64;
 
         if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
         } else {
             println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, current_active_worker);
         }
