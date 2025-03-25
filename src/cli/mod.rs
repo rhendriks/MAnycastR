@@ -116,7 +116,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             },
         );
 
-        if worker_ids.len() > 0 {
+        if !worker_ids.is_empty() {
             println!(
                 "[CLI] Selective probing using the following workers: {:?}",
                 worker_ids
@@ -169,7 +169,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     })
                 })
                 .collect();
-            if configurations.len() == 0 {
+            if configurations.is_empty() {
                 panic!("No valid configurations found in file {}", conf_file);
             }
 
@@ -211,7 +211,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     })
                     .collect()
             }
-    };
+        };
 
     // There must be a defined anycast source address, configuration, or unicast flag
         if src.is_none() && !is_config && !is_unicast {
@@ -235,7 +235,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if configurations.first().unwrap().origin.unwrap().src.unwrap().is_v6() != is_ipv6 {
+        if configurations.first().expect("Empty configuration list").origin.expect("No origin found").src.expect("No source address").is_v6() != is_ipv6 {
             panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
         }
         // Panic if the ips in the hitlist are not all the same type
