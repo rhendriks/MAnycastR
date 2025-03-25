@@ -503,7 +503,6 @@ impl Controller for ControllerService {
         let mut current_worker = 0;
         let mut current_active_worker = 0;
 
-        println!("configurations: {:?}", scheduled_measurement.configurations);
         for sender in senders.iter() {
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
