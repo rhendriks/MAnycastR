@@ -10,9 +10,9 @@
 //!
 //! ii) Measuring anycast infrastructure itself
 //! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
-//! * [Site flipping]() (detecting network regions experiencing anycast site flipping)
-//! * Anycast latency (measuring RTT between the Internet and the anycast infrastructure)
-//! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites to the Internet)
+//! * [Site flipping](https://arxiv.org/pdf/2503.14351) (detecting network regions experiencing anycast site flipping)
+//! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
+//! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
 //!
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
@@ -134,6 +134,8 @@
 //!
 //! * rustup
 //! * protobuf-compiler
+//! * musl-tools
+//! * gcc
 //!
 //! # Installation
 //!
@@ -145,9 +147,14 @@
 //! source $HOME/.cargo/env
 //! ```
 //!
-//! ### Install protobuf-compiler
+//! ### Install dependencies
 //! ```bash
-//! apt-get install protobuf-compiler
+//! apt-get install -y protobuf-compiler gcc musl-tools
+//! ```
+//!
+//! ### Install musl target
+//! ```bash
+//! rustup target add x86_64-unknown-linux-musl
 //! ```
 //!
 //! ### Clone the repository

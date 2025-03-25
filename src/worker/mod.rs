@@ -168,6 +168,7 @@ impl Worker {
         let is_probing = start_measurement.active;
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
+        let probing_rate = start_measurement.rate;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -306,6 +307,7 @@ impl Worker {
                 info_url,
                 interface_name,
                 socket_tx,
+                probing_rate,
             );
         } else {
             println!("[Worker] Not sending probes");
@@ -363,7 +365,7 @@ impl Worker {
         let response = self
             .client
             .worker_connect(Request::new(self.metadata.clone()))
-            .await?;
+            .await.expect("Unable to connect to orchestrator");
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
             worker_id
@@ -371,9 +373,9 @@ impl Worker {
         let mut stream = response.into_inner();
 
         // Await tasks
-        while let Some(task) = stream.message().await? {
+        while let Some(task) = stream.message().await.expect("Unable to receive task") { // TODO loop does not break when connection is lost
+            // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
-                // If we already have an active measurement
                 // If the CLI disconnected we will receive this message
                 match task.data {
                     None => {

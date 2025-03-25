@@ -1,4 +1,6 @@
+use std::num::NonZeroU32;
 use std::thread;
+use std::thread::sleep;
 use std::time::Duration;
 
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
@@ -9,6 +11,10 @@ use custom_module::manycastr::{task::Data, Origin};
 use custom_module::IP;
 
 use pnet::datalink::DataLinkSender;
+
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+
+
 
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 
@@ -52,12 +58,17 @@ pub fn outbound(
     info_url: String,
     if_name: String,
     mut socket_tx: Box<dyn DataLinkSender>,
+    probing_rate: u32,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
             let mut sent = 0;
             let mut failed = 0;
+            // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
+            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
+
+
             let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
             'outer: loop {
                 if let Ok(Some(())) = finish_rx.try_recv() {
@@ -103,6 +114,10 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
+
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
@@ -125,6 +140,10 @@ pub fn outbound(
                                             &qname.clone(),
                                         ));
 
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
+
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
@@ -146,6 +165,10 @@ pub fn outbound(
                                             is_unicast,
                                             &info_url,
                                         ));
+
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
 
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
