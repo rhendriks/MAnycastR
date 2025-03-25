@@ -202,6 +202,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     worker_id: u32::MAX, // All clients
                     origin: Some(Origin { src, sport, dport })
                 }]
+            } else if is_unicast { // No configurations for unicast measurements
+                vec![]
             } else {
                 worker_ids
                     .iter()
