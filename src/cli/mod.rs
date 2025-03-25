@@ -94,6 +94,35 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let is_config = matches.contains_id("configuration");
 
+        // Get the workers that have to send out probes
+        let worker_ids = matches.get_one::<String>("selective").map_or_else(
+            || {
+                println!("[CLI] Probes will be sent out from all workers");
+                Vec::new()
+            },
+            |worker_entries| {
+                worker_entries
+                    .trim_matches(['[', ']'])
+                    .split(',')
+                    .filter_map(|id| {
+                        let id = id.trim();
+                        id.parse::<u32>()
+                            .map_err(|e| {
+                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
+                            })
+                            .ok()
+                    })
+                    .collect()
+            },
+        );
+
+        if worker_ids.len() > 0 {
+            println!(
+                "[CLI] Selective probing using the following workers: {:?}",
+                worker_ids
+            ); // TODO print worker hostnames
+        }
+
         // Read the configuration file (unnecessary for unicast)
         let configurations = if is_config && !is_unicast {
             let conf_file = matches.get_one::<String>("configuration").unwrap();
@@ -168,13 +197,23 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-            vec![Configuration {
-                worker_id: u32::MAX, // All clients
-                origin: Some(Origin { src, sport, dport })
-            }]
-        };
+            if worker_ids.is_empty() { // All workers
+                vec![Configuration {
+                    worker_id: u32::MAX, // All clients
+                    origin: Some(Origin { src, sport, dport })
+                }]
+            } else {
+                worker_ids
+                    .iter()
+                    .map(|&worker_id| Configuration {
+                        worker_id,
+                        origin: Some(Origin { src, sport, dport }),
+                    })
+                    .collect()
+            }
+    };
 
-        // There must be a defined anycast source address, configuration, or unicast flag
+    // There must be a defined anycast source address, configuration, or unicast flag
         if src.is_none() && !is_config && !is_unicast {
             panic!("No source address or configuration file provided!");
         }
@@ -209,35 +248,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if shuffle {
             let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
-        }
-
-        // Get the workers that have to send out probes
-        let worker_ids = matches.get_one::<String>("selective").map_or_else(
-            || {
-                println!("[CLI] Probes will be sent out from all workers");
-                Vec::new()
-            },
-            |worker_entries| {
-                worker_entries
-                    .trim_matches(['[', ']'])
-                    .split(',')
-                    .filter_map(|id| {
-                        let id = id.trim();
-                        id.parse::<u32>()
-                            .map_err(|e| {
-                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
-                            })
-                            .ok()
-                    })
-                    .collect()
-            },
-        );
-
-        if worker_ids.len() > 0 {
-            println!(
-                "[CLI] Selective probing using the following workers: {:?}",
-                worker_ids
-            ); // TODO print worker hostnames
         }
 
         // CHAOS value to send in the DNS query
@@ -457,21 +467,18 @@ impl CliClient {
                 sport, dport
             )
         } else {
-            if measurement_definition.configurations.len() == 1 {
-                let first = measurement_definition.configurations.first().unwrap();
-                if first.worker_id == u32::MAX { // all workers
-                    let src = IP::from(first.origin.unwrap().src.unwrap()).to_string();
-                    let sport = first.origin.unwrap().sport;
-                    let dport = first.origin.unwrap().dport;
-                    format!(
-                        "Anycast (source IP: {}, source port: {}, destination port: {})",
-                        src, sport, dport
-                    )
-                } else {
-                    "Anycast configuration-based".to_string()
-                }
-            } else {
+
+            if is_config {
                 "Anycast configuration-based".to_string()
+            } else {
+                let origin = measurement_definition.configurations.first().unwrap().origin.unwrap();
+                let src = IP::from(origin.src.unwrap()).to_string();
+                let sport = origin.sport;
+                let dport = origin.dport;
+                format!(
+                    "Anycast (source IP: {}, source port: {}, destination port: {})",
+                    src, sport, dport
+                )
             }
         };
 
