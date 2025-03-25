@@ -12,8 +12,8 @@ use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
-    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, Origin,
-    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, WorkerList,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata,
+    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, Status as ServerStatus,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -36,7 +36,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'active' - a boolean value that is set to true when there is an active measurement
 #[derive(Debug, Clone)]
 pub struct ControllerService {
-    workers: Arc<Mutex<WorkerList>>,
+    workers: Arc<Mutex<ServerStatus>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
@@ -65,7 +65,7 @@ pub struct WorkerReceiver<T> {
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
-    workers: Arc<Mutex<WorkerList>>,
+    workers: Arc<Mutex<ServerStatus>>,
     active: Arc<Mutex<bool>>,
 }
 
@@ -82,16 +82,18 @@ impl<T> Drop for WorkerReceiver<T> {
         println!("[Orchestrator] Worker receiver has been dropped");
 
         // Remove this worker from the workers list
-        self.workers.lock().unwrap().workers.retain(|workers| {
-            let Some(metadata) = &workers.metadata else {
-                panic!("Worker without metadata")
-            };
-            metadata.hostname != self.hostname
-        });
+        {
+            self.workers.lock().unwrap().workers.retain(|workers| {
+                let Some(metadata) = &workers.metadata else {
+                    panic!("Worker without metadata")
+                };
+                metadata.hostname != self.hostname
+            });
+        }
 
         // // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
-        if open_measurements.len() > 0 {
+        if !open_measurements.is_empty() {
             for (measurement_id, remaining) in open_measurements.clone().iter() {
                 // If this measurement is already finished
                 if remaining == &0 {
@@ -208,6 +210,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
         let measurement_id: u32 = finished_measurement.measurement_id;
+        let worker_id: u32 = finished_measurement.worker_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'measurement_finished' from all workers that executed this measurement
@@ -224,6 +227,13 @@ impl Controller for ControllerService {
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
+
+            // Update worker-list that this worker is no longer working on this measurement
+            let mut workers = self.workers.lock().unwrap();
+            if let Some(worker) = workers.workers.iter_mut().find(|w| w.worker_id == worker_id) {
+                worker.measurements.retain(|measurement| measurement != &measurement_id);
+            }
+
             if remaining == &(1u32) {
                 // If this is the last worker we are finished
                 println!("[Orchestrator] All workers finished");
@@ -233,6 +243,7 @@ impl Controller for ControllerService {
             } else {
                 // If this is not the last worker, decrement the amount of remaining workers
                 *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
+
                 false // Not finished yet
             }
         };
@@ -372,7 +383,7 @@ impl Controller for ControllerService {
         };
 
         // If there are no connected workers that can perform this measurement
-        if senders.len() == 0 {
+        if senders.is_empty() {
             println!("[Orchestrator] No connected workers, terminating measurement.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
@@ -398,6 +409,7 @@ impl Controller for ControllerService {
             .map(|worker| worker.worker_id)
             .collect();
 
+
         // Check if the CLI requested a worker-selective probing measurement
         let mut probing_workers: Vec<u32> = scheduled_measurement.workers;
 
@@ -414,43 +426,42 @@ impl Controller for ControllerService {
             ));
         }
 
+        {
+            // Update active measurement in the worker list
+            let mut workers = self.workers.lock().unwrap();
+            workers.workers.iter_mut().for_each(|worker| worker.measurements.push(measurement_id));
+        }
+
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.unicast;
-        // Get the probe origins
-        let tx_origins: Vec<Origin> = if is_unicast {
-            vec![scheduled_measurement.origin.unwrap()] // Contains port values
-        } else if scheduled_measurement.configurations.len() > 0 {
-            // Make sure no unknown workers are in the list
-            if scheduled_measurement
-                .configurations
-                .iter()
-                .any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX)
-            {
-                println!(
-                    "[Orchestrator] Unknown worker in configuration list, terminating measurement."
-                );
-                *self.active.lock().unwrap() = false;
-                return Err(Status::new(
-                    tonic::Code::Cancelled,
-                    "Unknown worker in configuration list",
-                ));
-            }
-            // Update selected_workers to contain all workers that are in the configuration list
-            for configuration in &scheduled_measurement.configurations {
-                if !probing_workers.contains(&configuration.worker_id) {
-                    probing_workers.push(configuration.worker_id);
-                }
-                // All workers are selected
-                if configuration.worker_id == u32::MAX {
-                    probing_workers = vec![];
-                    break;
-                }
+
+        // Make sure no unknown workers are in the configuration
+        if scheduled_measurement
+            .configurations
+            .iter()
+            .any(|conf| !worker_ids.contains(&conf.worker_id) && conf.worker_id != u32::MAX)
+        {
+            println!(
+                "[Orchestrator] Unknown worker in configuration list, terminating measurement."
+            );
+            *self.active.lock().unwrap() = false;
+            return Err(Status::new(
+                tonic::Code::Cancelled,
+                "Unknown worker in configuration",
+            ));
+        }
+        // Update selected_workers to contain all workers that are in the configuration list
+        for configuration in &scheduled_measurement.configurations {
+            // All workers are selected
+            if configuration.worker_id == u32::MAX {
+                probing_workers = vec![];
+                break;
             }
 
-            vec![] // Return an empty list, as we will add the origins per worker
-        } else {
-            vec![scheduled_measurement.origin.unwrap()]
-        };
+            if !probing_workers.contains(&configuration.worker_id) {
+                probing_workers.push(configuration.worker_id);
+            }
+        }
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -477,13 +488,13 @@ impl Controller for ControllerService {
         let _ = self.cli_sender.lock().unwrap().insert(tx);
 
         // Create a list of origins used by workers
-        let mut rx_origins = tx_origins.clone();
+        let mut rx_origins = vec![];
         // Add all configuration origins to the listen origins
-        for configuration in &scheduled_measurement.configurations {
+        for configuration in scheduled_measurement.configurations.iter() {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
-                    rx_origins.push(origin.clone());
+                    rx_origins.push(*origin);
                 }
             }
         }
@@ -491,8 +502,9 @@ impl Controller for ControllerService {
         // Notify all senders that a new measurement is starting
         let mut current_worker = 0;
         let mut current_active_worker = 0;
+
         for sender in senders.iter() {
-            let mut worker_tx_origins = tx_origins.clone();
+            let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
@@ -500,7 +512,7 @@ impl Controller for ControllerService {
                     | (configuration.worker_id == u32::MAX)
                 {
                     if let Some(origin) = &configuration.origin {
-                        worker_tx_origins.push(origin.clone());
+                        worker_tx_origins.push(*origin);
                     }
                 }
             }
@@ -508,7 +520,7 @@ impl Controller for ControllerService {
             // Check if the current worker is selected to send probes
             let is_probing = if probing_workers.is_empty() {
                 // No worker-selective probing
-                if worker_tx_origins.len() == 0 {
+                if worker_tx_origins.is_empty() {
                     false // No probe origins -> not probing
                 } else {
                     true
@@ -555,7 +567,7 @@ impl Controller for ControllerService {
         let number_of_workers = senders.len() as u64;
 
         if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} clients will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, current_active_worker, probing_interval);
         } else {
             println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, current_active_worker);
         }
@@ -580,7 +592,7 @@ impl Controller for ControllerService {
             all_worker_i += 1;
             let workers = probing_workers.clone();
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-            let is_probing = workers.len() == 0 || workers.contains(&worker_id);
+            let is_probing = workers.is_empty() || workers.contains(&worker_id);
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
@@ -712,7 +724,7 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<WorkerList>, Status> {
+    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -795,6 +807,7 @@ impl Controller for ControllerService {
         let new_worker = Worker {
             worker_id,
             metadata: Some(Metadata { hostname }),
+            measurements: vec![],
         };
         worker_list.workers.push(new_worker);
 
@@ -818,7 +831,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let measurement_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
-        workers: Arc::new(Mutex::new(WorkerList::default())),
+        workers: Arc::new(Mutex::new(ServerStatus::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
@@ -842,14 +855,14 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
-            .await?;
+            .await.expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
             .add_service(svc)
             .serve(addr)
-            .await?;
+            .await.expect("Failed to start orchestrator");
     }
 
     Ok(())

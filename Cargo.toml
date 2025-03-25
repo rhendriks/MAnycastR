@@ -1,6 +1,6 @@
 [package]
 name = "manycast"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 
 [dependencies]
@@ -20,6 +20,7 @@ pnet = "0.35.0"# create raw socket for sending/receiving packets
 local-ip-address = "0.6.3" # get local unicast address
 mac_address = "1.1.8" # get MAC address
 indicatif = "0.17.11" # progress bar
+ratelimit_meter = "5.0.0" # rate limit
 
 [build-dependencies]
 tonic-build = "0.12.3"

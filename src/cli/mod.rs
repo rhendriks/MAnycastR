@@ -77,8 +77,54 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .get_one::<String>("address")
             .map(|addr| Address::from(addr.clone()));
 
+        // Get the measurement type
+        let measurement_type: u8 = match matches
+            .get_one::<String>("type")
+            .unwrap()
+            .to_lowercase()
+            .as_str()
+        {
+            "icmp" => 1,
+            "dns" => 2,
+            "tcp" => 3,
+            "chaos" => 4,
+            "all" => 255,
+            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
+        };
+
+        let is_config = matches.contains_id("configuration");
+
+        // Get the workers that have to send out probes
+        let worker_ids = matches.get_one::<String>("selective").map_or_else(
+            || {
+                println!("[CLI] Probes will be sent out from all workers");
+                Vec::new()
+            },
+            |worker_entries| {
+                worker_entries
+                    .trim_matches(['[', ']'])
+                    .split(',')
+                    .filter_map(|id| {
+                        let id = id.trim();
+                        id.parse::<u32>()
+                            .map_err(|e| {
+                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
+                            })
+                            .ok()
+                    })
+                    .collect()
+            },
+        );
+
+        if !worker_ids.is_empty() {
+            println!(
+                "[CLI] Selective probing using the following workers: {:?}",
+                worker_ids
+            ); // TODO print worker hostnames
+        }
+
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if matches.contains_id("configuration") && !is_unicast {
+        let configurations = if is_config && !is_unicast {
             let conf_file = matches.get_one::<String>("configuration").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
@@ -123,142 +169,20 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     })
                 })
                 .collect();
-            if configurations.len() == 0 {
+            if configurations.is_empty() {
                 panic!("No valid configurations found in file {}", conf_file);
             }
 
             // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations
-                .first()
-                .unwrap()
-                .origin
-                .unwrap()
-                .src
-                .unwrap()
-                .is_v6();
+            let is_ipv6 = configurations.first().unwrap().origin.unwrap().src.unwrap().is_v6();
             if configurations
                 .iter()
                 .any(|conf| conf.origin.unwrap().src.unwrap().is_v6() != is_ipv6)
             {
                 panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
             }
-            Some(configurations)
+            configurations
         } else {
-            None
-        };
-
-        // There must be a defined anycast source address, configuration, or unicast flag
-        if src.is_none() && configurations.is_none() && !is_unicast {
-            panic!("No source address or configuration file provided!");
-        }
-
-        // Get the target IP addresses
-        let hitlist_path = matches
-            .get_one::<String>("IP_FILE")
-            .expect("No hitlist file provided!");
-        let file = File::open(hitlist_path)
-            .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
-        let buf_reader = BufReader::new(file);
-
-        let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
-            .lines()
-            .map(|l| Address::from(l.unwrap()))
-            .collect();
-        let is_ipv6 = ips.first().unwrap().is_v6();
-
-        // Panic if the source IP is not the same type as the addresses
-        if configurations.is_some() {
-            if configurations
-                .clone()
-                .unwrap()
-                .first()
-                .unwrap()
-                .origin
-                .clone()
-                .unwrap()
-                .src
-                .unwrap()
-                .is_v6()
-                != is_ipv6
-            {
-                panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
-            }
-        } else if src.is_some() && src.clone().unwrap().is_v6() != is_ipv6 {
-            panic!("Src and target addresses are not of the same type! (IPv4 & IPv6)");
-        }
-        // Panic if the ips in the hitlist are not all the same type
-        if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
-            panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
-        }
-
-        // Shuffle the hitlist, if desired
-        let shuffle = matches.get_flag("shuffle");
-        if shuffle {
-            let mut rng = rand::rng();
-            ips.as_mut_slice().shuffle(&mut rng);
-        }
-
-        // Get the workers that have to send out probes
-        let worker_ids = matches.get_one::<String>("selective").map_or_else(
-            || {
-                println!("[CLI] Probes will be sent out from all workers");
-                Vec::new()
-            },
-            |worker_entries| {
-                worker_entries
-                    .trim_matches(['[', ']'])
-                    .split(',')
-                    .filter_map(|id| {
-                        let id = id.trim();
-                        id.parse::<u32>()
-                            .map_err(|e| {
-                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
-                            })
-                            .ok()
-                    })
-                    .collect()
-            },
-        );
-
-        if worker_ids.len() > 0 {
-            println!(
-                "[CLI] Selective probing using the following workers: {:?}",
-                worker_ids
-            ); // TODO print worker hostnames
-        }
-
-        // Get the measurement type
-        let measurement_type: u8 = match matches
-            .get_one::<String>("type")
-            .unwrap()
-            .to_lowercase()
-            .as_str()
-        {
-            "icmp" => 1,
-            "dns" => 2,
-            "tcp" => 3,
-            "chaos" => 4,
-            "all" => 255,
-            _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
-        };
-
-        // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == 4 || measurement_type == 255 {
-            // get CHAOS query
-            matches
-                .get_one::<String>("query")
-                .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == 2 {
-            // TODO change default A record value
-            matches
-                .get_one::<String>("query")
-                .map_or("any.dnsjedi.org", |q| q.as_str())
-        } else {
-            ""
-        };
-
-        // Origin for the measurement
-        let origin = if configurations.is_none() {
             // Obtain port values (read as u16 as is the port header size)
             let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
             // Default destination port is 53 for DNS, 63853 for all other measurements
@@ -273,18 +197,74 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-            // configurations.unwrap().append(&mut vec![Configuration { // TODO use this instead of 'default' origin
-            //     worker_id: u32::MAX
-            //     origin: Some(Origin {
-            //         source_address: source_ip,
-            //         source_port,
-            //         destination_port,
-            //     })
-            // }]);
+            if worker_ids.is_empty() { // All workers
+                vec![Configuration {
+                    worker_id: u32::MAX, // All clients
+                    origin: Some(Origin { src, sport, dport })
+                }]
+            } else if is_unicast { // No configurations for unicast measurements
+                vec![]
+            } else {
+                worker_ids
+                    .iter()
+                    .map(|&worker_id| Configuration {
+                        worker_id,
+                        origin: Some(Origin { src, sport, dport }),
+                    })
+                    .collect()
+            }
+        };
 
-            Some(Origin { src, sport, dport })
+    // There must be a defined anycast source address, configuration, or unicast flag
+        if src.is_none() && !is_config && !is_unicast {
+            panic!("No source address or configuration file provided!");
+        }
+
+        // Get the target IP addresses
+        let hitlist_path = matches
+            .get_one::<String>("IP_FILE")
+            .expect("No hitlist file provided!");
+        let file = File::open(hitlist_path)
+            .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+        let buf_reader = BufReader::new(file);
+
+        let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
+            .lines()
+            .filter_map(|l| l.ok())  // Handle potential errors
+            .filter(|l| !l.trim().is_empty())  // Skip empty lines
+            .map(Address::from)
+            .collect();
+        let is_ipv6 = ips.first().unwrap().is_v6();
+
+        // Panic if the source IP is not the same type as the addresses
+        if !is_unicast && configurations.first().expect("Empty configuration list").origin.expect("No origin found").src.expect("No source address").is_v6() != is_ipv6 {
+            panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
+        }
+        // Panic if the ips in the hitlist are not all the same type
+        if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
+            panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
+        }
+
+        // Shuffle the hitlist, if desired
+        let shuffle = matches.get_flag("shuffle");
+        if shuffle {
+            let mut rng = rand::rng();
+            ips.as_mut_slice().shuffle(&mut rng);
+        }
+
+        // CHAOS value to send in the DNS query
+        let dns_record = if measurement_type == 4 || measurement_type == 255 {
+            // get CHAOS query
+            matches
+                .get_one::<String>("query")
+                .map_or("hostname.bind", |q| q.as_str())
+        } else if measurement_type == 2 {
+            // TODO change default A record value
+            matches
+                .get_one::<String>("query")
+                .map_or("any.dnsjedi.org", |q| q.as_str())
         } else {
-            None
+            ""
         };
 
         // Check for command-line option that determines whether to stream to CLI
@@ -317,15 +297,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Print the origins used
         if is_unicast {
-            if let Some(origin) = &origin {
-                println!(
-                    "[CLI] Unicast probing with src port {} and dst port {}",
-                    origin.sport, origin.dport
-                );
-            }
-        } else if configurations.is_some() {
+            let unicast_origin = configurations.first().unwrap().origin.unwrap();
+            println!(
+                "[CLI] Unicast probing with src port {} and dst port {}",
+                unicast_origin.sport, unicast_origin.dport
+            );
+        } else if is_config {
             println!("[CLI] Workers send probes using the following configurations:");
-            for configuration in configurations.clone().unwrap() {
+            for configuration in configurations.iter() {
                 if let Some(origin) = &configuration.origin {
                     let src = origin.src.unwrap().to_string();
                     let sport = origin.sport;
@@ -345,14 +324,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 }
             }
         } else {
-            if let Some(origin) = &origin {
-                let src = IP::from(origin.src.unwrap()).to_string();
+            let anycast_origin = configurations.first().unwrap().origin.unwrap();
+            let src = IP::from(anycast_origin.src.unwrap()).to_string();
 
-                println!(
-                    "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
-                    src, origin.sport, origin.dport
-                );
-            }
+            println!(
+                "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
+                src, anycast_origin.sport, anycast_origin.dport
+            );
         }
 
         // get optional path to write results to
@@ -418,8 +396,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let measurement_definition = ScheduleMeasurement {
             rate,
             workers: worker_ids,
-            origin,
-            configurations: configurations.clone().unwrap_or_default(), // default is empty vector
+            configurations: configurations.clone(),
             measurement_type: measurement_type as u32,
             unicast: is_unicast,
             ipv6: is_ipv6,
@@ -438,8 +415,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 shuffle,
                 hitlist_path,
                 hitlist_length,
-                configurations.unwrap_or_default(),
+                configurations,
                 path,
+                is_config,
             )
             .await
     } else {
@@ -474,6 +452,7 @@ impl CliClient {
         hitlist_length: usize,
         configurations: Vec<Configuration>,
         path: Option<&String>,
+        is_config: bool,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
@@ -481,24 +460,27 @@ impl CliClient {
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.unicast;
         let interval = measurement_definition.interval;
-        let origin = if is_unicast {
-            let sport = measurement_definition.origin.unwrap().sport;
-            let dport = measurement_definition.origin.unwrap().dport;
+        let origin_str = if is_unicast {
+            let origin = measurement_definition.configurations.first().unwrap().origin.unwrap();
+            let sport = origin.sport;
+            let dport = origin.dport;
             format!(
                 "Unicast (source port: {}, destination port: {})",
                 sport, dport
             )
         } else {
-            if measurement_definition.origin.is_some() {
-                let src = IP::from(measurement_definition.origin.unwrap().src.unwrap()).to_string();
-                let sport = measurement_definition.origin.unwrap().sport;
-                let dport = measurement_definition.origin.unwrap().dport;
+
+            if is_config {
+                "Anycast configuration-based".to_string()
+            } else {
+                let origin = measurement_definition.configurations.first().unwrap().origin.unwrap();
+                let src = IP::from(origin.src.unwrap()).to_string();
+                let sport = origin.sport;
+                let dport = origin.dport;
                 format!(
                     "Anycast (source IP: {}, source port: {}, destination port: {})",
                     src, sport, dport
                 )
-            } else {
-                "Anycast configuration-based".to_string()
             }
         };
 
@@ -530,10 +512,6 @@ impl CliClient {
         let measurement_length = if is_divide {
             ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0)
                 / 60.0
-        } else if is_unicast {
-            ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
-                + 1.0) // Time to wait for last replies
-                / 60.0 // Convert to minutes
         } else {
             (((active_workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
@@ -631,8 +609,18 @@ impl CliClient {
         write_results(rx_r, cli, temp_file, measurement_type);
 
         let mut replies_count = 0;
-        while let Ok(Some(task_result)) = stream.message().await {
-            // A default result notifies the CLI that it should not expect any more results
+        'mloop: while let Some(task_result) = match stream.message().await {
+            Ok(Some(result)) => Some(result),
+            Ok(None) => {
+                eprintln!("Stream closed by orchestrator");
+                break 'mloop;
+            }, // Stream is exhausted
+            Err(e) => {
+                eprintln!("Error receiving message: {}", e);
+                break 'mloop;
+            }
+        } {
+        // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
                 tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
                 graceful = true;
@@ -717,7 +705,7 @@ impl CliClient {
         if is_divide {
             file.write_all(b"# Divide-and-conquer measurement\n")?;
         }
-        file.write_all(format!("# Origin used: {}\n", origin).as_ref())?;
+        file.write_all(format!("# Origin used: {}\n", origin_str).as_ref())?;
         if shuffle {
             file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
         } else {
@@ -748,7 +736,7 @@ impl CliClient {
         }
 
         // Write configurations used for the measurement
-        if !configurations.is_empty() {
+        if is_config {
             file.write_all(b"# Configurations:\n")?;
             for configuration in configurations {
                 let src = IP::from(
@@ -860,12 +848,23 @@ impl CliClient {
             Cell::new("Worker ID")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Status")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
+
         for worker in response.into_inner().workers {
+            let measurements_str = if worker.measurements.is_empty() {
+                "Idle".to_string()
+            } else {
+                format!("Active: {}", worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" "))
+            };
+
             table.add_row(prettytable::row!(
                 worker.metadata.unwrap().hostname,
                 worker.worker_id,
+                measurements_str,
             ));
         }
         table.printstd();

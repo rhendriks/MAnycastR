@@ -28,12 +28,23 @@ pub fn get_ethernet_header(
         .bytes()
         .to_vec();
 
-    // Run the sudo arp command (for the destination MAC addresses)
-    let mut child = Command::new("cat")
-        .arg("/proc/net/arp")
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to run command");
+    // TODO get dest mac address for the default gateway of the specified interface
+
+    let mut child = if cfg!(target_os = "freebsd") {
+        // Use the `arp -an` command for FreeBSD
+        Command::new("arp")
+            .arg("-an")
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run arp command on FreeBSD")
+    } else {
+        // Use `/proc/net/arp` on Linux
+        Command::new("cat")
+            .arg("/proc/net/arp")
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run command on Linux")
+    };
     let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
@@ -41,15 +52,26 @@ pub fn get_ethernet_header(
     let reader = io::BufReader::new(output);
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
+
     for line in lines {
         if let Ok(line) = line {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() > 5 {
-                // Skip 00:00:00:00:00:00
-                if parts[3].split(':').all(|s| s == "00") {
+
+            if parts.len() > 3 {
+                let mac_address = if cfg!(target_os = "freebsd") {
+                    // For FreeBSD, MAC address is in the second column
+                    parts[1]
+                } else {
+                    // For Linux, MAC address is in the fourth column
+                    parts[3]
+                };
+
+                // Skip local-loopback and broadcast
+                if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
                     continue;
                 }
-                // Match on the interface name
+
+                // If interface name matches, return the MAC address
                 if parts[5] == if_name {
                     mac_dst = parts[3]
                         .split(':')
@@ -59,6 +81,11 @@ pub fn get_ethernet_header(
                 }
             }
         }
+    }
+
+    // panic if no MAC address was found
+    if mac_dst.is_empty() {
+        panic!("No destination MAC address found for interface: {}", if_name);
     }
     child.wait().expect("Failed to wait on child");
 
