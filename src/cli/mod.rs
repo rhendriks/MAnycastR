@@ -512,10 +512,6 @@ impl CliClient {
         let measurement_length = if is_divide {
             ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0)
                 / 60.0
-        } else if is_unicast {
-            ((hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
-                + 1.0) // Time to wait for last replies
-                / 60.0 // Convert to minutes
         } else {
             (((active_workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
