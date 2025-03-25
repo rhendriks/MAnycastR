@@ -237,7 +237,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_ipv6 = ips.first().unwrap().is_v6();
 
         // Panic if the source IP is not the same type as the addresses
-        if configurations.first().expect("Empty configuration list").origin.expect("No origin found").src.expect("No source address").is_v6() != is_ipv6 {
+        if !is_unicast && configurations.first().expect("Empty configuration list").origin.expect("No origin found").src.expect("No source address").is_v6() != is_ipv6 {
             panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
         }
         // Panic if the ips in the hitlist are not all the same type
