@@ -93,7 +93,7 @@ impl<T> Drop for WorkerReceiver<T> {
 
         // // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
-        if open_measurements.len() > 0 {
+        if !open_measurements.is_empty() {
             for (measurement_id, remaining) in open_measurements.clone().iter() {
                 // If this measurement is already finished
                 if remaining == &0 {
@@ -383,7 +383,7 @@ impl Controller for ControllerService {
         };
 
         // If there are no connected workers that can perform this measurement
-        if senders.len() == 0 {
+        if senders.is_empty() {
             println!("[Orchestrator] No connected workers, terminating measurement.");
             *self.active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
@@ -521,7 +521,7 @@ impl Controller for ControllerService {
             // Check if the current worker is selected to send probes
             let is_probing = if probing_workers.is_empty() {
                 // No worker-selective probing
-                if worker_tx_origins.len() == 0 {
+                if worker_tx_origins.is_empty() {
                     false // No probe origins -> not probing
                 } else {
                     true
@@ -593,7 +593,7 @@ impl Controller for ControllerService {
             all_worker_i += 1;
             let workers = probing_workers.clone();
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-            let is_probing = workers.len() == 0 || workers.contains(&worker_id);
+            let is_probing = workers.is_empty() || workers.contains(&worker_id);
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
