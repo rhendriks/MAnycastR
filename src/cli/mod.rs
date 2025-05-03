@@ -19,6 +19,8 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use flate2::read::GzDecoder;
+
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, udp_payload::Value::DnsARecord,
@@ -226,9 +228,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .expect("No hitlist file provided!");
         let file = File::open(hitlist_path)
             .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
-        let buf_reader = BufReader::new(file);
+        // let buf_reader = BufReader::new(file);
 
-        let mut ips: Vec<Address> = buf_reader // Create a vector of addresses from the file
+        // Create reader based on file extension
+        let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
+            let decoder = GzDecoder::new(file);
+            Box::new(BufReader::new(decoder))
+        } else {
+            Box::new(BufReader::new(file))
+        };
+
+        let mut ips: Vec<Address> = reader // Create a vector of addresses from the file
             .lines()
             .filter_map(|l| l.ok())  // Handle potential errors
             .filter(|l| !l.trim().is_empty())  // Skip empty lines
