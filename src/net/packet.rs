@@ -58,6 +58,15 @@ pub fn get_ethernet_header(
             let parts: Vec<&str> = line.split_whitespace().collect();
 
             if parts.len() > 3 {
+                let addr = parts[0]; // IP address
+                let addr_parts: Vec<&str> = addr.split('.').collect();
+                if addr_parts.len() != 4 {
+                    continue; // Skip invalid IP addresses
+                }
+                if addr_parts[3] != "1" {
+                    continue; // Skip if not the default gateway
+                }
+
                 let mac_address = if cfg!(target_os = "freebsd") {
                     // For FreeBSD, MAC address is in the second column
                     parts[1]
