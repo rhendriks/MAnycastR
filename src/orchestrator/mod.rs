@@ -579,7 +579,7 @@ impl Controller for ControllerService {
         let mut active_worker_i: u64 = 0; // Index for active workers
         let mut all_worker_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-                                     // TODO rate-limit at the worker to not send bursts for each chunk
+
         let p_rate = Duration::from_nanos(
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
