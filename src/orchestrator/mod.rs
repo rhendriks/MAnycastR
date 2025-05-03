@@ -79,7 +79,7 @@ impl<T> Stream for WorkerReceiver<T> {
 
 impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
-        println!("[Orchestrator] Worker receiver has been dropped");
+        println!("[Orchestrator] Worker {} lost connection", self.hostname);
 
         // Remove this worker from the workers list
         {
