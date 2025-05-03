@@ -50,7 +50,7 @@
 //! When creating a measurement you can specify:
 //!
 //! ## Variables
-//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers)
+//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
 //! * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
 //! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 //! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
