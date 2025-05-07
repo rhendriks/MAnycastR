@@ -68,7 +68,6 @@ pub fn outbound(
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
 
-
             let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
             'outer: loop {
                 if let Ok(Some(())) = finish_rx.try_recv() {

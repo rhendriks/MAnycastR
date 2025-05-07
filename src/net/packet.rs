@@ -10,6 +10,57 @@ use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn get_default_gateway_ip_linux() -> Result<String, String> {
+    let output = Command::new("ip")
+        .args(["route", "show", "default"])
+        .output()
+        .map_err(|e| format!("Failed to execute 'ip route': {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to get default route: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.starts_with("default via ") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                return Ok(parts[2].to_string());
+            }
+        }
+    }
+    Err("Could not parse default gateway IP from 'ip route' output".to_string())
+}
+
+fn get_default_gateway_ip_freebsd() -> Result<String, String> {
+    let output = Command::new("route")
+        .args(["-n", "get", "default"])
+        .output()
+        .map_err(|e| format!("Failed to execute 'route -n get default': {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to get default route (FreeBSD): {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let trimmed_line = line.trim();
+        if trimmed_line.starts_with("gateway:") {
+            let parts: Vec<&str> = trimmed_line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                return Ok(parts[1].to_string());
+            }
+        }
+    }
+    Err("Could not parse default gateway IP from 'route -n get default' output".to_string())
+}
+
 /// Returns the ethernet header to use for the outbound packets.
 ///
 /// # Arguments
@@ -27,6 +78,16 @@ pub fn get_ethernet_header(
         .unwrap()
         .bytes()
         .to_vec();
+
+    let gateway_ip = if cfg!(target_os = "freebsd") {
+        get_default_gateway_ip_freebsd().expect("Could not get default gateway IP")
+    } else if cfg!(target_os = "linux") {
+        get_default_gateway_ip_linux().expect("Could not get default gateway IP")
+    } else {
+        panic!("Unsupported OS");
+    };
+
+    println!("Determined default gateway IP: {}", gateway_ip);
 
     // TODO get dest mac address for the default gateway of the specified interface
 
@@ -59,12 +120,9 @@ pub fn get_ethernet_header(
 
             if parts.len() > 3 {
                 let addr = parts[0]; // IP address
-                let addr_parts: Vec<&str> = addr.split('.').collect();
-                if addr_parts.len() != 4 {
-                    continue; // Skip invalid IP addresses
-                }
-                if addr_parts[3] != "1" {
-                    continue; // Skip if not the default gateway
+
+                if addr != gateway_ip { // Skip if not the default gateway
+                    continue;
                 }
 
                 let mac_address = if cfg!(target_os = "freebsd") {
