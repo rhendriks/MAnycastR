@@ -114,9 +114,9 @@ pub fn listen(
                 } else if measurement_type == 3 {
                     // TCP
                     let tcp_result = if is_ipv6 {
-                        parse_tcpv6(&packet[14..])
+                        parse_tcpv6(&packet[14..], &origin_map)
                     } else {
-                        parse_tcpv4(&packet[14..])
+                        parse_tcpv4(&packet[14..], &origin_map)
                     };
 
                     tcp_result
@@ -219,7 +219,9 @@ fn handle_results(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv4 header.
-fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32)> {
+fn parse_ipv4(
+    packet_bytes: &[u8],
+) -> Option<(IpResult, PacketPayload, u32)> {
     // IPv4 20 minimum
     if packet_bytes.len() < 20 {
         return None;
@@ -227,8 +229,6 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32)> {
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
-
-    // TODO get origin_id
 
     // Create a Reply for the received ping reply
     return Some((
@@ -256,7 +256,9 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32)> {
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv6 header.
-fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128)> {
+fn parse_ipv6(
+    packet_bytes: &[u8],
+) -> Option<(IpResult, PacketPayload, u128)> {
     // IPv6 40 minimum
     if packet_bytes.len() < 40 {
         return None;
@@ -264,8 +266,6 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128)> {
 
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
-
-    // TODO get origin_id
 
     // Create a Reply for the received ping reply
     Some((
@@ -629,26 +629,31 @@ fn parse_udpv4(
             return None;
         }
 
+        let reply_sport = udp_packet.source_port;
+        let reply_dport = udp_packet.destination_port;
+
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
         let payload = if measurement_type == 2 {
-            parse_dns_a_record(udp_packet.body.as_slice(), false)
+            // let reply_src = u32::from(ip_result.value.unwrap().src.unwrap().0);
+
+            let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
+            
+            if (probe_sport != reply_dport) | (probe_src != reply_dst)  { // (probe_dst != reply_src) | TODO
+                return None; // spoofed reply
+            }
+            
+            Some(udp_payload)
         } else if measurement_type == 4 {
             parse_chaos(udp_packet.body.as_slice())
         } else {
             None
         };
 
-        let reply_sport = udp_packet.source_port;
-        let reply_dport = udp_packet.destination_port;
-        // TODO verify sport == dport in A record
-        // TODO verify dport == sport in A record
+        let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
 
-        let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map).unwrap(); // TODO return None if None
-
-        // TODO infer origin_id
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
@@ -657,7 +662,7 @@ fn parse_udpv4(
                 ip_result: Some(ip_result),
                 payload,
             })),
-            origin_id, // TODO
+            origin_id,
         })
     } else {
         None
@@ -698,24 +703,30 @@ fn parse_udpv6(
         {
             return None;
         }
+        
+        let reply_sport = value.source_port;
+        let reply_dport = value.destination_port;
 
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
         let payload = if measurement_type == 2 {
-            parse_dns_a_record(value.body.as_slice(), true)
+            let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v6(value.body.as_slice())?;
+            
+            if (probe_sport != reply_dport) | (probe_src != reply_dst)  { // (probe_dst != reply_src) | TODO
+                return None; // spoofed reply
+            }
+            
+            Some(udp_payload)
         } else if measurement_type == 4 {
             parse_chaos(value.body.as_slice())
         } else {
             None
         };
-        // TODO verify sport == dport in A record
-        // TODO verify dport == sport in A record
 
-        let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map)?;
+        let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
 
-        // TODO infer origin_id
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
@@ -724,7 +735,7 @@ fn parse_udpv6(
                 ip_result: Some(ip_result),
                 payload,
             })),
-            origin_id, // TODO
+            origin_id,
         })
     } else {
         None
