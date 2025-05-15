@@ -1,5 +1,4 @@
-use crate::custom_module::manycastr::address::Value::{V4, V6};
-use crate::custom_module::manycastr::{Origin, PingPayload};
+use crate::custom_module::manycastr::{Origin};
 use crate::custom_module::IP;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use mac_address::mac_address_by_name;
@@ -35,7 +34,7 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
     Err("Could not parse default gateway IP from 'ip route' output".to_string())
 }
 
-fn get_default_gateway_ip_freebsd() -> Result<String, String> {
+fn get_default_gateway_ip_freebsd() -> Result<String, String> { // TODO test
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
@@ -166,7 +165,7 @@ pub fn get_ethernet_header(
     ethernet_header
 }
 
-/// Creates a ping packet.
+/// Creates a ping packet to send.
 ///
 /// # Arguments
 ///
@@ -195,43 +194,21 @@ pub fn create_ping(
         .unwrap()
         .as_nanos() as u64;
     let src = IP::from(origin.src.expect("None IP address"));
-    // Create ping payload
-    let payload = PingPayload {
-        tx_time,
-        src: Some(src.into()),
-        dst: Some(dst.into()),
-        tx_worker_id: worker_id as u32,
-    };
+    let dst = IP::from(dst);
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
-    payload_bytes.extend_from_slice(&payload.tx_time.to_be_bytes()); // Bytes 4 - 11 *
-    payload_bytes.extend_from_slice(&payload.tx_worker_id.to_be_bytes()); // Bytes 12 - 15 *
-    if let Some(source_address) = payload.src {
-        match source_address.value {
-            Some(V4(v4)) => payload_bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 16 - 19
-            Some(V6(v6)) => {
-                payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 16 - 23
-                payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 24 - 31
-            }
-            None => panic!("Source address is None"),
-        }
-    }
-    if let Some(destination_address) = payload.dst {
-        match destination_address.value {
-            Some(V4(v4)) => payload_bytes.extend_from_slice(&v4.to_be_bytes()), // Bytes 32 - 35
-            Some(V6(v6)) => {
-                payload_bytes.extend_from_slice(&v6.p1.to_be_bytes()); // Bytes 32 - 39
-                payload_bytes.extend_from_slice(&v6.p2.to_be_bytes()); // Bytes 40 - 47
-            }
-            None => panic!("Destination address is None"),
-        }
-    }
+    payload_bytes.extend_from_slice(&tx_time.to_be_bytes());
+    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15 *
 
+    // add the source address
     if src.is_v6() {
+        payload_bytes.extend_from_slice(&src.get_v6().octets()); // Bytes 4 - 11
+        payload_bytes.extend_from_slice(&dst.get_v6().octets()); // Bytes 12 - 19
+
         ICMPPacket::echo_request_v6(
-            origin.sport as u16,
+            origin.dport as u16,
             2,
             payload_bytes,
             src.get_v6().into(),
@@ -240,6 +217,9 @@ pub fn create_ping(
             info_url,
         )
     } else {
+        payload_bytes.extend_from_slice(&src.get_v4().octets()); // Bytes 4 - 7
+        payload_bytes.extend_from_slice(&dst.get_v4().octets()); // Bytes 8 - 11
+
         ICMPPacket::echo_request(
             origin.dport as u16,
             2,

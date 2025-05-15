@@ -198,6 +198,7 @@ impl Worker {
                 src: Some(Address::from(unicast_ip)), // Unicast IP
                 sport: sport.into(),                  // CLI defined source port
                 dport: dport.into(),                  // CLI defined destination port
+                origin_id: u32::MAX,                  // ID for unicast address
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)

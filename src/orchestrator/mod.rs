@@ -472,7 +472,6 @@ impl Controller for ControllerService {
         let rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.ipv6;
-        let is_traceroute = scheduled_measurement.traceroute;
         let is_divide = scheduled_measurement.divide;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
@@ -546,7 +545,6 @@ impl Controller for ControllerService {
                     measurement_type,
                     unicast: is_unicast,
                     ipv6: is_ipv6,
-                    traceroute: is_traceroute,
                     tx_origins: worker_tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
@@ -690,12 +688,8 @@ impl Controller for ControllerService {
                     }
                 }
 
-                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses (traceroute takes longer)
-                if is_traceroute {
-                    tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
-                } else {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
+                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+                tokio::time::sleep(Duration::from_secs(1)).await;
 
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 match sender

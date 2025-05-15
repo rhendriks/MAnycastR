@@ -167,6 +167,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src: Some(src),
                             sport: sport.into(),
                             dport: dport.into(),
+                            origin_id: 0, // TODO
                         }),
                     })
                 })
@@ -199,10 +200,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 });
 
+            let origin_id = 0; // TODO
+
             if worker_ids.is_empty() { // All workers
                 vec![Configuration {
                     worker_id: u32::MAX, // All clients
-                    origin: Some(Origin { src, sport, dport })
+                    origin: Some(Origin { src, sport, dport, origin_id })
                 }]
             } else if is_unicast { // No configurations for unicast measurements
                 vec![]
@@ -211,7 +214,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     .iter()
                     .map(|&worker_id| Configuration {
                         worker_id,
-                        origin: Some(Origin { src, sport, dport }),
+                        origin: Some(Origin { src, sport, dport, origin_id }),
                     })
                     .collect()
             }
@@ -279,7 +282,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Check for command-line option that determines whether to stream to CLI
         let cli = matches.get_flag("stream");
-        let traceroute = matches.get_flag("traceroute");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = *matches.get_one::<u32>("interval").unwrap();
@@ -410,7 +412,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             measurement_type: measurement_type as u32,
             unicast: is_unicast,
             ipv6: is_ipv6,
-            traceroute,
             divide: is_divide,
             interval,
             responsive: is_responsive,
@@ -1010,70 +1011,51 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 ///
 /// * `measurement_type` - The type of measurement being performed
 fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
+    // TODO add origin_id
     match result.value.unwrap() {
         ResultPing(ping) => {
             let rx_time = ping.rx_time.to_string();
 
             let ip_result = ping.ip_result.unwrap();
             let reply_src = ip_result.get_src_str();
-            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
             // Ping payload
             let payload = ping.payload.unwrap();
             let tx_time = payload.tx_time.to_string();
-            let probe_src = payload.src.unwrap().to_string();
-            let probe_dst = payload.dst.unwrap().to_string();
             let tx_worker_id = payload.tx_worker_id.to_string();
 
             return vec![
                 rx_worker_id.to_string(),
                 reply_src,
-                reply_dst,
                 ttl,
                 rx_time,
                 tx_time,
-                probe_src,
-                probe_dst,
                 tx_worker_id,
             ];
         }
         ResultUdp(udp) => {
             let rx_time = udp.rx_time.to_string();
-            let reply_sport = udp.sport.to_string();
-            let reply_dport = udp.dport.to_string();
             let reply_code = udp.code.to_string();
 
             let ip_result = udp.ip_result.unwrap();
             let reply_src = ip_result.get_src_str();
-            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
 
             if udp.payload == None {
                 // ICMP reply
                 if measurement_type == 2 {
                     let tx_time = "-1".to_string();
-                    let probe_src = "-1".to_string();
-                    let probe_dst = "-1".to_string();
                     let tx_worker_id = "-1".to_string();
-                    let probe_sport = "-1".to_string();
-                    let probe_dport = "-1".to_string();
 
                     return vec![
                         rx_worker_id.to_string(),
                         reply_src,
-                        reply_dst,
                         ttl,
                         rx_time,
-                        reply_sport,
-                        reply_dport,
                         reply_code,
                         tx_time,
-                        probe_src,
-                        probe_dst,
                         tx_worker_id,
-                        probe_sport,
-                        probe_dport,
                     ];
                 } else if measurement_type == 4 {
                     let tx_worker_id = "-1".to_string();
@@ -1082,11 +1064,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                     return vec![
                         rx_worker_id.to_string(),
                         reply_src,
-                        reply_dst,
                         ttl,
                         rx_time,
-                        reply_sport,
-                        reply_dport,
                         reply_code,
                         tx_worker_id,
                         chaos,
@@ -1101,28 +1080,16 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             match payload.value {
                 Some(DnsARecord(dns_a_record)) => {
                     let tx_time = dns_a_record.tx_time.to_string();
-                    // IP::from(payload.source_address.unwrap()).to_string()
-                    let probe_src = dns_a_record.src.unwrap().to_string();
-                    let probe_dst = dns_a_record.dst.unwrap().to_string();
                     let tx_worker_id = dns_a_record.tx_worker_id.to_string();
-                    let probe_sport = dns_a_record.sport.to_string();
-                    let probe_dport = "53".to_string();
 
                     return vec![
                         rx_worker_id.to_string(),
                         reply_src,
-                        reply_dst,
                         ttl,
                         rx_time,
-                        reply_sport,
-                        reply_dport,
                         reply_code,
                         tx_time,
-                        probe_src,
-                        probe_dst,
                         tx_worker_id,
-                        probe_sport,
-                        probe_dport,
                     ];
                 }
                 Some(DnsChaos(dns_chaos)) => {
@@ -1132,11 +1099,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                     return vec![
                         rx_worker_id.to_string(),
                         reply_src,
-                        reply_dst,
                         ttl,
                         rx_time,
-                        reply_sport,
-                        reply_dport,
                         reply_code,
                         tx_worker_id,
                         chaos,
@@ -1151,27 +1115,18 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             let rx_time = tcp.rx_time.to_string();
             let ip_result = tcp.ip_result.unwrap();
             let reply_src = ip_result.get_src_str();
-            let reply_dst = ip_result.get_dst_str();
             let ttl = ip_result.ttl.to_string();
-            let reply_sport = tcp.sport.to_string();
-            let reply_dport = tcp.dport.to_string();
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
 
             return vec![
                 rx_worker_id.to_string(),
                 reply_src,
-                reply_dst,
                 ttl,
                 rx_time,
-                reply_sport,
-                reply_dport,
                 seq,
                 ack,
             ];
-        }
-        _ => {
-            panic!("Undefined type.")
         }
     }
 }
