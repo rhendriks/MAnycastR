@@ -963,15 +963,12 @@ fn write_results(
 /// * 'measurement_type' - The type of measurement being performed
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
-    let mut header = vec!["rx_worker_id"];
+    let mut header = vec!["rx_worker_id, reply_src_addr, ttl"];
     // Information contained in IPv4 header
-    header.append(&mut vec!["reply_src_addr", "reply_dst_addr", "ttl"]);
     header.append(&mut match measurement_type {
         1 => vec![
             "rx_time",
             "tx_time",
-            "probe_src_addr",
-            "probe_dst_addr",
             "tx_worker_id",
         ], // ICMP
         2 => vec![
@@ -980,13 +977,17 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
             "reply_dst_port",
             "code",
             "tx_time",
-            "probe_src_addr",
-            "probe_dst_addr",
             "tx_worker_id",
             "probe_src_port",
             "probe_dst_port",
         ], // UDP/DNS
-        3 => vec!["rx_time", "reply_src_port", "reply_dst_port", "seq", "ack"], // TCP
+        3 => vec![
+            "rx_time",
+            "reply_src_port",
+            "reply_dst_port",
+            "seq",
+            "ack"
+        ], // TCP
         4 => vec![
             "rx_time",
             "reply_src_port",
@@ -1011,7 +1012,8 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 ///
 /// * `measurement_type` - The type of measurement being performed
 fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
-    // TODO add origin_id
+    let origin_id = result.origin_id.to_string();
+    let rx_worker_id = rx_worker_id.to_string();
     match result.value.unwrap() {
         ResultPing(ping) => {
             let rx_time = ping.rx_time.to_string();
@@ -1026,12 +1028,13 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             let tx_worker_id = payload.tx_worker_id.to_string();
 
             return vec![
-                rx_worker_id.to_string(),
+                rx_worker_id,
                 reply_src,
                 ttl,
                 rx_time,
                 tx_time,
                 tx_worker_id,
+                origin_id,
             ];
         }
         ResultUdp(udp) => {
@@ -1049,26 +1052,28 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                     let tx_worker_id = "-1".to_string();
 
                     return vec![
-                        rx_worker_id.to_string(),
+                        rx_worker_id,
                         reply_src,
                         ttl,
                         rx_time,
                         reply_code,
                         tx_time,
                         tx_worker_id,
+                        origin_id,
                     ];
                 } else if measurement_type == 4 {
                     let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
 
                     return vec![
-                        rx_worker_id.to_string(),
+                        rx_worker_id,
                         reply_src,
                         ttl,
                         rx_time,
                         reply_code,
                         tx_worker_id,
                         chaos,
+                        origin_id,
                     ];
                 } else {
                     panic!("No payload found for unexpected UDP result!");
@@ -1083,13 +1088,14 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                     let tx_worker_id = dns_a_record.tx_worker_id.to_string();
 
                     return vec![
-                        rx_worker_id.to_string(),
+                        rx_worker_id,
                         reply_src,
                         ttl,
                         rx_time,
                         reply_code,
                         tx_time,
                         tx_worker_id,
+                        origin_id,
                     ];
                 }
                 Some(DnsChaos(dns_chaos)) => {
@@ -1097,13 +1103,14 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                     let chaos = dns_chaos.chaos_data;
 
                     return vec![
-                        rx_worker_id.to_string(),
+                        rx_worker_id,
                         reply_src,
                         ttl,
                         rx_time,
                         reply_code,
                         tx_worker_id,
                         chaos,
+                        origin_id,
                     ];
                 }
                 None => {
@@ -1120,12 +1127,13 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             let ack = tcp.ack.to_string();
 
             return vec![
-                rx_worker_id.to_string(),
+                rx_worker_id,
                 reply_src,
                 ttl,
                 rx_time,
                 seq,
                 ack,
+                origin_id,
             ];
         }
     }

@@ -118,7 +118,7 @@ message Origin {
   Address src = 1;
   fixed32 sport = 2;
   fixed32 dport = 3;
-  fixed32 origin_id = 4; // TODO ID of the origin (ip, ports) used in the reply
+  fixed32 origin_id = 4;
 }
 
 // Configuration: mapping of worker ID to origin
