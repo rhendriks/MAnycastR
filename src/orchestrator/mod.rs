@@ -847,6 +847,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .expect("Failed to load TLS certificate")
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
             .await.expect("Failed to start orchestrator with TLS");
@@ -854,6 +855,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
             .await.expect("Failed to start orchestrator");

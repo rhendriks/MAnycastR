@@ -5,6 +5,7 @@ use local_ip_address::{local_ip, local_ipv6};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -69,10 +70,7 @@ impl Worker {
         };
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
-            .await.expect("Unable to connect to orchestrator")
-            // .accept_compressed(CompressionEncoding::Zstd) // TODO assess performance impact
-            // .send_compressed(CompressionEncoding::Zstd)
-            ;
+            .await.expect("Unable to connect to orchestrator");
 
         // Initialize a worker instance
         let mut worker = Worker {
@@ -121,8 +119,10 @@ impl Worker {
 
             let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
             builder
-                .tls_config(tls)
-                .expect("Unable to set TLS configuration")
+                .keep_alive_timeout(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(15))
+                .tcp_keepalive(Some(Duration::from_secs(60)))
+                .tls_config(tls).expect("Unable to set TLS configuration")
                 .connect()
                 .await
                 .expect("Unable to connect to orchestrator")
@@ -132,6 +132,9 @@ impl Worker {
 
             Channel::from_shared(addr.to_owned())
                 .expect("Unable to set address")
+                .keep_alive_timeout(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(15))
+                .tcp_keepalive(Some(Duration::from_secs(60)))
                 .connect()
                 .await
                 .expect("Unable to connect to orchestrator")
