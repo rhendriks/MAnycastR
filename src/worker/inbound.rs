@@ -7,10 +7,9 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
-    address::Value::V4, address::Value::V6, ip_result, ip_result::Value::Ipv4 as ip_IPv4,
-    ip_result::Value::Ipv6 as ip_IPv6, trace_result, udp_payload, reply::Value,
-    Address, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result, IpResult, PingPayload, PingResult,
-    TaskResult, TcpResult, TraceResult, UdpPayload, UdpResult, Reply,
+    ip_result, udp_payload, reply::Value,
+    DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result, IpResult, PingPayload, PingResult,
+    TaskResult, TcpResult, UdpPayload, UdpResult, Reply,
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
@@ -91,7 +90,8 @@ pub fn listen(
                         } else {
                             if measurement_type == 2 {
                                 // We only parse icmp responses to DNS requests for A records
-                                parse_icmp_dst_unreachable(&packet[14..], true)
+                                // parse_icmp_dst_unreachable(&packet[14..], true) TODO
+                                None
                             } else {
                                 None
                             }
@@ -103,7 +103,8 @@ pub fn listen(
                         } else {
                             if measurement_type == 2 {
                                 // We only parse icmp responses to DNS requests for A records
-                                parse_icmp_dst_unreachable(&packet[14..], false)
+                                // parse_icmp_dst_unreachable(&packet[14..], false) TODO
+                                None
                             } else {
                                 None
                             }
@@ -228,12 +229,13 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
 
+    // TODO get origin_id
+
     // Create a Reply for the received ping reply
     return Some((
         IpResult {
             value: Some(ip_result::Value::Ipv4(IPv4Result {
                 src: u32::from(packet.source_address),
-                dst: u32::from(packet.destination_address),
             })),
             ttl: packet.ttl as u32,
         },
@@ -263,23 +265,21 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload)> {
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
+    // TODO get origin_id
+
     // Create a Reply for the received ping reply
-    return Some((
+    Some((
         IpResult {
             value: Some(ip_result::Value::Ipv6(IPv6Result {
                 src: Some(IPv6 {
                     p1: (u128::from(packet.source_address) >> 64) as u64,
                     p2: u128::from(packet.source_address) as u64,
                 }),
-                dst: Some(IPv6 {
-                    p1: (u128::from(packet.destination_address) >> 64) as u64,
-                    p2: u128::from(packet.destination_address) as u64,
-                }),
             })),
             ttl: packet.hop_limit as u32,
         },
         packet.payload,
-    ));
+    ))
 }
 
 /// Parse ICMPv4 packets (including v4 headers) into a Reply result.
@@ -328,8 +328,11 @@ fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<Reply> {
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
-        let src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
-        let dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+        // let probe_src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
+        // let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+
+        // TODO verify probe_dst (dst above) == ip_result.src
+        // TODO get origin_id using probe_src
 
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -343,15 +346,10 @@ fn parse_icmpv4(packet_bytes: &[u8], measurement_id: u32) -> Option<Reply> {
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
-                    src: Some(Address {
-                        value: Some(V4(src)),
-                    }),
-                    dst: Some(Address {
-                        value: Some(V4(dst)),
-                    }),
                     tx_worker_id,
                 }),
             })),
+            origin_id: 0, // TODO
         })
     } else {
         None
@@ -404,8 +402,11 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32) -> Option<Reply> {
 
         let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
         let tx_worker_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-        let probe_src = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
-        let probe_dst = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
+        // let probe_src = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
+        // let probe_dst = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
+
+        // TODO verify probe_dst == ip_result.src
+        // TODO get origin_id using probe_src
 
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -419,338 +420,166 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32) -> Option<Reply> {
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
-                    src: Some(Address {
-                        value: Some(V6(IPv6 {
-                            p1: (probe_src >> 64) as u64,
-                            p2: probe_src as u64,
-                        })),
-                    }),
-                    dst: Some(Address {
-                        value: Some(V6(IPv6 {
-                            p1: (probe_dst >> 64) as u64,
-                            p2: probe_dst as u64,
-                        })),
-                    }),
                     tx_worker_id,
                 }),
             })),
+            origin_id: 0, // TODO
         })
     } else {
         None
     };
 }
 
-/// ICMP Time exceeded parser, used for traceroute.
-///
-/// # Arguments
-///
-/// * `packet_bytes` - the bytes of the packet to parse
-///
-/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
-///
-/// # Returns
-///
-/// * `Option<Reply>` - the received ping TTL exceeded reply
-///
-/// # Remarks
-///
-/// The function returns None if the packet is not an ICMP time exceeded packet or if the packet is too short to contain the necessary information.
-#[allow(dead_code)]
-fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Reply> {
-    // 1. Parse IP header
-    let (ip_result, payload) = if is_ipv6 {
-        match parse_ipv6(packet_bytes) {
-            //v6
-            None => return None, // Unable to parse IPv4 header
-            Some((ip_result, payload)) => (Some(ip_result), payload),
-        }
-    } else {
-        // v4
-        match parse_ipv4(packet_bytes) {
-            None => return None, // Unable to parse IPv4 header
-            Some((ip_result, payload)) => (Some(ip_result), payload),
-        }
-    };
-
-    // 2. ICMP time exceeded header
-    if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        if (!is_ipv6 & (icmp_packet.icmp_type != 11)) | (is_ipv6 & (icmp_packet.icmp_type != 3)) {
-            // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
-            return None;
-        }
-
-        // 3. IP header of the probe that caused the time exceeded
-        let (ip_result_probe, ip_payload_probe) = if is_ipv6 {
-            // Get the ipv6 header from the probe out of the ICMP body
-            let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
-
-            // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv6_header.is_none() {
-                return None;
-            }
-
-            ipv6_header.unwrap()
-        } else {
-            // Get the ipv4 header from the probe out of the ICMP body
-            let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
-
-            // If we are unable to retrieve an IP header out of the ICMP payload
-            if ipv4_header.is_none() {
-                return None;
-            }
-            ipv4_header.unwrap()
-        };
-
-        // 4. Parse the payload of the probe that caused the time exceeded
-        return match ip_payload_probe {
-            PacketPayload::UDP { value: udp_header } => {
-                let inner_payload = udp_header.body.as_slice();
-                if inner_payload.len() < 10 {
-                    return None;
-                }
-
-                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_worker_id = u32::from(inner_payload[8]);
-                let probe_ttl = u32::from(inner_payload[9]);
-
-                Some(Reply {
-                    value: Some(Value::Trace(TraceResult {
-                        ip_result,
-                        ttl: probe_ttl,
-                        rx_time: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64,
-                        tx_time,
-                        tx_worker_id,
-                        value: Some(trace_result::Value::Udp(UdpResult {
-                            rx_time: 0,
-                            sport: udp_header.source_port as u32,
-                            dport: udp_header.destination_port as u32,
-                            code: 16,
-                            ip_result: Some(ip_result_probe),
-                            payload: Some(UdpPayload { value: None }),
-                        })),
-                    })),
-                })
-            }
-            PacketPayload::TCP { value: tcp_header } => {
-                let inner_payload = tcp_header.body.as_slice();
-                if inner_payload.len() < 10 {
-                    return None;
-                }
-
-                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_worker_id = u32::from(inner_payload[8]);
-                let probe_ttl = u32::from(inner_payload[9]);
-
-                Some(Reply {
-                    value: Some(Value::Trace(TraceResult {
-                        ip_result,
-                        ttl: probe_ttl,
-                        rx_time: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64,
-                        tx_time,
-                        tx_worker_id,
-                        value: Some(trace_result::Value::Tcp(TcpResult {
-                            rx_time: 0,
-                            sport: tcp_header.source_port as u32,
-                            dport: tcp_header.destination_port as u32,
-                            seq: tcp_header.seq,
-                            ip_result: Some(ip_result_probe),
-                            ack: tcp_header.ack,
-                        })),
-                    })),
-                })
-            }
-            PacketPayload::ICMP { value: icmp_header } => {
-                let inner_payload = icmp_header.body.as_slice();
-                if inner_payload.len() < 10 {
-                    return None;
-                }
-
-                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
-                let tx_worker_id = u32::from(inner_payload[8]);
-                let probe_ttl = u32::from(inner_payload[9]);
-
-                Some(Reply {
-                    value: Some(Value::Trace(TraceResult {
-                        ip_result,
-                        ttl: probe_ttl,
-                        rx_time: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64,
-                        tx_time,
-                        tx_worker_id,
-                        value: Some(trace_result::Value::Ping(PingResult {
-                            rx_time: 0,
-                            ip_result: Some(ip_result_probe),
-                            payload: None,
-                        })),
-                    })),
-                })
-            }
-            _ => None,
-        };
-    }
-
-    return None;
-}
-
-/// ICMP Destination unreachable parser, used for DNS A record probing.
-///
-/// # Arguments
-///
-/// * `packet_bytes` - the bytes of the packet to parse
-///
-/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
-///
-/// # Returns
-///
-/// * `Option<Reply>` - the received ping reply
-///
-/// # Remarks
-///
-/// The function returns None if the packet is not an ICMP destination unreachable packet or if the packet is too short to contain the necessary information.
-///
-/// The function also discards packets that do not belong to the current measurement.
-fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Reply> {
-    // 1. Parse IP header
-    let (ip_result, payload) = if is_ipv6 {
-        match parse_ipv6(packet_bytes) {
-            None => return None, // Unable to parse IPv4 header
-            Some((ip_result, payload)) => (Some(ip_result), payload),
-        }
-    } else {
-        // v4
-        match parse_ipv4(packet_bytes) {
-            None => return None, // Unable to parse IPv4 header
-            Some((ip_result, payload)) => (Some(ip_result), payload),
-        }
-    };
-
-    // 2. Parse ICMP header
-    return if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        // Make sure that this packet belongs to this measurement (if not we discard and continue)
-        if !is_ipv6 & (icmp_packet.icmp_type != 3) {
-            // Code 3 (v4) => destination unreachable
-            return None;
-        } else if is_ipv6 & (icmp_packet.icmp_type != 1) {
-            // Code 1 (v6) => destination unreachable
-            return None;
-        }
-        let reply_code = icmp_packet.code as u32;
-        let reply_identifier = icmp_packet.identifier as u32;
-        let mut probe_sport = 0u32;
-        let mut udp_payload = None;
-        let tx_worker_id = 0u32;
-        let rx_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        // 3. Parse ICMP body
-        // 3.1 IP header in ICMP body
-        let icmp_body_result = if is_ipv6 {
-            parse_ipv6(icmp_packet.body.as_slice())
-        } else {
-            parse_ipv4(icmp_packet.body.as_slice())
-        };
-
-        // If we are unable to retrieve an IP header out of the ICMP payload
-        if icmp_body_result.is_none() {
-            // Create a Reply for the received ping reply
-            return Some(Reply {
-                value: Some(Value::Udp(UdpResult {
-                    rx_time,
-                    sport: 0,
-                    dport: 0,
-                    code: reply_code,
-                    ip_result,
-                    payload: None,
-                })),
-            });
-        }
-        // Get the IP header from the ICMP body
-        let (probe_ip_header, ip_payload_probe) = icmp_body_result.unwrap();
-
-        // 3.2 UDP header in ICMP body
-        if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
-            probe_sport = udp_header.source_port as u32;
-
-            // 3.3 DNS header
-            if udp_header.body.len() >= 60 {
-                // Rough minimum size for DNS A packet with our domain
-                udp_payload = parse_dns_a_record(udp_header.body.as_slice(), is_ipv6);
-            }
-        }
-
-        // If the ICMP payload does not contain the full DNS packet, we create a Reply with the ICMP information
-        if udp_payload.is_none() {
-            // Get the source and destination addresses from the IP header in the ICMP body
-            let (probe_src, probe_dst) = if is_ipv6 {
-                let probe_src = Some(Address {
-                    value: Some(V6(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                        ip_IPv6(ipv6) => ipv6.src.unwrap(),
-                    })),
-                });
-
-                let probe_dst = Some(Address {
-                    value: Some(V6(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
-                        ip_IPv6(ipv6) => ipv6.dst.unwrap(),
-                    })),
-                });
-
-                (probe_src, probe_dst)
-            } else {
-                let probe_src = Some(Address {
-                    value: Some(V4(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(ipv4) => ipv4.src,
-                        ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-                    })),
-                });
-
-                let probe_dst = Some(Address {
-                    value: Some(V4(match probe_ip_header.value.clone().unwrap() {
-                        ip_IPv4(ipv4) => ipv4.dst,
-                        ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
-                    })),
-                });
-
-                (probe_src, probe_dst)
-            };
-
-            udp_payload = Some(UdpPayload {
-                value: Some(udp_payload::Value::DnsARecord(DnsARecord {
-                    tx_time: 0,
-                    src: probe_src,
-                    dst: probe_dst,
-                    tx_worker_id,
-                    sport: probe_sport,
-                })),
-            })
-        }
-
-        // Create a Reply for the received ping reply
-        Some(Reply {
-            value: Some(Value::Udp(UdpResult {
-                rx_time,
-                sport: 0,                // ICMP replies have no port numbers
-                dport: reply_identifier, // ICMP replies use the destination port value of a measurement as identifier
-                code: reply_code,
-                ip_result,
-                payload: udp_payload,
-            })),
-        })
-    } else {
-        None
-    };
-}
+// /// ICMP Destination unreachable parser, used for DNS A record probing. TODO
+// ///
+// /// # Arguments
+// ///
+// /// * `packet_bytes` - the bytes of the packet to parse
+// ///
+// /// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
+// ///
+// /// # Returns
+// ///
+// /// * `Option<Reply>` - the received ping reply
+// ///
+// /// # Remarks
+// ///
+// /// The function returns None if the packet is not an ICMP destination unreachable packet or if the packet is too short to contain the necessary information.
+// ///
+// /// The function also discards packets that do not belong to the current measurement.
+// fn parse_icmp_dst_unreachable(packet_bytes: &[u8], is_ipv6: bool) -> Option<Reply> {
+//     // 1. Parse IP header
+//     let (ip_result, payload) = if is_ipv6 {
+//         match parse_ipv6(packet_bytes) {
+//             None => return None, // Unable to parse IPv4 header
+//             Some((ip_result, payload)) => (Some(ip_result), payload),
+//         }
+//     } else {
+//         // v4
+//         match parse_ipv4(packet_bytes) {
+//             None => return None, // Unable to parse IPv4 header
+//             Some((ip_result, payload)) => (Some(ip_result), payload),
+//         }
+//     };
+//
+//     // 2. Parse ICMP header
+//     return if let PacketPayload::ICMP { value: icmp_packet } = payload {
+//         // Make sure that this packet belongs to this measurement (if not we discard and continue)
+//         if !is_ipv6 & (icmp_packet.icmp_type != 3) {
+//             // Code 3 (v4) => destination unreachable
+//             return None;
+//         } else if is_ipv6 & (icmp_packet.icmp_type != 1) {
+//             // Code 1 (v6) => destination unreachable
+//             return None;
+//         }
+//         let reply_code = icmp_packet.code as u32;
+//         let reply_identifier = icmp_packet.identifier as u32;
+//         let mut probe_sport = 0u32;
+//         let mut udp_payload = None;
+//         let tx_worker_id = 0u32;
+//         let rx_time = SystemTime::now()
+//             .duration_since(UNIX_EPOCH)
+//             .unwrap()
+//             .as_nanos() as u64;
+//
+//         // 3. Parse ICMP body
+//         // 3.1 IP header in ICMP body
+//         let icmp_body_result = if is_ipv6 {
+//             parse_ipv6(icmp_packet.body.as_slice())
+//         } else {
+//             parse_ipv4(icmp_packet.body.as_slice())
+//         };
+//
+//         // If we are unable to retrieve an IP header out of the ICMP payload
+//         if icmp_body_result.is_none() {
+//             // Create a Reply for the received ping reply
+//             return Some(Reply {
+//                 value: Some(Value::Udp(UdpResult {
+//                     rx_time,
+//                     code: reply_code,
+//                     ip_result,
+//                     payload: None,
+//                 })),
+//                 origin_id: 0, // Unknown origin as there is no IP header
+//             });
+//         }
+//         // Get the IP header from the ICMP body
+//         let (probe_ip_header, ip_payload_probe) = icmp_body_result.unwrap();
+//
+//         // 3.2 UDP header in ICMP body
+//         if let PacketPayload::UDP { value: udp_header } = ip_payload_probe {
+//             probe_sport = udp_header.source_port as u32;
+//
+//             // 3.3 DNS header
+//             if udp_header.body.len() >= 60 {
+//                 // Rough minimum size for DNS A packet with our domain
+//                 udp_payload = parse_dns_a_record(udp_header.body.as_slice(), is_ipv6);
+//             }
+//         }
+//
+//         // If the ICMP payload does not contain the full DNS packet, we create a Reply with the ICMP information
+//         if udp_payload.is_none() {
+//             // Get the source and destination addresses from the IP header in the ICMP body
+//             let (probe_src, probe_dst) = if is_ipv6 {
+//                 let probe_src = Some(Address {
+//                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
+//                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
+//                         ip_IPv6(ipv6) => ipv6.src.unwrap(),
+//                     })),
+//                 });
+//
+//                 let probe_dst = Some(Address {
+//                     value: Some(V6(match probe_ip_header.value.clone().unwrap() {
+//                         ip_IPv4(_) => panic!("IPv4 header in ICMPv6 packet"),
+//                         ip_IPv6(ipv6) => ipv6.dst.unwrap(),
+//                     })),
+//                 });
+//
+//                 (probe_src, probe_dst)
+//             } else {
+//                 let probe_src = Some(Address {
+//                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
+//                         ip_IPv4(ipv4) => ipv4.src,
+//                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
+//                     })),
+//                 });
+//
+//                 let probe_dst = Some(Address {
+//                     value: Some(V4(match probe_ip_header.value.clone().unwrap() {
+//                         ip_IPv4(ipv4) => ipv4.dst,
+//                         ip_IPv6(_) => panic!("IPv6 header in ICMPv4 packet"),
+//                     })),
+//                 });
+//
+//                 (probe_src, probe_dst)
+//             };
+//
+//             udp_payload = Some(UdpPayload {
+//                 value: Some(udp_payload::Value::DnsARecord(DnsARecord {
+//                     tx_time: 0,
+//                     src: probe_src,
+//                     dst: probe_dst,
+//                     tx_worker_id,
+//                     sport: probe_sport,
+//                 })),
+//             })
+//         }
+//
+//         // Create a Reply for the received ping reply
+//         Some(Reply {
+//             value: Some(Value::Udp(UdpResult {
+//                 rx_time,
+//                 sport: 0,                // ICMP replies have no port numbers
+//                 dport: reply_identifier, // ICMP replies use the destination port value of a measurement as identifier
+//                 code: reply_code,
+//                 ip_result,
+//                 payload: udp_payload,
+//             })),
+//         })
+//     } else {
+//         None
+//     };
+// }
 
 /// Parse UDPv4 packets (including v4 headers) into a Reply result.
 ///
@@ -795,16 +624,19 @@ fn parse_udpv4(packet_bytes: &[u8], measurement_type: u32) -> Option<Reply> {
             None
         };
 
+        // TODO verify sport == dport in A record
+        // TODO verify dport == sport in A record
+
+        // TODO infer origin_id
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
                 rx_time,
-                sport: udp_packet.source_port as u32,
-                dport: udp_packet.destination_port as u32,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
             })),
+            origin_id: 0, // TODO
         })
     } else {
         None
@@ -853,17 +685,19 @@ fn parse_udpv6(packet_bytes: &[u8], measurement_type: u32) -> Option<Reply> {
         } else {
             None
         };
+        // TODO verify sport == dport in A record
+        // TODO verify dport == sport in A record
 
+        // TODO infer origin_id
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
                 rx_time,
-                sport: value.source_port as u32,
-                dport: value.destination_port as u32,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
             })),
+            origin_id: 0, // TODO
         })
     } else {
         None
@@ -900,40 +734,40 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
             Ok(t) => t,
             Err(_) => return None,
         };
-        let probe_src = match parts[1].parse::<u128>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let probe_dst = match parts[2].parse::<u128>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
+        // let probe_src = match parts[1].parse::<u128>() { TODO
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
+        // let probe_dst = match parts[2].parse::<u128>() {
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
         let tx_worker_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let probe_sport = match parts[4].parse::<u16>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
+        // let probe_sport = match parts[4].parse::<u16>() { TODO
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
 
         Some(UdpPayload {
             value: Some(udp_payload::Value::DnsARecord(DnsARecord {
                 tx_time,
-                src: Some(Address {
-                    value: Some(V6(IPv6 {
-                        p1: (probe_src >> 64) as u64,
-                        p2: probe_src as u64,
-                    })),
-                }),
-                dst: Some(Address {
-                    value: Some(V6(IPv6 {
-                        p1: (probe_dst >> 64) as u64,
-                        p2: probe_dst as u64,
-                    })),
-                }),
+                // src: Some(Address { // TODO verify
+                //     value: Some(V6(IPv6 {
+                //         p1: (probe_src >> 64) as u64,
+                //         p2: probe_src as u64,
+                //     })),
+                // }),
+                // dst: Some(Address {
+                //     value: Some(V6(IPv6 {
+                //         p1: (probe_dst >> 64) as u64,
+                //         p2: probe_dst as u64,
+                //     })),
+                // }),
                 tx_worker_id: tx_worker_id as u32,
-                sport: probe_sport as u32,
+                // sport: probe_sport as u32, TODO verify
             })),
         })
     } else {
@@ -947,34 +781,34 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<UdpPayload> 
             Ok(t) => t,
             Err(_) => return None,
         };
-        let probe_src = match parts[1].parse::<u32>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let probe_dst = match parts[2].parse::<u32>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
+        // let probe_src = match parts[1].parse::<u32>() { TODO
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
+        // let probe_dst = match parts[2].parse::<u32>() {
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
         let tx_worker_id = match parts[3].parse::<u8>() {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let probe_sport = match parts[4].parse::<u16>() {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
+        // let probe_sport = match parts[4].parse::<u16>() { TODO
+        //     Ok(s) => s,
+        //     Err(_) => return None,
+        // };
 
         Some(UdpPayload {
             value: Some(udp_payload::Value::DnsARecord(DnsARecord {
                 tx_time,
-                src: Some(Address {
-                    value: Some(V4(probe_src)),
-                }),
-                dst: Some(Address {
-                    value: Some(V4(probe_dst)),
-                }),
+                // src: Some(Address { TODO verify
+                //     value: Some(V4(probe_src)),
+                // }),
+                // dst: Some(Address {
+                //     value: Some(V4(probe_dst)),
+                // }),
                 tx_worker_id: tx_worker_id as u32,
-                sport: probe_sport as u32,
+                // sport: probe_sport as u32, TODO verify
             })),
         })
     }
@@ -1050,13 +884,14 @@ fn parse_tcp(ip_payload: PacketPayload, ip_result: IpResult) -> Option<Reply> {
 
         Some(Reply {
             value: Some(Value::Tcp(TcpResult {
-                sport: u32::from(tcp_packet.source_port),
-                dport: tcp_packet.destination_port as u32,
+                // sport: u32::from(tcp_packet.source_port), TODO verify
+                // dport: tcp_packet.destination_port as u32,
                 seq: tcp_packet.seq,
                 ip_result: Some(ip_result),
                 rx_time,
                 ack: tcp_packet.ack,
             })),
+            origin_id: 0, // TODO infer
         })
     } else {
         None
