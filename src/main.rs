@@ -210,6 +210,9 @@ mod net;
 mod orchestrator;
 mod worker;
 
+// TODO reformat code
+// TODO reassess rustdoc
+// TODO update readme
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
@@ -248,7 +251,7 @@ fn main() {
 }
 
 fn parse_cmd() -> ArgMatches {
-    Command::new("MAnycastR") // TODO change name
+    Command::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
@@ -278,7 +281,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
                 )
                 .arg(
                     Arg::new("hostname")
@@ -303,7 +306,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
                 )
                 .arg(
                     Arg::new("tls")
