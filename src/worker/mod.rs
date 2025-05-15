@@ -270,6 +270,7 @@ impl Worker {
             is_ipv6,
             start_measurement.measurement_type,
             socket_rx,
+            rx_origins,
         );
 
         if is_probing {

@@ -44,6 +44,26 @@ impl Address {
             None => 0,
         }
     }
+
+    /// Get the IPv4 address as u32
+    ///
+    /// Panic if the address is not IPv4
+    pub fn get_v4(&self) -> u32 {
+        match &self.value {
+            Some(V4(v4)) => *v4,
+            _ => panic!("Not a v4 address"),
+        }
+    }
+
+    /// Get the IPv6 address as u128
+    ///
+    /// Panic if the address is not IPv6
+    pub fn get_v6(&self) -> u128 {
+        match &self.value {
+            Some(V6(v6)) => (v6.p1 as u128) << 64 | v6.p2 as u128,
+            _ => panic!("Not a v6 address"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
