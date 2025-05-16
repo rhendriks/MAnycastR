@@ -930,12 +930,16 @@ fn write_results(
 
     // Write header
     let header = get_header(measurement_type);
+    // TODO write header to CLI
     if cli {
         wtr_cli
             .as_mut()
             .unwrap()
             .write_record(header.clone())
             .expect("Failed to write header to stdout")
+        // TODO CLI should print more concise information
+        // ip address instead of ip number
+        // measured RTT instead of tx_time and rx_time
     };
     wtr_file
         .write_record(header)
