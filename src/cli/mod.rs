@@ -913,20 +913,17 @@ fn write_results(
         None
     };
 
-    // Create a Gzip encoder that writes to a BufWriter wrapping the file
-    // BufWriter adds buffering for better performance
-    let buffered_file_writer = BufWriter::new(file);
-    let gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
+    let mut buffered_file_writer = BufWriter::new(file);
 
-    // Results file writer now writes to the Gzip encoder
+    // Write metadata to file
+    for line in &md_file {
+        writeln!(buffered_file_writer, "{}", line).expect("Failed to write metadata line to Gzip stream");
+    }
+    
+    // .gz writer
+    let gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
     let mut wtr_file = Writer::from_writer(gz_encoder);
     
-    // Write metadata to file
-    for line in md_file {
-        wtr_file
-            .write_record(&[line])
-            .expect("Failed to write metadata to file");
-    }
 
     // Write header
     let header = get_header(measurement_type);
