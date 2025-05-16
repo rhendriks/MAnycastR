@@ -664,9 +664,15 @@ impl CliClient {
             configurations.clone(),
             is_config,
         );
+        
+        let is_multi_origin = if is_unicast {
+            false
+        } else {
+            configurations.len() > 1
+        };
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, file, md_file, measurement_type);
+        write_results(rx_r, cli, file, md_file, measurement_type, is_multi_origin);
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -905,6 +911,7 @@ fn write_results(
     file: File,
     md_file: Vec<String>,
     measurement_type: u32,
+    is_multi_origin: bool,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if cli {
@@ -930,7 +937,7 @@ fn write_results(
     
 
     // Write header
-    let header = get_header(measurement_type);
+    let header = get_header(measurement_type, is_multi_origin);
     // TODO write header to CLI
     if cli {
         wtr_cli
