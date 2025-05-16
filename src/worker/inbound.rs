@@ -329,7 +329,7 @@ fn parse_icmpv4(
         println!("measurement id: {}", measurement_id);
         println!("icmp body len: {}", icmp_packet.body.len());
         // Make sure that this packet belongs to this measurement
-        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 22) { // TODO verify length (also include the URL length in the calculation, if it exists)
+        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 22) {
             // If not, we discard it and await the next packet
             return None;
         }
@@ -337,9 +337,9 @@ fn parse_icmpv4(
         println!("parsed ICMP body");
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-        let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
-        // let probe_src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
-        let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+        let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap());
+        // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
+        let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..2].try_into().unwrap());
         // let reply_src = ip_result.value.unwrap(). TODO
 
         // if (probe_src != reply_dst) | (probe_dst != reply_src) {
@@ -412,15 +412,15 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
         };
         let pkt_measurement_id = u32::from_be_bytes(s);
         // Make sure that this packet belongs to this measurement
-        if (pkt_measurement_id != measurement_id) | (value.body.len() < 48) {
+        if (pkt_measurement_id != measurement_id) | (value.body.len() < 46) {
             // If not, we discard it and await the next packet
             return None;
         }
 
         let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let tx_worker_id = u32::from_be_bytes(*&value.body[12..16].try_into().unwrap());
-        // let probe_src = u128::from_be_bytes(*&value.body[16..32].try_into().unwrap());
-        // let probe_dst = u128::from_be_bytes(*&value.body[32..48].try_into().unwrap());
+        let tx_worker_id = u32::from_be_bytes(*&value.body[12..14].try_into().unwrap());
+        // let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
+        // let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
 
         let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map).unwrap(); // TODO return None if None
 
