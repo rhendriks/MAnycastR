@@ -986,36 +986,30 @@ fn write_results(
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // TODO include column origin_id (if multiple origins are used) (origin is 0 (single anycast origin) or MAX (unicast))
     // Information contained in TaskResult
-    let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl"];
+    let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl", "rx_time"];
     // Information contained in IPv4 header
     header.append(&mut match measurement_type {
         1 => vec![
-            "rx_time",
             "tx_time",
             "tx_worker_id",
+            "origin_id",
         ], // ICMP
         2 => vec![
-            "rx_time",
-            "reply_src_port",
-            "reply_dst_port",
             "code",
             "tx_time",
             "tx_worker_id",
+            "origin_id",
         ], // UDP/DNS
         3 => vec![
-            "rx_time",
-            "reply_src_port",
-            "reply_dst_port",
-            "seq",
-            "ack"
+            "seq", // TODO either seq or ack has no information (remove it)
+            "ack",
+            "origin_id",
         ], // TCP
         4 => vec![
-            "rx_time",
-            "reply_src_port",
-            "reply_dst_port",
             "code",
             "tx_worker_id",
             "chaos_data",
+            "origin_id",
         ], // UDP/CHAOS
         _ => panic!("Undefined type."),
     });
