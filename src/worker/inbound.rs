@@ -304,6 +304,8 @@ fn parse_icmpv4(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>) -> Option<Reply> {
+    println!("Received ICMPv4 packet");
+    
     let (ip_result, payload, reply_dst) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload, dst)) => (ip_result, payload, dst),
         None => return None,
