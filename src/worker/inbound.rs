@@ -339,7 +339,7 @@ fn parse_icmpv4(
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
         // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
-        let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..2].try_into().unwrap());
+        let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..22].try_into().unwrap());
         // let reply_src = ip_result.value.unwrap(). TODO
 
         // if (probe_src != reply_dst) | (probe_dst != reply_src) {
