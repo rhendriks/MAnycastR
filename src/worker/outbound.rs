@@ -89,7 +89,7 @@ pub fn outbound(
                                 break 'outer;
                             }
                             // wait some time and try again
-                            thread::sleep(Duration::from_millis(100));
+                            sleep(Duration::from_millis(100));
                         }
                     };
                 }
