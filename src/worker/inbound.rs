@@ -310,6 +310,8 @@ fn parse_icmpv4(
         Some((ip_result, payload, dst)) => (ip_result, payload, dst),
         None => return None,
     };
+    
+    println!("parsed IP header");
 
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
@@ -331,11 +333,13 @@ fn parse_icmpv4(
             // If not, we discard it and await the next packet
             return None;
         }
+        
+        println!("parsed ICMP body");
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
         // let probe_src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
-        // let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+        let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
         // let reply_src = ip_result.value.unwrap(). TODO
 
         // if (probe_src != reply_dst) | (probe_dst != reply_src) {
@@ -345,7 +349,7 @@ fn parse_icmpv4(
         // TODO verify probe_dst (dst above) == ip_result.src
         // TODO get origin_id using probe_src
 
-        let origin_id = get_origin_id_v4(reply_dst, 0, 0, origin_map).unwrap(); // TODO return None if None
+        let origin_id = get_origin_id_v4(reply_dst, 0, 0, origin_map)?;
 
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
