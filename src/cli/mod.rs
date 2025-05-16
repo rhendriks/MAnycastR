@@ -627,7 +627,7 @@ impl CliClient {
             if path.unwrap().ends_with('/') {
                 // user provided a path, use default naming convention for file
                 format!(
-                    "{}{}{}{}.csv",
+                    "{}{}{}{}.csv.gz",
                     path.unwrap(),
                     filetype,
                     type_str,
@@ -640,7 +640,7 @@ impl CliClient {
         } else {
             // write file to current directory using default naming convention
             format!(
-                "./{}{}{}.csv",
+                "./{}{}{}.csv.gz",
                 filetype, type_str, timestamp_start_str
             )
         };
@@ -913,15 +913,19 @@ fn write_results(
         None
     };
 
-    let mut buffered_file_writer = BufWriter::new(file);
+    let buffered_file_writer = BufWriter::new(file);
+    let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
 
     // Write metadata to file
     for line in &md_file {
-        writeln!(buffered_file_writer, "{}", line).expect("Failed to write metadata line to Gzip stream");
+        // Ensure lines end with a newline if not already present in the string.
+        // writeln! automatically adds a newline.
+        if let Err(e) = writeln!(gz_encoder, "{}", line) {
+            eprintln!("Failed to write metadata line to Gzip stream: {}", e);
+        }
     }
-    
+
     // .gz writer
-    let gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
     let mut wtr_file = Writer::from_writer(gz_encoder);
     
 
