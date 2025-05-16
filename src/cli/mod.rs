@@ -913,6 +913,7 @@ fn write_results(
     measurement_type: u32,
     is_multi_origin: bool,
 ) {
+    println!("is multi origin {}", is_multi_origin);
     // CSV writer to command-line interface
     let mut wtr_cli = if cli {
         Some(Writer::from_writer(io::stdout()))
@@ -1045,6 +1046,7 @@ fn get_result(
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
+    println!("is multi origin result {}", is_multi_origin);
     let rx_worker_id = rx_worker_id.to_string();
     match result.value.unwrap() {
         ResultPing(ping) => {
