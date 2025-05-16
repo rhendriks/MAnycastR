@@ -304,10 +304,11 @@ fn parse_icmpv4(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>) -> Option<Reply> {
+    // TODO check IP identifier for each incoming packet to filter out unrelated packets
     let (ip_result, payload, reply_dst) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload, dst)) => (ip_result, payload, dst),
         None => return None,
-    }; // TODO every packet is being parsed here (even those unrelated to the measurement), we should only parse the packets that are related to the measurement
+    };
     
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
@@ -325,17 +326,12 @@ fn parse_icmpv4(
             return None;
         };
         let pkt_measurement_id = u32::from_be_bytes(s);
-        println!("pkt id: {}", pkt_measurement_id);
-        println!("measurement id: {}", measurement_id);
-        println!("icmp body len: {}", icmp_packet.body.len());
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 22) {
             // If not, we discard it and await the next packet
             return None;
         }
-
-        println!("parsed ICMP body");
-
+        
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
         // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
@@ -996,6 +992,9 @@ fn get_origin_id_v4(reply_dst: u32, reply_sport: u16, reply_dport: u16, origin_m
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst && origin.sport == reply_sport.into() && origin.dport == reply_dport.into() {
             return Some(origin.origin_id);
+        } else if origin.src.unwrap().get_v4() == reply_dst && 0 == reply_sport.into() && 0 == reply_dport.into() {
+            // ICMP replies have no port numbers
+            return Some(origin.origin_id);
         }
     }
     return None;
@@ -1004,6 +1003,9 @@ fn get_origin_id_v4(reply_dst: u32, reply_sport: u16, reply_dport: u16, origin_m
 fn get_origin_id_v6(reply_dst: u128, reply_sport: u16, reply_dport: u16, origin_map: &Vec<Origin>) -> Option<u32> {
     for origin in origin_map {
         if origin.src.unwrap().get_v6() == reply_dst && origin.sport == reply_sport.into() && origin.dport == reply_dport.into() {
+            return Some(origin.origin_id);
+        } else if origin.src.unwrap().get_v6() == reply_dst && 0 == reply_sport.into() && 0 == reply_dport.into() {
+            // ICMP replies have no port numbers
             return Some(origin.origin_id);
         }
     }
