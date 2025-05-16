@@ -305,16 +305,17 @@ fn parse_icmpv4(
     measurement_id: u32,
     origin_map: &Vec<Origin>) -> Option<Reply> {
     println!("Received ICMPv4 packet");
-    
+
     let (ip_result, payload, reply_dst) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload, dst)) => (ip_result, payload, dst),
         None => return None,
     };
-    
+
     println!("parsed IP header");
 
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
+        println!("parsed ICMP header");
         if *&icmp_packet.icmp_type != 0 {
             return None;
         } // Only parse ICMP echo replies
@@ -328,12 +329,13 @@ fn parse_icmpv4(
             return None;
         };
         let pkt_measurement_id = u32::from_be_bytes(s);
+        println!("pkt id: {}", pkt_measurement_id);
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
             return None;
         }
-        
+
         println!("parsed ICMP body");
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
@@ -646,11 +648,11 @@ fn parse_udpv4(
             // let reply_src = u32::from(ip_result.value.unwrap().src.unwrap().0);
 
             let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
-            
+
             if (probe_sport != reply_dport) | (probe_src != reply_dst)  { // (probe_dst != reply_src) | TODO
                 return None; // spoofed reply
             }
-            
+
             Some(udp_payload)
         } else if measurement_type == 4 {
             parse_chaos(udp_packet.body.as_slice())
@@ -709,7 +711,7 @@ fn parse_udpv6(
         {
             return None;
         }
-        
+
         let reply_sport = value.source_port;
         let reply_dport = value.destination_port;
 
@@ -719,11 +721,11 @@ fn parse_udpv6(
             .as_nanos() as u64;
         let payload = if measurement_type == 2 {
             let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v6(value.body.as_slice())?;
-            
+
             if (probe_sport != reply_dport) | (probe_src != reply_dst)  { // (probe_dst != reply_src) | TODO
                 return None; // spoofed reply
             }
-            
+
             Some(udp_payload)
         } else if measurement_type == 4 {
             parse_chaos(value.body.as_slice())
