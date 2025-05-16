@@ -572,6 +572,7 @@ impl CliClient {
             "[CLI] Measurement started at {}",
             timestamp_start.format("%H:%M:%S")
         );
+        // TODO get worker_id to hostname mapping
 
         // Progress bar
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
@@ -983,6 +984,7 @@ fn write_results(
 ///
 /// * 'measurement_type' - The type of measurement being performed
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
+    // TODO include column origin_id (if multiple origins are used) (origin is 0 (single anycast origin) or MAX (unicast))
     // Information contained in TaskResult
     let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl"];
     // Information contained in IPv4 header
