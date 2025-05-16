@@ -646,8 +646,7 @@ impl CliClient {
         };
 
         // Create the output file
-        let mut file = File::create(file_path.clone())
-            .expect(format!("Unable to create file at {}", file_path).as_str());
+        let file = File::create(file_path).expect("Unable to create file");
         
         let md_file = get_metadata(
             is_divide,
@@ -843,29 +842,29 @@ fn get_metadata(
 ) -> Vec<String> {
     let mut md_file = Vec::new();
     if is_divide {
-        md_file.push("# Divide-and-conquer measurement\n".to_string());
+        md_file.push("# Divide-and-conquer measurement".to_string());
     }
-    md_file.push(format!("# Origin used: {}\n", origin_str).to_string());
-    md_file.push(format!("# Hitlist{}: {}\n", if is_shuffle { " (shuffled)" } else { "" }, hitlist).to_string());
-    md_file.push(format!("# Measurement type: {}\n", type_str).to_string());
+    md_file.push(format!("# Origin used: {}", origin_str).to_string());
+    md_file.push(format!("# Hitlist{}: {}", if is_shuffle { " (shuffled)" } else { "" }, hitlist).to_string());
+    md_file.push(format!("# Measurement type: {}", type_str).to_string());
     // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
-    md_file.push(format!("# Probing rate: {}\n", probing_rate.with_separator()).to_string());
-    md_file.push(format!("# Interval: {}\n", interval).to_string());
-    md_file.push(format!("# Start measurement: {}\n", timestamp_start_str).to_string());
-    md_file.push(format!("# Expected measurement length (seconds): {:.6}\n", expected_length).to_string());
+    md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()).to_string());
+    md_file.push(format!("# Interval: {}", interval).to_string());
+    md_file.push(format!("# Start measurement: {}", timestamp_start_str).to_string());
+    md_file.push(format!("# Expected measurement length (seconds): {:.6}", expected_length).to_string());
     if active_workers.len() < all_workers.len() {
         md_file.push(
-            format!("# Selective probing using the following workers: {:?}\n", active_workers).to_string(),
+            format!("# Selective probing using the following workers: {:?}", active_workers).to_string(),
         );
     }
-    md_file.push("# Connected workers:\n".to_string());  // TODO consider writing full hostnames in results and omitting this
+    md_file.push("# Connected workers:".to_string());  // TODO consider writing full hostnames in results and omitting this
     for (id, metadata) in all_workers {
-        md_file.push(format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).to_string())
+        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, metadata.hostname).to_string())
     }
 
     // Write configurations used for the measurement
     if is_config {
-        md_file.push("# Configurations:\n".to_string());
+        md_file.push("# Configurations:".to_string());
         for configuration in configurations {
             let src = IP::from(
                 configuration
@@ -880,7 +879,7 @@ fn get_metadata(
             } else {
                 configuration.worker_id.to_string()
             };
-            md_file.push(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
+            md_file.push(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
         }
     }
 
@@ -985,7 +984,7 @@ fn write_results(
 /// * 'measurement_type' - The type of measurement being performed
 fn get_header(measurement_type: u32) -> Vec<&'static str> {
     // Information contained in TaskResult
-    let mut header = vec!["rx_worker_id, reply_src_addr, ttl"];
+    let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl"];
     // Information contained in IPv4 header
     header.append(&mut match measurement_type {
         1 => vec![
