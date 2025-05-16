@@ -21,6 +21,10 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 use flate2::read::GzDecoder;
 
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use std::io::BufWriter;
+
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, udp_payload::Value::DnsARecord,
@@ -32,6 +36,7 @@ use custom_module::manycastr::{
 use custom_module::{Separated, IP};
 
 use crate::custom_module;
+use crate::custom_module::manycastr::Metadata;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -643,10 +648,7 @@ impl CliClient {
         // Create the output file
         let mut file = File::create(file_path.clone())
             .expect(format!("Unable to create file at {}", file_path).as_str());
-
-        // Temporary output file (for writing live results to)
-        // let temp_file = File::create("manycastr_results_feed").expect("Unable to create file");
-        
+        // TODO create wtr_file here
         write_metadata(
             &mut file,
             is_divide,
@@ -837,7 +839,7 @@ fn write_metadata(
     timestamp_start_str: String,
     expected_length: f32,
     active_workers: Vec<u32>,
-    all_workers: &HashMap<u32, custom_module::WorkerMetadata>, // TODO
+    all_workers: &HashMap<u32, Metadata>,
     configurations: Vec<Configuration>,
     is_config: bool,
 ) {
@@ -860,10 +862,10 @@ fn write_metadata(
                 active_workers
             )
                 .as_ref(),
-        )?;
+        ).expect("Failed to write active workers");;
     }
     file.write_all(b"# Connected workers:\n")?;
-    for (id, metadata) in &all_workers {
+    for (id, metadata) in all_workers {
         file.write_all(
             format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref(), // TODO consider writing full hostnames in results and omitting this
         )
@@ -918,10 +920,6 @@ fn write_results(
     } else {
         None
     };
-
-    // Results file
-    let mut wtr_file = Writer::from_writer(file);
-
     // Write header
     let header = get_header(measurement_type);
     if cli {
@@ -963,6 +961,7 @@ fn write_results(
             wtr_file.flush().expect("Failed to flush file");
         }
         rx.close();
+        wtr_file.flush().expect("Failed to flush file");
     });
 }
 
