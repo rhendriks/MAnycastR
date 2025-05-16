@@ -985,6 +985,8 @@ fn parse_tcpv6(
 }
 
 fn get_origin_id_v4(reply_dst: u32, reply_sport: u16, reply_dport: u16, origin_map: &Vec<Origin>) -> Option<u32> {
+    println!("{:?}", origin_map);
+    println!("reply_dst: {}, reply_sport: {}, reply_dport: {}", reply_dst, reply_sport, reply_dport);
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst && origin.sport == reply_sport.into() && origin.dport == reply_dport.into() {
             return Some(origin.origin_id);
