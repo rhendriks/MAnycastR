@@ -304,15 +304,11 @@ fn parse_icmpv4(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>) -> Option<Reply> {
-    println!("Received ICMPv4 packet");
-
     let (ip_result, payload, reply_dst) = match parse_ipv4(packet_bytes) {
         Some((ip_result, payload, dst)) => (ip_result, payload, dst),
         None => return None,
-    };
-
-    println!("parsed IP header");
-
+    }; // TODO every packet is being parsed here (even those unrelated to the measurement), we should only parse the packets that are related to the measurement
+    
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
         println!("parsed ICMP header");
