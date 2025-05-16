@@ -132,9 +132,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             let file = File::open(conf_file)
                 .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
+            let mut origin_id = 0;
             let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
                 .lines()
                 .filter_map(|l| {
+                    origin_id += 1;
                     let line = l.expect("Unable to read configuration line");
                     if line.starts_with("#") {
                         return None;
@@ -167,7 +169,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src: Some(src),
                             sport: sport.into(),
                             dport: dport.into(),
-                            origin_id: 0, // TODO
+                            origin_id,
                         }),
                     })
                 })
@@ -199,22 +201,21 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         63853
                     }
                 });
-
-            let origin_id = 0; // TODO
+            
 
             if worker_ids.is_empty() { // All workers
                 vec![Configuration {
                     worker_id: u32::MAX, // All clients
-                    origin: Some(Origin { src, sport, dport, origin_id })
+                    origin: Some(Origin { src, sport, dport, origin_id: 0 })
                 }]
             } else if is_unicast { // No configurations for unicast measurements
                 vec![]
-            } else {
+            } else { // list of worker IDs defined
                 worker_ids
                     .iter()
                     .map(|&worker_id| Configuration {
                         worker_id,
-                        origin: Some(Origin { src, sport, dport, origin_id }),
+                        origin: Some(Origin { src, sport, dport, origin_id: 0 }),
                     })
                     .collect()
             }
@@ -978,8 +979,6 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
             "code",
             "tx_time",
             "tx_worker_id",
-            "probe_src_port",
-            "probe_dst_port",
         ], // UDP/DNS
         3 => vec![
             "rx_time",
