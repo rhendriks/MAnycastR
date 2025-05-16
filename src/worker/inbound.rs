@@ -326,6 +326,8 @@ fn parse_icmpv4(
         };
         let pkt_measurement_id = u32::from_be_bytes(s);
         println!("pkt id: {}", pkt_measurement_id);
+        println!("measurement id: {}", measurement_id);
+        println!("icmp body len: {}", icmp_packet.body.len());
         // Make sure that this packet belongs to this measurement
         if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
             // If not, we discard it and await the next packet
