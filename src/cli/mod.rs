@@ -983,7 +983,10 @@ fn write_results(
 /// # Arguments
 ///
 /// * 'measurement_type' - The type of measurement being performed
-fn get_header(measurement_type: u32) -> Vec<&'static str> {
+fn get_header(
+    measurement_type: u32,
+    is_multi_origin: bool,
+) -> Vec<&'static str> {
     // TODO include column origin_id (if multiple origins are used) (origin is 0 (single anycast origin) or MAX (unicast))
     // Information contained in TaskResult
     let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl", "rx_time"];
@@ -998,21 +1001,23 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
             "code",
             "tx_time",
             "tx_worker_id",
-            "origin_id",
         ], // UDP/DNS
         3 => vec![
             "seq", // TODO either seq or ack has no information (remove it)
             "ack",
-            "origin_id",
         ], // TCP
         4 => vec![
             "code",
             "tx_worker_id",
             "chaos_data",
-            "origin_id",
         ], // UDP/CHAOS
         _ => panic!("Undefined type."),
     });
+    
+    if is_multi_origin {
+        header.push("origin_id");
+    }
+    
 
     header
 }
@@ -1026,8 +1031,13 @@ fn get_header(measurement_type: u32) -> Vec<&'static str> {
 /// * `x_worker_id` - The worker ID of the receiver
 ///
 /// * `measurement_type` - The type of measurement being performed
-fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<String> {
+fn get_result(
+    result: Reply,
+    rx_worker_id: u32,
+    measurement_type: u32
+) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
+    let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
     match result.value.unwrap() {
         ResultPing(ping) => {
@@ -1041,16 +1051,21 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             let payload = ping.payload.unwrap();
             let tx_time = payload.tx_time.to_string();
             let tx_worker_id = payload.tx_worker_id.to_string();
-
-            return vec![
+            
+            let mut result = vec![
                 rx_worker_id,
                 reply_src,
                 ttl,
                 rx_time,
                 tx_time,
                 tx_worker_id,
-                origin_id,
             ];
+            
+            if is_multi_origin {
+                result.push(origin_id);
+            }
+
+            return result;
         }
         ResultUdp(udp) => {
             let rx_time = udp.rx_time.to_string();
@@ -1065,8 +1080,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                 if measurement_type == 2 {
                     let tx_time = "-1".to_string();
                     let tx_worker_id = "-1".to_string();
-
-                    return vec![
+                    
+                    let mut result = vec![
                         rx_worker_id,
                         reply_src,
                         ttl,
@@ -1074,13 +1089,18 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                         reply_code,
                         tx_time,
                         tx_worker_id,
-                        origin_id,
                     ];
+                    
+                    if is_multi_origin {
+                        result.push(origin_id);
+                    }
+
+                    return result;
                 } else if measurement_type == 4 {
                     let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
-
-                    return vec![
+                    
+                    let mut result = vec![
                         rx_worker_id,
                         reply_src,
                         ttl,
@@ -1088,8 +1108,13 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                         reply_code,
                         tx_worker_id,
                         chaos,
-                        origin_id,
                     ];
+                    
+                    if is_multi_origin {
+                        result.push(origin_id);
+                    }
+
+                    return result;
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
@@ -1101,8 +1126,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                 Some(DnsARecord(dns_a_record)) => {
                     let tx_time = dns_a_record.tx_time.to_string();
                     let tx_worker_id = dns_a_record.tx_worker_id.to_string();
-
-                    return vec![
+                    
+                    let mut result = vec![
                         rx_worker_id,
                         reply_src,
                         ttl,
@@ -1110,14 +1135,19 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                         reply_code,
                         tx_time,
                         tx_worker_id,
-                        origin_id,
                     ];
+                    
+                    if is_multi_origin {
+                        result.push(origin_id);
+                    }
+
+                    return result;
                 }
                 Some(DnsChaos(dns_chaos)) => {
                     let tx_worker_id = dns_chaos.tx_worker_id.to_string();
                     let chaos = dns_chaos.chaos_data;
-
-                    return vec![
+                    
+                    let mut result = vec![
                         rx_worker_id,
                         reply_src,
                         ttl,
@@ -1125,8 +1155,13 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
                         reply_code,
                         tx_worker_id,
                         chaos,
-                        origin_id,
                     ];
+                    
+                    if is_multi_origin {
+                        result.push(origin_id);
+                    }
+
+                    return result;
                 }
                 None => {
                     panic!("No payload found for UDP result!");
@@ -1140,16 +1175,21 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32) -> Vec<St
             let ttl = ip_result.ttl.to_string();
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
-
-            return vec![
+            
+            let mut result = vec![
                 rx_worker_id,
                 reply_src,
                 ttl,
                 rx_time,
                 seq,
                 ack,
-                origin_id,
             ];
+            
+            if is_multi_origin {
+                result.push(origin_id);
+            }
+
+            return result;
         }
     }
 }
