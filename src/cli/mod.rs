@@ -458,8 +458,8 @@ impl CliClient {
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
-        cli: bool,
-        shuffle: bool,
+        cli: bool, // TODO consider removing this
+        is_shuffle: bool,
         hitlist: &str,
         hitlist_length: usize,
         configurations: Vec<Configuration>,
@@ -613,12 +613,59 @@ impl CliClient {
         } else {
             format!("{}v4", type_str)
         };
+        
+        // Determine the type of measurement
+        let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
+
+        // Output file
+        let file_path = if path.is_some() {
+            if path.unwrap().ends_with('/') {
+                // user provided a path, use default naming convention for file
+                format!(
+                    "{}{}{}{}.csv",
+                    path.unwrap(),
+                    filetype,
+                    type_str,
+                    timestamp_start_str
+                )
+            } else {
+                // user provided a file (with possibly a path)
+                format!("{}", path.unwrap())
+            }
+        } else {
+            // write file to current directory using default naming convention
+            format!(
+                "./{}{}{}.csv",
+                filetype, type_str, timestamp_start_str
+            )
+        };
+
+        // Create the output file
+        let mut file = File::create(file_path.clone())
+            .expect(format!("Unable to create file at {}", file_path).as_str());
 
         // Temporary output file (for writing live results to)
-        let temp_file = File::create("manycastr_results_feed").expect("Unable to create file");
+        // let temp_file = File::create("manycastr_results_feed").expect("Unable to create file");
+        
+        write_metadata(
+            &mut file,
+            is_divide,
+            origin_str,
+            hitlist,
+            is_shuffle,
+            type_str,
+            probing_rate,
+            interval,
+            timestamp_start_str,
+            measurement_length,
+            active_workers.clone(),
+            &workers,
+            configurations.clone(),
+            is_config,
+        );
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, temp_file, measurement_type);
+        write_results(rx_r, cli, file, measurement_type);
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -643,6 +690,7 @@ impl CliClient {
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
         }
+
         is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
 
         let end = SystemTime::now()
@@ -665,119 +713,10 @@ impl CliClient {
             tx_r.send(TaskResult::default()).unwrap(); // Let the results channel know that we are done
             println!("[CLI] Measurement ended prematurely!");
         }
-
-        // Get current timestamp and create timestamp file encoding
-        let timestamp_end = Local::now();
-        let timestamp_end_str = format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-            timestamp_end.year(),
-            timestamp_end.month(),
-            timestamp_end.day(),
-            timestamp_end.hour(),
-            timestamp_end.minute(),
-            timestamp_end.second()
-        );
-
-        // Determine the type of measurement
-        let measurement_type = if is_unicast { "GCD_" } else { "MAnycast_" };
-
-        // Output file
-        let file_path = if path.is_some() {
-            if path.unwrap().ends_with('/') {
-                // user provided a path, use default naming convention for file
-                format!(
-                    "{}{}{}{}.csv",
-                    path.unwrap(),
-                    measurement_type,
-                    type_str,
-                    timestamp_end_str
-                )
-            } else {
-                // user provided a file (with possibly a path)
-                format!("{}", path.unwrap())
-            }
-        } else {
-            // write file to current directory using default naming convention
-            format!(
-                "./{}{}{}.csv",
-                measurement_type, type_str, timestamp_end_str
-            )
-        };
-
-        // Create the output file
-        let mut file = File::create(file_path.clone())
-            .expect(format!("Unable to create file at {}", file_path).as_str());
-
-        // Write metadata of measurement
-        if !graceful {
-            file.write_all(b"# Incomplete measurement\n")?;
-        } else {
-            file.write_all(b"# Completed measurement\n")?;
-        }
-        if is_divide {
-            file.write_all(b"# Divide-and-conquer measurement\n")?;
-        }
-        file.write_all(format!("# Origin used: {}\n", origin_str).as_ref())?;
-        if shuffle {
-            file.write_all(format!("# Hitlist (shuffled): {}\n", hitlist).as_ref())?;
-        } else {
-            file.write_all(format!("# Hitlist: {}\n", hitlist).as_ref())?;
-        }
-        file.write_all(format!("# Measurement type: {}\n", type_str).as_ref())?;
-        // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
-        file.write_all(format!("# Probing rate: {}\n", probing_rate.with_separator()).as_ref())?;
-        file.write_all(format!("# Interval: {}\n", interval).as_ref())?;
-        file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref())?;
-        file.write_all(format!("# End measurement: {}\n", timestamp_end_str).as_ref())?;
-        file.write_all(format!("# Measurement length (seconds): {:.6}\n", length).as_ref())?;
-        if active_workers.len() < workers.len() {
-            file.write_all(
-                format!(
-                    "# Selective probing using the following workers: {:?}\n",
-                    active_workers
-                )
-                .as_ref(),
-            )?;
-        }
-        file.write_all(b"# Connected workers:\n")?;
-        for (id, metadata) in &workers {
-            file.write_all(
-                format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref(),
-            )
-            .expect("Failed to write worker data");
-        }
-
-        // Write configurations used for the measurement
-        if is_config {
-            file.write_all(b"# Configurations:\n")?;
-            for configuration in configurations {
-                let src = IP::from(
-                    configuration
-                        .origin
-                        .clone()
-                        .unwrap()
-                        .src
-                        .expect("Invalid source address"),
-                )
-                .to_string();
-                let worker_id = if configuration.worker_id == u32::MAX {
-                    "ALL".to_string()
-                } else {
-                    configuration.worker_id.to_string()
-                };
-                file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
-            }
-        }
-
-        file.flush().expect("Failed to flush file");
-
+        
         tx_r.closed().await; // Wait for all results to be written to file
+        file.flush().expect("Unable to flush file");
 
-        // Output file
-        let mut temp_file = File::open("manycastr_results_feed").expect("Unable to create file");
-
-        io::copy(&mut temp_file, &mut file).expect("Unable to copy from temp to final"); // Copy live results to the output file
-        fs::remove_file("manycastr_results_feed").expect("Unable to remove temp file");
         Ok(())
     }
 
@@ -839,7 +778,7 @@ impl CliClient {
 
         Ok(client)
     }
-
+    
     /// Sends a list worker command to the orchestrator, awaits the result, and prints it to command-line.
     async fn list_workers(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Requesting workers list from orchestrator");
@@ -884,6 +823,76 @@ impl CliClient {
 
         Ok(())
     }
+}
+
+fn write_metadata(
+    file: &mut File,
+    is_divide: bool,
+    origin_str: String,
+    hitlist: &str,
+    is_shuffle: bool,
+    type_str: String,
+    probing_rate: u32,
+    interval: u32,
+    timestamp_start_str: String,
+    expected_length: f32,
+    active_workers: Vec<u32>,
+    all_workers: &HashMap<u32, custom_module::WorkerMetadata>, // TODO
+    configurations: Vec<Configuration>,
+    is_config: bool,
+) {
+    if is_divide {
+        file.write_all(b"# Divide-and-conquer measurement\n")
+            .expect("Failed to write divide-and-conquer metadata");;
+    }
+    file.write_all(format!("# Origin used: {}\n", origin_str).as_ref()).expect("Failed to write origin");
+    file.write_all(format!("# Hitlist{}: {}\n", if is_shuffle { " (shuffled)" } else { "" }, hitlist).as_ref()).expect("Failed to write hitlist");
+    file.write_all(format!("# Measurement type: {}\n", type_str).as_ref()).expect("Failed to write measurement type");
+    // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
+    file.write_all(format!("# Probing rate: {}\n", probing_rate.with_separator()).as_ref()).expect("Failed to write probing rate");
+    file.write_all(format!("# Interval: {}\n", interval).as_ref()).expect("Failed to write interval");
+    file.write_all(format!("# Start measurement: {}\n", timestamp_start_str).as_ref()).expect("Failed to write start timestamp");
+    file.write_all(format!("# Expected measurement length (seconds): {:.6}\n", expected_length).as_ref()).expect("Failed to write measurement length");
+    if active_workers.len() < all_workers.len() {
+        file.write_all(
+            format!(
+                "# Selective probing using the following workers: {:?}\n",
+                active_workers
+            )
+                .as_ref(),
+        )?;
+    }
+    file.write_all(b"# Connected workers:\n")?;
+    for (id, metadata) in &all_workers {
+        file.write_all(
+            format!("# \t * ID: {:<2}, hostname: {}\n", id, metadata.hostname).as_ref(), // TODO consider writing full hostnames in results and omitting this
+        )
+            .expect("Failed to write worker data");
+    }
+
+    // Write configurations used for the measurement
+    if is_config {
+        file.write_all(b"# Configurations:\n")?;
+        for configuration in configurations {
+            let src = IP::from(
+                configuration
+                    .origin
+                    .clone()
+                    .unwrap()
+                    .src
+                    .expect("Invalid source address"),
+            )
+                .to_string();
+            let worker_id = if configuration.worker_id == u32::MAX {
+                "ALL".to_string()
+            } else {
+                configuration.worker_id.to_string()
+            };
+            file.write_all(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}\n", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).as_ref()).expect("Failed to write configuration data");
+        }
+    }
+
+    file.flush().expect("Failed to flush file");
 }
 
 /// Writes the results to a file (and optionally to the command-line)
