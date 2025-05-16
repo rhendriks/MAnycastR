@@ -337,7 +337,7 @@ fn parse_icmpv4(
         println!("parsed ICMP body");
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-        let tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap());
+        let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
         // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
         let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..2].try_into().unwrap());
         // let reply_src = ip_result.value.unwrap(). TODO
@@ -418,7 +418,7 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
         }
 
         let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let tx_worker_id = u32::from_be_bytes(*&value.body[12..14].try_into().unwrap());
+        let tx_worker_id = u16::from_be_bytes(*&value.body[12..14].try_into().unwrap()) as u32;
         // let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
         // let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
 
