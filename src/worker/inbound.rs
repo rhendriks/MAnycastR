@@ -329,7 +329,7 @@ fn parse_icmpv4(
         println!("measurement id: {}", measurement_id);
         println!("icmp body len: {}", icmp_packet.body.len());
         // Make sure that this packet belongs to this measurement
-        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 24) {
+        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 22) { // TODO verify length (also include the URL length in the calculation, if it exists)
             // If not, we discard it and await the next packet
             return None;
         }
