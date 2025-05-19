@@ -36,7 +36,6 @@ use custom_module::manycastr::{
 use custom_module::{Separated, IP};
 
 use crate::custom_module;
-use crate::custom_module::manycastr::Metadata;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -55,15 +54,55 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
     // Connect with orchestrator
     println!("[CLI] Connecting to orchestrator - {}", server_address);
-    let grpc_client = CliClient::connect(server_address, fqdn)
+    let mut grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator")
         .send_compressed(CompressionEncoding::Zstd);
+
+    // Obtain connected worker information
+    let response = grpc_client
+        .list_workers(Request::new(Empty::default()))
+        .await
+        .expect("Connection to orchestrator failed");
+    
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() {
         // Perform the worker-list command
-        cli_client.list_workers().await
+        println!("[CLI] Requesting workers list from orchestrator");
+        // Pretty print to command-line
+        let mut table = Table::new();
+        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+        table.add_row(Row::new(vec![
+            Cell::new("Hostname")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Worker ID")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Status")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+        ]));
+
+
+        for worker in response.into_inner().workers {
+            let measurements_str = if worker.measurements.is_empty() {
+                "Idle".to_string()
+            } else {
+                format!("Active: {}", worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" "))
+            };
+
+            table.add_row(prettytable::row!(
+                worker.metadata.unwrap().hostname,
+                worker.worker_id,
+                measurements_str,
+            ));
+        }
+        table.printstd();
+        println!("[CLI] Total workers: {}", table.len() - 1);
+        
+        return Ok(());
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a MAnycastR measurement
         let is_unicast = matches.get_flag("unicast");
@@ -72,6 +111,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
+        
+        let workers: HashMap<u32, String> = response
+            .into_inner()
+            .workers
+            .into_iter()
+            .filter_map(|worker| {
+                worker
+                    .metadata
+                    .map(|metadata| (worker.worker_id, metadata.hostname))
+            })
+            .collect();
 
         // Get optional opt-out URL
         let url = matches
@@ -82,7 +132,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Source IP for the measurement
         let src = matches
             .get_one::<String>("address")
-            .map(|addr| Address::from(addr.clone()));
+            .map(|addr| Address::from(addr.to_string()));
 
         // Get the measurement type
         let measurement_type: u8 = match matches
@@ -435,6 +485,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 configurations,
                 path,
                 is_config,
+                workers,
             )
             .await
     } else {
@@ -470,6 +521,7 @@ impl CliClient {
         configurations: Vec<Configuration>,
         path: Option<&String>,
         is_config: bool,
+        workers: HashMap<u32, String>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.divide;
         let is_ipv6 = measurement_definition.ipv6;
@@ -500,25 +552,7 @@ impl CliClient {
                 )
             }
         };
-
-        // Obtain connected worker information for metadata
-        let response = self
-            .grpc_client
-            .list_workers(Request::new(Empty::default()))
-            .await
-            .expect("Connection to orchestrator failed");
-        let workers: HashMap<_, _> = response
-            .into_inner()
-            .workers
-            .into_iter()
-            .filter_map(|worker| {
-                worker
-                    .metadata
-                    .clone()
-                    .map(|metadata| (worker.worker_id, metadata))
-            })
-            .collect();
-
+        
         // Get the u32s of the workers that are active
         let active_workers = if measurement_definition.workers.is_empty() {
             workers.keys().cloned().collect() // All workers are active
@@ -784,54 +818,13 @@ impl CliClient {
 
         Ok(client)
     }
-    
-    /// Sends a list worker command to the orchestrator, awaits the result, and prints it to command-line.
-    async fn list_workers(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("[CLI] Requesting workers list from orchestrator");
-        let request = Request::new(Empty::default());
-        let response = self
-            .grpc_client
-            .list_workers(request)
-            .await
-            .expect("Connection to orchestrator failed");
-
-        // Pretty print to command-line
-        let mut table = Table::new();
-        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-        table.add_row(Row::new(vec![
-            Cell::new("Hostname")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Worker ID")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
-            Cell::new("Status")
-                .with_style(Attr::Bold)
-                .with_style(Attr::ForegroundColor(color::GREEN)),
-        ]));
-
-
-        for worker in response.into_inner().workers {
-            let measurements_str = if worker.measurements.is_empty() {
-                "Idle".to_string()
-            } else {
-                format!("Active: {}", worker.measurements.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" "))
-            };
-
-            table.add_row(prettytable::row!(
-                worker.metadata.unwrap().hostname,
-                worker.worker_id,
-                measurements_str,
-            ));
-        }
-        table.printstd();
-        println!("[CLI] Total workers: {}", table.len() - 1);
-
-        Ok(())
-    }
 }
 
-/// Returns a vector of lines containing the metadata for the measurement
+/// Returns a vector of lines containing the metadata of the measurement
+/// 
+/// # Arguments
+/// 
+/// Variables describing the measurement
 fn get_metadata(
     is_divide: bool,
     origin_str: String,
@@ -843,7 +836,7 @@ fn get_metadata(
     timestamp_start_str: String,
     expected_length: f32,
     active_workers: Vec<u32>,
-    all_workers: &HashMap<u32, Metadata>,
+    all_workers: &HashMap<u32, String>,
     configurations: Vec<Configuration>,
     is_config: bool,
 ) -> Vec<String> {
@@ -865,8 +858,8 @@ fn get_metadata(
         );
     }
     md_file.push("# Connected workers:".to_string());  // TODO consider writing full hostnames in results and omitting this
-    for (id, metadata) in all_workers {
-        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, metadata.hostname).to_string())
+    for (id, hostname) in all_workers {
+        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname).to_string())
     }
 
     // Write configurations used for the measurement
