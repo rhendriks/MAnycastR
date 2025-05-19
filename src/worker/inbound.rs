@@ -222,10 +222,6 @@ fn handle_results(
 fn parse_ipv4(
     packet_bytes: &[u8],
 ) -> Option<(IpResult, PacketPayload, u32, u32)> {
-    // IPv4 20 minimum
-    if packet_bytes.len() < 20 {
-        return None;
-    }
 
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
@@ -305,10 +301,15 @@ fn parse_ipv6(
 fn parse_icmpv4(
     packet_bytes: &[u8],
     measurement_id: u32,
-    origin_map: &Vec<Origin>) -> Option<Reply> {
-    // TODO check IP identifier for each incoming packet to filter out unrelated packets
+    origin_map: &Vec<Origin>
+) -> Option<Reply> {
+    // ICMPv4 28 minimum (IPv4 header (20) + ICMP header (8)) + check it is an ICMP Echo reply TODO incorporate minimum payload size
+    if (packet_bytes.len() < 28) || (packet_bytes[20] != 0) {
+        return None;
+    }
+
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
-    
+
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
         println!("parsed ICMP header");
@@ -330,7 +331,7 @@ fn parse_icmpv4(
             // If not, we discard it and await the next packet
             return None;
         }
-        
+
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
         // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
@@ -612,6 +613,10 @@ fn parse_udpv4(
     measurement_type: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
+    // UDPv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
+    if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
+        return None;
+    }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
 
     // Obtain the payload
@@ -685,7 +690,7 @@ fn parse_udpv6(
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
-    
+
     // Obtain the payload
     if let PacketPayload::UDP { value } = payload {
         // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
@@ -887,8 +892,12 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 /// The function returns None if the packet is too short to contain a TCP header.
 fn parse_tcpv4(
     packet_bytes: &[u8],
-    origin_map: &Vec<Origin>,
+    origin_map: &Vec<Origin>, 
 ) -> Option<Reply> {
+    // TCPv4 40 minimum (IPv4 header (20) + TCP header (20)) + check for RST flag TODO incorporate minimum payload size
+    if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
+        return None;
+    }
     let (ip_result, payload,reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
 
     return if let PacketPayload::TCP { value: tcp_packet } = payload {
