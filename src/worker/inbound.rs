@@ -376,58 +376,52 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
     }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
 
-    // Obtain the payload
-    return if let PacketPayload::ICMP { value } = payload {
-        if *&value.icmp_type != 129 {
-            return None;
-        } // Only parse ICMP echo replies
-
-        if *&value.body.len() < 4 {
-            return None;
-        }
-        let s = if let Ok(s) = *&value.body[0..4].try_into() {
-            s
-        } else {
-            return None;
-        };
-        let pkt_measurement_id = u32::from_be_bytes(s);
-        // Make sure that this packet belongs to this measurement
-        if (pkt_measurement_id != measurement_id) | (value.body.len() < 46) {
-            // If not, we discard it and await the next packet
-            return None;
-        }
-
-        let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
-        let tx_worker_id = u16::from_be_bytes(*&value.body[12..14].try_into().unwrap()) as u32;
-        let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
-        let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
-
-        if (probe_src != reply_dst) | (probe_dst != reply_src) {
-            return None; // spoofed reply
-        }
-
-        let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map)?;
-
-        let rx_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        // Create a Reply for the received ping reply
-        Some(Reply {
-            value: Some(Value::Ping(PingResult {
-                payload: Some(PingPayload {
-                    tx_time,
-                    tx_worker_id,
-                }),
-            })),
-            ip_result: Some(ip_result),
-            rx_time,
-            origin_id,
-        })
+    // Parse the ICMP header
+    let icmp_packet = if let PacketPayload::ICMP { value } = payload {
+        value
     } else {
-        None
+        return None;
     };
+    // Obtain the payload
+    if *&icmp_packet.icmp_type != 129 {
+        return None;
+    } // Only parse ICMP echo replies
+
+    let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?;
+    // Make sure that this packet belongs to this measurement
+    if u32::from_be_bytes(pkt_measurement_id) != measurement_id {
+        // If not, we discard it and await the next packet
+        return None;
+    }
+
+    let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
+    let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
+    let probe_src = u128::from_be_bytes(*&icmp_packet.body[14..30].try_into().unwrap());
+    let probe_dst = u128::from_be_bytes(*&icmp_packet.body[30..46].try_into().unwrap());
+
+    if (probe_src != reply_dst) | (probe_dst != reply_src) {
+        return None; // spoofed reply
+    }
+
+    let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map)?;
+
+    let rx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    // Create a Reply for the received ping reply
+    Some(Reply {
+        value: Some(Value::Ping(PingResult {
+            payload: Some(PingPayload {
+                tx_time,
+                tx_worker_id,
+            }),
+        })),
+        ip_result: Some(ip_result),
+        rx_time,
+        origin_id,
+    })
 }
 
 // /// ICMP Destination unreachable parser, used for DNS A record probing. TODO
