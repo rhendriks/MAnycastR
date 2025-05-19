@@ -1100,13 +1100,10 @@ fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str>
     let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
     // Information contained in IPv4 header
     header.append(&mut match measurement_type {
-        1 => vec!["tx_time", "tx_worker_id"],         // ICMP
-        2 => vec!["code", "tx_time", "tx_worker_id"], // UDP/DNS
-        3 => vec![
-            "seq", // TODO either seq or ack has no information (remove it)
-            "ack",
-        ], // TCP
-        4 => vec!["code", "tx_worker_id", "chaos_data"], // UDP/CHAOS
+        1 => vec!["tx_time", "tx_worker_id"], // ICMP
+        2 => vec!["tx_time", "tx_worker_id"], // UDP/DNS
+        3 => vec!["seq"], // TCP
+        4 => vec!["tx_worker_id", "chaos_data"], // UDP/CHAOS
         _ => panic!("Undefined type."),
     });
 
@@ -1142,34 +1139,25 @@ fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
             row.push(payload.tx_worker_id.to_string());
         }
         ResultUdp(udp) => {
-            row.push(udp.code.to_string());
+            // DNS reply
+            let payload = udp.payload.expect("No payload found for UDP result!");
 
-            if udp.payload == None {
-                // ICMP dest. unreachable reply
-                row.push("-1".to_string()); // tx_time
-                row.push("-1".to_string()); // tx_worker_id (A record) chaos record (CHAOS)
-            } else {
-                // DNS reply
-                let payload = udp.payload.expect("No payload found for UDP result!");
-
-                match payload.value {
-                    Some(DnsARecord(dns_a_record)) => {
-                        row.push(dns_a_record.tx_time.to_string());
-                        row.push(dns_a_record.tx_worker_id.to_string());
-                    }
-                    Some(DnsChaos(dns_chaos)) => {
-                        row.push(dns_chaos.tx_worker_id.to_string());
-                        row.push(dns_chaos.chaos_data);
-                    }
-                    None => {
-                        panic!("No payload found for UDP result!");
-                    }
+            match payload.value {
+                Some(DnsARecord(dns_a_record)) => {
+                    row.push(dns_a_record.tx_time.to_string());
+                    row.push(dns_a_record.tx_worker_id.to_string());
+                }
+                Some(DnsChaos(dns_chaos)) => {
+                    row.push(dns_chaos.tx_worker_id.to_string());
+                    row.push(dns_chaos.chaos_data);
+                }
+                None => {
+                    panic!("No payload found for UDP result!");
                 }
             }
         }
         ResultTcp(tcp) => {
             row.push(tcp.seq.to_string());
-            row.push(tcp.ack.to_string());
         }
     }
 

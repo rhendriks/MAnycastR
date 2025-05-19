@@ -182,8 +182,7 @@ message PingPayload {
 
 // UDP result contains the receive time, source and destination port, an ipv4 result, the UDP payload, and a code (0-15 for ICMP codes, 16 => UDP response)
 message UDPResult {
-  fixed32 code = 1;
-  UDPPayload payload = 2;
+  UDPPayload payload = 1;
 }
 
 // UDP payload, which contains the transmission time, source/dest address, and the sender worker ID
@@ -209,5 +208,4 @@ message DNS_CHAOS {
 // TCP result which contains a receive time, an ipv4 result, source & destination ports, and the ack & seq numbers
 message TCPResult {
   fixed32 seq = 1;
-  fixed32 ack = 2;
 }

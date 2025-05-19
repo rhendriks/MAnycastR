@@ -480,7 +480,7 @@ fn parse_udpv4(
 
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(UdpResult { code: 16, payload })),
+        value: Some(Value::Udp(UdpResult { payload })),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
@@ -553,7 +553,7 @@ fn parse_udpv6(
 
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(UdpResult { code: 16, payload })),
+        value: Some(Value::Udp(UdpResult { payload })),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
@@ -714,7 +714,6 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     Some(Reply {
         value: Some(Value::Tcp(TcpResult {
             seq: tcp_packet.seq,
-            ack: tcp_packet.ack,
         })),
         ip_result: Some(ip_result),
         rx_time,
@@ -764,7 +763,6 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     Some(Reply {
         value: Some(Value::Tcp(TcpResult {
             seq: tcp_packet.seq,
-            ack: tcp_packet.ack,
         })),
         ip_result: Some(ip_result),
         rx_time,
