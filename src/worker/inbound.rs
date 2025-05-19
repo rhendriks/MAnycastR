@@ -741,37 +741,34 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     }
     let (ip_result, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes)?;
     // cannot filter out spoofed packets as the probe_dst is unknown
-
-    return if let PacketPayload::TCP { value: tcp_packet } = payload {
-        if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) {
-            // We assume all packets with RST or RST+ACK flags are replies
-            return None;
-        }
-
-        let rx_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        let origin_id = get_origin_id_v6(
-            reply_dst,
-            tcp_packet.source_port,
-            tcp_packet.destination_port,
-            origin_map,
-        )?;
-
-        Some(Reply {
-            value: Some(Value::Tcp(TcpResult {
-                seq: tcp_packet.seq,
-                ack: tcp_packet.ack,
-            })),
-            ip_result: Some(ip_result),
-            rx_time,
-            origin_id,
-        })
+    
+    let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
+        tcp_packet
     } else {
-        None
+        return None;
     };
+
+    let rx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    let origin_id = get_origin_id_v6(
+        reply_dst,
+        tcp_packet.source_port,
+        tcp_packet.destination_port,
+        origin_map,
+    )?;
+
+    Some(Reply {
+        value: Some(Value::Tcp(TcpResult {
+            seq: tcp_packet.seq,
+            ack: tcp_packet.ack,
+        })),
+        ip_result: Some(ip_result),
+        rx_time,
+        origin_id,
+    })
 }
 
 fn get_origin_id_v4(
@@ -784,8 +781,8 @@ fn get_origin_id_v4(
     println!("origin_map: {:?}", origin_map);
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst
-            && origin.sport == reply_sport.into()
-            && origin.dport == reply_dport.into()
+            && origin.sport == reply_dport.into()
+            && origin.dport == reply_sport.into()
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v4() == reply_dst
@@ -807,8 +804,8 @@ fn get_origin_id_v6(
 ) -> Option<u32> {
     for origin in origin_map {
         if origin.src.unwrap().get_v6() == reply_dst
-            && origin.sport == reply_sport.into()
-            && origin.dport == reply_dport.into()
+            && origin.sport == reply_dport.into()
+            && origin.dport == reply_sport.into()
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v6() == reply_dst
