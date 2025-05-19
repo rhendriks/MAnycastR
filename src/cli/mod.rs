@@ -1043,9 +1043,8 @@ fn get_header(
     measurement_type: u32,
     is_multi_origin: bool,
 ) -> Vec<&'static str> {
-    // TODO include column origin_id (if multiple origins are used) (origin is 0 (single anycast origin) or MAX (unicast))
     // Information contained in TaskResult
-    let mut header = vec!["rx_worker_id", "reply_src_addr", "ttl", "rx_time"];
+    let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
     // Information contained in IPv4 header
     header.append(&mut match measurement_type {
         1 => vec![
@@ -1094,10 +1093,14 @@ fn get_result(
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
+    let rx_time = result.rx_time.to_string();
+    
+    let mut row = vec![
+        rx_worker_id,
+        rx_time,
+    ];
     match result.value.unwrap() {
         ResultPing(ping) => {
-            let rx_time = ping.rx_time.to_string();
-
             let ip_result = ping.ip_result.unwrap();
             let reply_src = ip_result.get_src_str();
             let ttl = ip_result.ttl.to_string();
@@ -1107,23 +1110,14 @@ fn get_result(
             let tx_time = payload.tx_time.to_string();
             let tx_worker_id = payload.tx_worker_id.to_string();
             
-            let mut result = vec![
-                rx_worker_id,
+            row.append(&mut vec![
                 reply_src,
                 ttl,
-                rx_time,
                 tx_time,
                 tx_worker_id,
-            ];
-            
-            if is_multi_origin {
-                result.push(origin_id);
-            }
-
-            return result;
+            ]);
         }
         ResultUdp(udp) => {
-            let rx_time = udp.rx_time.to_string();
             let reply_code = udp.code.to_string();
 
             let ip_result = udp.ip_result.unwrap();
@@ -1136,115 +1130,81 @@ fn get_result(
                     let tx_time = "-1".to_string();
                     let tx_worker_id = "-1".to_string();
                     
-                    let mut result = vec![
-                        rx_worker_id,
+                    row.append(&mut vec![
                         reply_src,
                         ttl,
-                        rx_time,
                         reply_code,
                         tx_time,
                         tx_worker_id,
-                    ];
-                    
-                    if is_multi_origin {
-                        result.push(origin_id);
-                    }
-
-                    return result;
+                    ]);
                 } else if measurement_type == 4 {
                     let tx_worker_id = "-1".to_string();
                     let chaos = "-1".to_string();
                     
-                    let mut result = vec![
-                        rx_worker_id,
+                    row.append(&mut vec![
                         reply_src,
                         ttl,
-                        rx_time,
                         reply_code,
                         tx_worker_id,
                         chaos,
-                    ];
-                    
-                    if is_multi_origin {
-                        result.push(origin_id);
-                    }
-
-                    return result;
+                    ]);
                 } else {
                     panic!("No payload found for unexpected UDP result!");
                 }
-            }
+            } else {
+                // DNS reply
+                let payload = udp.payload.expect("No payload found for UDP result!");
 
-            let payload = udp.payload.expect("No payload found for UDP result!");
+                match payload.value {
+                    Some(DnsARecord(dns_a_record)) => {
+                        let tx_time = dns_a_record.tx_time.to_string();
+                        let tx_worker_id = dns_a_record.tx_worker_id.to_string();
 
-            match payload.value {
-                Some(DnsARecord(dns_a_record)) => {
-                    let tx_time = dns_a_record.tx_time.to_string();
-                    let tx_worker_id = dns_a_record.tx_worker_id.to_string();
-                    
-                    let mut result = vec![
-                        rx_worker_id,
-                        reply_src,
-                        ttl,
-                        rx_time,
-                        reply_code,
-                        tx_time,
-                        tx_worker_id,
-                    ];
-                    
-                    if is_multi_origin {
-                        result.push(origin_id);
+                        row.append(&mut vec![
+                            reply_src,
+                            ttl,
+                            reply_code,
+                            tx_time,
+                            tx_worker_id,
+                        ]);
                     }
+                    Some(DnsChaos(dns_chaos)) => {
+                        let tx_worker_id = dns_chaos.tx_worker_id.to_string();
+                        let chaos = dns_chaos.chaos_data;
 
-                    return result;
-                }
-                Some(DnsChaos(dns_chaos)) => {
-                    let tx_worker_id = dns_chaos.tx_worker_id.to_string();
-                    let chaos = dns_chaos.chaos_data;
-                    
-                    let mut result = vec![
-                        rx_worker_id,
-                        reply_src,
-                        ttl,
-                        rx_time,
-                        reply_code,
-                        tx_worker_id,
-                        chaos,
-                    ];
-                    
-                    if is_multi_origin {
-                        result.push(origin_id);
+                        row.append(&mut vec![
+                            reply_src,
+                            ttl,
+                            reply_code,
+                            tx_worker_id,
+                            chaos,
+                        ]);
                     }
-
-                    return result;
-                }
-                None => {
-                    panic!("No payload found for UDP result!");
+                    None => {
+                        panic!("No payload found for UDP result!");
+                    }
                 }
             }
         }
         ResultTcp(tcp) => {
-            let rx_time = tcp.rx_time.to_string();
             let ip_result = tcp.ip_result.unwrap();
             let reply_src = ip_result.get_src_str();
             let ttl = ip_result.ttl.to_string();
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
             
-            let mut result = vec![
-                rx_worker_id,
+            row.append(&mut vec![
                 reply_src,
                 ttl,
-                rx_time,
                 seq,
                 ack,
-            ];
-            
-            if is_multi_origin {
-                result.push(origin_id);
-            }
-
-            return result;
+            ]);
         }
     }
+
+    if is_multi_origin {
+        row.push(origin_id);
+    }
+
+    return row;
 }

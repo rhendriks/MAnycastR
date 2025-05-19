@@ -145,7 +145,8 @@ message Reply {
     UDPResult udp = 2;
     TCPResult tcp = 3;
   }
-  fixed32 origin_id = 4; // ID of the destination origin (ip, ports) of the reply
+  uint64 rx_time = 4; // receive time of the reply
+  fixed32 origin_id = 5; // ID of the destination origin (ip, ports) of the reply
 }
 
 // IPResult, contains either an IPv4Result or an IPv6Result, and the TTL
@@ -169,9 +170,8 @@ message IPv6Result {
 
 // Result of a ping which has a receive time, an ipv4 result, and the ping payload information
 message PingResult {
-  uint64 rx_time = 1;
-  IPResult ip_result = 2;
-  PingPayload payload = 3;
+  IPResult ip_result = 1;
+  PingPayload payload = 2;
 }
 
 // PingPayload. The payload of a ping which contains the transmission time and the sender worker ID
@@ -182,10 +182,9 @@ message PingPayload {
 
 // UDP result contains the receive time, source and destination port, an ipv4 result, the UDP payload, and a code (0-15 for ICMP codes, 16 => UDP response)
 message UDPResult {
-  uint64 rx_time = 1;
-  fixed32 code = 2;
-  IPResult ip_result = 3;
-  UDPPayload payload = 4;
+  fixed32 code = 1;
+  IPResult ip_result = 2;
+  UDPPayload payload = 3;
 }
 
 // UDP payload, which contains the transmission time, source/dest address, and the sender worker ID
@@ -210,8 +209,7 @@ message DNS_CHAOS {
 
 // TCP result which contains a receive time, an ipv4 result, source & destination ports, and the ack & seq numbers
 message TCPResult {
-  uint64 rx_time = 1;
-  IPResult ip_result = 2;
-  fixed32 seq = 3;
-  fixed32 ack = 4;
+  IPResult ip_result = 1;
+  fixed32 seq = 2;
+  fixed32 ack = 3;
 }
