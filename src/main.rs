@@ -4,17 +4,17 @@
 //!
 //! This includes:
 //!
-//! i) Measuring external anycast infrastructure
-//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
-//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
-//!
-//! ii) Measuring anycast infrastructure itself
+//! i) Measuring anycast infrastructure itself
 //! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
 //! * [Site flipping](https://arxiv.org/pdf/2503.14351) (detecting network regions experiencing anycast site flipping)
 //! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
 //! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
 //!
+//! ii) Measuring external anycast infrastructure
+//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
+//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
+//! 
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 //!
 //! # The components
@@ -197,7 +197,7 @@
 //! * Responsiveness pre-check
 //! * Anycast traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Multiple packets per <worker, target> pair
+//! * Support multiple packets per <worker, target> pair
 //! * Synchronous unicast and anycast measurements
 //! * Anycast latency using divide-and-conquer (probe 1; assess catching anycast site - probe 2; probe from catching site to obtain latency)
 
@@ -209,9 +209,6 @@ mod net;
 mod orchestrator;
 mod worker;
 
-// TODO reformat code
-// TODO reassess rustdoc
-// TODO update readme
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
