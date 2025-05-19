@@ -250,17 +250,6 @@ impl IpResult {
             None => String::from("None"),
         }
     }
-    // TODO remove
-    // pub fn get_dst_str(&self) -> String {
-    //     match &self.value {
-    //         Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
-    //         Some(manycastr::ip_result::Value::Ipv6(v6)) => {
-    //             let dst = v6.dst.expect("None IPv6 data type");
-    //             ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
-    //         }
-    //         None => String::from("None"),
-    //     }
-    // }
 }
 
 pub trait Separated {
