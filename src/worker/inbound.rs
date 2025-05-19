@@ -303,8 +303,8 @@ fn parse_icmpv4(
     measurement_id: u32,
     origin_map: &Vec<Origin>
 ) -> Option<Reply> {
-    // ICMPv4 28 minimum (IPv4 header (20) + ICMP header (8)) + check it is an ICMP Echo reply TODO incorporate minimum payload size
-    if (packet_bytes.len() < 28) || (packet_bytes[20] != 0) {
+    // ICMPv4 50 length (IPv4 header (20) + ICMP header (8) + ICMP body 22 bytes) + check it is an ICMP Echo reply
+    if (packet_bytes.len() != 50) || (packet_bytes[20] != 0) {
         return None;
     }
 
@@ -340,7 +340,7 @@ fn parse_icmpv4(
         if (probe_src != reply_dst) | (probe_dst != reply_src) {
             return None; // spoofed reply
         }
-    
+
         let origin_id = get_origin_id_v4(reply_dst, 0, 0, origin_map)?;
 
         let rx_time = SystemTime::now()
@@ -358,7 +358,7 @@ fn parse_icmpv4(
             })),
             ip_result: Some(ip_result),
             rx_time,
-            origin_id, // TODO
+            origin_id,
         })
     } else {
         None
@@ -410,7 +410,7 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
         let tx_worker_id = u16::from_be_bytes(*&value.body[12..14].try_into().unwrap()) as u32;
         let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
         let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
-        
+
         if (probe_src != reply_dst) | (probe_dst != reply_src) {
             return None; // spoofed reply
         }
@@ -432,7 +432,7 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
             })),
             ip_result: Some(ip_result),
             rx_time,
-            origin_id, // TODO
+            origin_id,
         })
     } else {
         None
@@ -859,10 +859,8 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
             })),
         });
     }
-
-    let dns_answer = DNSAnswer::from(record.body.as_slice());
-    let txt = TXTRecord::from(dns_answer.data.as_slice());
-    let chaos_data = txt.txt;
+    
+    let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;
 
     return Some(UdpPayload {
         value: Some(udp_payload::Value::DnsChaos(DnsChaos {
@@ -887,10 +885,10 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 /// The function returns None if the packet is too short to contain a TCP header.
 fn parse_tcpv4(
     packet_bytes: &[u8],
-    origin_map: &Vec<Origin>, 
+    origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // TCPv4 40 minimum (IPv4 header (20) + TCP header (20)) + check for RST flag TODO incorporate minimum payload size
-    if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
+    // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
+    if (packet_bytes.len() != 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
     let (ip_result, payload,reply_dst, _reply_src) = parse_ipv4(packet_bytes)?;
@@ -907,10 +905,7 @@ fn parse_tcpv4(
             .unwrap()
             .as_nanos() as u64;
 
-        let probe_sport = tcp_packet.source_port;
-        let probe_dport = tcp_packet.destination_port;
-
-        let origin_id = get_origin_id_v4(reply_dst, probe_sport, probe_dport, origin_map)?;
+        let origin_id = get_origin_id_v4(reply_dst, tcp_packet.source_port, tcp_packet.destination_port, origin_map)?;
 
         Some(Reply {
             value: Some(Value::Tcp(TcpResult {
