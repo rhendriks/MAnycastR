@@ -102,7 +102,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         table.printstd();
         println!("[CLI] Total workers: {}", table.len() - 1);
         
-        return Ok(());
+        Ok(())
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a MAnycastR measurement
         let is_unicast = matches.get_flag("unicast");
@@ -173,11 +173,21 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             },
         );
 
+        // Print selected workers
         if !worker_ids.is_empty() {
             println!(
-                "[CLI] Selective probing using the following workers: {:?}",
-                worker_ids
-            ); // TODO print worker hostnames
+                "[CLI] Selective probing using the following workers:",
+            );
+        }
+        for id in &worker_ids {
+            match workers.get(id) {
+                Some(hostname) => {
+                    println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
+                }
+                None => {
+                    panic!("Worker ID {} is not a connected worker!", id);
+                }
+            }
         }
 
         // Read the configuration file (unnecessary for unicast)
@@ -514,7 +524,7 @@ impl CliClient {
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
-        cli: bool, // TODO consider removing this
+        cli: bool,
         is_shuffle: bool,
         hitlist: &str,
         hitlist_length: usize,
@@ -606,7 +616,6 @@ impl CliClient {
             "[CLI] Measurement started at {}",
             timestamp_start.format("%H:%M:%S")
         );
-        // TODO get worker_id to hostname mapping
 
         // Progress bar
         let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
@@ -857,15 +866,15 @@ fn get_metadata(
             format!("# Selective probing using the following workers: {:?}", active_workers).to_string(),
         );
     }
-    md_file.push("# Connected workers:".to_string());  // TODO consider writing full hostnames in results and omitting this
+    md_file.push("# Connected workers:".to_string());
     for (id, hostname) in all_workers {
         md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname).to_string())
     }
-
+    
     // Write configurations used for the measurement
     if is_config {
         md_file.push("# Configurations:".to_string());
-        for configuration in configurations {
+        for configuration in &configurations {
             let src = IP::from(
                 configuration
                     .origin
@@ -879,7 +888,31 @@ fn get_metadata(
             } else {
                 configuration.worker_id.to_string()
             };
-            md_file.push(format!("# \t * worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
+            md_file.push(format!("# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}", worker_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
+        }
+        
+        if configurations.len() > 1 {
+            md_file.push("# Multiple origins used".to_string());
+            
+            for configuration in &configurations {
+                let src = IP::from(
+                    configuration
+                        .origin
+                        .clone()
+                        .unwrap()
+                        .src
+                        .expect("Invalid source address"),
+                ).to_string();
+                
+                let origin_id = configuration
+                    .origin
+                    .clone()
+                    .unwrap()
+                    .origin_id
+                    .to_string();
+   
+                md_file.push(format!("# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}", origin_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
+            }
         }
     }
 
