@@ -355,12 +355,12 @@ fn parse_icmpv4(
         // Create a Reply for the received ping reply
         Some(Reply {
             value: Some(Value::Ping(PingResult {
-                ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
                     tx_worker_id,
                 }),
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id, // TODO
         })
@@ -431,12 +431,12 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
         // Create a Reply for the received ping reply
         Some(Reply {
             value: Some(Value::Ping(PingResult {
-                ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
                     tx_worker_id,
                 }),
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id, // TODO
         })
@@ -660,9 +660,9 @@ fn parse_udpv4(
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
                 code: 16,
-                ip_result: Some(ip_result),
                 payload,
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id,
         })
@@ -733,9 +733,9 @@ fn parse_udpv6(
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
                 code: 16,
-                ip_result: Some(ip_result),
                 payload,
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id,
         })
@@ -923,9 +923,9 @@ fn parse_tcpv4(
         Some(Reply {
             value: Some(Value::Tcp(TcpResult {
                 seq: tcp_packet.seq,
-                ip_result: Some(ip_result),
                 ack: tcp_packet.ack,
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id,
         })
@@ -975,9 +975,9 @@ fn parse_tcpv6(
         Some(Reply {
             value: Some(Value::Tcp(TcpResult {
                 seq: tcp_packet.seq,
-                ip_result: Some(ip_result),
                 ack: tcp_packet.ack,
             })),
+            ip_result: Some(ip_result),
             rx_time,
             origin_id,
         })

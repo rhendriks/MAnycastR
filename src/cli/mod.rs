@@ -1095,34 +1095,29 @@ fn get_result(
     let rx_worker_id = rx_worker_id.to_string();
     let rx_time = result.rx_time.to_string();
     
+    let ip_result = result.ip_result.unwrap();
+    let reply_src = ip_result.get_src_str();
+    let ttl = ip_result.ttl.to_string();
+    
     let mut row = vec![
         rx_worker_id,
         rx_time,
+        reply_src,
+        ttl,
     ];
     match result.value.unwrap() {
         ResultPing(ping) => {
-            let ip_result = ping.ip_result.unwrap();
-            let reply_src = ip_result.get_src_str();
-            let ttl = ip_result.ttl.to_string();
-
-            // Ping payload
             let payload = ping.payload.unwrap();
             let tx_time = payload.tx_time.to_string();
             let tx_worker_id = payload.tx_worker_id.to_string();
             
             row.append(&mut vec![
-                reply_src,
-                ttl,
                 tx_time,
                 tx_worker_id,
             ]);
         }
         ResultUdp(udp) => {
             let reply_code = udp.code.to_string();
-
-            let ip_result = udp.ip_result.unwrap();
-            let reply_src = ip_result.get_src_str();
-            let ttl = ip_result.ttl.to_string();
 
             if udp.payload == None {
                 // ICMP reply
@@ -1131,8 +1126,6 @@ fn get_result(
                     let tx_worker_id = "-1".to_string();
                     
                     row.append(&mut vec![
-                        reply_src,
-                        ttl,
                         reply_code,
                         tx_time,
                         tx_worker_id,
@@ -1142,8 +1135,6 @@ fn get_result(
                     let chaos = "-1".to_string();
                     
                     row.append(&mut vec![
-                        reply_src,
-                        ttl,
                         reply_code,
                         tx_worker_id,
                         chaos,
@@ -1161,8 +1152,6 @@ fn get_result(
                         let tx_worker_id = dns_a_record.tx_worker_id.to_string();
 
                         row.append(&mut vec![
-                            reply_src,
-                            ttl,
                             reply_code,
                             tx_time,
                             tx_worker_id,
@@ -1173,8 +1162,6 @@ fn get_result(
                         let chaos = dns_chaos.chaos_data;
 
                         row.append(&mut vec![
-                            reply_src,
-                            ttl,
                             reply_code,
                             tx_worker_id,
                             chaos,
@@ -1187,15 +1174,10 @@ fn get_result(
             }
         }
         ResultTcp(tcp) => {
-            let ip_result = tcp.ip_result.unwrap();
-            let reply_src = ip_result.get_src_str();
-            let ttl = ip_result.ttl.to_string();
             let seq = tcp.seq.to_string();
             let ack = tcp.ack.to_string();
             
             row.append(&mut vec![
-                reply_src,
-                ttl,
                 seq,
                 ack,
             ]);
