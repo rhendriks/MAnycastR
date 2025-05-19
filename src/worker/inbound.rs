@@ -695,7 +695,6 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     } else {
         return None;
     };
-    println!("parsed tcp header");
     
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -781,6 +780,8 @@ fn get_origin_id_v4(
     reply_dport: u16,
     origin_map: &Vec<Origin>,
 ) -> Option<u32> {
+    println!("parameters: {} {} {}", reply_dst, reply_sport, reply_dport);
+    println!("origin_map: {:?}", origin_map);
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst
             && origin.sport == reply_sport.into()
