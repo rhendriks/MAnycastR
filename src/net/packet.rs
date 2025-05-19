@@ -78,6 +78,7 @@ pub fn get_ethernet_header(
         .bytes()
         .to_vec();
 
+    // Get the default gateway IP address (to get the destination MAC address)
     let gateway_ip = if cfg!(target_os = "freebsd") {
         get_default_gateway_ip_freebsd().expect("Could not get default gateway IP")
     } else if cfg!(target_os = "linux") {
@@ -85,20 +86,16 @@ pub fn get_ethernet_header(
     } else {
         panic!("Unsupported OS");
     };
-
-    println!("Determined default gateway IP: {}", gateway_ip);
-
-    // TODO get dest mac address for the default gateway of the specified interface
-
+    
     let mut child = if cfg!(target_os = "freebsd") {
-        // Use the `arp -an` command for FreeBSD
+        // `arp -an`
         Command::new("arp")
             .arg("-an")
             .stdout(Stdio::piped())
             .spawn()
             .expect("Failed to run arp command on FreeBSD")
     } else {
-        // Use `/proc/net/arp` on Linux
+        // `/proc/net/arp`
         Command::new("cat")
             .arg("/proc/net/arp")
             .stdout(Stdio::piped())

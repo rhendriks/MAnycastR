@@ -68,7 +68,6 @@
 //! * **Stream** - stream results to the command-line interface (optional)
 //! * **Shuffle** - shuffle the hitlist
 //! * **Unicast** - perform measurement using the unicast address of each worker
-//! * **Traceroute** - anycast traceroute (currently broken)
 //! * **Divide** - divide-and-conquer Verfploeter catchment mapping
 //!
 //! # Usage
@@ -361,12 +360,6 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
                     )
-                    .arg(Arg::new("traceroute")
-                        .long("traceroute")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("This option is currently broken")
-                    )
                     .arg(Arg::new("interval")
                         .long("interval")
                         .short('i')
@@ -436,6 +429,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('u')
                         .value_parser(value_parser!(String))
                         .required(false)
+                        .default_value("")
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
                     )
                 )
