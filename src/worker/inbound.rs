@@ -684,11 +684,10 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 /// The function returns None if the packet is too short to contain a TCP header.
 fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
-    // if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
-    //     return None;
-    // }
+    if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
+        return None;
+    }
     let (ip_result, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes)?;
-    println!("parsed ip header");
     // cannot filter out spoofed packets as the probe_dst is unknown
     
     let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
@@ -697,23 +696,20 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         return None;
     };
     println!("parsed tcp header");
-
-    if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) {
-        // We assume all packets with RST or RST+ACK flags are replies
-        return None;
-    }
-
+    
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-
+    
     let origin_id = get_origin_id_v4(
         reply_dst,
         tcp_packet.source_port,
         tcp_packet.destination_port,
         origin_map,
     )?;
+    
+    println!("origin id ok");
 
     Some(Reply {
         value: Some(Value::Tcp(TcpResult {
