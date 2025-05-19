@@ -684,7 +684,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 /// The function returns None if the packet is too short to contain a TCP header.
 fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
-    if (packet_bytes.len() != 40) || ((packet_bytes[33] & 0x04) == 0) {
+    if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
     let (ip_result, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes)?;
@@ -737,7 +737,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 /// The function returns None if the packet is too short to contain a TCP header.
 fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
-    if (packet_bytes.len() != 60) || ((packet_bytes[53] & 0x04) == 0) {
+    if (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0) {
         return None;
     }
     let (ip_result, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes)?;
