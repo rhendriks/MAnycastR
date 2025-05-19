@@ -268,7 +268,7 @@ impl Worker {
             measurement_id,
             worker_id,
             is_ipv6,
-            start_measurement.measurement_type,
+            start_measurement.measurement_type as u8,
             socket_rx,
             rx_origins,
         );

@@ -40,7 +40,7 @@ pub fn listen(
     measurement_id: u32,
     worker_id: u16,
     is_ipv6: bool,
-    measurement_type: u32,
+    measurement_type: u8,
     mut socket_rx: Box<dyn DataLinkReceiver>,
     origin_map: Vec<Origin>,
 ) {
@@ -256,11 +256,6 @@ fn parse_ipv4(
 fn parse_ipv6(
     packet_bytes: &[u8],
 ) -> Option<(IpResult, PacketPayload, u128, u128)> {
-    // IPv6 40 minimum
-    if packet_bytes.len() < 40 {
-        return None;
-    }
-
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
@@ -317,17 +312,9 @@ fn parse_icmpv4(
             return None;
         } // Only parse ICMP echo replies
 
-        if *&icmp_packet.body.len() < 4 {
-            return None;
-        }
-        let s = if let Ok(s) = *&icmp_packet.body[0..4].try_into() {
-            s
-        } else {
-            return None;
-        };
-        let pkt_measurement_id = u32::from_be_bytes(s);
+        let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?;
         // Make sure that this packet belongs to this measurement
-        if (pkt_measurement_id != measurement_id) | (icmp_packet.body.len() < 22) {
+        if u32::from_be_bytes(pkt_measurement_id) != measurement_id {
             // If not, we discard it and await the next packet
             return None;
         }
@@ -383,6 +370,10 @@ fn parse_icmpv4(
 ///
 /// The function also discards packets that do not belong to the current measurement.
 fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origin>) -> Option<Reply> {
+    // ICMPv6 64 length (IPv6 header (40) + ICMP header (8) + ICMP body 46 bytes) + check it is an ICMP Echo reply
+    if (packet_bytes.len() != 94) || (packet_bytes[40] != 129) {
+        return None;
+    }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
 
     // Obtain the payload
@@ -607,7 +598,7 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
 /// The function returns None if the packet is too short to contain a UDP header.
 fn parse_udpv4(
     packet_bytes: &[u8],
-    measurement_type: u32,
+    measurement_type: u8,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
     // UDPv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
@@ -681,9 +672,13 @@ fn parse_udpv4(
 /// The function returns None if the packet is too short to contain a UDP header.
 fn parse_udpv6(
     packet_bytes: &[u8],
-    measurement_type: u32,
+    measurement_type: u8,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
+    // UDPv6 64 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
+    if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
+        return None;
+    }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
 
     // Obtain the payload
@@ -829,7 +824,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
             })),
         });
     }
-    
+
     let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;
 
     return Some(UdpPayload {
@@ -908,6 +903,10 @@ fn parse_tcpv6(
     packet_bytes: &[u8],
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
+    // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
+    if (packet_bytes.len() != 60) || ((packet_bytes[53] & 0x04) == 0) {
+        return None;
+    }
     let (ip_result, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes)?;
     // cannot filter out spoofed packets as the probe_dst is unknown
 
@@ -922,10 +921,7 @@ fn parse_tcpv6(
             .unwrap()
             .as_nanos() as u64;
 
-        let probe_sport = tcp_packet.source_port;
-        let probe_dport = tcp_packet.destination_port;
-
-        let origin_id = get_origin_id_v6(reply_dst, probe_sport, probe_dport, origin_map)?;
+        let origin_id = get_origin_id_v6(reply_dst, tcp_packet.source_port, tcp_packet.destination_port, origin_map)?;
 
         Some(Reply {
             value: Some(Value::Tcp(TcpResult {
