@@ -334,17 +334,13 @@ fn parse_icmpv4(
 
         let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
         let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
-        // let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
+        let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
         let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..22].try_into().unwrap());
-        // let reply_src = ip_result.value.unwrap(). TODO
 
-        // if (probe_src != reply_dst) | (probe_dst != reply_src) {
-        //     return None; // spoofed reply
-        // }}
-
-        // TODO verify probe_dst (dst above) == ip_result.src
-        // TODO get origin_id using probe_src
-
+        if (probe_src != reply_dst) | (probe_dst != reply_src) {
+            return None; // spoofed reply
+        }
+    
         let origin_id = get_origin_id_v4(reply_dst, 0, 0, origin_map)?;
 
         let rx_time = SystemTime::now()
@@ -412,13 +408,14 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
 
         let tx_time = u64::from_be_bytes(*&value.body[4..12].try_into().unwrap());
         let tx_worker_id = u16::from_be_bytes(*&value.body[12..14].try_into().unwrap()) as u32;
-        // let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
-        // let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
+        let probe_src = u128::from_be_bytes(*&value.body[14..30].try_into().unwrap());
+        let probe_dst = u128::from_be_bytes(*&value.body[30..46].try_into().unwrap());
+        
+        if (probe_src != reply_dst) | (probe_dst != reply_src) {
+            return None; // spoofed reply
+        }
 
-        let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map).unwrap(); // TODO return None if None
-
-        // TODO verify probe_dst == ip_result.src
-        // TODO get origin_id using probe_src
+        let origin_id = get_origin_id_v6(reply_dst, 0, 0, origin_map)?;
 
         let rx_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -637,11 +634,9 @@ fn parse_udpv4(
             .unwrap()
             .as_nanos() as u64;
         let payload = if measurement_type == 2 {
-            // let reply_src = u32::from(ip_result.value.unwrap().src.unwrap().0);
-
             let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
-            if (probe_sport != reply_dport) | (probe_src != reply_dst)  { // (probe_dst != reply_src) | TODO
+            if (probe_sport != reply_dport) | (probe_src != reply_dst) | (probe_dst != reply_src) {
                 return None; // spoofed reply
             }
 
@@ -711,7 +706,7 @@ fn parse_udpv6(
         let payload = if measurement_type == 2 {
             let (udp_payload, probe_sport, probe_src, probe_dst) = parse_dns_a_record_v6(value.body.as_slice())?;
 
-            if (probe_sport != reply_dport) | (probe_dst != reply_src)  { // (probe_dst != reply_src) | TODO
+            if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
                 return None; // spoofed reply
             }
 
@@ -898,7 +893,8 @@ fn parse_tcpv4(
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
-    let (ip_result, payload,reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
+    let (ip_result, payload,reply_dst, _reply_src) = parse_ipv4(packet_bytes)?;
+    // cannot filter out spoofed packets as the probe_dst is unknown
 
     return if let PacketPayload::TCP { value: tcp_packet } = payload {
         if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) {
@@ -947,7 +943,8 @@ fn parse_tcpv6(
     packet_bytes: &[u8],
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
+    let (ip_result, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes)?;
+    // cannot filter out spoofed packets as the probe_dst is unknown
 
     return if let PacketPayload::TCP { value: tcp_packet } = payload {
         if !((tcp_packet.flags == 0b00000100) | (tcp_packet.flags == 0b00010100)) {
