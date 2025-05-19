@@ -1010,7 +1010,7 @@ fn write_results(
             }
             let results: Vec<Reply> = task_result.result_list;
             for result in results {
-                let result = get_result(result, task_result.worker_id, measurement_type);
+                let result = get_result(result, task_result.worker_id);
 
                 // Write to command-line
                 if cli {
@@ -1083,12 +1083,9 @@ fn get_header(
 /// * `result` - The Reply that is being written to this row
 ///
 /// * `x_worker_id` - The worker ID of the receiver
-///
-/// * `measurement_type` - The type of measurement being performed
 fn get_result(
     result: Reply,
     rx_worker_id: u32,
-    measurement_type: u32
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
@@ -1108,64 +1105,28 @@ fn get_result(
     match result.value.unwrap() {
         ResultPing(ping) => {
             let payload = ping.payload.unwrap();
-            let tx_time = payload.tx_time.to_string();
-            let tx_worker_id = payload.tx_worker_id.to_string();
-            
-            row.append(&mut vec![
-                tx_time,
-                tx_worker_id,
-            ]);
+            row.push(payload.tx_time.to_string());
+            row.push(payload.tx_worker_id.to_string());
         }
         ResultUdp(udp) => {
-            let reply_code = udp.code.to_string();
+            row.push(udp.code.to_string());
 
             if udp.payload == None {
-                // ICMP reply
-                if measurement_type == 2 {
-                    let tx_time = "-1".to_string();
-                    let tx_worker_id = "-1".to_string();
-                    
-                    row.append(&mut vec![
-                        reply_code,
-                        tx_time,
-                        tx_worker_id,
-                    ]);
-                } else if measurement_type == 4 {
-                    let tx_worker_id = "-1".to_string();
-                    let chaos = "-1".to_string();
-                    
-                    row.append(&mut vec![
-                        reply_code,
-                        tx_worker_id,
-                        chaos,
-                    ]);
-                } else {
-                    panic!("No payload found for unexpected UDP result!");
-                }
+                // ICMP dest. unreachable reply
+                row.push("-1".to_string()); // tx_time
+                row.push("-1".to_string()); // tx_worker_id (A record) chaos record (CHAOS)
             } else {
                 // DNS reply
                 let payload = udp.payload.expect("No payload found for UDP result!");
 
                 match payload.value {
                     Some(DnsARecord(dns_a_record)) => {
-                        let tx_time = dns_a_record.tx_time.to_string();
-                        let tx_worker_id = dns_a_record.tx_worker_id.to_string();
-
-                        row.append(&mut vec![
-                            reply_code,
-                            tx_time,
-                            tx_worker_id,
-                        ]);
+                        row.push(dns_a_record.tx_time.to_string());
+                        row.push(dns_a_record.tx_worker_id.to_string());
                     }
                     Some(DnsChaos(dns_chaos)) => {
-                        let tx_worker_id = dns_chaos.tx_worker_id.to_string();
-                        let chaos = dns_chaos.chaos_data;
-
-                        row.append(&mut vec![
-                            reply_code,
-                            tx_worker_id,
-                            chaos,
-                        ]);
+                        row.push(dns_chaos.tx_worker_id.to_string());
+                        row.push(dns_chaos.chaos_data);
                     }
                     None => {
                         panic!("No payload found for UDP result!");
@@ -1174,13 +1135,8 @@ fn get_result(
             }
         }
         ResultTcp(tcp) => {
-            let seq = tcp.seq.to_string();
-            let ack = tcp.ack.to_string();
-            
-            row.append(&mut vec![
-                seq,
-                ack,
-            ]);
+            row.push(tcp.seq.to_string());
+            row.push(tcp.ack.to_string());
         }
     }
 
