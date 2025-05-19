@@ -284,8 +284,8 @@ fn parse_icmpv4(
     measurement_id: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // ICMPv4 50 length (IPv4 header (20) + ICMP header (8) + ICMP body 22 bytes) + check it is an ICMP Echo reply
-    if (packet_bytes.len() != 50) || (packet_bytes[20] != 0) {
+    // ICMPv4 50 length (IPv4 header (20) + ICMP header (8) + ICMP body 22 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
+    if (packet_bytes.len() < 50) || (packet_bytes[20] != 0) {
         return None;
     }
 
@@ -361,8 +361,8 @@ fn parse_icmpv6(
     measurement_id: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // ICMPv6 64 length (IPv6 header (40) + ICMP header (8) + ICMP body 46 bytes) + check it is an ICMP Echo reply
-    if (packet_bytes.len() != 94) || (packet_bytes[40] != 129) {
+    // ICMPv6 64 length (IPv6 header (40) + ICMP header (8) + ICMP body 46 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
+    if (packet_bytes.len() < 94) || (packet_bytes[40] != 129) {
         return None;
     }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
