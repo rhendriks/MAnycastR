@@ -761,26 +761,11 @@ fn parse_dns_a_record_v6(
         return None;
     }
 
-    let tx_time = match parts[0].parse::<u64>() {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let probe_src = match parts[1].parse::<u128>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let probe_dst = match parts[2].parse::<u128>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let tx_worker_id = match parts[3].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    } as u32;
-    let probe_sport = match parts[4].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
+    let tx_time = parts[0].parse::<u64>().ok()?;
+    let probe_src = parts[1].parse::<u128>().ok()?;
+    let probe_dst = parts[2].parse::<u128>().ok()?;
+    let tx_worker_id = parts[3].parse::<u16>().ok()? as u32;
+    let probe_sport = parts[4].parse::<u16>().ok()?;
 
     Some((UdpPayload {
         value: Some(udp_payload::Value::DnsARecord(DnsARecord {
@@ -803,26 +788,11 @@ fn parse_dns_a_record_v4(
         return None;
     }
 
-    let tx_time = match parts[0].parse::<u64>() {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let probe_src = match parts[1].parse::<u32>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let probe_dst = match parts[2].parse::<u32>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let tx_worker_id = match parts[3].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    } as u32;
-    let probe_sport = match parts[4].parse::<u16>() {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
+    let tx_time = parts[0].parse::<u64>().ok()?;
+    let probe_src = parts[1].parse::<u32>().ok()?;
+    let probe_dst = parts[2].parse::<u32>().ok()?;
+    let tx_worker_id = parts[3].parse::<u16>().ok()? as u32;
+    let probe_sport = parts[4].parse::<u16>().ok()?;
 
     Some((UdpPayload {
         value: Some(udp_payload::Value::DnsARecord(DnsARecord {
