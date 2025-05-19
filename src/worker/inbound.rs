@@ -293,7 +293,6 @@ fn parse_icmpv4(
 
     // Obtain the payload
     if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        println!("parsed ICMP header");
         if *&icmp_packet.icmp_type != 0 {
             return None;
         } // Only parse ICMP echo replies
@@ -782,11 +781,6 @@ fn get_origin_id_v4(
     reply_dport: u16,
     origin_map: &Vec<Origin>,
 ) -> Option<u32> {
-    println!("{:?}", origin_map);
-    println!(
-        "reply_dst: {}, reply_sport: {}, reply_dport: {}",
-        reply_dst, reply_sport, reply_dport
-    );
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst
             && origin.sport == reply_sport.into()
