@@ -12,8 +12,8 @@ use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
-    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata,
-    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, Status as ServerStatus,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, ScheduleMeasurement,
+    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker, WorkerId,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -230,8 +230,14 @@ impl Controller for ControllerService {
 
             // Update worker-list that this worker is no longer working on this measurement
             let mut workers = self.workers.lock().unwrap();
-            if let Some(worker) = workers.workers.iter_mut().find(|w| w.worker_id == worker_id) {
-                worker.measurements.retain(|measurement| measurement != &measurement_id);
+            if let Some(worker) = workers
+                .workers
+                .iter_mut()
+                .find(|w| w.worker_id == worker_id)
+            {
+                worker
+                    .measurements
+                    .retain(|measurement| measurement != &measurement_id);
             }
 
             if remaining == &(1u32) {
@@ -409,7 +415,6 @@ impl Controller for ControllerService {
             .map(|worker| worker.worker_id)
             .collect();
 
-
         // Check if the CLI requested a worker-selective probing measurement
         let mut probing_workers: Vec<u32> = scheduled_measurement.workers;
 
@@ -429,7 +434,10 @@ impl Controller for ControllerService {
         {
             // Update active measurement in the worker list
             let mut workers = self.workers.lock().unwrap();
-            workers.workers.iter_mut().for_each(|worker| worker.measurements.push(measurement_id));
+            workers
+                .workers
+                .iter_mut()
+                .for_each(|worker| worker.measurements.push(measurement_id));
         }
 
         // Create a measurement from the ScheduleMeasurement
@@ -718,7 +726,10 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<ServerStatus>, Status> {
+    async fn list_workers(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -850,7 +861,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
-            .await.expect("Failed to start orchestrator with TLS");
+            .await
+            .expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
@@ -858,7 +870,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
-            .await.expect("Failed to start orchestrator");
+            .await
+            .expect("Failed to start orchestrator");
     }
 
     Ok(())

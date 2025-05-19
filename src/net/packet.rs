@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Origin};
+use crate::custom_module::manycastr::Origin;
 use crate::custom_module::IP;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use mac_address::mac_address_by_name;
@@ -34,7 +34,8 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
     Err("Could not parse default gateway IP from 'ip route' output".to_string())
 }
 
-fn get_default_gateway_ip_freebsd() -> Result<String, String> { // TODO test
+fn get_default_gateway_ip_freebsd() -> Result<String, String> {
+    // TODO test
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
@@ -67,10 +68,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> { // TODO test
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
 /// * 'if_name' - the name of the interface to use
-pub fn get_ethernet_header(
-    is_ipv6: bool,
-    if_name: String,
-) -> Vec<u8> {
+pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
         .expect(&format! {"No MAC address found for interface: {}", if_name})
@@ -86,7 +84,7 @@ pub fn get_ethernet_header(
     } else {
         panic!("Unsupported OS");
     };
-    
+
     let mut child = if cfg!(target_os = "freebsd") {
         // `arp -an`
         Command::new("arp")
@@ -117,7 +115,8 @@ pub fn get_ethernet_header(
             if parts.len() > 3 {
                 let addr = parts[0]; // IP address
 
-                if addr != gateway_ip { // Skip if not the default gateway
+                if addr != gateway_ip {
+                    // Skip if not the default gateway
                     continue;
                 }
 
@@ -148,7 +147,10 @@ pub fn get_ethernet_header(
 
     // panic if no MAC address was found
     if mac_dst.is_empty() {
-        panic!("No destination MAC address found for interface: {}", if_name);
+        panic!(
+            "No destination MAC address found for interface: {}",
+            if_name
+        );
     }
     child.wait().expect("Failed to wait on child");
 
