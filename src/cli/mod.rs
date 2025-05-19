@@ -214,10 +214,33 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         // All clients probe this configuration
                         u32::MAX
                     } else {
-                        u32::from_str(parts[0]).expect("Unable to parse configuration worker ID")
+                        match u32::from_str(parts[0]) {
+                            Ok(id_val) => { // Integer ID
+                                id_val
+                            }
+                            Err(_) => { // Hostname ID
+                                let mut found_id: Option<u32> = None;
+                                for (id_key, hostname_val) in workers.iter() {
+                                    if hostname_val == parts[0] {
+                                        found_id = Some(*id_key);
+                                        break;
+                                    }
+                                }
+
+                                match found_id {
+                                    Some(id) => id,
+                                    None => {
+                                        // If no ID was found after checking all hostnames
+                                        panic!(
+                                            "Unable to parse '{}' as a worker ID or find a matching hostname.",
+                                            parts[0]
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     };
 
-                    // TODO allow for hostname as identifier
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
                         panic!("Invalid configuration format: {}", line);
