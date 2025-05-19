@@ -1,39 +1,31 @@
-FROM rust:latest AS build
+# ---- Build Stage ----
+FROM --platform=linux/amd64 rust:latest AS builder
 
-# TODO build musl and run with scratch
+# Install necessary build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        protobuf-compiler \
+        musl-tools \
+        gcc
 
-# create a new empty shell project
+RUN rustup target add x86_64-unknown-linux-musl
+
 RUN USER=root cargo new --bin manycast
 WORKDIR /manycast
 
-# install dependencies
-RUN apt-get update && apt-get install -y protobuf-compiler
-
-# Copy over manifests
+# Copy necessary files
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./proto ./proto
 COPY ./build.rs ./build.rs
-RUN mkdir /out
-
-# cache dependencies
-RUN cargo build --release
-RUN rm src/*.rs
-
-# copy source tree
 COPY ./src ./src
 
-# build for release
-RUN rm ./target/release/deps/manycast*
-RUN cargo build --release
+# Build the application
+RUN cargo build --release --target x86_64-unknown-linux-musl
 
-# final base
-FROM debian:bookworm-slim
+RUN strip target/x86_64-unknown-linux-musl/release/manycast
 
-# copy the build artifact from the build stage
-COPY --from=build /manycast/target/release/manycast .
-
-# set the startup command to run binary (takes arguments from docker command)
-ENTRYPOINT ["./manycast"]
-
-# Default command used
+# ---- Final Stage ----
+FROM scratch
+COPY --from=builder /manycast/target/x86_64-unknown-linux-musl/release/manycast /manycast
+ENTRYPOINT ["/manycast"]
 CMD ["--help"]
