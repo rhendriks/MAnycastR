@@ -4,16 +4,16 @@ MAnycastR (Measuring Anycast Reloaded) is a tool designed to measure anycast inf
 
 This includes:
 
-i) Measuring external anycast infrastructure
-* [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
-* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
-
-ii) Measuring anycast infrastructure itself
+i) Measuring anycast infrastructure itself
 * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
 * [Site flipping]() (detecting network regions experiencing anycast site flipping)
-* Anycast latency (measuring RTT between the Internet and the anycast infrastructure)
-* Optimal deployment (measuring 'best' deployment using unicast latencies from all sites to the Internet)
+* Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
+* Optimal deployment (measuring 'best' deployment using lowest unicast latencies towards the Internet)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+
+ii) Measuring external anycast infrastructure
+* [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (detecting anycast using anycast)
+* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast sites using Great-Circle-Distance latency measurements)
 
 Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 
@@ -34,7 +34,7 @@ Upon receiving a measurement definition, the orchestrator instructs the workers 
 Workers perform measurements by sending and receiving probes.
 
 Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
-The CLI writes results to a CSV file.
+The CLI writes results to a .csv.gz file.
 
 ## Measurement types
 Measurements can be;
@@ -48,7 +48,7 @@ Measurements can be;
 When creating a measurement you can specify:
 
 ### Variables
-* **Hitlist** - addresses to be probed (can be IP addresses or numbers)
+* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) ()
 * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
@@ -59,14 +59,13 @@ When creating a measurement you can specify:
 * **Configuration** - path to a configuration file (allowing for complex configurations of source address, port values used by workers)
 * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
 * **Responsive** - check if a target is responsive before probing from all workers (unimplemented)
-* **Out** - path to file or directory to store measurement results (default: ./)
+* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./)
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
 ### Flags
 * **Stream** - stream results to the command-line interface (optional)
 * **Shuffle** - shuffle the hitlist
 * **Unicast** - perform measurement using the unicast address of each worker
-* **Traceroute** - anycast traceroute (currently broken)
 * **Divide** - divide-and-conquer Verfploeter catchment mapping
 
 ## Usage
@@ -132,6 +131,8 @@ Filtering on the lowest unicast RTTs indicates the best anycast site for each ta
 
 * rustup
 * protobuf-compiler
+* gcc
+* musl-tools
 
 ## Installation
 
@@ -164,14 +165,14 @@ cd <repo_dir>
 cargo build --release --target x86_64-unknown-linux-musl
 ```
 
-#### Optionally strip the binary (16 MB -> 7.7 MB)
+#### Optionally strip the binary (16 MB -> 8 MB)
 ```bash
 strip target/x86_64-unknown-linux-musl/release/manycast
 ```
 
 Next, distribute the binary to the workers.
 
-Workers need either sudo or the CAP_NET_RAW capability to send out packets.
+Workers need either sudo or the CAP_NET_RAW capability to open a raw socket (for sending/receiving).
 ```bash
 sudo setcap cap_net_raw,cap_net_admin=eip manycast
 ```
