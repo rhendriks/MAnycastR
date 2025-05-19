@@ -70,7 +70,8 @@ impl Worker {
         };
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
-            .await.expect("Unable to connect to orchestrator");
+            .await
+            .expect("Unable to connect to orchestrator");
 
         // Initialize a worker instance
         let mut worker = Worker {
@@ -122,7 +123,8 @@ impl Worker {
                 .keep_alive_timeout(Duration::from_secs(30))
                 .http2_keep_alive_interval(Duration::from_secs(15))
                 .tcp_keepalive(Some(Duration::from_secs(60)))
-                .tls_config(tls).expect("Unable to set TLS configuration")
+                .tls_config(tls)
+                .expect("Unable to set TLS configuration")
                 .connect()
                 .await
                 .expect("Unable to connect to orchestrator")
@@ -370,7 +372,8 @@ impl Worker {
         let response = self
             .client
             .worker_connect(Request::new(self.metadata.clone()))
-            .await.expect("Unable to connect to orchestrator");
+            .await
+            .expect("Unable to connect to orchestrator");
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
             worker_id
@@ -378,7 +381,8 @@ impl Worker {
         let mut stream = response.into_inner();
 
         // Await tasks
-        while let Some(task) = stream.message().await.expect("Unable to receive task") { // TODO loop does not break when connection is lost
+        while let Some(task) = stream.message().await.expect("Unable to receive task") {
+            // TODO loop does not break when connection is lost
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message

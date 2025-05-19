@@ -14,8 +14,6 @@ use pnet::datalink::DataLinkSender;
 
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
-
-
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 
 /// Spawns thread that sends out ICMP, UDP, or TCP probes.
