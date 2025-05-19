@@ -355,13 +355,13 @@ fn parse_icmpv4(
         // Create a Reply for the received ping reply
         Some(Reply {
             value: Some(Value::Ping(PingResult {
-                rx_time,
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
                     tx_worker_id,
                 }),
             })),
+            rx_time,
             origin_id, // TODO
         })
     } else {
@@ -431,13 +431,13 @@ fn parse_icmpv6(packet_bytes: &[u8], measurement_id: u32, origin_map: &Vec<Origi
         // Create a Reply for the received ping reply
         Some(Reply {
             value: Some(Value::Ping(PingResult {
-                rx_time,
                 ip_result: Some(ip_result),
                 payload: Some(PingPayload {
                     tx_time,
                     tx_worker_id,
                 }),
             })),
+            rx_time,
             origin_id, // TODO
         })
     } else {
@@ -659,11 +659,11 @@ fn parse_udpv4(
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
-                rx_time,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
             })),
+            rx_time,
             origin_id,
         })
     } else {
@@ -732,11 +732,11 @@ fn parse_udpv6(
         // Create a Reply for the received UDP reply
         Some(Reply {
             value: Some(Value::Udp(UdpResult {
-                rx_time,
                 code: 16,
                 ip_result: Some(ip_result),
                 payload,
             })),
+            rx_time,
             origin_id,
         })
     } else {
@@ -924,9 +924,9 @@ fn parse_tcpv4(
             value: Some(Value::Tcp(TcpResult {
                 seq: tcp_packet.seq,
                 ip_result: Some(ip_result),
-                rx_time,
                 ack: tcp_packet.ack,
             })),
+            rx_time,
             origin_id,
         })
     } else {
@@ -976,9 +976,9 @@ fn parse_tcpv6(
             value: Some(Value::Tcp(TcpResult {
                 seq: tcp_packet.seq,
                 ip_result: Some(ip_result),
-                rx_time,
                 ack: tcp_packet.ack,
             })),
+            rx_time,
             origin_id,
         })
     } else {
