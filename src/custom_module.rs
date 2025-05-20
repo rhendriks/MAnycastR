@@ -189,19 +189,20 @@ impl From<String> for Address {
                 },
             }
         } else if let Ok(ip_number) = s.parse::<u128>() {
-            // attempt to interpret as a raw IP number (e.g., 16843009)
-            match s.len() {
-                // TODO do these constraints hold for all IP number lengths?
-                10 => Address {
+            // attempt to interpret as a raw IP number
+            if ip_number <= u32::MAX as u128 {
+                // It can be represented as an IPv4 address
+                Address {
                     value: Some(V4(ip_number as u32)),
-                },
-                39 => Address {
+                }
+            } else {
+                // Too large for IPv4, treat as IPv6
+                Address {
                     value: Some(V6(IPv6 {
-                        p1: (ip_number >> 64) as u64,
-                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64,
+                        p1: (ip_number >> 64) as u64, // Most significant 64 bits
+                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
-                },
-                _ => panic!("Invalid IP number"),
+                }
             }
         } else {
             panic!("Invalid IP address or IP number");

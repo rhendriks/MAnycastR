@@ -921,7 +921,6 @@ fn get_metadata(
         .to_string(),
     );
     md_file.push(format!("# Measurement type: {}", type_str).to_string());
-    // file.write_all(format!("# Measurement ID: {}\n", ).as_ref())?;
     md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()).to_string());
     md_file.push(format!("# Interval: {}", interval).to_string());
     md_file.push(format!("# Start measurement: {}", timestamp_start_str).to_string());
@@ -1031,8 +1030,6 @@ fn write_results(
 
     // Write metadata to file
     for line in &md_file {
-        // Ensure lines end with a newline if not already present in the string.
-        // writeln! automatically adds a newline.
         if let Err(e) = writeln!(gz_encoder, "{}", line) {
             eprintln!("Failed to write metadata line to Gzip stream: {}", e);
         }
@@ -1096,14 +1093,14 @@ fn write_results(
 ///
 /// * 'measurement_type' - The type of measurement being performed
 fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str> {
-    // Information contained in TaskResult
+    // Information available for all measurement types
     let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
-    // Information contained in IPv4 header
+    // Information specific to each measurement type
     header.append(&mut match measurement_type {
         1 => vec!["tx_time", "tx_worker_id"], // ICMP
-        2 => vec!["tx_time", "tx_worker_id"], // UDP/DNS
+        2 => vec!["tx_time", "tx_worker_id"], // UDP/DNS (A record)
         3 => vec!["seq"], // TCP
-        4 => vec!["tx_worker_id", "chaos_data"], // UDP/CHAOS
+        4 => vec!["tx_worker_id", "chaos_data"], // UDP/DNS (CHAOS record)
         _ => panic!("Undefined type."),
     });
 
