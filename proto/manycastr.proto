@@ -150,23 +150,13 @@ message Reply {
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
 }
 
-// IPResult, contains either an IPv4Result or an IPv6Result, and the TTL
+// IPResult, contains either an IPv4 or an IPv6 source address, and the TTL
 message IPResult {
   oneof value {
-    IPv4Result ipv4 = 1;
-    IPv6Result ipv6 = 2;
+    fixed32 ipv4 = 1;
+    IPv6 ipv6 = 2;
   }
   fixed32 ttl = 3;
-}
-
-// IPv4Result, contains the source address for a probe reply
-message IPv4Result {
-  fixed32 src = 1;
-}
-
-// IPv6Result, contains the source address for a probe reply
-message IPv6Result {
-  IPv6 src = 1;
 }
 
 // Result of a ping which contains the transmission time and the sender worker ID

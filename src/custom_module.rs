@@ -240,10 +240,9 @@ impl Display for IPv6 {
 impl IpResult {
     pub fn get_src_str(&self) -> String {
         match &self.value {
-            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
+            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.to_string(),
             Some(manycastr::ip_result::Value::Ipv6(v6)) => {
-                let src = v6.src.expect("None IPv6 data type");
-                ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
+                ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
             }
             None => String::from("None"),
         }
