@@ -169,13 +169,8 @@ message IPv6Result {
   IPv6 src = 1;
 }
 
-// Result of a ping which has a receive time, an ipv4 result, and the ping payload information
+// Result of a ping which contains the transmission time and the sender worker ID
 message PingResult {
-  PingPayload payload = 1;
-}
-
-// PingPayload. The payload of a ping which contains the transmission time and the sender worker ID
-message PingPayload {
   uint64 tx_time = 1;
   fixed32 tx_worker_id = 2;
 }
