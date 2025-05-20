@@ -206,7 +206,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     if line.starts_with("#") {
                         return None;
                     } // Skip comments
-                    let parts: Vec<&str> = line.split('-').map(|s| s.trim()).collect();
+                    let parts: Vec<&str> = line.split(" - ").map(|s| s.trim()).collect();
                     if parts.len() != 2 {
                         panic!("Invalid configuration format: {}", line);
                     }
