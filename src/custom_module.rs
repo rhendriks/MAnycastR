@@ -171,6 +171,44 @@ impl From<&[u8]> for Address {
     }
 }
 
+impl From<[u8; 4]> for Address {
+    fn from(bytes: [u8; 4]) -> Self {
+        Address {
+            value: Some(V4(u32::from_be_bytes(bytes))),
+        }
+    }
+}
+
+impl From<u32> for Address {
+    fn from(bytes: u32) -> Self {
+        Address {
+            value: Some(V4(bytes)),
+        }
+    }
+}
+
+impl From<u128> for Address {
+    fn from(bytes: u128) -> Self {
+        Address {
+            value: Some(V6(IPv6 {
+                p1: (bytes >> 64) as u64,
+                p2: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
+            })),
+        }
+    }
+}
+
+impl From<[u8; 16]> for Address {
+    fn from(bytes: [u8; 16]) -> Self {
+        Address {
+            value: Some(V6(IPv6 {
+                p1: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+                p2: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
+            })),
+        }
+    }
+}
+
 // Convert String into an Address
 impl From<String> for Address {
     fn from(s: String) -> Self {
