@@ -446,9 +446,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src, sport, dport
                         );
                     } else {
+                        let worker_hostname = workers
+                            .get(&configuration.worker_id)
+                            .expect("Worker ID not found");
                         println!(
                             "\t* worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                            configuration.worker_id, src, sport, dport
+                            worker_hostname, src, sport, dport
                         );
                     }
                 }
