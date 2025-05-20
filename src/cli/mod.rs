@@ -26,9 +26,9 @@ use flate2::Compression;
 use std::io::BufWriter;
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, reply::Value::Ping as ResultPing,
-    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp, udp_payload::Value::DnsARecord,
-    udp_payload::Value::DnsChaos, Address, Configuration, Empty, Origin, Reply,
+    controller_client::ControllerClient, reply::Value::Ping as ResultPing, udp_result::Value::DnsARecord,
+    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp, udp_result::Value::DnsChaos,
+    Address, Configuration, Empty, Origin, Reply,
     ScheduleMeasurement, Targets, TaskResult,
 };
 use custom_module::{Separated, IP};
@@ -450,8 +450,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             .get(&configuration.worker_id)
                             .expect("Worker ID not found");
                         println!(
-                            "\t* worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                            worker_hostname, src, sport, dport
+                            "\t* worker {} (with ID: {:<2}), source IP: {}, source port: {}, destination port: {}",
+                            worker_hostname, configuration.worker_id, src, sport, dport
                         );
                     }
                 }
@@ -1140,9 +1140,7 @@ fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
         }
         ResultUdp(udp) => {
             // DNS reply
-            let payload = udp.payload.expect("No payload found for UDP result!");
-
-            match payload.value {
+            match udp.value {
                 Some(DnsARecord(dns_a_record)) => {
                     row.push(dns_a_record.tx_time.to_string());
                     row.push(dns_a_record.tx_worker_id.to_string());

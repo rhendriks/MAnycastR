@@ -7,8 +7,8 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
-    ip_result, reply::Value, udp_payload, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result,
-    IpResult, Origin, PingPayload, PingResult, Reply, TaskResult, TcpResult, UdpPayload, UdpResult,
+    ip_result, reply::Value, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result,
+    IpResult, Origin, PingPayload, PingResult, Reply, TaskResult, TcpResult, UdpResult, udp_result
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
@@ -461,15 +461,15 @@ fn parse_udpv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let payload = if measurement_type == 2 {
-        let (udp_payload, probe_sport, probe_src, probe_dst) =
+    let udp_result = if measurement_type == 2 {
+        let (udp_result, probe_sport, probe_src, probe_dst) =
             parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_src != reply_dst) | (probe_dst != reply_src) {
             return None; // spoofed reply
         }
 
-        Some(udp_payload)
+        Some(udp_result)
     } else if measurement_type == 4 {
         parse_chaos(udp_packet.body.as_slice())
     } else {
@@ -477,10 +477,10 @@ fn parse_udpv4(
     };
 
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
-
+    
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(UdpResult { payload })),
+        value: Some(Value::Udp(udp_result?)),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
@@ -534,15 +534,15 @@ fn parse_udpv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let payload = if measurement_type == 2 {
-        let (udp_payload, probe_sport, probe_src, probe_dst) =
+    let udp_result = if measurement_type == 2 {
+        let (udp_result, probe_sport, probe_src, probe_dst) =
             parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
             return None; // spoofed reply
         }
 
-        Some(udp_payload)
+        Some(udp_result)
     } else if measurement_type == 4 {
         parse_chaos(udp_packet.body.as_slice())
     } else {
@@ -553,7 +553,7 @@ fn parse_udpv6(
 
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(UdpResult { payload })),
+        value: Some(Value::Udp(udp_result?)),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
@@ -575,7 +575,7 @@ fn parse_udpv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u128, u128)> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u128)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -592,8 +592,8 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u128, 
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
     Some((
-        UdpPayload {
-            value: Some(udp_payload::Value::DnsARecord(DnsARecord {
+        UdpResult {
+            value: Some(udp_result::Value::DnsARecord(DnsARecord {
                 tx_time,
                 tx_worker_id,
             })),
@@ -604,7 +604,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u128, 
     ))
 }
 
-fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u32, u32)> {
+fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u32)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -622,8 +622,8 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u32, u
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
     Some((
-        UdpPayload {
-            value: Some(udp_payload::Value::DnsARecord(DnsARecord {
+        UdpResult {
+            value: Some(udp_result::Value::DnsARecord(DnsARecord {
                 tx_time,
                 tx_worker_id,
             })),
@@ -647,15 +647,15 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpPayload, u16, u32, u
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS Chaos record.
-fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
+fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpResult> {
     let record = DNSRecord::from(packet_bytes);
 
     // 8 right most bits are the sender worker_id
     let tx_worker_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {
-        return Some(UdpPayload {
-            value: Some(udp_payload::Value::DnsChaos(DnsChaos {
+        return Some(UdpResult {
+            value: Some(udp_result::Value::DnsChaos(DnsChaos {
                 tx_worker_id,
                 chaos_data: "Not implemented".to_string(),
             })),
@@ -664,8 +664,8 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpPayload> {
 
     let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;
 
-    return Some(UdpPayload {
-        value: Some(udp_payload::Value::DnsChaos(DnsChaos {
+    return Some(UdpResult {
+        value: Some(udp_result::Value::DnsChaos(DnsChaos {
             tx_worker_id,
             chaos_data,
         })),
