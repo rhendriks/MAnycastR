@@ -180,18 +180,14 @@ message PingPayload {
   fixed32 tx_worker_id = 2;
 }
 
-// UDP result contains the receive time, source and destination port, an ipv4 result, the UDP payload, and a code (0-15 for ICMP codes, 16 => UDP response)
+// UDP result contains either an A record or a CHAOS record
 message UDPResult {
-  UDPPayload payload = 1;
-}
-
-// UDP payload, which contains the transmission time, source/dest address, and the sender worker ID
-message UDPPayload {
   oneof value {
     DNS_A_Record dns_a_record = 1;
     DNS_CHAOS dns_chaos = 2;
   }
 }
+
 
 // UDP payload, which is extracted from the domain of the DNS A Record reply, containing information about the probe
 message DNS_A_Record {
