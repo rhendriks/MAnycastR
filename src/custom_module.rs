@@ -239,12 +239,9 @@ impl Display for IPv6 {
 
 impl IpResult {
     pub fn get_src_str(&self) -> String {
-        match &self.value {
-            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.to_string(),
-            Some(manycastr::ip_result::Value::Ipv6(v6)) => {
-                ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string()
-            }
-            None => String::from("None"),
+        match &self.src {
+            None => return String::from("None"),
+            Some(src) => src.to_string(),
         }
     }
 }

@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
-    ip_result, reply::Value, DnsARecord, DnsChaos, IPv6,
+    reply::Value, DnsARecord, DnsChaos, Address,
     IpResult, Origin, PingResult, Reply, TaskResult, TcpResult, UdpResult, udp_result
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
@@ -213,11 +213,11 @@ fn handle_results(
 fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)> {
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
-
+    
     // Create a Reply for the received ping reply
     return Some((
         IpResult {
-            value: Some(ip_result::Value::Ipv4(u32::from(packet.source_address))),
+            src: Some(Address::from(packet.source_address.to_string())),
             ttl: packet.ttl as u32,
         },
         packet.payload,
@@ -246,12 +246,7 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128, u12
     // Create a Reply for the received ping reply
     Some((
         IpResult {
-            value: Some(ip_result::Value::Ipv6(
-                IPv6 {
-                    p1: (u128::from(packet.source_address) >> 64) as u64,
-                    p2: u128::from(packet.source_address) as u64,
-                },
-            )),
+            src: Some(Address::from(packet.source_address.to_string())),
             ttl: packet.hop_limit as u32,
         },
         packet.payload,
@@ -471,7 +466,7 @@ fn parse_udpv4(
     };
 
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
-    
+
     // Create a Reply for the received UDP reply
     Some(Reply {
         value: Some(Value::Udp(udp_result?)),

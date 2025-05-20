@@ -152,11 +152,8 @@ message Reply {
 
 // IPResult, contains either an IPv4 or an IPv6 source address, and the TTL
 message IPResult {
-  oneof value {
-    fixed32 ipv4 = 1;
-    IPv6 ipv6 = 2;
-  }
-  fixed32 ttl = 3;
+  Address src = 1;
+  fixed32 ttl = 2;
 }
 
 // Result of a ping which contains the transmission time and the sender worker ID
