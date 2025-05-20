@@ -191,23 +191,17 @@ impl From<String> for Address {
             // attempt to interpret as a raw IP number
             if ip_number <= u32::MAX as u128 {
                 // It can be represented as an IPv4 address
-                println!("IPv4 address: {}", ip_number);
-                let addr =Address {
+                Address {
                     value: Some(V4(ip_number as u32)),
-                };
-                println!("IPv4 address: {}", addr);
-                addr
+                }
             } else {
                 // Too large for IPv4, treat as IPv6
-                println!("IPv6 address: {}", ip_number);
-                let addr = Address {
+                Address {
                     value: Some(V6(IPv6 {
                         p1: (ip_number >> 64) as u64, // Most significant 64 bits
                         p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
-                };
-                println!("IPv6 address: {}", addr);
-                addr
+                }
             }
         } else {
             panic!("Invalid IP address or IP number");
