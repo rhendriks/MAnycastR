@@ -8,7 +8,7 @@ use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
     ip_result, reply::Value, DnsARecord, DnsChaos, IPv4Result, IPv6, IPv6Result,
-    IpResult, Origin, PingPayload, PingResult, Reply, TaskResult, TcpResult, UdpResult, udp_result
+    IpResult, Origin, PingResult, Reply, TaskResult, TcpResult, UdpResult, udp_result
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
@@ -328,10 +328,8 @@ fn parse_icmpv4(
     // Create a Reply for the received ping reply
     Some(Reply {
         value: Some(Value::Ping(PingResult {
-            payload: Some(PingPayload {
-                tx_time,
-                tx_worker_id,
-            }),
+            tx_time,
+            tx_worker_id,
         })),
         ip_result: Some(ip_result),
         rx_time,
@@ -403,10 +401,8 @@ fn parse_icmpv6(
     // Create a Reply for the received ping reply
     Some(Reply {
         value: Some(Value::Ping(PingResult {
-            payload: Some(PingPayload {
-                tx_time,
-                tx_worker_id,
-            }),
+            tx_time,
+            tx_worker_id,
         })),
         ip_result: Some(ip_result),
         rx_time,

@@ -1134,9 +1134,8 @@ fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
     let mut row = vec![rx_worker_id, rx_time, reply_src, ttl];
     match result.value.unwrap() {
         ResultPing(ping) => {
-            let payload = ping.payload.unwrap();
-            row.push(payload.tx_time.to_string());
-            row.push(payload.tx_worker_id.to_string());
+            row.push(ping.tx_time.to_string());
+            row.push(ping.tx_worker_id.to_string());
         }
         ResultUdp(udp) => {
             // DNS reply
