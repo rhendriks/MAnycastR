@@ -436,7 +436,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.iter() {
                 if let Some(origin) = &configuration.origin {
-                    let src = origin.src.unwrap().to_string();
+                    let src = IP::from(origin.src.unwrap()).to_string();
                     let sport = origin.sport;
                     let dport = origin.dport;
 
