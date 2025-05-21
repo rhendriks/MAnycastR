@@ -125,8 +125,8 @@ impl ICMPPacket {
         identifier: u16,
         sequence_number: u16,
         body: Vec<u8>,
-        source_address: u128,
-        destination_address: u128,
+        src: u128,
+        dst: u128,
         hop_limit: u8,
         info_url: &str,
     ) -> Vec<u8> {
@@ -144,10 +144,10 @@ impl ICMPPacket {
         // Append a pseudo header to the ICMP packet bytes
         let mut psuedo_header: Vec<u8> = Vec::new();
         psuedo_header
-            .write_u128::<NetworkEndian>(source_address)
+            .write_u128::<NetworkEndian>(src)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
-            .write_u128::<NetworkEndian>(destination_address)
+            .write_u128::<NetworkEndian>(dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
             .write_u32::<NetworkEndian>((8 + body_len + info_url.bytes().len() as u16) as u32) // ICMP length
@@ -164,8 +164,8 @@ impl ICMPPacket {
             payload_length: 8 + body_len + info_url.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58,                                              // ICMPv6
             hop_limit,
-            src: source_address,
-            dst: destination_address,
+            src,
+            dst,
             payload: PacketPayload::ICMP {
                 value: packet.into(),
             },
@@ -511,8 +511,8 @@ impl super::TCPPacket {
 
         let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            src: src,
-            dst: dst,
+            src,
+            dst,
             zeros: 0,
             next_header: 6,             // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)

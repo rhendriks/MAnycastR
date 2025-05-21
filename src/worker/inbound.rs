@@ -205,7 +205,7 @@ fn handle_results(
 ///
 /// # Returns
 ///
-/// * 'Option<(IpResult, PacketPayload)>' - the IP result and the payload of the packet
+/// * 'Option<(IpResult, PacketPayload, u32, u32)>' - the IP result, the payload, and both dst and src address of the packet
 ///
 /// # Remarks
 ///
@@ -234,7 +234,7 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)
 ///
 /// # Returns
 ///
-/// * 'Option<(IpResult, PacketPayload)>' - the IP result and the payload of the packet
+/// * 'Option<(IpResult, PacketPayload, u128, u128)>' - the IP result, the payload, and both dst and src address of the packet
 ///
 /// # Remarks
 ///
@@ -256,12 +256,16 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128, u12
 }
 
 /// Parse ICMPv4 packets (including v4 headers) into a Reply result.
+/// 
+/// Filters out spoofed packets and only parses ICMP echo replies valid for the current measurement.
 ///
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// * `measurement_id` - the ID of the current measurement
+/// 
+/// * `origin_map` - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -331,12 +335,16 @@ fn parse_icmpv4(
 }
 
 /// Parse ICMPv6 packets (including v6 headers) into a Reply result.
+/// 
+/// Filters out spoofed packets and only parses ICMP echo replies valid for the current measurement.
 ///
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// * `measurement_id` - the ID of the current measurement
+/// 
+/// * `origin_map` - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -404,12 +412,16 @@ fn parse_icmpv6(
 }
 
 /// Parse UDPv4 packets (including v4 headers) into a Reply result.
+/// 
+/// Filters out spoofed packets and only parses UDP replies valid for the current measurement.
 ///
 /// # Arguments
 ///
 /// * 'packet_bytes' - the bytes of the packet to parse
 ///
 /// * 'measurement_type' - the type of measurement being performed
+/// 
+/// * 'origin_map' - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -477,12 +489,16 @@ fn parse_udpv4(
 }
 
 /// Parse UDPv6 packets (including v6 headers) into a Reply.
+/// 
+/// Filters out spoofed packets and only parses UDP replies valid for the current measurement.
 ///
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// * `measurement_type` - the type of measurement being performed
+/// 
+/// * `origin_map` - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -550,17 +566,15 @@ fn parse_udpv6(
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
-///
+/// 
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
-/// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
-///
 /// # Returns
 ///
-/// * `Option<UdpPayload>` - the UDP payload containing the DNS A record
-///
+/// * `Option<UdpResult, u16, u128, u128>` - the UDP result containing the DNS A record with the source port and source and destination addresses
+/// 
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
@@ -593,6 +607,19 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
     ))
 }
 
+/// Attempts to parse the DNS A record from a UDP payload body.
+///
+/// # Arguments
+///
+/// * `packet_bytes` - the bytes of the packet to parse
+///
+/// # Returns
+///
+/// * `Option<UdpResult, u16, u128, u128>` - the UDP result containing the DNS A record with the source port and source and destination addresses
+///
+/// # Remarks
+///
+/// The function returns None if the packet is too short to contain a DNS A record.
 fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u32)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
@@ -666,6 +693,8 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpResult> {
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
+/// 
+/// * `origin_map` - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -715,6 +744,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 /// # Arguments
 ///
 /// * `packet_bytes` - the bytes of the packet to parse
+/// 
+/// * `origin_map` - mapping of origin to origin ID
 ///
 /// # Returns
 ///
@@ -759,6 +790,21 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     })
 }
 
+/// Get the origin ID from the origin map based on the reply destination address and ports.
+/// 
+/// # Arguments
+/// 
+/// * `reply_dst` - the destination address of the reply
+/// 
+/// * `reply_sport` - the source port of the reply
+/// 
+/// * `reply_dport` - the destination port of the reply
+/// 
+/// * `origin_map` - the origin map to search in
+/// 
+/// # Returns
+/// 
+/// * `Option<u32>` - the origin ID if found, None otherwise
 fn get_origin_id_v4(
     reply_dst: u32,
     reply_sport: u16,
@@ -782,6 +828,21 @@ fn get_origin_id_v4(
     return None;
 }
 
+/// Get the origin ID from the origin map based on the reply destination address and ports.
+///
+/// # Arguments
+///
+/// * `reply_dst` - the destination address of the reply
+///
+/// * `reply_sport` - the source port of the reply
+///
+/// * `reply_dport` - the destination port of the reply
+///
+/// * `origin_map` - the origin map to search in
+///
+/// # Returns
+///
+/// * `Option<u32>` - the origin ID if found, None otherwise
 fn get_origin_id_v6(
     reply_dst: u128,
     reply_sport: u16,
