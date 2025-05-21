@@ -116,6 +116,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
+        
+        // TODO responsive also makes no sense when; only one worker is sending and only one origin is used
 
         // Map worker IDs to hostnames
         let worker_map: HashMap<u32, String> = response
