@@ -748,7 +748,15 @@ impl CliClient {
         let is_multi_origin = if is_unicast {
             false
         } else {
-            measurement_definition.configurations.len() > 1
+            // Check if any configuration has origin_id that is not 0 or u32::MAX
+            measurement_definition
+                .configurations
+                .iter()
+                .any(|conf| {
+                    conf.origin
+                        .as_ref()
+                        .map_or(false, |origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
+                })
         };
 
         // Start thread that writes results to file
