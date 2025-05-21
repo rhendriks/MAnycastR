@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::Local;
 use clap::ArgMatches;
 use csv::Writer;
 use flate2::read::GzDecoder;
@@ -651,15 +651,7 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let timestamp_start = Local::now();
-        let timestamp_start_str = format!(
-            "{:04}-{:02}-{:02}T{:02}_{:02}_{:02}",
-            timestamp_start.year(),
-            timestamp_start.month(),
-            timestamp_start.day(),
-            timestamp_start.hour(),
-            timestamp_start.minute(),
-            timestamp_start.second()
-        );
+        let timestamp_start_str = timestamp_start.format("%Y-%m-%dT%H_%M_%S").to_string();
         println!(
             "[CLI] Measurement started at {}",
             timestamp_start.format("%H:%M:%S")
@@ -898,25 +890,23 @@ fn get_metadata(
     if is_divide {
         md_file.push("# Divide-and-conquer measurement".to_string());
     }
-    md_file.push(format!("# Origin used: {}", origin_str).to_string());
+    md_file.push(format!("# Origin used: {}", origin_str));
     md_file.push(
         format!(
             "# Hitlist{}: {}",
             if is_shuffle { " (shuffled)" } else { "" },
             hitlist
         )
-        .to_string(),
     );
-    md_file.push(format!("# Measurement type: {}", type_str).to_string());
-    md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()).to_string());
-    md_file.push(format!("# Interval: {}", interval).to_string());
-    md_file.push(format!("# Start measurement: {}", timestamp_start_str).to_string());
+    md_file.push(format!("# Measurement type: {}", type_str));
+    md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()));
+    md_file.push(format!("# Interval: {}", interval));
+    md_file.push(format!("# Start measurement: {}", timestamp_start_str));
     md_file.push(
         format!(
             "# Expected measurement length (seconds): {:.6}",
             expected_length
         )
-        .to_string(),
     );
     if active_workers.len() < all_workers.len() {
         md_file.push(
@@ -924,25 +914,19 @@ fn get_metadata(
                 "# Selective probing using the following workers: {:?}",
                 active_workers
             )
-            .to_string(),
         );
     }
     md_file.push("# Connected workers:".to_string());
     for (id, hostname) in all_workers {
-        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname).to_string())
+        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname))
     }
 
     // Write configurations used for the measurement
     if is_config {
         md_file.push("# Configurations:".to_string());
         for configuration in configurations {
-            let src = configuration
-                    .origin
-                    .clone()
-                    .unwrap()
-                    .src
-                    .expect("Invalid source address")
-                .to_string();
+            let origin = configuration.origin.unwrap();
+            let src = origin.src.expect("Invalid source address");
             let worker_id = if configuration.worker_id == u32::MAX {
                 "ALL".to_string()
             } else {
@@ -953,10 +937,9 @@ fn get_metadata(
                     "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
                     worker_id,
                     src,
-                    configuration.origin.unwrap().sport,
-                    configuration.origin.unwrap().dport
+                    origin.sport,
+                    origin.dport
                 )
-                .to_string(),
             );
         }
 
@@ -964,18 +947,12 @@ fn get_metadata(
             md_file.push("# Multiple origins used".to_string());
 
             for configuration in configurations {
-                let src = 
-                    configuration
-                        .origin
-                        .clone()
-                        .unwrap()
-                        .src
-                        .expect("Invalid source address")
-                        .to_string();
+                let origin = configuration.origin.unwrap();
+                let src = origin.src.expect("Invalid source address");
 
-                let origin_id = configuration.origin.clone().unwrap().origin_id.to_string();
+                let origin_id = origin.origin_id;
 
-                md_file.push(format!("# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}", origin_id, src, configuration.origin.unwrap().sport, configuration.origin.unwrap().dport).to_string());
+                md_file.push(format!("# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}", origin_id, src, origin.sport, origin.dport));
             }
         }
     }
@@ -989,21 +966,25 @@ fn get_metadata(
 ///
 /// * 'rx' - The receiver channel that receives the results
 ///
-/// * 'cli' - A boolean that determines whether the results should be printed to the command-line
+/// * 'is_cli' - A boolean that determines whether the results should be printed to the command-line
 ///
 /// * 'file' - The file to which the results should be written
+/// 
+/// * 'md_file' - Metadata for the measurement, to be written to the file
 ///
 /// * 'measurement_type' - The type of measurement being performed
+/// 
+/// * is_multi_origin - A boolean that determines whether multiple origins are used
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
-    cli: bool,
+    is_cli: bool,
     file: File,
     md_file: Vec<String>,
     measurement_type: u32,
     is_multi_origin: bool,
 ) {
     // CSV writer to command-line interface
-    let mut wtr_cli = if cli {
+    let mut wtr_cli = if is_cli {
         Some(Writer::from_writer(io::stdout()))
     } else {
         None
@@ -1025,7 +1006,7 @@ fn write_results(
     // Write header
     let header = get_header(measurement_type, is_multi_origin);
     // TODO write header to CLI
-    if cli {
+    if is_cli {
         wtr_cli
             .as_mut()
             .unwrap()
@@ -1050,7 +1031,7 @@ fn write_results(
                 let result = get_result(result, task_result.worker_id);
 
                 // Write to command-line
-                if cli {
+                if is_cli {
                     if let Some(ref mut writer) = wtr_cli {
                         writer
                             .write_record(result.clone())
@@ -1076,6 +1057,8 @@ fn write_results(
 /// # Arguments
 ///
 /// * 'measurement_type' - The type of measurement being performed
+/// 
+/// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str> {
     // Information available for all measurement types
     let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
