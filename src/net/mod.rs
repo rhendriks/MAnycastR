@@ -12,8 +12,8 @@ pub(crate) mod packet;
 pub struct IPv4Packet {
     pub length: u16,                   // 16-bit Total Length
     pub ttl: u8,                       // 8-bit Time To Live
-    pub source_address: u32,           // 32-bit Source IP Address
-    pub destination_address: u32,      // 32-bit Destination IP Address
+    pub src: u32,           // 32-bit Source IP Address
+    pub dst: u32,      // 32-bit Destination IP Address
     pub payload: PacketPayload,        // Payload
 }
 
@@ -36,8 +36,8 @@ impl From<&[u8]> for IPv4Packet {
             return IPv4Packet {
                 length: header_length as u16,
                 ttl,
-                source_address,
-                destination_address,
+                src: source_address,
+                dst: destination_address,
                 payload: PacketPayload::Unimplemented,
             };
         }
@@ -77,8 +77,8 @@ impl From<&[u8]> for IPv4Packet {
         IPv4Packet {
             length: header_length as u16,
             ttl,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload,
         }
     }
@@ -111,9 +111,9 @@ impl Into<Vec<u8>> for &IPv4Packet {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
-        wtr.write_u32::<NetworkEndian>(self.source_address.into())
+        wtr.write_u32::<NetworkEndian>(self.src.into())
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
-        wtr.write_u32::<NetworkEndian>(self.destination_address.into())
+        wtr.write_u32::<NetworkEndian>(self.dst.into())
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Calculate and write the checksum
@@ -156,8 +156,8 @@ impl Into<Vec<u8>> for PacketPayload {
 /// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeader {
-    pub source_address: u32,
-    pub destination_address: u32,
+    pub src: u32,
+    pub dst: u32,
     pub zeroes: u8,   // 8 bits of zeros
     pub protocol: u8, // 6 for TCP, 17 for UDP
     pub length: u16,  // TCP/UDP header + data length
@@ -167,9 +167,9 @@ pub struct PseudoHeader {
 impl Into<Vec<u8>> for PseudoHeader {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
-        wtr.write_u32::<NetworkEndian>(self.source_address)
+        wtr.write_u32::<NetworkEndian>(self.src)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u32::<NetworkEndian>(self.destination_address)
+        wtr.write_u32::<NetworkEndian>(self.dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u8(self.zeroes)
             .expect("Unable to write to byte buffer for PseudoHeader");
@@ -193,10 +193,10 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     let mut sum = 0u32;
 
     // Sum the pseudo header
-    sum += pseudo_header.source_address >> 16;
-    sum += pseudo_header.source_address & 0xffff;
-    sum += pseudo_header.destination_address >> 16;
-    sum += pseudo_header.destination_address & 0xffff;
+    sum += pseudo_header.src >> 16;
+    sum += pseudo_header.src & 0xffff;
+    sum += pseudo_header.dst >> 16;
+    sum += pseudo_header.dst & 0xffff;
     sum += u32::from(pseudo_header.protocol);
     sum += u32::from(pseudo_header.length);
 
@@ -312,8 +312,8 @@ impl ICMPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + 8 + body_len + info_url.bytes().len() as u16,
             ttl,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload: PacketPayload::ICMP {
                 value: packet.into(),
             },
@@ -593,8 +593,8 @@ impl UDPPacket {
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeader {
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             zeroes: 0,
             protocol: 17,
             length,
@@ -644,8 +644,8 @@ impl UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeader {
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             zeroes: 0,
             protocol: 17,
             length: udp_length,
@@ -656,8 +656,8 @@ impl UDPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + udp_length,
             ttl,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -726,8 +726,8 @@ impl UDPPacket {
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeader {
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             zeroes: 0,
             protocol: 17,
             length: udp_length as u16,
@@ -739,8 +739,8 @@ impl UDPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + udp_length as u16,
             ttl: 255,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -877,8 +877,8 @@ impl TCPPacket {
         // Turn everything into a vec of bytes and calculate checksum
         let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeader {
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             zeroes: 0,
             protocol: 6,                // TCP
             length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
@@ -888,8 +888,8 @@ impl TCPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + bytes.len() as u16,
             ttl,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload: PacketPayload::TCP {
                 value: packet.into(),
             },
