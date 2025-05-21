@@ -174,7 +174,7 @@ impl<T> Drop for CLIReceiver<T> {
                 let end_task = end_task.clone();
 
                 spawn(async move {
-                    if let Err(e) = worker.send(Ok(end_task)).await {
+                    if let Err(e) = worker.send(Ok(end_task.clone())).await {
                         println!(
                             "[Orchestrator] ERROR - Failed to terminate measurement {}",
                             e
