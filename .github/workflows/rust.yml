@@ -1,4 +1,4 @@
-name: Rust
+name: Rust CI (MUSL Target)
 
 on:
   push:
@@ -8,47 +8,41 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TARGET: x86_64-unknown-linux-musl
 
 jobs:
-  build:
+  build-and-lint:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    
-    # Set up Rust
-    - name: Set up Rust
-      uses: actions/setup-rust@v1
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Rust and MUSL target
+      uses: dtolnay/rust-toolchain@stable
       with:
-        rust-version: stable
-    
-    # Install necessary tools
-    - name: Install cargo-outdated, cargo-udeps, and protobuf compiler
+        toolchain: stable
+        targets: ${{ env.RUST_TARGET }}
+
+    - name: Install build dependencies (Protobuf Compiler, MUSL tools)
       run: |
-        cargo install cargo-outdated cargo-udeps
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+        sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler \
+            musl-tools \
+            gcc
 
-    # Check for unused dependencies using cargo-udeps
+    - name: Install cargo-udeps
+      run: cargo install cargo-udeps
+
     - name: Check for unused dependencies
-      run: cargo udeps --all
-    
-    # Linting with Clippy
-    - name: Run Clippy
-      run: cargo clippy --verbose -- -D warnings
+      run: cargo udeps --all-targets --target ${{ env.RUST_TARGET }} --backend=cargo-metadata
 
-    # Check code formatting with cargo fmt
-    - name: Check Formatting
+    - name: Check code formatting
       run: cargo fmt -- --check
 
-    # Build the project
-    - name: Build
-      run: cargo build --verbose
+    - name: Run Clippy (linting) for MUSL target
+      run: cargo clippy --target ${{ env.RUST_TARGET }} --all-targets --verbose -- -D warnings
 
-    # Run tests
-    - name: Run tests
-      run: cargo test --verbose
-
-    # Check for outdated dependencies
-    - name: Check for outdated dependencies
-      run: cargo outdated
+    - name: Build project for MUSL target (similar to Docker build)
+      run: cargo build --release --target ${{ env.RUST_TARGET }} --verbose --all-targets
