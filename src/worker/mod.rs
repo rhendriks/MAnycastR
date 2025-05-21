@@ -379,7 +379,6 @@ impl Worker {
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
-            // TODO loop does not break when connection is lost
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message

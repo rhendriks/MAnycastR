@@ -217,7 +217,7 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)
     // Create a Reply for the received ping reply
     return Some((
         IpResult {
-            src: Some(Address::from(packet.source_address.to_bits())),
+            src: Some(Address::from(packet.source_address)),
             ttl: packet.ttl as u32,
         },
         packet.payload,
