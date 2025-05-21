@@ -36,7 +36,7 @@ jobs:
       run: cargo install cargo-udeps
 
     - name: Check for unused dependencies
-      run: cargo udeps --all-targets --target ${{ env.RUST_TARGET }} --backend=cargo-metadata
+      run: cargo udeps --all-targets --target ${{ env.RUST_TARGET }}
 
     - name: Check code formatting
       run: cargo fmt -- --check
