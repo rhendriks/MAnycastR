@@ -10,8 +10,21 @@ pub mod manycastr {
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match &self.value {
-            Some(V4(v4)) => v4.to_string(),
-            Some(V6(v6)) => v6.to_string(),
+            Some(V4(v4)) => {
+                Ipv4Addr::from(*v4).to_string()
+            }
+            Some(V6(v6)) => {
+                Ipv6Addr::new(
+                    (v6.p1 >> 48) as u16,
+                    (v6.p1 >> 32) as u16,
+                    (v6.p1 >> 16) as u16,
+                    v6.p1 as u16,
+                    (v6.p2 >> 48) as u16,
+                    (v6.p2 >> 32) as u16,
+                    (v6.p2 >> 16) as u16,
+                    v6.p2 as u16,
+                ).to_string()
+            }
             None => String::from("None"),
         };
         write!(f, "{}", str)
@@ -44,83 +57,24 @@ impl Address {
             None => 0,
         }
     }
-}
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum IP {
-    V4(Ipv4Addr),
-    V6(Ipv6Addr),
-    None,
-}
-
-impl From<Address> for IP {
-    fn from(address: Address) -> Self {
-        match address.value {
-            Some(V4(v4)) => IP::V4(v4.into()),
-            Some(V6(v6)) => IP::V6(Ipv6Addr::new(
-                (v6.p1 >> 48) as u16,
-                (v6.p1 >> 32) as u16,
-                (v6.p1 >> 16) as u16,
-                v6.p1 as u16,
-                (v6.p2 >> 48) as u16,
-                (v6.p2 >> 32) as u16,
-                (v6.p2 >> 16) as u16,
-                v6.p2 as u16,
-            )),
-            None => IP::None,
-        }
-    }
-}
-
-impl IP {
-    pub fn _is_v4(&self) -> bool {
-        match self {
-            IP::V4(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_v6(&self) -> bool {
-        match self {
-            IP::V6(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn get_v4(&self) -> Ipv4Addr {
-        match self {
-            IP::V4(v4) => *v4,
+    /// Get the IPv4 address as u32
+    ///
+    /// Panic if the address is not IPv4
+    pub fn get_v4(&self) -> u32 {
+        match &self.value {
+            Some(V4(v4)) => *v4,
             _ => panic!("Not a v4 address"),
         }
     }
 
-    pub fn get_v6(&self) -> Ipv6Addr {
-        match self {
-            IP::V6(v6) => *v6,
+    /// Get the IPv6 address as u128
+    ///
+    /// Panic if the address is not IPv6
+    pub fn get_v6(&self) -> u128 {
+        match &self.value {
+            Some(V6(v6)) => (v6.p1 as u128) << 64 | v6.p2 as u128,
             _ => panic!("Not a v6 address"),
-        }
-    }
-}
-
-impl From<IP> for Address {
-    fn from(ip: IP) -> Self {
-        match ip {
-            IP::V4(v4) => Address {
-                value: Some(V4(u32::from(v4))),
-            },
-            IP::V6(v6) => Address {
-                value: Some(V6(IPv6 {
-                    p1: (v6.segments()[0] as u64) << 48
-                        | (v6.segments()[1] as u64) << 32
-                        | (v6.segments()[2] as u64) << 16
-                        | (v6.segments()[3] as u64),
-                    p2: (v6.segments()[4] as u64) << 48
-                        | (v6.segments()[5] as u64) << 32
-                        | (v6.segments()[6] as u64) << 16
-                        | (v6.segments()[7] as u64),
-                })),
-            },
-            IP::None => Address { value: None },
         }
     }
 }
@@ -151,9 +105,46 @@ impl From<&[u8]> for Address {
     }
 }
 
+impl From<[u8; 4]> for Address {
+    fn from(bytes: [u8; 4]) -> Self {
+        Address {
+            value: Some(V4(u32::from_be_bytes(bytes))),
+        }
+    }
+}
+
+impl From<u32> for Address {
+    fn from(bytes: u32) -> Self {
+        Address {
+            value: Some(V4(bytes)),
+        }
+    }
+}
+
+impl From<u128> for Address {
+    fn from(bytes: u128) -> Self {
+        Address {
+            value: Some(V6(IPv6 {
+                p1: (bytes >> 64) as u64,
+                p2: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
+            })),
+        }
+    }
+}
+
+impl From<[u8; 16]> for Address {
+    fn from(bytes: [u8; 16]) -> Self {
+        Address {
+            value: Some(V6(IPv6 {
+                p1: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+                p2: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
+            })),
+        }
+    }
+}
+
 // Convert String into an Address
 impl From<String> for Address {
-    // TODO test
     fn from(s: String) -> Self {
         if let Ok(ip) = s.parse::<IpAddr>() {
             // handle standard IP string format (e.g., 2001::1, 1.1.1.1)
@@ -169,19 +160,18 @@ impl From<String> for Address {
                 },
             }
         } else if let Ok(ip_number) = s.parse::<u128>() {
-            // attempt to interpret as a raw IP number (e.g., 16843009)
-            match s.len() {
-                // TODO do these constraints hold for all IP number lengths?
-                10 => Address {
+            // attempt to interpret as a raw IP number
+            if ip_number <= u32::MAX as u128 { // IPv4
+                Address {
                     value: Some(V4(ip_number as u32)),
-                },
-                39 => Address {
+                }
+            } else { // IPv6
+                Address {
                     value: Some(V6(IPv6 {
-                        p1: (ip_number >> 64) as u64,
-                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64,
+                        p1: (ip_number >> 64) as u64, // Most significant 64 bits
+                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
-                },
-                _ => panic!("Invalid IP number"),
+                }
             }
         } else {
             panic!("Invalid IP address or IP number");
@@ -189,56 +179,48 @@ impl From<String> for Address {
     }
 }
 
-impl Display for IP {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            IP::V4(v4) => v4.to_string(),
-            IP::V6(v6) => v6.to_string(),
-            IP::None => String::from("None"),
-        };
-        write!(f, "{}", str)
+impl From<&String> for Address {
+    fn from(s: &String) -> Self {
+        Address::from(s.to_string())
     }
 }
 
-impl From<String> for IP {
-    fn from(s: String) -> Self {
-        match s.parse::<Ipv4Addr>() {
-            Ok(v4) => IP::V4(v4),
-            Err(_) => match s.parse::<Ipv6Addr>() {
-                Ok(v6) => IP::V6(v6),
-                Err(_) => panic!("Invalid IP address: {}", s),
+impl From<&str> for Address {
+    fn from(s: &str) -> Self {
+        Address::from(s.to_string())
+    }
+}
+
+impl From<IpAddr> for Address {
+    fn from(ip: IpAddr) -> Self {
+        match ip {
+            IpAddr::V4(v4_addr) => Address {
+                value: Some(V4(u32::from_be_bytes(v4_addr.octets()))),
+            },
+            IpAddr::V6(v6_addr) => Address {
+                value: Some(V6(IPv6 {
+                    p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
+                    p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
+                })),
             },
         }
     }
 }
 
-impl Display for IPv6 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = ((self.p1 as u128) << 64 | self.p2 as u128).to_string();
-        write!(f, "{}", str)
-    }
-}
-
 impl IpResult {
     pub fn get_src_str(&self) -> String {
-        match &self.value {
-            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.src.to_string(),
-            Some(manycastr::ip_result::Value::Ipv6(v6)) => {
-                let src = v6.src.expect("None IPv6 data type");
-                ((src.p1 as u128) << 64 | src.p2 as u128).to_string()
-            }
+        match &self.src {
             None => String::from("None"),
-        }
-    }
-
-    pub fn get_dst_str(&self) -> String {
-        match &self.value {
-            Some(manycastr::ip_result::Value::Ipv4(v4)) => v4.dst.to_string(),
-            Some(manycastr::ip_result::Value::Ipv6(v6)) => {
-                let dst = v6.dst.expect("None IPv6 data type");
-                ((dst.p1 as u128) << 64 | dst.p2 as u128).to_string()
+            Some(src) => {
+                match src.value {
+                    Some(V4(v4)) => v4.to_string(),
+                    Some(V6(v6)) => {
+                        let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
+                        str
+                    }
+                    None => String::from("None"),
+                }
             }
-            None => String::from("None"),
         }
     }
 }

@@ -8,13 +8,10 @@ use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 use crate::custom_module;
 use custom_module::manycastr::task::Data::{End, Targets};
 use custom_module::manycastr::{task::Data, Origin};
-use custom_module::IP;
 
 use pnet::datalink::DataLinkSender;
 
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-
-
 
 use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
 
@@ -45,6 +42,8 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 /// * 'if_name' - the name of the network interface to use
 ///
 /// * 'socket_tx' - the sender object to send packets
+/// 
+/// * 'probing_rate' - the rate at which to send packets (in packets per second)
 pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
@@ -68,8 +67,7 @@ pub fn outbound(
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
 
-
-            let ethernet_header = get_ethernet_header(is_ipv6, if_name.clone());
+            let ethernet_header = get_ethernet_header(is_ipv6, if_name);
             'outer: loop {
                 if let Ok(Some(())) = finish_rx.try_recv() {
                     // If the finish_rx received a signal, break the loop (abort)
@@ -90,7 +88,7 @@ pub fn outbound(
                                 break 'outer;
                             }
                             // wait some time and try again
-                            thread::sleep(Duration::from_millis(100));
+                            sleep(Duration::from_millis(100));
                         }
                     };
                 }
@@ -104,11 +102,11 @@ pub fn outbound(
                         for origin in &tx_origins {
                             match measurement_type {
                                 1 => { // ICMP
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
-                                            origin.clone(),
-                                            IP::from(dst.clone()),
+                                            origin,
+                                            dst,
                                             worker_id,
                                             measurement_id,
                                             &info_url,
@@ -129,15 +127,15 @@ pub fn outbound(
                                     }
                                 }
                                 2 | 4 => { // UDP or UDP/CHAOS
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
-                                            origin.clone(),
-                                            IP::from(dst.clone()),
+                                            origin,
+                                            dst,
                                             worker_id,
                                             measurement_type,
                                             is_ipv6,
-                                            &qname.clone(),
+                                            &qname,
                                         ));
 
                                         while let Err(_) = limiter.check() { // Rate limit to avoid bursts
@@ -155,11 +153,11 @@ pub fn outbound(
                                     }
                                 }
                                 3 => { // TCP
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
-                                            origin.clone(),
-                                            IP::from(dst.clone()),
+                                            origin,
+                                            dst,
                                             worker_id,
                                             is_ipv6,
                                             is_unicast,
