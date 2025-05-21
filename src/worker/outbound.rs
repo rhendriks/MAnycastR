@@ -8,7 +8,6 @@ use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 use crate::custom_module;
 use custom_module::manycastr::task::Data::{End, Targets};
 use custom_module::manycastr::{task::Data, Origin};
-use custom_module::IP;
 
 use pnet::datalink::DataLinkSender;
 
@@ -105,7 +104,7 @@ pub fn outbound(
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
                                             origin.clone(),
-                                            IP::from(dst.clone()),
+                                            dst,
                                             worker_id,
                                             measurement_id,
                                             &info_url,
@@ -130,7 +129,7 @@ pub fn outbound(
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
                                             origin.clone(),
-                                            IP::from(dst.clone()),
+                                            dst,
                                             worker_id,
                                             measurement_type,
                                             is_ipv6,
@@ -156,7 +155,7 @@ pub fn outbound(
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
                                             origin.clone(),
-                                            IP::from(dst.clone()),
+                                            dst,
                                             worker_id,
                                             is_ipv6,
                                             is_unicast,

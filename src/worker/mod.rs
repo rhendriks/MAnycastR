@@ -15,7 +15,6 @@ use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
     Task, TaskResult, WorkerId,
 };
-use custom_module::IP;
 
 use crate::custom_module;
 use crate::net::packet::is_in_prefix;
@@ -190,17 +189,15 @@ impl Worker {
             let dport = start_measurement.tx_origins[0].dport;
 
             // Get the local unicast address
-            let unicast_ip = IP::from(
+            let unicast_ip = Address::from(
                 if is_ipv6 {
                     local_ipv6().expect("Unable to get local unicast IPv6 address")
                 } else {
                     local_ip().expect("Unable to get local unicast IPv4 address")
-                }
-                .to_string(),
-            );
+                });
 
             let unicast_origin = Origin {
-                src: Some(Address::from(unicast_ip)), // Unicast IP
+                src: Some(unicast_ip), // Unicast IP
                 sport: sport.into(),                  // CLI defined source port
                 dport: dport.into(),                  // CLI defined destination port
                 origin_id: u32::MAX,                  // ID for unicast address
@@ -231,7 +228,7 @@ impl Worker {
         let interfaces = datalink::interfaces();
 
         // Look for the interface that uses the listening IP address
-        let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
+        let addr = rx_origins[0].src.unwrap().to_string();
         let interface = if let Some(interface) = interfaces
             .iter()
             .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip)))
@@ -282,7 +279,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {} using identifier {}",
-                            IP::from(origin.src.unwrap()).to_string(),
+                            origin.src.unwrap(),
                             origin.dport
                         );
                     }
@@ -292,7 +289,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
-                            IP::from(origin.src.unwrap()).to_string(),
+                            origin.src.unwrap(),
                             origin.sport,
                             origin.dport
                         );

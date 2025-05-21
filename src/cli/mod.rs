@@ -31,7 +31,7 @@ use custom_module::manycastr::{
     Address, Configuration, Empty, Origin, Reply,
     ScheduleMeasurement, Targets, TaskResult,
 };
-use custom_module::{Separated, IP};
+use custom_module::Separated;
 
 use crate::custom_module;
 
@@ -117,6 +117,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
 
+        // Map worker IDs to hostnames
         let workers: HashMap<u32, String> = response
             .into_inner()
             .workers
@@ -134,7 +135,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Source IP for the measurement
         let src = matches
             .get_one::<String>("address")
-            .map(|addr| Address::from(addr.to_string()));
+            .map(|addr| Address::from(addr));
 
         // Get the measurement type
         let measurement_type: u8 = match matches
@@ -154,7 +155,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_config = matches.contains_id("configuration");
 
         // Get the workers that have to send out probes
-        let worker_ids = matches.get_one::<String>("selective").map_or_else(
+        let sender_ids = matches.get_one::<String>("selective").map_or_else(
             || {
                 println!("[CLI] Probes will be sent out from all workers");
                 Vec::new()
@@ -164,8 +165,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     .trim_matches(['[', ']'])
                     .split(',')
                     .filter_map(|id| {
-                        let id = id.trim();
-                        id.parse::<u32>()
+                        id.trim().parse::<u32>()
                             .map_err(|e| {
                                 eprintln!("Unable to parse worker ID '{}': {}", id, e);
                             })
@@ -176,18 +176,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         );
 
         // Print selected workers
-        if !worker_ids.is_empty() {
-            println!("[CLI] Selective probing using the following workers:",);
-        }
-        for id in &worker_ids {
-            match workers.get(id) {
-                Some(hostname) => {
-                    println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
-                }
-                None => {
+        if !sender_ids.is_empty() {
+            println!("[CLI] Selective probing using the following workers:");
+            sender_ids.iter().for_each(|id| {
+                let hostname = workers.get(id).unwrap_or_else(|| {
                     panic!("Worker ID {} is not a connected worker!", id);
-                }
-            }
+                });
+                println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
+            });
         }
 
         // Read the configuration file (unnecessary for unicast)
@@ -198,65 +194,70 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
             let buf_reader = BufReader::new(file);
             let mut origin_id = 0;
+            let mut is_ipv6: Option<bool> = None;
             let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
                 .lines()
-                .filter_map(|l| {
-                    origin_id += 1;
-                    let line = l.expect("Unable to read configuration line");
-                    if line.starts_with("#") {
+                .filter_map(|line| {
+                    let line = line.expect("Unable to read configuration line");
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with("#") {
                         return None;
-                    } // Skip comments
-                    let parts: Vec<&str> = line.split(" - ").map(|s| s.trim()).collect();
+                    } // Skip comments and empty lines
+
+                    let parts: Vec<&str> = line.splitn(2, " - ").map(|s| s.trim()).collect();
                     if parts.len() != 2 {
                         panic!("Invalid configuration format: {}", line);
                     }
-                    let worker_id = if parts[0] == "ALL" {
-                        // All clients probe this configuration
-                        u32::MAX
-                    } else {
-                        match u32::from_str(parts[0]) {
-                            Ok(id_val) => { // Integer ID
-                                id_val
-                            }
-                            Err(_) => { // Hostname ID
-                                let mut found_id: Option<u32> = None;
-                                for (id_key, hostname_val) in workers.iter() {
-                                    if hostname_val == parts[0] {
-                                        found_id = Some(*id_key);
-                                        break;
-                                    }
-                                }
 
-                                match found_id {
-                                    Some(id) => id,
-                                    None => {
-                                        // If no ID was found after checking all hostnames
-                                        panic!(
-                                            "Unable to parse '{}' as a worker ID or find a matching hostname.",
-                                            parts[0]
-                                        );
-                                    }
-                                }
-                            }
+                    // Parse the worker ID
+                    let worker_id = if parts[0] == "ALL" {
+                        u32::MAX
+                    } else if let Ok(id_val) = parts[0].parse::<u32>() {
+                        if !workers.contains_key(&id_val) {
+                            panic!("Worker ID {} is not a known worker.", id_val);
                         }
+                        id_val
+                    } else {
+                        // Assume hostname
+                        workers
+                            .iter()
+                            .find_map(|(id_key, hostname_val)| {
+                                if hostname_val == parts[0] {
+                                    Some(*id_key)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Unable to parse '{}' as 'ALL', a worker ID, or a connected worker hostname.",
+                                    parts[0]
+                                );
+                            })
                     };
 
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
                         panic!("Invalid configuration format: {}", line);
                     }
-                    let src = Address::from(addr_ports[0].to_string());
+                    let src = Address::from(addr_ports[0]);
+                    if is_ipv6.is_none() {
+                        is_ipv6 = Some(src.is_v6());
+                    } else if is_ipv6.unwrap() != src.is_v6() {
+                        panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
+                    }
+                    
                     // Parse to u16 first, must fit in header
-                    let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port");
-                    let dport =
-                        u16::from_str(addr_ports[2]).expect("Unable to parse destination port");
+                    let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
+                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port") as u32;
+                    origin_id += 1;
 
                     Some(Configuration {
                         worker_id,
                         origin: Some(Origin {
                             src: Some(src),
-                            sport: sport.into(),
-                            dport: dport.into(),
+                            sport,
+                            dport,
                             origin_id,
                         }),
                     })
@@ -265,22 +266,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             if configurations.is_empty() {
                 panic!("No valid configurations found in file {}", conf_file);
             }
-
-            // Make sure all configurations have the same IP type
-            let is_ipv6 = configurations
-                .first()
-                .unwrap()
-                .origin
-                .unwrap()
-                .src
-                .unwrap()
-                .is_v6();
-            if configurations
-                .iter()
-                .any(|conf| conf.origin.unwrap().src.unwrap().is_v6() != is_ipv6)
-            {
-                panic!("Configurations are not all of the same type! (IPv4 & IPv6)");
-            }
+            
             configurations
         } else {
             // Obtain port values (read as u16 as is the port header size)
@@ -297,7 +283,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-            if worker_ids.is_empty() {
+            if sender_ids.is_empty() {
                 // All workers
                 vec![Configuration {
                     worker_id: u32::MAX, // All clients
@@ -305,7 +291,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         src,
                         sport,
                         dport,
-                        origin_id: 0,
+                        origin_id: 0, // Only one anycast origin
                     }),
                 }]
             } else if is_unicast {
@@ -313,7 +299,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 vec![]
             } else {
                 // list of worker IDs defined
-                worker_ids
+                sender_ids
                     .iter()
                     .map(|&worker_id| Configuration {
                         worker_id,
@@ -321,7 +307,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src,
                             sport,
                             dport,
-                            origin_id: 0,
+                            origin_id: 0, // Only one anycast origin
                         }),
                     })
                     .collect()
@@ -339,7 +325,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .expect("No hitlist file provided!");
         let file = File::open(hitlist_path)
             .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
-        // let buf_reader = BufReader::new(file);
 
         // Create reader based on file extension
         let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
@@ -436,7 +421,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.iter() {
                 if let Some(origin) = &configuration.origin {
-                    let src = IP::from(origin.src.unwrap()).to_string();
+                    let src = origin.src.unwrap().to_string();
                     let sport = origin.sport;
                     let dport = origin.dport;
 
@@ -458,7 +443,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             }
         } else {
             let anycast_origin = configurations.first().unwrap().origin.unwrap();
-            let src = IP::from(anycast_origin.src.unwrap()).to_string();
+            let src = anycast_origin.src.unwrap().to_string();
 
             println!(
                 "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
@@ -528,7 +513,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
-            workers: worker_ids,
+            workers: sender_ids,
             configurations: configurations.clone(),
             measurement_type: measurement_type as u32,
             unicast: is_unicast,
@@ -617,7 +602,7 @@ impl CliClient {
                     .unwrap()
                     .origin
                     .unwrap();
-                let src = IP::from(origin.src.unwrap()).to_string();
+                let src = origin.src.unwrap().to_string();
                 let sport = origin.sport;
                 let dport = origin.dport;
                 format!(
@@ -952,15 +937,13 @@ fn get_metadata(
     if is_config {
         md_file.push("# Configurations:".to_string());
         for configuration in &configurations {
-            let src = IP::from(
-                configuration
+            let src = configuration
                     .origin
                     .clone()
                     .unwrap()
                     .src
-                    .expect("Invalid source address"),
-            )
-            .to_string();
+                    .expect("Invalid source address")
+                .to_string();
             let worker_id = if configuration.worker_id == u32::MAX {
                 "ALL".to_string()
             } else {
@@ -982,15 +965,14 @@ fn get_metadata(
             md_file.push("# Multiple origins used".to_string());
 
             for configuration in &configurations {
-                let src = IP::from(
+                let src = 
                     configuration
                         .origin
                         .clone()
                         .unwrap()
                         .src
-                        .expect("Invalid source address"),
-                )
-                .to_string();
+                        .expect("Invalid source address")
+                        .to_string();
 
                 let origin_id = configuration.origin.clone().unwrap().origin_id.to_string();
 

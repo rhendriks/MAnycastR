@@ -1,5 +1,4 @@
-use crate::custom_module::manycastr::Origin;
-use crate::custom_module::IP;
+use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
@@ -183,7 +182,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_ping(
     origin: Origin,
-    dst: IP,
+    dst: &Address,
     worker_id: u16,
     measurement_id: u32,
     info_url: &str,
@@ -192,8 +191,7 @@ pub fn create_ping(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let src = IP::from(origin.src.expect("None IP address"));
-    let dst = IP::from(dst);
+    let src = origin.src.expect("None IP address");
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
@@ -203,28 +201,28 @@ pub fn create_ping(
 
     // add the source address
     if src.is_v6() {
-        payload_bytes.extend_from_slice(&src.get_v6().octets()); // Bytes 14 - 31
-        payload_bytes.extend_from_slice(&dst.get_v6().octets()); // Bytes 32 - 49
+        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 14 - 31
+        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 32 - 49
 
         ICMPPacket::echo_request_v6(
             origin.dport as u16,
             2,
             payload_bytes,
-            src.get_v6().into(),
-            IP::from(dst).get_v6().into(),
+            src.get_v6(),
+            dst.get_v6().into(),
             255,
             info_url,
         )
     } else {
-        payload_bytes.extend_from_slice(&src.get_v4().octets()); // Bytes 14 - 17
-        payload_bytes.extend_from_slice(&dst.get_v4().octets()); // Bytes 18 - 21
+        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 14 - 17
+        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 18 - 21
 
         ICMPPacket::echo_request(
             origin.dport as u16,
             2,
             payload_bytes,
             src.get_v4().into(),
-            IP::from(dst).get_v4().into(),
+            dst.get_v4().into(),
             255,
             info_url,
         )
@@ -256,7 +254,7 @@ pub fn create_ping(
 /// If the measurement type is not 2 or 4
 pub fn create_udp(
     origin: Origin,
-    dst: IP,
+    dst: &Address,
     worker_id: u16,
     measurement_type: u8,
     is_ipv6: bool,
@@ -266,7 +264,7 @@ pub fn create_udp(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let src = IP::from(origin.src.expect("None IP address"));
+    let src = origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
     if is_ipv6 {
@@ -282,8 +280,8 @@ pub fn create_udp(
             )
         } else if measurement_type == 4 {
             UDPPacket::chaos_request_v6(
-                src.get_v6().into(),
-                dst.get_v6().into(),
+                src.get_v6(),
+                dst.get_v6(),
                 sport,
                 worker_id,
                 qname,
@@ -294,8 +292,8 @@ pub fn create_udp(
     } else {
         if measurement_type == 2 {
             UDPPacket::dns_request(
-                src.get_v4().into(),
-                dst.get_v4().into(),
+                src.get_v4(),
+                dst.get_v4(),
                 sport,
                 qname,
                 tx_time,
@@ -304,8 +302,8 @@ pub fn create_udp(
             )
         } else if measurement_type == 4 {
             UDPPacket::chaos_request(
-                src.get_v4().into(),
-                dst.get_v4().into(),
+                src.get_v4(),
+                dst.get_v4(),
                 sport,
                 worker_id,
                 qname,
@@ -337,7 +335,7 @@ pub fn create_udp(
 /// A TCP packet (including the IP header) as a byte vector.
 pub fn create_tcp(
     origin: Origin,
-    dst: IP,
+    dst: &Address,
     worker_id: u16,
     is_ipv6: bool,
     is_unicast: bool,
@@ -357,10 +355,8 @@ pub fn create_tcp(
 
     if is_ipv6 {
         TCPPacket::tcp_syn_ack_v6(
-            IP::from(origin.src.expect("None IP address"))
-                .get_v6()
-                .into(),
-            IP::from(dst).get_v6().into(),
+            origin.src.unwrap().get_v6(),
+            dst.get_v6(),
             origin.sport as u16,
             origin.dport as u16,
             seq,
@@ -370,10 +366,8 @@ pub fn create_tcp(
         )
     } else {
         TCPPacket::tcp_syn_ack(
-            IP::from(origin.src.expect("None IP address"))
-                .get_v4()
-                .into(),
-            IP::from(dst).get_v4().into(),
+            origin.src.unwrap().get_v4(),
+            dst.get_v4(),
             origin.sport as u16,
             origin.dport as u16,
             seq,
