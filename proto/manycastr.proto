@@ -22,7 +22,7 @@ message Empty {}
 
 // Acknowledgement of a measurement with a boolean whether it was successful or not and a possible error message.
 message Ack {
-  bool success = 1;
+  bool is_success = 1;
   string error_message = 2;
 }
 
@@ -43,11 +43,11 @@ message ScheduleMeasurement {
   repeated uint32 workers = 2;
   repeated Configuration configurations = 3; // Configuration of worker and origin combinations
   uint32 measurement_type = 4;
-  bool unicast = 5;
-  bool ipv6 = 6;
+  bool is_unicast = 5;
+  bool is_ipv6 = 6;
   uint32 interval = 7;
-  bool responsive = 8; // TODO unimplemented
-  bool divide = 9;
+  bool is_responsive = 8;
+  bool is_divide = 9;
   Targets targets = 10;
   string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
   string url = 12;
@@ -97,12 +97,12 @@ message Task {
 // A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  bool active = 2;
+  bool is_active = 2;
   uint32 measurement_id = 3;
   uint32 measurement_type = 4;
   repeated Origin tx_origins = 5; // origins to send with
-  bool unicast = 6;
-  bool ipv6 = 7;
+  bool is_unicast = 6;
+  bool is_ipv6 = 7;
   repeated Origin rx_origins = 8; // origins to listen for
   string record = 9; // domain to use for DNS queries (TXT/A/AAAA)
   string url = 10; // URL encoded in probes

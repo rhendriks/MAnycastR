@@ -165,10 +165,10 @@ impl Worker {
             panic!("Received non-start packet for init")
         };
         let measurement_id = start_measurement.measurement_id;
-        let is_ipv6 = start_measurement.ipv6;
+        let is_ipv6 = start_measurement.is_ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let is_unicast = start_measurement.unicast;
-        let is_probing = start_measurement.active;
+        let is_unicast = start_measurement.is_unicast;
+        let is_probing = start_measurement.is_active;
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
@@ -454,7 +454,7 @@ impl Worker {
 
                 let (is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (start.active, start.measurement_id),
+                        Data::Start(start) => (start.is_active, start.measurement_id),
                         _ => {
                             // First task is not a start measurement task
                             println!("[Worker] Received non-start packet for init");
