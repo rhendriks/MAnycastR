@@ -223,7 +223,7 @@ impl Controller for ControllerService {
             } else {
                 println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &measurement_id);
                 return Ok(Response::new(Ack {
-                    success: false,
+                    is_success: false,
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
@@ -261,18 +261,18 @@ impl Controller for ControllerService {
             // Send an ack to the worker that it has finished
             return match tx.send(Ok(TaskResult::default())).await {
                 Ok(_) => Ok(Response::new(Ack {
-                    success: true,
+                    is_success: true,
                     error_message: "".to_string(),
                 })),
                 Err(_) => Ok(Response::new(Ack {
-                    success: false,
+                    is_success: false,
                     error_message: "CLI disconnected".to_string(),
                 })),
             };
         } else {
             // Send an ack to the worker that it has finished
             Ok(Response::new(Ack {
-                success: true,
+                is_success: true,
                 error_message: "".to_string(),
             }))
         }
@@ -441,7 +441,7 @@ impl Controller for ControllerService {
         }
 
         // Create a measurement from the ScheduleMeasurement
-        let is_unicast = scheduled_measurement.unicast;
+        let is_unicast = scheduled_measurement.is_unicast;
 
         // Make sure no unknown workers are in the configuration
         if scheduled_measurement
@@ -479,8 +479,8 @@ impl Controller for ControllerService {
 
         let rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
-        let is_ipv6 = scheduled_measurement.ipv6;
-        let is_divide = scheduled_measurement.divide;
+        let is_ipv6 = scheduled_measurement.is_ipv6;
+        let is_divide = scheduled_measurement.is_divide;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
@@ -525,7 +525,7 @@ impl Controller for ControllerService {
             }
 
             // Check if the current worker is selected to send probes
-            let is_probing = if probing_workers.is_empty() {
+            let is_active = if probing_workers.is_empty() {
                 // No worker-selective probing
                 if worker_tx_origins.is_empty() {
                     false // No probe origins -> not probing
@@ -540,7 +540,7 @@ impl Controller for ControllerService {
                         .expect(&*format!("Worker with ID {} not found", current_worker)),
                 )
             };
-            if is_probing {
+            if is_active {
                 current_active_worker += 1;
             }
             current_worker = current_worker + 1;
@@ -549,10 +549,10 @@ impl Controller for ControllerService {
                 data: Some(TaskStart(Start {
                     rate,
                     measurement_id,
-                    active: is_probing,
+                    is_active,
                     measurement_type,
-                    unicast: is_unicast,
-                    ipv6: is_ipv6,
+                    is_unicast,
+                    is_ipv6,
                     tx_origins: worker_tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
@@ -754,11 +754,11 @@ impl Controller for ControllerService {
 
         match tx.send(Ok(task_result)).await {
             Ok(_) => Ok(Response::new(Ack {
-                success: true,
+                is_success: true,
                 error_message: "".to_string(),
             })),
             Err(_) => Ok(Response::new(Ack {
-                success: false,
+                is_success: false,
                 error_message: "CLI disconnected".to_string(),
             })),
         }

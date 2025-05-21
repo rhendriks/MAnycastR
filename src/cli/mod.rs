@@ -520,11 +520,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             workers: sender_ids,
             configurations,
             measurement_type: measurement_type as u32,
-            unicast: is_unicast,
-            ipv6: is_ipv6,
-            divide: is_divide,
+            is_unicast,
+            is_ipv6,
+            is_divide,
             interval,
-            responsive: is_responsive,
+            is_responsive,
             targets: Some(Targets { dst_list: ips }),
             record: dns_record.to_string(),
             url,
@@ -579,11 +579,11 @@ impl CliClient {
         is_config: bool,
         workers: HashMap<u32, String>,
     ) -> Result<(), Box<dyn Error>> {
-        let is_divide = measurement_definition.divide;
-        let is_ipv6 = measurement_definition.ipv6;
+        let is_divide = measurement_definition.is_divide;
+        let is_ipv6 = measurement_definition.is_ipv6;
         let probing_rate = measurement_definition.rate;
         let measurement_type = measurement_definition.measurement_type;
-        let is_unicast = measurement_definition.unicast;
+        let is_unicast = measurement_definition.is_unicast;
         let interval = measurement_definition.interval;
         let origin_str = if is_unicast {
             measurement_definition
