@@ -21,7 +21,7 @@ jobs:
     - name: Set up Rust and MUSL target
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
+        toolchain: nightly
         targets: ${{ env.RUST_TARGET }}
 
     - name: Install build dependencies (Protobuf Compiler, MUSL tools)
