@@ -42,6 +42,8 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 /// * 'if_name' - the name of the network interface to use
 ///
 /// * 'socket_tx' - the sender object to send packets
+/// 
+/// * 'probing_rate' - the rate at which to send packets (in packets per second)
 pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
@@ -103,7 +105,7 @@ pub fn outbound(
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
-                                            origin.clone(),
+                                            origin,
                                             dst,
                                             worker_id,
                                             measurement_id,
@@ -128,12 +130,12 @@ pub fn outbound(
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
-                                            origin.clone(),
+                                            origin,
                                             dst,
                                             worker_id,
                                             measurement_type,
                                             is_ipv6,
-                                            &qname.clone(),
+                                            &qname,
                                         ));
 
                                         while let Err(_) = limiter.check() { // Rate limit to avoid bursts
@@ -154,7 +156,7 @@ pub fn outbound(
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
-                                            origin.clone(),
+                                            origin,
                                             dst,
                                             worker_id,
                                             is_ipv6,
