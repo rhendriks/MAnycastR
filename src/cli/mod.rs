@@ -118,7 +118,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Map worker IDs to hostnames
-        let workers: HashMap<u32, String> = response
+        let worker_map: HashMap<u32, String> = response
             .into_inner()
             .workers
             .into_iter()
@@ -179,7 +179,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if !sender_ids.is_empty() {
             println!("[CLI] Selective probing using the following workers:");
             sender_ids.iter().for_each(|id| {
-                let hostname = workers.get(id).unwrap_or_else(|| {
+                let hostname = worker_map.get(id).unwrap_or_else(|| {
                     panic!("Worker ID {} is not a connected worker!", id);
                 });
                 println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
@@ -213,13 +213,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let worker_id = if parts[0] == "ALL" {
                         u32::MAX
                     } else if let Ok(id_val) = parts[0].parse::<u32>() {
-                        if !workers.contains_key(&id_val) {
+                        if !worker_map.contains_key(&id_val) {
                             panic!("Worker ID {} is not a known worker.", id_val);
                         }
                         id_val
                     } else {
                         // Assume hostname
-                        workers
+                        worker_map
                             .iter()
                             .find_map(|(id_key, hostname_val)| {
                                 if hostname_val == parts[0] {
@@ -362,8 +362,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Shuffle the hitlist, if desired
-        let shuffle = matches.get_flag("shuffle");
-        if shuffle {
+        let is_shuffle = matches.get_flag("shuffle");
+        if is_shuffle {
             let mut rng = rand::rng();
             ips.as_mut_slice().shuffle(&mut rng);
         }
@@ -384,7 +384,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Check for command-line option that determines whether to stream to CLI
-        let cli = matches.get_flag("stream");
+        let is_cli = matches.get_flag("stream");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
         let interval = *matches.get_one::<u32>("interval").unwrap();
@@ -421,33 +421,29 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.iter() {
                 if let Some(origin) = &configuration.origin {
-                    let src = origin.src.unwrap().to_string();
-                    let sport = origin.sport;
-                    let dport = origin.dport;
 
                     if configuration.worker_id == u32::MAX {
                         println!(
                             "\t* All workers, source IP: {}, source port: {}, destination port: {}",
-                            src, sport, dport
+                            origin.src.unwrap(), origin.sport, origin.dport
                         );
                     } else {
-                        let worker_hostname = workers
+                        let worker_hostname = worker_map
                             .get(&configuration.worker_id)
                             .expect("Worker ID not found");
                         println!(
                             "\t* worker {} (with ID: {:<2}), source IP: {}, source port: {}, destination port: {}",
-                            worker_hostname, configuration.worker_id, src, sport, dport
+                            worker_hostname, configuration.worker_id, origin.src.unwrap(), origin.sport, origin.dport
                         );
                     }
                 }
             }
         } else {
             let anycast_origin = configurations.first().unwrap().origin.unwrap();
-            let src = anycast_origin.src.unwrap().to_string();
 
             println!(
                 "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
-                src, anycast_origin.sport, anycast_origin.dport
+                anycast_origin.src.unwrap(), anycast_origin.sport, anycast_origin.dport
             );
         }
 
@@ -514,7 +510,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let measurement_definition = ScheduleMeasurement {
             rate,
             workers: sender_ids,
-            configurations: configurations.clone(),
+            configurations,
             measurement_type: measurement_type as u32,
             unicast: is_unicast,
             ipv6: is_ipv6,
@@ -528,14 +524,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         cli_client
             .do_measurement_to_server(
                 measurement_definition,
-                cli,
-                shuffle,
+                is_cli,
+                is_shuffle,
                 hitlist_path,
                 hitlist_length,
-                configurations,
                 path,
                 is_config,
-                workers,
+                worker_map,
             )
             .await
     } else {
@@ -572,7 +567,6 @@ impl CliClient {
         is_shuffle: bool,
         hitlist: &str,
         hitlist_length: usize,
-        configurations: Vec<Configuration>,
         path: Option<&String>,
         is_config: bool,
         workers: HashMap<u32, String>,
@@ -637,7 +631,7 @@ impl CliClient {
 
         let response = self
             .grpc_client
-            .do_measurement(Request::new(measurement_definition))
+            .do_measurement(Request::new(measurement_definition.clone()))
             .await;
         if let Err(e) = response {
             println!(
@@ -741,14 +735,14 @@ impl CliClient {
             measurement_length,
             active_workers,
             &workers,
-            &configurations,
+            &measurement_definition.configurations,
             is_config,
         );
 
         let is_multi_origin = if is_unicast {
             false
         } else {
-            configurations.len() > 1
+            measurement_definition.configurations.len() > 1
         };
 
         // Start thread that writes results to file
@@ -1010,7 +1004,7 @@ fn write_results(
         wtr_cli
             .as_mut()
             .unwrap()
-            .write_record(header.clone())
+            .write_record(&header)
             .expect("Failed to write header to stdout")
         // TODO CLI should print more concise information
         // ip address instead of ip number
@@ -1034,7 +1028,7 @@ fn write_results(
                 if is_cli {
                     if let Some(ref mut writer) = wtr_cli {
                         writer
-                            .write_record(result.clone())
+                            .write_record(&result)
                             .expect("Failed to write payload to CLI");
                         writer.flush().expect("Failed to flush stdout");
                     }

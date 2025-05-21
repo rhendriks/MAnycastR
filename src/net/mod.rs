@@ -111,9 +111,9 @@ impl Into<Vec<u8>> for &IPv4Packet {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
-        wtr.write_u32::<NetworkEndian>(self.src.into())
+        wtr.write_u32::<NetworkEndian>(self.src)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
-        wtr.write_u32::<NetworkEndian>(self.dst.into())
+        wtr.write_u32::<NetworkEndian>(self.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Calculate and write the checksum
@@ -201,11 +201,9 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     sum += u32::from(pseudo_header.length);
 
     // Sum the packet
-    let mut i = 0;
-    while i < packet_len - 1 {
-        let mut rdr = Cursor::new(&buffer[i..]);
-        sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
-        i += 2;
+    for chunk in buffer.chunks_exact(2) {
+        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
+        sum += u32::from(word);
     }
 
     // If the packet length is odd, add the last byte as a half-word
@@ -442,7 +440,7 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
         if label_len & 0xC0 == 0xC0 {
             // The offset is the pointer to the previous domain name
             let offset = ((label_len as u16 & 0x3F) << 8) | data.read_u8().unwrap() as u16;
-            let mut copy = data.clone();
+            let mut copy = data;
             copy.set_position(offset as u64);
             result.push_str(&read_dns_name(&mut copy));
             break;
@@ -457,7 +455,6 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
             }
         }
 
-        // data.read_exact(&mut label_bytes).expect(&*format!("Unable to read label bytes {}", label_len));
         let label = String::from_utf8_lossy(&label_bytes).to_string();
         result.push_str(&label);
         result.push('.');
@@ -563,7 +560,7 @@ impl From<&[u8]> for TXTRecord {
             txt_length,
             // txt: read_dns_name(&mut data),
             txt: String::from_utf8_lossy(
-                &data.clone().into_inner()[1..(1 + txt_length as u64) as usize],
+                &data.into_inner()[1..(1 + txt_length as u64) as usize],
             )
             .to_string(),
         }
