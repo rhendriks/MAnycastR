@@ -60,7 +60,7 @@ impl Worker {
             .get_one::<String>("hostname")
             .map(|h| h.parse::<String>().expect("Unable to parse hostname"))
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
-        
+
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
@@ -188,18 +188,17 @@ impl Worker {
             let dport = start_measurement.tx_origins[0].dport;
 
             // Get the local unicast address
-            let unicast_ip = Address::from(
-                if is_ipv6 {
-                    local_ipv6().expect("Unable to get local unicast IPv6 address")
-                } else {
-                    local_ip().expect("Unable to get local unicast IPv4 address")
-                });
+            let unicast_ip = Address::from(if is_ipv6 {
+                local_ipv6().expect("Unable to get local unicast IPv6 address")
+            } else {
+                local_ip().expect("Unable to get local unicast IPv4 address")
+            });
 
             let unicast_origin = Origin {
                 src: Some(unicast_ip), // Unicast IP
-                sport,                  // CLI defined source port
-                dport,                  // CLI defined destination port
-                origin_id: u32::MAX,                  // ID for unicast address
+                sport,                 // CLI defined source port
+                dport,                 // CLI defined destination port
+                origin_id: u32::MAX,   // ID for unicast address
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)

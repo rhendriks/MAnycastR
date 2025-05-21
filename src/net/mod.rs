@@ -10,11 +10,11 @@ pub(crate) mod packet;
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,                   // 16-bit Total Length
-    pub ttl: u8,                       // 8-bit Time To Live
-    pub src: u32,           // 32-bit Source IP Address
-    pub dst: u32,      // 32-bit Destination IP Address
-    pub payload: PacketPayload,        // Payload
+    pub length: u16,            // 16-bit Total Length
+    pub ttl: u8,                // 8-bit Time To Live
+    pub src: u32,               // 32-bit Source IP Address
+    pub dst: u32,               // 32-bit Destination IP Address
+    pub payload: PacketPayload, // Payload
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -559,10 +559,8 @@ impl From<&[u8]> for TXTRecord {
         TXTRecord {
             txt_length,
             // txt: read_dns_name(&mut data),
-            txt: String::from_utf8_lossy(
-                &data.into_inner()[1..(1 + txt_length as u64) as usize],
-            )
-            .to_string(),
+            txt: String::from_utf8_lossy(&data.into_inner()[1..(1 + txt_length as u64) as usize])
+                .to_string(),
         }
     }
 }

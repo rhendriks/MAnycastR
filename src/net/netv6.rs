@@ -9,12 +9,12 @@ pub struct IPv6Packet {
     // pub version: u8,                 // 4-bit Version
     // pub traffic_class: u8,           // 8-bit Traffic Class
     // pub flow_label: u32,             // 20-bit Flow Label
-    pub payload_length: u16,           // 16-bit Payload Length
-    pub next_header: u8,               // 8-bit Next Header
-    pub hop_limit: u8,                 // 8-bit Hop Limit
-    pub src: u128,      // 128-bit Source Address
-    pub dst: u128, // 128-bit Destination Address
-    pub payload: PacketPayload,        // Payload
+    pub payload_length: u16,    // 16-bit Payload Length
+    pub next_header: u8,        // 8-bit Next Header
+    pub hop_limit: u8,          // 8-bit Hop Limit
+    pub src: u128,              // 128-bit Source Address
+    pub dst: u128,              // 128-bit Destination Address
+    pub payload: PacketPayload, // Payload
 }
 
 /// Convert bytes into an IPv6Packet
@@ -166,9 +166,7 @@ impl ICMPPacket {
             hop_limit,
             src,
             dst,
-            payload: PacketPayload::ICMP {
-                value: packet,
-            },
+            payload: PacketPayload::ICMP { value: packet },
         };
 
         let mut bytes: Vec<u8> = v6_packet.into();
@@ -225,7 +223,7 @@ pub fn calculate_checksum_v6(buffer_slice: &[u8], pseudo_header: PseudoHeaderv6)
         let word = u16::from_be_bytes([chunk[0], chunk[1]]);
         sum += u32::from(word);
     }
-    
+
     // If the packet length is odd, add the last byte as a half-word
     if packet_len % 2 != 0 {
         sum += u32::from(packet[packet_len - 1]) << 8;
@@ -354,9 +352,7 @@ impl super::UDPPacket {
             hop_limit,
             src,
             dst,
-            payload: PacketPayload::UDP {
-                value: udp_packet,
-            },
+            payload: PacketPayload::UDP { value: udp_packet },
         };
 
         v6_packet.into()
@@ -456,9 +452,7 @@ impl super::UDPPacket {
             hop_limit: 255,
             src,
             dst,
-            payload: PacketPayload::UDP {
-                value: udp_packet,
-            },
+            payload: PacketPayload::UDP { value: udp_packet },
         };
 
         v6_packet.into()
@@ -524,9 +518,7 @@ impl super::TCPPacket {
             hop_limit,
             src,
             dst,
-            payload: PacketPayload::TCP {
-                value: packet,
-            },
+            payload: PacketPayload::TCP { value: packet },
         };
 
         v6_packet.into()

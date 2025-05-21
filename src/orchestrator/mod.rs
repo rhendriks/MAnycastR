@@ -481,6 +481,7 @@ impl Controller for ControllerService {
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
+        let is_responsive = scheduled_measurement.is_responsive;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
@@ -599,6 +600,8 @@ impl Controller for ControllerService {
             let workers = probing_workers.clone();
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = workers.is_empty() || workers.contains(&worker_id);
+
+            // TODO implement responsiveness check
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
