@@ -217,12 +217,12 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)
     // Create a Reply for the received ping reply
     return Some((
         IpResult {
-            src: Some(Address::from(packet.source_address)),
+            src: Some(Address::from(packet.src)),
             ttl: packet.ttl as u32,
         },
         packet.payload,
-        u32::from(packet.destination_address),
-        u32::from(packet.source_address),
+        packet.dst,
+        packet.src,
     ));
 }
 
@@ -246,12 +246,12 @@ fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128, u12
     // Create a Reply for the received ping reply
     Some((
         IpResult {
-            src: Some(Address::from(packet.source_address.to_bits())),
+            src: Some(Address::from(packet.src)),
             ttl: packet.hop_limit as u32,
         },
         packet.payload,
-        u128::from(packet.destination_address),
-        u128::from(packet.source_address),
+        packet.dst,
+        packet.src,
     ))
 }
 

@@ -1,5 +1,4 @@
 use std::io::{Cursor, Write};
-use std::net::Ipv6Addr;
 
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use super::{ICMPPacket, PacketPayload};
@@ -13,8 +12,8 @@ pub struct IPv6Packet {
     pub payload_length: u16,           // 16-bit Payload Length
     pub next_header: u8,               // 8-bit Next Header
     pub hop_limit: u8,                 // 8-bit Hop Limit
-    pub source_address: Ipv6Addr,      // 128-bit Source Address
-    pub destination_address: Ipv6Addr, // 128-bit Destination Address
+    pub src: u128,      // 128-bit Source Address
+    pub dst: u128, // 128-bit Destination Address
     pub payload: PacketPayload,        // Payload
 }
 
@@ -27,26 +26,8 @@ impl From<&[u8]> for IPv6Packet {
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
 
-        let source_address = Ipv6Addr::new(
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-        );
-        let destination_address = Ipv6Addr::new(
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-            cursor.read_u16::<NetworkEndian>().unwrap(),
-        );
+        let source_address = cursor.read_u128::<NetworkEndian>().unwrap();
+        let destination_address = cursor.read_u128::<NetworkEndian>().unwrap();
         let payload_bytes = &cursor.into_inner()[40..]; // IPv6 header is 40 bytes
 
         // Implement PacketPayload based on the next_header value
@@ -88,8 +69,8 @@ impl From<&[u8]> for IPv6Packet {
             payload_length,
             next_header,
             hop_limit,
-            source_address,
-            destination_address,
+            src: source_address,
+            dst: destination_address,
             payload,
         }
     }
@@ -108,38 +89,10 @@ impl Into<Vec<u8>> for IPv6Packet {
             .expect("Unable to write to byte buffer for IPv6Packet");
         wtr.write_u8(self.hop_limit)
             .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[0])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[1])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[2])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[3])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[4])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[5])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[6])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.source_address.segments()[7])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[0])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[1])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[2])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[3])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[4])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[5])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[6])
-            .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.destination_address.segments()[7])
-            .expect("Unable to write to byte buffer for IPv6Packet");
+        wtr.write_u128::<NetworkEndian>(self.src)
+            .expect("Unable to write source address to byte buffer for IPv6Packet");
+        wtr.write_u128::<NetworkEndian>(self.dst)
+            .expect("Unable to write destination address to byte buffer for IPv6Packet");
 
         // Write the payload
         let payload_bytes: Vec<u8> = self.payload.into();
@@ -172,8 +125,8 @@ impl ICMPPacket {
         identifier: u16,
         sequence_number: u16,
         body: Vec<u8>,
-        src: u128,
-        dst: u128,
+        source_address: u128,
+        destination_address: u128,
         hop_limit: u8,
         info_url: &str,
     ) -> Vec<u8> {
@@ -191,10 +144,10 @@ impl ICMPPacket {
         // Append a pseudo header to the ICMP packet bytes
         let mut psuedo_header: Vec<u8> = Vec::new();
         psuedo_header
-            .write_u128::<NetworkEndian>(src)
+            .write_u128::<NetworkEndian>(source_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
-            .write_u128::<NetworkEndian>(dst)
+            .write_u128::<NetworkEndian>(destination_address)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
             .write_u32::<NetworkEndian>((8 + body_len + info_url.bytes().len() as u16) as u32) // ICMP length
@@ -211,8 +164,8 @@ impl ICMPPacket {
             payload_length: 8 + body_len + info_url.bytes().len() as u16, // ICMP header (8 bytes) + body length
             next_header: 58,                                              // ICMPv6
             hop_limit,
-            source_address: Ipv6Addr::from(src),
-            destination_address: Ipv6Addr::from(dst),
+            src: source_address,
+            dst: destination_address,
             payload: PacketPayload::ICMP {
                 value: packet.into(),
             },
@@ -228,8 +181,8 @@ impl ICMPPacket {
 /// Struct defining a pseudo header (IPv6) that is used by both TCP and UDP to calculate their checksum
 #[derive(Debug)]
 pub struct PseudoHeaderv6 {
-    pub source_address: u128,
-    pub destination_address: u128,
+    pub src: u128,
+    pub dst: u128,
     pub length: u32,     // TCP/UDP header + data length
     pub zeros: u32,      // 24 0's
     pub next_header: u8, // 6 for TCP, 17 for UDP
@@ -239,9 +192,9 @@ pub struct PseudoHeaderv6 {
 impl Into<Vec<u8>> for PseudoHeaderv6 {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
-        wtr.write_u128::<NetworkEndian>(self.source_address)
+        wtr.write_u128::<NetworkEndian>(self.src)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u128::<NetworkEndian>(self.destination_address)
+        wtr.write_u128::<NetworkEndian>(self.dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u32::<NetworkEndian>(self.length)
             .expect("Unable to write to byte buffer for PseudoHeader");
@@ -326,8 +279,8 @@ impl super::UDPPacket {
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
-            source_address: src,
-            destination_address: dst,
+            src: src,
+            dst: dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
@@ -387,8 +340,8 @@ impl super::UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            source_address: src,
-            destination_address: dst,
+            src: src,
+            dst: dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
@@ -400,8 +353,8 @@ impl super::UDPPacket {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
             hop_limit,
-            source_address: Ipv6Addr::from(src),
-            destination_address: Ipv6Addr::from(dst),
+            src,
+            dst,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -488,8 +441,8 @@ impl super::UDPPacket {
         let udp_bytes: Vec<u8> = (&udp_packet).into();
 
         let pseudo_header = PseudoHeaderv6 {
-            source_address: src,
-            destination_address: dst,
+            src: src,
+            dst: dst,
             zeros: 0,
             length: udp_length,
             next_header: 17,
@@ -502,8 +455,8 @@ impl super::UDPPacket {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
             hop_limit: 255,
-            source_address: Ipv6Addr::from(src),
-            destination_address: Ipv6Addr::from(dst),
+            src,
+            dst,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -558,8 +511,8 @@ impl super::TCPPacket {
 
         let bytes: Vec<u8> = (&packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            source_address: src,
-            destination_address: dst,
+            src: src,
+            dst: dst,
             zeros: 0,
             next_header: 6,             // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
@@ -570,8 +523,8 @@ impl super::TCPPacket {
             payload_length: bytes.len() as u16,
             next_header: 6, // TCP
             hop_limit,
-            source_address: Ipv6Addr::from(src),
-            destination_address: Ipv6Addr::from(dst),
+            src,
+            dst,
             payload: PacketPayload::TCP {
                 value: packet.into(),
             },
