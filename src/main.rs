@@ -4,17 +4,17 @@
 //!
 //! This includes:
 //!
-//! i) Measuring external anycast infrastructure
-//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
-//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
-//!
-//! ii) Measuring anycast infrastructure itself
+//! i) Measuring anycast infrastructure itself
 //! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
 //! * [Site flipping](https://arxiv.org/pdf/2503.14351) (detecting network regions experiencing anycast site flipping)
 //! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
 //! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
 //!
+//! ii) Measuring external anycast infrastructure
+//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
+//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
+//! 
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 //!
 //! # The components
@@ -50,7 +50,7 @@
 //! When creating a measurement you can specify:
 //!
 //! ## Variables
-//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers)
+//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
 //! * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
 //! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 //! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
@@ -68,7 +68,6 @@
 //! * **Stream** - stream results to the command-line interface (optional)
 //! * **Shuffle** - shuffle the hitlist
 //! * **Unicast** - perform measurement using the unicast address of each worker
-//! * **Traceroute** - anycast traceroute (currently broken)
 //! * **Divide** - divide-and-conquer Verfploeter catchment mapping
 //!
 //! # Usage
@@ -198,7 +197,7 @@
 //! * Responsiveness pre-check
 //! * Anycast traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Multiple packets per <worker, target> pair
+//! * Support multiple packets per <worker, target> pair
 //! * Synchronous unicast and anycast measurements
 //! * Anycast latency using divide-and-conquer (probe 1; assess catching anycast site - probe 2; probe from catching site to obtain latency)
 
@@ -248,7 +247,7 @@ fn main() {
 }
 
 fn parse_cmd() -> ArgMatches {
-    Command::new("MAnycastR") // TODO change name
+    Command::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
@@ -278,7 +277,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
                 )
                 .arg(
                     Arg::new("hostname")
@@ -303,7 +302,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('a')
                         .value_parser(value_parser!(String))
                         .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)") // TODO IPv6 compatible?
+                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
                 )
                 .arg(
                     Arg::new("tls")
@@ -357,12 +356,6 @@ fn parse_cmd() -> ArgMatches {
                         .long("unicast")
                         .action(ArgAction::SetTrue)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
-                    )
-                    .arg(Arg::new("traceroute")
-                        .long("traceroute")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("This option is currently broken")
                     )
                     .arg(Arg::new("interval")
                         .long("interval")
@@ -433,6 +426,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('u')
                         .value_parser(value_parser!(String))
                         .required(false)
+                        .default_value("")
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
                     )
                 )

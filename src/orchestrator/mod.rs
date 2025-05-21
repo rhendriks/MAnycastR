@@ -12,8 +12,8 @@ use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
-    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata,
-    ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, WorkerId, Status as ServerStatus,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, ScheduleMeasurement,
+    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker, WorkerId,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -34,7 +34,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
@@ -79,7 +79,7 @@ impl<T> Stream for WorkerReceiver<T> {
 
 impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
-        println!("[Orchestrator] Worker receiver has been dropped");
+        println!("[Orchestrator] Worker {} lost connection", self.hostname);
 
         // Remove this worker from the workers list
         {
@@ -174,7 +174,7 @@ impl<T> Drop for CLIReceiver<T> {
                 let end_task = end_task.clone();
 
                 spawn(async move {
-                    if let Err(e) = worker.send(Ok(end_task)).await {
+                    if let Err(e) = worker.send(Ok(end_task.clone())).await {
                         println!(
                             "[Orchestrator] ERROR - Failed to terminate measurement {}",
                             e
@@ -230,8 +230,14 @@ impl Controller for ControllerService {
 
             // Update worker-list that this worker is no longer working on this measurement
             let mut workers = self.workers.lock().unwrap();
-            if let Some(worker) = workers.workers.iter_mut().find(|w| w.worker_id == worker_id) {
-                worker.measurements.retain(|measurement| measurement != &measurement_id);
+            if let Some(worker) = workers
+                .workers
+                .iter_mut()
+                .find(|w| w.worker_id == worker_id)
+            {
+                worker
+                    .measurements
+                    .retain(|measurement| measurement != &measurement_id);
             }
 
             if remaining == &(1u32) {
@@ -409,7 +415,6 @@ impl Controller for ControllerService {
             .map(|worker| worker.worker_id)
             .collect();
 
-
         // Check if the CLI requested a worker-selective probing measurement
         let mut probing_workers: Vec<u32> = scheduled_measurement.workers;
 
@@ -429,7 +434,10 @@ impl Controller for ControllerService {
         {
             // Update active measurement in the worker list
             let mut workers = self.workers.lock().unwrap();
-            workers.workers.iter_mut().for_each(|worker| worker.measurements.push(measurement_id));
+            workers
+                .workers
+                .iter_mut()
+                .for_each(|worker| worker.measurements.push(measurement_id));
         }
 
         // Create a measurement from the ScheduleMeasurement
@@ -472,13 +480,12 @@ impl Controller for ControllerService {
         let rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.ipv6;
-        let is_traceroute = scheduled_measurement.traceroute;
         let is_divide = scheduled_measurement.divide;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
-            .dst_addresses;
+            .dst_list;
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
@@ -546,7 +553,6 @@ impl Controller for ControllerService {
                     measurement_type,
                     unicast: is_unicast,
                     ipv6: is_ipv6,
-                    traceroute: is_traceroute,
                     tx_origins: worker_tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
@@ -579,7 +585,7 @@ impl Controller for ControllerService {
         let mut active_worker_i: u64 = 0; // Index for active workers
         let mut all_worker_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-                                     // TODO rate-limit at the worker to not send bursts for each chunk
+
         let p_rate = Duration::from_nanos(
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
@@ -650,7 +656,7 @@ impl Controller for ControllerService {
                     if is_probing {
                         let task = Task {
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_addresses: chunk.to_vec(),
+                                dst_list: chunk.to_vec(),
                             })),
                         };
 
@@ -690,12 +696,8 @@ impl Controller for ControllerService {
                     }
                 }
 
-                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses (traceroute takes longer)
-                if is_traceroute {
-                    tokio::time::sleep(Duration::from_secs(120)).await; // TODO make this dynamic
-                } else {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
+                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+                tokio::time::sleep(Duration::from_secs(1)).await;
 
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 match sender
@@ -724,7 +726,10 @@ impl Controller for ControllerService {
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
-    async fn list_workers(&self, _request: Request<Empty>) -> Result<Response<ServerStatus>, Status> {
+    async fn list_workers(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
 
@@ -853,16 +858,20 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .expect("Failed to load TLS certificate")
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
-            .await.expect("Failed to start orchestrator with TLS");
+            .await
+            .expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(60)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
             .add_service(svc)
             .serve(addr)
-            .await.expect("Failed to start orchestrator");
+            .await
+            .expect("Failed to start orchestrator");
     }
 
     Ok(())

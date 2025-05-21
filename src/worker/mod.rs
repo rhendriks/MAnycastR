@@ -5,6 +5,7 @@ use local_ip_address::{local_ip, local_ipv6};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -14,7 +15,6 @@ use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
     Task, TaskResult, WorkerId,
 };
-use custom_module::IP;
 
 use crate::custom_module;
 use crate::net::packet::is_in_prefix;
@@ -59,9 +59,8 @@ impl Worker {
         let hostname = args
             .get_one::<String>("hostname")
             .map(|h| h.parse::<String>().expect("Unable to parse hostname"))
-            .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"))
-            .to_string();
-
+            .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
+        
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
@@ -69,10 +68,8 @@ impl Worker {
         };
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
-            .await.expect("Unable to connect to orchestrator")
-            // .accept_compressed(CompressionEncoding::Zstd) // TODO assess performance impact
-            // .send_compressed(CompressionEncoding::Zstd)
-            ;
+            .await
+            .expect("Unable to connect to orchestrator");
 
         // Initialize a worker instance
         let mut worker = Worker {
@@ -121,6 +118,9 @@ impl Worker {
 
             let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
             builder
+                .keep_alive_timeout(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(15))
+                .tcp_keepalive(Some(Duration::from_secs(60)))
                 .tls_config(tls)
                 .expect("Unable to set TLS configuration")
                 .connect()
@@ -132,6 +132,9 @@ impl Worker {
 
             Channel::from_shared(addr.to_owned())
                 .expect("Unable to set address")
+                .keep_alive_timeout(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(15))
+                .tcp_keepalive(Some(Duration::from_secs(60)))
                 .connect()
                 .await
                 .expect("Unable to connect to orchestrator")
@@ -185,19 +188,18 @@ impl Worker {
             let dport = start_measurement.tx_origins[0].dport;
 
             // Get the local unicast address
-            let unicast_ip = IP::from(
+            let unicast_ip = Address::from(
                 if is_ipv6 {
                     local_ipv6().expect("Unable to get local unicast IPv6 address")
                 } else {
                     local_ip().expect("Unable to get local unicast IPv4 address")
-                }
-                .to_string(),
-            );
+                });
 
             let unicast_origin = Origin {
-                src: Some(Address::from(unicast_ip)), // Unicast IP
-                sport: sport.into(),                  // CLI defined source port
-                dport: dport.into(),                  // CLI defined destination port
+                src: Some(unicast_ip), // Unicast IP
+                sport,                  // CLI defined source port
+                dport,                  // CLI defined destination port
+                origin_id: u32::MAX,                  // ID for unicast address
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
@@ -225,10 +227,10 @@ impl Worker {
         let interfaces = datalink::interfaces();
 
         // Look for the interface that uses the listening IP address
-        let addr = IP::from(rx_origins[0].src.unwrap()).to_string();
+        let addr = rx_origins[0].src.unwrap().to_string();
         let interface = if let Some(interface) = interfaces
             .iter()
-            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip)))
+            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(&addr, ip)))
         {
             println!(
                 "[Worker] Found interface: {}, for address {}",
@@ -249,7 +251,6 @@ impl Worker {
             interface
         };
 
-        let interface_name = interface.name.clone();
         // Create a socket to send out probes and receive replies with
         let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
@@ -264,8 +265,9 @@ impl Worker {
             measurement_id,
             worker_id,
             is_ipv6,
-            start_measurement.measurement_type,
+            start_measurement.measurement_type as u8,
             socket_rx,
+            rx_origins,
         );
 
         if is_probing {
@@ -275,7 +277,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {} using identifier {}",
-                            IP::from(origin.src.unwrap()).to_string(),
+                            origin.src.unwrap(),
                             origin.dport
                         );
                     }
@@ -285,7 +287,7 @@ impl Worker {
                     for origin in tx_origins.iter() {
                         println!(
                             "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
-                            IP::from(origin.src.unwrap()).to_string(),
+                            origin.src.unwrap(),
                             origin.sport,
                             origin.dport
                         );
@@ -305,7 +307,7 @@ impl Worker {
                 start_measurement.measurement_type as u8,
                 qname,
                 info_url,
-                interface_name,
+                interface.name,
                 socket_tx,
                 probing_rate,
             );
@@ -365,7 +367,8 @@ impl Worker {
         let response = self
             .client
             .worker_connect(Request::new(self.metadata.clone()))
-            .await.expect("Unable to connect to orchestrator");
+            .await
+            .expect("Unable to connect to orchestrator");
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
             worker_id
@@ -373,7 +376,7 @@ impl Worker {
         let mut stream = response.into_inner();
 
         // Await tasks
-        while let Some(task) = stream.message().await.expect("Unable to receive task") { // TODO loop does not break when connection is lost
+        while let Some(task) = stream.message().await.expect("Unable to receive task") {
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message
