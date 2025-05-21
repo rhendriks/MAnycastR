@@ -1,6 +1,5 @@
 extern crate byteorder;
 use std::io::{Cursor, Read, Write};
-use std::net::Ipv4Addr;
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
@@ -13,8 +12,8 @@ pub(crate) mod packet;
 pub struct IPv4Packet {
     pub length: u16,                   // 16-bit Total Length
     pub ttl: u8,                       // 8-bit Time To Live
-    pub source_address: Ipv4Addr,      // 32-bit Source IP Address
-    pub destination_address: Ipv4Addr, // 32-bit Destination IP Address
+    pub source_address: u32,           // 32-bit Source IP Address
+    pub destination_address: u32,      // 32-bit Destination IP Address
     pub payload: PacketPayload,        // Payload
 }
 
@@ -29,8 +28,8 @@ impl From<&[u8]> for IPv4Packet {
         let ttl = cursor.read_u8().unwrap();
         let packet_type = cursor.read_u8().unwrap(); // Protocol
         cursor.set_position(12); // Source IP Address
-        let source_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap());
-        let destination_address = Ipv4Addr::from(cursor.read_u32::<NetworkEndian>().unwrap()); // Destination IP Address
+        let source_address = cursor.read_u32::<NetworkEndian>().unwrap();
+        let destination_address = cursor.read_u32::<NetworkEndian>().unwrap(); // Destination IP Address
 
         // If the header length is longer than the data, the packet is incomplete
         if header_length > data.len() {
@@ -313,8 +312,8 @@ impl ICMPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + 8 + body_len + info_url.bytes().len() as u16,
             ttl,
-            source_address: Ipv4Addr::from(source_address),
-            destination_address: Ipv4Addr::from(destination_address),
+            source_address,
+            destination_address,
             payload: PacketPayload::ICMP {
                 value: packet.into(),
             },
@@ -657,8 +656,8 @@ impl UDPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + udp_length,
             ttl,
-            source_address: Ipv4Addr::from(source_address),
-            destination_address: Ipv4Addr::from(destination_address),
+            source_address,
+            destination_address,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -740,8 +739,8 @@ impl UDPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + udp_length as u16,
             ttl: 255,
-            source_address: Ipv4Addr::from(source_address),
-            destination_address: Ipv4Addr::from(destination_address),
+            source_address,
+            destination_address,
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -889,8 +888,8 @@ impl TCPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + bytes.len() as u16,
             ttl,
-            source_address: Ipv4Addr::from(source_address),
-            destination_address: Ipv4Addr::from(destination_address),
+            source_address,
+            destination_address,
             payload: PacketPayload::TCP {
                 value: packet.into(),
             },
