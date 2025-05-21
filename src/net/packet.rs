@@ -181,7 +181,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_ping(
-    origin: Origin,
+    origin: &Origin,
     dst: &Address,
     worker_id: u16,
     measurement_id: u32,
@@ -209,7 +209,7 @@ pub fn create_ping(
             2,
             payload_bytes,
             src.get_v6(),
-            dst.get_v6().into(),
+            dst.get_v6(),
             255,
             info_url,
         )
@@ -221,8 +221,8 @@ pub fn create_ping(
             origin.dport as u16,
             2,
             payload_bytes,
-            src.get_v4().into(),
-            dst.get_v4().into(),
+            src.get_v4(),
+            dst.get_v4(),
             255,
             info_url,
         )
@@ -253,7 +253,7 @@ pub fn create_ping(
 ///
 /// If the measurement type is not 2 or 4
 pub fn create_udp(
-    origin: Origin,
+    origin: &Origin,
     dst: &Address,
     worker_id: u16,
     measurement_type: u8,
@@ -270,8 +270,8 @@ pub fn create_udp(
     if is_ipv6 {
         if measurement_type == 2 {
             UDPPacket::dns_request_v6(
-                src.get_v6().into(),
-                dst.get_v6().into(),
+                src.get_v6(),
+                dst.get_v6(),
                 sport,
                 qname,
                 tx_time,
@@ -334,7 +334,7 @@ pub fn create_udp(
 ///
 /// A TCP packet (including the IP header) as a byte vector.
 pub fn create_tcp(
-    origin: Origin,
+    origin: &Origin,
     dst: &Address,
     worker_id: u16,
     is_ipv6: bool,
