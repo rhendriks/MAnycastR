@@ -23,6 +23,7 @@ jobs:
       with:
         toolchain: nightly
         targets: ${{ env.RUST_TARGET }}
+        components: rustfmt, clippy
 
     - name: Install build dependencies (Protobuf Compiler, MUSL tools)
       run: |
