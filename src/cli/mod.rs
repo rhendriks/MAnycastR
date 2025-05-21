@@ -129,6 +129,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             })
             .collect();
 
+        let hostname_to_id_map: HashMap<&str, u32> = worker_map
+            .iter()
+            .map(|(id, hostname_str)| (hostname_str.as_str(), *id))
+            .collect();
+
         // Get optional opt-out URL
         let url = matches.get_one::<String>("url").unwrap().clone();
 
@@ -153,23 +158,36 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         let is_config = matches.contains_id("configuration");
-
+        
         // Get the workers that have to send out probes
-        let sender_ids = matches.get_one::<String>("selective").map_or_else(
+        let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || {
                 println!("[CLI] Probes will be sent out from all workers");
                 Vec::new()
             },
-            |worker_entries| {
-                worker_entries
-                    .trim_matches(['[', ']'])
+            |worker_entries_str| {
+                println!("[CLI] Selective probing using specified workers...");
+                worker_entries_str
+                    .trim_matches(|c| c == '[' || c == ']')
                     .split(',')
-                    .filter_map(|id| {
-                        id.trim().parse::<u32>()
-                            .map_err(|e| {
-                                eprintln!("Unable to parse worker ID '{}': {}", id, e);
-                            })
-                            .ok()
+                    .filter_map(|entry_str_untrimmed| {
+                        let entry_str = entry_str_untrimmed.trim();
+                        if entry_str.is_empty() {
+                            return None; // Skip trailing commas
+                        }
+                        // Try to parse as worker ID
+                        if let Ok(id_val) = entry_str.parse::<u32>() {
+                            if worker_map.contains_key(&id_val) {
+                                Some(id_val)
+                            } else {
+                                panic!("Worker ID '{}' is not a known worker.", entry_str);
+                            }
+                        } else if let Some(&found_id) = hostname_to_id_map.get(entry_str) {
+                            // Try to find the hostname in the map
+                            Some(found_id)
+                        } else {
+                            panic!("'{}' is not a valid worker ID or known hostname.", entry_str);
+                        }
                     })
                     .collect()
             },
@@ -217,23 +235,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             panic!("Worker ID {} is not a known worker.", id_val);
                         }
                         id_val
+                    } else if let Some(&found_id) = hostname_to_id_map.get(parts[0]) {
+                        // Try to find the hostname in the map
+                        found_id
                     } else {
-                        // Assume hostname
-                        worker_map
-                            .iter()
-                            .find_map(|(id_key, hostname_val)| {
-                                if hostname_val == parts[0] {
-                                    Some(*id_key)
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Unable to parse '{}' as 'ALL', a worker ID, or a connected worker hostname.",
-                                    parts[0]
-                                );
-                            })
+                        panic!("'{}' is not a valid worker ID or known hostname.", parts[0]);
                     };
 
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
