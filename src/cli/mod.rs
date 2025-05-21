@@ -26,10 +26,10 @@ use flate2::Compression;
 use std::io::BufWriter;
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, reply::Value::Ping as ResultPing, udp_result::Value::DnsARecord,
-    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp, udp_result::Value::DnsChaos,
-    Address, Configuration, Empty, Origin, Reply,
-    ScheduleMeasurement, Targets, TaskResult,
+    controller_client::ControllerClient, reply::Value::Ping as ResultPing,
+    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp, udp_result::Value::DnsARecord,
+    udp_result::Value::DnsChaos, Address, Configuration, Empty, Origin, Reply, ScheduleMeasurement,
+    Targets, TaskResult,
 };
 use custom_module::Separated;
 
@@ -116,7 +116,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
-        
+
         // TODO responsive also makes no sense when; only one worker is sending and only one origin is used
 
         // Map worker IDs to hostnames
@@ -160,7 +160,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         let is_config = matches.contains_id("configuration");
-        
+
         // Get the workers that have to send out probes
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || {
@@ -188,7 +188,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             // Try to find the hostname in the map
                             Some(found_id)
                         } else {
-                            panic!("'{}' is not a valid worker ID or known hostname.", entry_str);
+                            panic!(
+                                "'{}' is not a valid worker ID or known hostname.",
+                                entry_str
+                            );
                         }
                     })
                     .collect()
@@ -254,10 +257,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     } else if is_ipv6.unwrap() != src.is_v6() {
                         panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
                     }
-                    
+
                     // Parse to u16 first, must fit in header
-                    let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
-                    let dport = u16::from_str(addr_ports[2]).expect("Unable to parse destination port") as u32;
+                    let sport =
+                        u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
+                    let dport = u16::from_str(addr_ports[2])
+                        .expect("Unable to parse destination port")
+                        as u32;
                     origin_id += 1;
 
                     Some(Configuration {
@@ -274,7 +280,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             if configurations.is_empty() {
                 panic!("No valid configurations found in file {}", conf_file);
             }
-            
+
             configurations
         } else {
             // Obtain port values (read as u16 as is the port header size)
@@ -429,11 +435,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Workers send probes using the following configurations:");
             for configuration in configurations.iter() {
                 if let Some(origin) = &configuration.origin {
-
                     if configuration.worker_id == u32::MAX {
                         println!(
                             "\t* All workers, source IP: {}, source port: {}, destination port: {}",
-                            origin.src.unwrap(), origin.sport, origin.dport
+                            origin.src.unwrap(),
+                            origin.sport,
+                            origin.dport
                         );
                     } else {
                         let worker_hostname = worker_map
@@ -451,7 +458,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
             println!(
                 "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
-                anycast_origin.src.unwrap(), anycast_origin.sport, anycast_origin.dport
+                anycast_origin.src.unwrap(),
+                anycast_origin.sport,
+                anycast_origin.dport
             );
         }
 
@@ -564,9 +573,9 @@ impl CliClient {
     /// * 'configurations' - specifies the source IP and ports to use for each worker
     ///
     /// * 'path' - optional path for output file (default is current directory)
-    /// 
+    ///
     /// * 'is_config' - boolean whether the measurement is configuration-based or not
-    /// 
+    ///
     /// * 'workers' - map of worker IDs to hostnames
     async fn do_measurement_to_server(
         &mut self,
@@ -595,7 +604,8 @@ impl CliClient {
                         "Unicast (source port: {}, destination port: {})",
                         origin.sport, origin.dport
                     )
-                }).expect("No unicast origin found")
+                })
+                .expect("No unicast origin found")
         } else {
             if is_config {
                 "Anycast configuration-based".to_string()
@@ -607,9 +617,12 @@ impl CliClient {
                     .map(|origin| {
                         format!(
                             "Anycast (source IP: {}, source port: {}, destination port: {})",
-                            origin.src.unwrap(), origin.sport, origin.dport
+                            origin.src.unwrap(),
+                            origin.sport,
+                            origin.dport
                         )
-                    }).expect("No anycast origin found")
+                    })
+                    .expect("No anycast origin found")
             }
         };
 
@@ -751,18 +764,22 @@ impl CliClient {
             false
         } else {
             // Check if any configuration has origin_id that is not 0 or u32::MAX
-            measurement_definition
-                .configurations
-                .iter()
-                .any(|conf| {
-                    conf.origin
-                        .as_ref()
-                        .map_or(false, |origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
+            measurement_definition.configurations.iter().any(|conf| {
+                conf.origin.as_ref().map_or(false, |origin| {
+                    origin.origin_id != 0 && origin.origin_id != u32::MAX
                 })
+            })
         };
 
         // Start thread that writes results to file
-        write_results(rx_r, is_cli, file, md_file, measurement_type, is_multi_origin);
+        write_results(
+            rx_r,
+            is_cli,
+            file,
+            md_file,
+            measurement_type,
+            is_multi_origin,
+        );
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -901,30 +918,24 @@ fn get_metadata(
         md_file.push("# Divide-and-conquer measurement".to_string());
     }
     md_file.push(format!("# Origin used: {}", origin_str));
-    md_file.push(
-        format!(
-            "# Hitlist{}: {}",
-            if is_shuffle { " (shuffled)" } else { "" },
-            hitlist
-        )
-    );
+    md_file.push(format!(
+        "# Hitlist{}: {}",
+        if is_shuffle { " (shuffled)" } else { "" },
+        hitlist
+    ));
     md_file.push(format!("# Measurement type: {}", type_str));
     md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()));
     md_file.push(format!("# Interval: {}", interval));
     md_file.push(format!("# Start measurement: {}", timestamp_start_str));
-    md_file.push(
-        format!(
-            "# Expected measurement length (seconds): {:.6}",
-            expected_length
-        )
-    );
+    md_file.push(format!(
+        "# Expected measurement length (seconds): {:.6}",
+        expected_length
+    ));
     if active_workers.len() < all_workers.len() {
-        md_file.push(
-            format!(
-                "# Selective probing using the following workers: {:?}",
-                active_workers
-            )
-        );
+        md_file.push(format!(
+            "# Selective probing using the following workers: {:?}",
+            active_workers
+        ));
     }
     md_file.push("# Connected workers:".to_string());
     for (id, hostname) in all_workers {
@@ -942,15 +953,10 @@ fn get_metadata(
             } else {
                 configuration.worker_id.to_string()
             };
-            md_file.push(
-                format!(
-                    "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                    worker_id,
-                    src,
-                    origin.sport,
-                    origin.dport
-                )
-            );
+            md_file.push(format!(
+                "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
+                worker_id, src, origin.sport, origin.dport
+            ));
         }
 
         if configurations.len() > 1 {
@@ -962,7 +968,10 @@ fn get_metadata(
 
                 let origin_id = origin.origin_id;
 
-                md_file.push(format!("# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}", origin_id, src, origin.sport, origin.dport));
+                md_file.push(format!(
+                    "# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
+                    origin_id, src, origin.sport, origin.dport
+                ));
             }
         }
     }
@@ -979,11 +988,11 @@ fn get_metadata(
 /// * 'is_cli' - A boolean that determines whether the results should be printed to the command-line
 ///
 /// * 'file' - The file to which the results should be written
-/// 
+///
 /// * 'md_file' - Metadata for the measurement, to be written to the file
 ///
 /// * 'measurement_type' - The type of measurement being performed
-/// 
+///
 /// * is_multi_origin - A boolean that determines whether multiple origins are used
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
@@ -1067,16 +1076,16 @@ fn write_results(
 /// # Arguments
 ///
 /// * 'measurement_type' - The type of measurement being performed
-/// 
+///
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str> {
     // Information available for all measurement types
     let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
     // Information specific to each measurement type
     header.append(&mut match measurement_type {
-        1 => vec!["tx_time", "tx_worker_id"], // ICMP
-        2 => vec!["tx_time", "tx_worker_id"], // UDP/DNS (A record)
-        3 => vec!["seq"], // TCP
+        1 => vec!["tx_time", "tx_worker_id"],    // ICMP
+        2 => vec!["tx_time", "tx_worker_id"],    // UDP/DNS (A record)
+        3 => vec!["seq"],                        // TCP
         4 => vec!["tx_worker_id", "chaos_data"], // UDP/DNS (CHAOS record)
         _ => panic!("Undefined type."),
     });

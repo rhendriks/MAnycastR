@@ -10,21 +10,18 @@ pub mod manycastr {
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match &self.value {
-            Some(V4(v4)) => {
-                Ipv4Addr::from(*v4).to_string()
-            }
-            Some(V6(v6)) => {
-                Ipv6Addr::new(
-                    (v6.p1 >> 48) as u16,
-                    (v6.p1 >> 32) as u16,
-                    (v6.p1 >> 16) as u16,
-                    v6.p1 as u16,
-                    (v6.p2 >> 48) as u16,
-                    (v6.p2 >> 32) as u16,
-                    (v6.p2 >> 16) as u16,
-                    v6.p2 as u16,
-                ).to_string()
-            }
+            Some(V4(v4)) => Ipv4Addr::from(*v4).to_string(),
+            Some(V6(v6)) => Ipv6Addr::new(
+                (v6.p1 >> 48) as u16,
+                (v6.p1 >> 32) as u16,
+                (v6.p1 >> 16) as u16,
+                v6.p1 as u16,
+                (v6.p2 >> 48) as u16,
+                (v6.p2 >> 32) as u16,
+                (v6.p2 >> 16) as u16,
+                v6.p2 as u16,
+            )
+            .to_string(),
             None => String::from("None"),
         };
         write!(f, "{}", str)
@@ -161,14 +158,16 @@ impl From<String> for Address {
             }
         } else if let Ok(ip_number) = s.parse::<u128>() {
             // attempt to interpret as a raw IP number
-            if ip_number <= u32::MAX as u128 { // IPv4
+            if ip_number <= u32::MAX as u128 {
+                // IPv4
                 Address {
                     value: Some(V4(ip_number as u32)),
                 }
-            } else { // IPv6
+            } else {
+                // IPv6
                 Address {
                     value: Some(V6(IPv6 {
-                        p1: (ip_number >> 64) as u64, // Most significant 64 bits
+                        p1: (ip_number >> 64) as u64,                // Most significant 64 bits
                         p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
                 }
@@ -211,16 +210,14 @@ impl IpResult {
     pub fn get_src_str(&self) -> String {
         match &self.src {
             None => String::from("None"),
-            Some(src) => {
-                match src.value {
-                    Some(V4(v4)) => v4.to_string(),
-                    Some(V6(v6)) => {
-                        let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
-                        str
-                    }
-                    None => String::from("None"),
+            Some(src) => match src.value {
+                Some(V4(v4)) => v4.to_string(),
+                Some(V6(v6)) => {
+                    let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
+                    str
                 }
-            }
+                None => String::from("None"),
+            },
         }
     }
 }

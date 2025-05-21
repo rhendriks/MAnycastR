@@ -279,13 +279,7 @@ pub fn create_udp(
                 255,
             )
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(
-                src.get_v6(),
-                dst.get_v6(),
-                sport,
-                worker_id,
-                qname,
-            )
+            UDPPacket::chaos_request_v6(src.get_v6(), dst.get_v6(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
         }
@@ -301,13 +295,7 @@ pub fn create_udp(
                 255,
             )
         } else if measurement_type == 4 {
-            UDPPacket::chaos_request(
-                src.get_v4(),
-                dst.get_v4(),
-                sport,
-                worker_id,
-                qname,
-            )
+            UDPPacket::chaos_request(src.get_v4(), dst.get_v4(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
         }

@@ -42,7 +42,7 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 /// * 'if_name' - the name of the network interface to use
 ///
 /// * 'socket_tx' - the sender object to send packets
-/// 
+///
 /// * 'probing_rate' - the rate at which to send packets (in packets per second)
 pub fn outbound(
     worker_id: u16,

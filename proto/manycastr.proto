@@ -130,6 +130,8 @@ message Configuration {
 // A list of target addresses
 message Targets {
   repeated Address dst_list = 1;
+  bool is_responsive = 2; // whether the targets are for a responsiveness check
+
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -148,6 +150,8 @@ message Reply {
   IPResult ip_result = 4; // IP result of the reply
   uint64 rx_time = 5; // receive time of the reply
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
+  bool is_responsive = 7; // whether the measurement is a responsiveness check
+
 }
 
 // IPResult, contains a source address and the TTL captured
