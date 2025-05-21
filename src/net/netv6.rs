@@ -167,7 +167,7 @@ impl ICMPPacket {
             src,
             dst,
             payload: PacketPayload::ICMP {
-                value: packet.into(),
+                value: packet,
             },
         };
 
@@ -213,20 +213,19 @@ impl Into<Vec<u8>> for PseudoHeaderv6 {
 /// * 'buffer' - the UDP/TCP packet as bytes (without the IPv6 header)
 ///
 /// * 'pseudo_header' - the pseudo header for this packet
-pub fn calculate_checksum_v6(mut buffer: Vec<u8>, pseudo_header: PseudoHeaderv6) -> u16 {
+pub fn calculate_checksum_v6(buffer_slice: &[u8], pseudo_header: PseudoHeaderv6) -> u16 {
     let mut packet: Vec<u8> = pseudo_header.into();
-    packet.append(&mut buffer);
+    packet.extend_from_slice(buffer_slice); // Append the UDP/TCP packet bytes
     let packet_len = packet.len();
     let mut sum = 0u32;
 
     // Sum the packet
-    let mut i = 0;
-    while i < packet_len - 1 {
-        let mut rdr = Cursor::new(&packet[i..]);
-        sum += u32::from(rdr.read_u16::<NetworkEndian>().unwrap());
-        i += 2;
+    for chunk in packet.chunks_exact(2) {
+        // Directly create u16 from the two bytes in network order (big-endian)
+        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
+        sum += u32::from(word);
     }
-
+    
     // If the packet length is odd, add the last byte as a half-word
     if packet_len % 2 != 0 {
         sum += u32::from(packet[packet_len - 1]) << 8;
@@ -279,14 +278,14 @@ impl super::UDPPacket {
         bytes.extend(info_url.bytes()); // Add INFO_URL
 
         let pseudo_header = PseudoHeaderv6 {
-            src: src,
-            dst: dst,
+            src,
+            dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
         };
 
-        packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
+        packet.checksum = calculate_checksum_v6(&bytes, pseudo_header);
 
         // Put the checksum at the right position in the packet
         let mut cursor = Cursor::new(bytes);
@@ -340,13 +339,13 @@ impl super::UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            src: src,
-            dst: dst,
+            src,
+            dst,
             zeros: 0,
             next_header: 17,
             length: udp_length,
         };
-        udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
+        udp_packet.checksum = calculate_checksum_v6(&udp_bytes, pseudo_header);
 
         // Create the IPv6 packet
         let v6_packet = IPv6Packet {
@@ -356,7 +355,7 @@ impl super::UDPPacket {
             src,
             dst,
             payload: PacketPayload::UDP {
-                value: udp_packet.into(),
+                value: udp_packet,
             },
         };
 
@@ -441,14 +440,14 @@ impl super::UDPPacket {
         let udp_bytes: Vec<u8> = (&udp_packet).into();
 
         let pseudo_header = PseudoHeaderv6 {
-            src: src,
-            dst: dst,
+            src,
+            dst,
             zeros: 0,
             length: udp_length,
             next_header: 17,
         };
 
-        udp_packet.checksum = calculate_checksum_v6(udp_bytes, pseudo_header);
+        udp_packet.checksum = calculate_checksum_v6(&udp_bytes, pseudo_header);
 
         // Create the IPv6 packet
         let v6_packet = IPv6Packet {
@@ -458,7 +457,7 @@ impl super::UDPPacket {
             src,
             dst,
             payload: PacketPayload::UDP {
-                value: udp_packet.into(),
+                value: udp_packet,
             },
         };
 
@@ -517,7 +516,7 @@ impl super::TCPPacket {
             next_header: 6,             // TCP
             length: bytes.len() as u32, // the length of the TCP header and data (measured in octets)
         };
-        packet.checksum = calculate_checksum_v6(bytes.clone(), pseudo_header);
+        packet.checksum = calculate_checksum_v6(&bytes, pseudo_header);
 
         let v6_packet = IPv6Packet {
             payload_length: bytes.len() as u16,
@@ -526,7 +525,7 @@ impl super::TCPPacket {
             src,
             dst,
             payload: PacketPayload::TCP {
-                value: packet.into(),
+                value: packet,
             },
         };
 

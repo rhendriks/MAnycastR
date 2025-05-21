@@ -818,8 +818,8 @@ fn get_origin_id_v4(
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v4() == reply_dst
-            && 0 == reply_sport.into()
-            && 0 == reply_dport.into()
+            && 0 == reply_sport
+            && 0 == reply_dport
         {
             // ICMP replies have no port numbers
             return Some(origin.origin_id);
@@ -856,8 +856,8 @@ fn get_origin_id_v6(
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v6() == reply_dst
-            && 0 == reply_sport.into()
-            && 0 == reply_dport.into()
+            && 0 == reply_sport
+            && 0 == reply_dport
         {
             // ICMP replies have no port numbers
             return Some(origin.origin_id);

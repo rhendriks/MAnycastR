@@ -34,7 +34,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
     senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,

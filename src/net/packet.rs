@@ -395,7 +395,7 @@ pub fn create_tcp(
 /// If the address is not a valid IP address.
 ///
 /// If the prefix is not a valid prefix.
-pub fn is_in_prefix(address: String, prefix: &IpNetwork) -> bool {
+pub fn is_in_prefix(address: &String, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
     let address = address
         .parse::<IpAddr>()

@@ -59,9 +59,8 @@ impl Worker {
         let hostname = args
             .get_one::<String>("hostname")
             .map(|h| h.parse::<String>().expect("Unable to parse hostname"))
-            .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"))
-            .to_string();
-
+            .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
+        
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         // This worker's metadata (shared with the orchestrator)
         let metadata = Metadata {
@@ -198,8 +197,8 @@ impl Worker {
 
             let unicast_origin = Origin {
                 src: Some(unicast_ip), // Unicast IP
-                sport: sport.into(),                  // CLI defined source port
-                dport: dport.into(),                  // CLI defined destination port
+                sport,                  // CLI defined source port
+                dport,                  // CLI defined destination port
                 origin_id: u32::MAX,                  // ID for unicast address
             };
 
@@ -231,7 +230,7 @@ impl Worker {
         let addr = rx_origins[0].src.unwrap().to_string();
         let interface = if let Some(interface) = interfaces
             .iter()
-            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(addr.clone(), ip)))
+            .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(&addr, ip)))
         {
             println!(
                 "[Worker] Found interface: {}, for address {}",
@@ -252,7 +251,6 @@ impl Worker {
             interface
         };
 
-        let interface_name = interface.name.clone();
         // Create a socket to send out probes and receive replies with
         let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
@@ -309,7 +307,7 @@ impl Worker {
                 start_measurement.measurement_type as u8,
                 qname,
                 info_url,
-                interface_name,
+                interface.name,
                 socket_tx,
                 probing_rate,
             );
