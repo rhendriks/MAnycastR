@@ -412,7 +412,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('v')
                         .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("First check if the target is responsive using the orchestrator before sending probes from workers [UNIMPLEMENTED]")
+                        .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
                     )
                     .arg(Arg::new("out")
                         .long("out")
