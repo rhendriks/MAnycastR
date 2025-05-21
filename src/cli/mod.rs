@@ -550,9 +550,9 @@ impl CliClient {
     ///
     /// * 'measurement_definition' - measurement definition created from the command-line arguments
     ///
-    /// * 'cli' - boolean whether the results should be streamed to the CLI or not
+    /// * 'is_cli' - boolean whether the results should be streamed to the CLI or not
     ///
-    /// * 'shuffle' - boolean whether the hitlist should be shuffled or not
+    /// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
     ///
     /// * 'hitlist' - hitlist file path
     ///
@@ -561,10 +561,14 @@ impl CliClient {
     /// * 'configurations' - specifies the source IP and ports to use for each worker
     ///
     /// * 'path' - optional path for output file (default is current directory)
+    /// 
+    /// * 'is_config' - boolean whether the measurement is configuration-based or not
+    /// 
+    /// * 'workers' - map of worker IDs to hostnames
     async fn do_measurement_to_server(
         &mut self,
         measurement_definition: ScheduleMeasurement,
-        cli: bool,
+        is_cli: bool,
         is_shuffle: bool,
         hitlist: &str,
         hitlist_length: usize,
@@ -580,35 +584,30 @@ impl CliClient {
         let is_unicast = measurement_definition.unicast;
         let interval = measurement_definition.interval;
         let origin_str = if is_unicast {
-            let origin = measurement_definition
+            measurement_definition
                 .configurations
                 .first()
-                .unwrap()
-                .origin
-                .unwrap();
-            let sport = origin.sport;
-            let dport = origin.dport;
-            format!(
-                "Unicast (source port: {}, destination port: {})",
-                sport, dport
-            )
+                .and_then(|conf| conf.origin.as_ref()) // Use as_ref to borrow if Origin is not Copy
+                .map(|origin| {
+                    format!(
+                        "Unicast (source port: {}, destination port: {})",
+                        origin.sport, origin.dport
+                    )
+                }).expect("No unicast origin found")
         } else {
             if is_config {
                 "Anycast configuration-based".to_string()
             } else {
-                let origin = measurement_definition
+                measurement_definition
                     .configurations
                     .first()
-                    .unwrap()
-                    .origin
-                    .unwrap();
-                let src = origin.src.unwrap().to_string();
-                let sport = origin.sport;
-                let dport = origin.dport;
-                format!(
-                    "Anycast (source IP: {}, source port: {}, destination port: {})",
-                    src, sport, dport
-                )
+                    .and_then(|conf| conf.origin.as_ref())
+                    .map(|origin| {
+                        format!(
+                            "Anycast (source IP: {}, source port: {}, destination port: {})",
+                            origin.src.unwrap(), origin.sport, origin.dport
+                        )
+                    }).expect("No anycast origin found")
             }
         };
 
@@ -748,9 +747,9 @@ impl CliClient {
             interval,
             timestamp_start_str,
             measurement_length,
-            active_workers.clone(),
+            active_workers,
             &workers,
-            configurations.clone(),
+            &configurations,
             is_config,
         );
 
@@ -761,7 +760,7 @@ impl CliClient {
         };
 
         // Start thread that writes results to file
-        write_results(rx_r, cli, file, md_file, measurement_type, is_multi_origin);
+        write_results(rx_r, is_cli, file, md_file, measurement_type, is_multi_origin);
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -892,7 +891,7 @@ fn get_metadata(
     expected_length: f32,
     active_workers: Vec<u32>,
     all_workers: &HashMap<u32, String>,
-    configurations: Vec<Configuration>,
+    configurations: &Vec<Configuration>,
     is_config: bool,
 ) -> Vec<String> {
     let mut md_file = Vec::new();
@@ -936,7 +935,7 @@ fn get_metadata(
     // Write configurations used for the measurement
     if is_config {
         md_file.push("# Configurations:".to_string());
-        for configuration in &configurations {
+        for configuration in configurations {
             let src = configuration
                     .origin
                     .clone()
@@ -964,7 +963,7 @@ fn get_metadata(
         if configurations.len() > 1 {
             md_file.push("# Multiple origins used".to_string());
 
-            for configuration in &configurations {
+            for configuration in configurations {
                 let src = 
                     configuration
                         .origin
