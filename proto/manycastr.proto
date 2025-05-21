@@ -20,7 +20,7 @@ service Controller {
 // Empty message
 message Empty {}
 
-// Acknowledgement of a measurement, with a boolean whether it was successful or not, and a possible error message.
+// Acknowledgement of a measurement with a boolean whether it was successful or not and a possible error message.
 message Ack {
   bool success = 1;
   string error_message = 2;
@@ -59,7 +59,7 @@ message Status {
   repeated fixed32 measurements = 2;
 }
 
-// Worker definition, contains a worker ID, metadata, and a list of current measurements
+// Worker definition, contains a worker ID, metadata (hostname), and a list of current measurements
 message Worker {
   fixed32 worker_id = 1;
   Metadata metadata = 2;
@@ -85,7 +85,7 @@ message IPv6 {
   fixed64 p2 = 2;
 }
 
-// A task for a worker, can be either a Start, Ping, UDP, TCP, or an Empty task
+// A task for a worker, either a start or end message, or a list of targets
 message Task {
   oneof data {
     End end = 1; // End measurement
@@ -94,7 +94,7 @@ message Task {
   }
 }
 
-// A start message, indicates the probing rate (packets per second), whether the worker should send out probes, the measurement type, and the source address to be used
+// A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
   bool active = 2;
@@ -113,7 +113,7 @@ message End {
   uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
 
-// Origin: the source address and port combinations used by workers in a measurement
+// Origin: the source address and port combinations used by workers in a measurement, alongside an identifier
 message Origin {
   Address src = 1;
   fixed32 sport = 2;
@@ -129,7 +129,7 @@ message Configuration {
 
 // A list of target addresses
 message Targets {
-  repeated Address dst_addresses = 1;
+  repeated Address dst_list = 1;
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -138,7 +138,7 @@ message TaskResult {
   repeated Reply result_list = 2;
 }
 
-// A reply, either a PingResult, UDPResult, or TCPResult
+// A reply, either a PingResult, UDPResult, or TCPResult; the IP result, the receive time, and the origin ID of the reply
 message Reply {
   oneof value {
     PingResult ping = 1;
@@ -150,7 +150,7 @@ message Reply {
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
 }
 
-// IPResult, contains either an IPv4 or an IPv6 source address, and the TTL
+// IPResult, contains a source address and the TTL captured
 message IPResult {
   Address src = 1;
   fixed32 ttl = 2;
@@ -182,7 +182,7 @@ message DNS_CHAOS {
   string chaos_data = 2;
 }
 
-// TCP result which contains a receive time, an ipv4 result, source & destination ports, and the ack & seq numbers
+// TCP result with a sequence number which has either the tx_worker_id (MAnycast) or the tx_time (GCD)
 message TCPResult {
   fixed32 seq = 1;
 }

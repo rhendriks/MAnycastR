@@ -536,7 +536,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             divide: is_divide,
             interval,
             responsive: is_responsive,
-            targets: Some(Targets { dst_addresses: ips }),
+            targets: Some(Targets { dst_list: ips }),
             record: dns_record.to_string(),
             url,
         };

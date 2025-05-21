@@ -101,7 +101,7 @@ pub fn outbound(
                         for origin in &tx_origins {
                             match measurement_type {
                                 1 => { // ICMP
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_ping(
                                             origin.clone(),
@@ -126,7 +126,7 @@ pub fn outbound(
                                     }
                                 }
                                 2 | 4 => { // UDP or UDP/CHAOS
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_udp(
                                             origin.clone(),
@@ -152,7 +152,7 @@ pub fn outbound(
                                     }
                                 }
                                 3 => { // TCP
-                                    for dst in &targets.dst_addresses {
+                                    for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_tcp(
                                             origin.clone(),

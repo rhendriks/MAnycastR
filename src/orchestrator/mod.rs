@@ -485,7 +485,7 @@ impl Controller for ControllerService {
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
-            .dst_addresses;
+            .dst_list;
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
@@ -656,7 +656,7 @@ impl Controller for ControllerService {
                     if is_probing {
                         let task = Task {
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_addresses: chunk.to_vec(),
+                                dst_list: chunk.to_vec(),
                             })),
                         };
 
