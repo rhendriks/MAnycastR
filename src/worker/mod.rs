@@ -1,9 +1,9 @@
 use clap::ArgMatches;
-use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
@@ -158,7 +158,7 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    fn init(&mut self, task: Task, worker_id: u16, outbound_f: Option<oneshot::Receiver<()>>) {
+    fn init(&mut self, task: Task, worker_id: u16, finish: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
         } else {
@@ -275,7 +275,7 @@ impl Worker {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
-                            "[Worker] Sending on address: {} using identifier {}",
+                            "[Worker] Sending on address: {} using ICMP identifier {}",
                             origin.src.unwrap(),
                             origin.dport
                         );
@@ -285,7 +285,7 @@ impl Worker {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
-                            "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
+                            "[Worker] Sending on address: {}, from src port {}, to dst port {}",
                             origin.src.unwrap(),
                             origin.sport,
                             origin.dport
@@ -299,7 +299,7 @@ impl Worker {
                 worker_id,
                 tx_origins,
                 outbound_rx.unwrap(),
-                outbound_f.unwrap(),
+                finish.unwrap(),
                 is_ipv6,
                 is_unicast,
                 measurement_id,
@@ -354,7 +354,7 @@ impl Worker {
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
-        let mut f_tx: Option<oneshot::Sender<()>> = None;
+        let mut finish: Option<Arc<AtomicBool>> = None;
 
         // Connect to the orchestrator
         let response = self
@@ -420,13 +420,10 @@ impl Worker {
                                     .await
                                     .expect("Unable to send finish signal to inbound thread");
                             }
-                            // f_tx will be None if this worker is not probing
-                            if f_tx.is_some() {
+                            // finish will be None if this worker is not probing
+                            if let Some(finish) = &finish {
                                 // Close outbound threads
-                                f_tx.take()
-                                    .unwrap()
-                                    .send(())
-                                    .expect("Unable to send abort signal to outbound thread");
+                                finish.store(true, Ordering::SeqCst);
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
@@ -465,13 +462,13 @@ impl Worker {
                 if is_probing {
                     // This worker is probing
                     // Initialize signal finish channel
-                    let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
-                    f_tx = Some(outbound_tx_f);
-
-                    self.init(task, worker_id, Some(outbound_rx_f));
+                    // create AtomicBool
+                    finish = Some(Arc::new(AtomicBool::new(false)));
+                    
+                    self.init(task, worker_id, finish.clone());
                 } else {
                     // This worker is not probing
-                    f_tx = None;
+                    finish = None;
                     self.outbound_tx = None;
                     self.init(task, worker_id, None);
                 }
