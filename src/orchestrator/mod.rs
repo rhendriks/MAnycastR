@@ -13,7 +13,7 @@ use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
     task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, ScheduleMeasurement,
-    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker, WorkerId,
+    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -37,12 +37,12 @@ use tonic::{transport::Server, Request, Response, Status};
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
-    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<HashMap<u32, Sender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     current_measurement_id: Arc<Mutex<u32>>,
     current_worker_id: Arc<Mutex<u32>>,
-    active: Arc<Mutex<bool>>,
+    is_active: Arc<Mutex<bool>>,
 }
 
 /// Special Receiver struct that notices when the worker disconnects.
@@ -143,7 +143,7 @@ impl<T> Drop for WorkerReceiver<T> {
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
-    senders: Arc<Mutex<Vec<Sender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<HashMap<u32, Sender<Result<Task, Status>>>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -166,11 +166,15 @@ impl<T> Drop for CLIReceiver<T> {
 
             // Create termination 'task'
             let end_task = Task {
+                worker_id: None,
                 data: Some(TaskEnd(End { code: 0 })),
             };
 
+            let worker_senders: Vec<Sender<Result<Task, Status>>> =
+                { self.senders.lock().unwrap().values().cloned().collect() };
+
             // Tell each worker to terminate the measurement
-            for worker in self.senders.lock().unwrap().iter().cloned() {
+            for worker in worker_senders {
                 let end_task = end_task.clone();
 
                 spawn(async move {
@@ -256,7 +260,7 @@ impl Controller for ControllerService {
         if is_finished {
             println!("[Orchestrator] Notifying CLI that the measurement is finished");
             // There is no longer an active measurement
-            *self.active.lock().unwrap() = false;
+            *self.is_active.lock().unwrap() = false;
 
             // Send an ack to the worker that it has finished
             return match tx.send(Ok(TaskResult::default())).await {
@@ -282,6 +286,8 @@ impl Controller for ControllerService {
 
     /// Handles a worker connecting to this orchestrator formally.
     ///
+    /// Ensures the hostname is unique and returns a unique worker ID
+    ///
     /// Returns the receiver side of a stream to which the orchestrator will send tasks
     ///
     /// # Arguments
@@ -295,17 +301,63 @@ impl Controller for ControllerService {
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
 
-        // Store the stream sender to send tasks through later
-        self.senders.lock().unwrap().push(tx);
+        // Check if the hostname already exists
+        let worker_id = {
+            let mut worker_list = self.workers.lock().unwrap();
+            for worker in &worker_list.workers {
+                match &worker.metadata {
+                    Some(metadata) if hostname == metadata.hostname => {
+                        println!(
+                            "[Orchestrator] Refusing worker as the hostname already exists: {}",
+                            hostname
+                        );
+                        return Err(Status::new(
+                            tonic::Code::AlreadyExists,
+                            "This hostname already exists",
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+
+            // Obtain unique worker id
+            let mut current_client_id = self.current_worker_id.lock().unwrap();
+            let worker_id = *current_client_id;
+            current_client_id.add_assign(1);
+
+            // Add the new worker
+            let new_worker = Worker {
+                // TODO combine senders and worker_list into one
+                worker_id,
+                metadata: Some(Metadata {
+                    hostname: hostname.clone(),
+                }),
+                measurements: vec![],
+            };
+            worker_list.workers.push(new_worker);
+
+            worker_id
+        };
+
+        // Send worker ID
+        tx.send(Ok(Task {
+            worker_id: Some(worker_id),
+            data: None,
+        }))
+        .await
+        .expect("Failed to send worker ID");
+
+        // Add worker_id, tx to senders map
+        self.senders.lock().unwrap().insert(worker_id, tx);
 
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
             inner: rx,
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
-            hostname,
+            hostname, // TODO can be &hostname ?
             workers: self.workers.clone(),
-            active: self.active.clone(),
+            active: self.is_active.clone(),
         };
 
         // Send the stream receiver to the worker
@@ -343,7 +395,7 @@ impl Controller for ControllerService {
         // If there already is an active measurement, we skip
         {
             // If the orchestrator is already working on another measurement
-            let mut active = self.active.lock().unwrap();
+            let mut active = self.is_active.lock().unwrap();
             if *active {
                 println!("[Orchestrator] There is already an active measurement, returning");
                 return Err(Status::new(
@@ -373,25 +425,28 @@ impl Controller for ControllerService {
         }
 
         // Get the list of Senders (that connect to the workers)
-        let senders = {
+        let senders: Vec<Sender<Result<Task, Status>>> = {
+            // TODO filter out clients that are not sending using the worker_id (if applicable)
+            let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
-            self.senders.lock().unwrap().retain(|sender| {
+            senders.retain(|worker_id, sender| {
                 if sender.is_closed() {
                     println!(
-                        "[Orchestrator] Worker unavailable, connection closed. Worker removed."
+                        "[Orchestrator] Worker {} unavailable, connection closed. Worker removed.",
+                        worker_id
                     );
                     false
                 } else {
                     true
                 }
             });
-            self.senders.lock().unwrap().clone()
+            senders.values().cloned().collect()
         };
 
         // If there are no connected workers that can perform this measurement
         if senders.is_empty() {
             println!("[Orchestrator] No connected workers, terminating measurement.");
-            *self.active.lock().unwrap() = false;
+            *self.is_active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
         }
 
@@ -424,7 +479,7 @@ impl Controller for ControllerService {
             .any(|worker| !worker_ids.contains(worker))
         {
             println!("[Orchestrator] Worker ID requested that is not connected, terminating measurement.");
-            *self.active.lock().unwrap() = false;
+            *self.is_active.lock().unwrap() = false;
             return Err(Status::new(
                 tonic::Code::Cancelled,
                 "One or more worker IDs are not connected.",
@@ -452,7 +507,7 @@ impl Controller for ControllerService {
             println!(
                 "[Orchestrator] Unknown worker in configuration list, terminating measurement."
             );
-            *self.active.lock().unwrap() = false;
+            *self.is_active.lock().unwrap() = false;
             return Err(Status::new(
                 tonic::Code::Cancelled,
                 "Unknown worker in configuration",
@@ -481,12 +536,13 @@ impl Controller for ControllerService {
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
-        let is_responsive = scheduled_measurement.is_responsive;
+        let _is_responsive = scheduled_measurement.is_responsive;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
             .dst_list;
+        // TODO keep track of responsive addresses if_responsive
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
@@ -547,6 +603,7 @@ impl Controller for ControllerService {
             current_worker = current_worker + 1;
 
             let start_task = Task {
+                worker_id: None,
                 data: Some(TaskStart(Start {
                     rate,
                     measurement_id,
@@ -602,6 +659,29 @@ impl Controller for ControllerService {
             let is_probing = workers.is_empty() || workers.contains(&worker_id);
 
             // TODO implement responsiveness check
+            // Send responsiveness check using the first client
+            // Received replies with that client ID as sender -> instruct all others to probe it
+            // Problems: what if this client drops? measurement fails.
+            // Problems: GCD using TCP -> no sender client ID known
+            // Problems: responsiveness probing burden is all on the first client
+
+            // Other approach
+            // Keep list of responsive addresses
+            // Incoming replies -> check if the address is in the list
+            // If not, instruct all workers to probe it and add it to the list
+            // If yes, workers have already been instructed to probe it
+            // Pros: Allows for distribution responsiveness check among all workers
+            // Cons: the worker that checked for responsiveness will probe it a second time
+            // Solutions: still send from client 1 and don't instruct this client to probe it additionally
+            // Solutions: keep track of which client did the responsiveness check for a particular address
+
+            // Include responsiveness check in outgoing probes (requires computation at Sender -> not ideal)
+            // ICMP encode in payload (using the u32 reserved for the sender_client_ID)
+            // UDP/DNS encode in A record
+            // TCP encode in ack number (first 16 bits, last 16 bits for the sender ID)
+            // Perform responsiveness check divide-and-conquer style
+            // Perform task sending thread at probing rate / number of workers (to achieve desired actual probing rate)
+            // Instruct all workers (except responsive check originating worker) to perform a task when receiving a responsive check
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
@@ -632,7 +712,7 @@ impl Controller for ControllerService {
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = workers_finished.clone();
-            let is_active = self.active.clone();
+            let is_active = self.is_active.clone();
 
             spawn(async move {
                 // Send out packets at the required interval
@@ -658,6 +738,7 @@ impl Controller for ControllerService {
 
                     if is_probing {
                         let task = Task {
+                            worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                                 dst_list: chunk.to_vec(),
                             })),
@@ -705,6 +786,7 @@ impl Controller for ControllerService {
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 match sender
                     .send(Ok(Task {
+                        worker_id: None,
                         data: Some(TaskEnd(End { code: 0 })),
                     }))
                     .await
@@ -720,7 +802,7 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            active: self.active.clone(),
+            active: self.is_active.clone(),
             senders: self.senders.clone(),
         };
 
@@ -735,6 +817,8 @@ impl Controller for ControllerService {
     ) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
+
+    // TODO implement send_task(worker_id, task)
 
     /// Receive a TaskResult from the worker and put it in the stream towards the CLI
     ///
@@ -766,62 +850,6 @@ impl Controller for ControllerService {
             })),
         }
     }
-
-    /// Handles a worker requesting a worker ID.
-    ///
-    /// Returns a unique worker ID.
-    ///
-    /// # Arguments
-    ///
-    /// * 'request' - Metadata message that contains the worker's hostname
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the hostname already exists
-    async fn get_worker_id(
-        &self,
-        request: Request<Metadata>,
-    ) -> Result<Response<WorkerId>, Status> {
-        let metadata = request.into_inner();
-        let hostname = metadata.hostname;
-        let mut worker_list = self.workers.lock().unwrap();
-
-        // Check if the hostname already exists
-        for worker in &worker_list.workers {
-            match &worker.metadata {
-                Some(metadata) if hostname == metadata.hostname => {
-                    println!(
-                        "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                        hostname
-                    );
-                    return Err(Status::new(
-                        tonic::Code::AlreadyExists,
-                        "This hostname already exists",
-                    ));
-                }
-                _ => {} // Continue to next worker
-            }
-        }
-
-        // Obtain unique worker id
-        let worker_id = {
-            let mut current_client_id = self.current_worker_id.lock().unwrap();
-            let client_id = *current_client_id;
-            current_client_id.add_assign(1);
-            client_id
-        };
-
-        // Add the worker to the worker list
-        let new_worker = Worker {
-            worker_id,
-            metadata: Some(Metadata { hostname }),
-            measurements: vec![],
-        };
-        worker_list.workers.push(new_worker);
-
-        // Accept the worker and give it a unique worker ID
-        Ok(Response::new(WorkerId { worker_id }))
-    }
 }
 
 /// Start the orchestrator.
@@ -840,12 +868,12 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(ServerStatus::default())),
-        senders: Arc::new(Mutex::new(Vec::new())),
+        senders: Arc::new(Mutex::new(HashMap::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
         current_worker_id: Arc::new(Mutex::new(1)),
-        active: Arc::new(Mutex::new(false)),
+        is_active: Arc::new(Mutex::new(false)),
     };
 
     let svc = ControllerServer::new(controller)

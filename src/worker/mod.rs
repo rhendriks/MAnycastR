@@ -13,7 +13,7 @@ use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
-    Task, TaskResult, WorkerId,
+    Task, TaskResult,
 };
 
 use crate::custom_module;
@@ -355,11 +355,22 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
         // Get the worker_id from the orchestrator
-        let worker_id = self
-            .get_worker_id()
-            .await
-            .expect("Unable to get a worker ID from the orchestrator")
-            .worker_id as u16;
+        // let worker_id = self
+        //     .get_worker_id()
+        //     .await
+        //     .expect("Unable to get a worker ID from the orchestrator")
+        //     .worker_id as u16;
+
+        // let worker_id = self
+        //     .client
+        //     .get_worker_id(Request::new(self.metadata.clone()))
+        //     .await?
+        //     .into_inner();
+        //
+        // Ok(worker_id)
+
+        let worker_id = 0; // TODO
+
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the orchestrator
@@ -482,17 +493,6 @@ impl Worker {
         println!("[Worker] Stopped awaiting tasks");
 
         Ok(())
-    }
-
-    /// Send the get_worker_id command to the orchestrator to obtain a unique worker ID
-    async fn get_worker_id(&mut self) -> Result<WorkerId, Box<dyn Error>> {
-        let worker_id = self
-            .client
-            .get_worker_id(Request::new(self.metadata.clone()))
-            .await?
-            .into_inner();
-
-        Ok(worker_id)
     }
 
     /// Send a TaskResult to the orchestrator
