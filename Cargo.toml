@@ -13,7 +13,7 @@ futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
 prost = "0.13.5" # define gRPC messages
 tokio = { version = "1.45.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
-tonic = { version = "0.12.3", features = ["tls", "zstd"] } # gRPC (inter-component communication)
+tonic = { version = "0.13.1", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.9.1" # generate random numbers
 gethostname = "1.0.2" # get hostname
 pnet = "0.35.0"# create raw socket for sending/receiving packets
@@ -24,4 +24,4 @@ ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.1" # read .gz hitlist files
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-build = "0.13.1"
