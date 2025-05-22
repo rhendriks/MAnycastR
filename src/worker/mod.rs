@@ -354,23 +354,6 @@ impl Worker {
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
-        // Get the worker_id from the orchestrator
-        // let worker_id = self
-        //     .get_worker_id()
-        //     .await
-        //     .expect("Unable to get a worker ID from the orchestrator")
-        //     .worker_id as u16;
-
-        // let worker_id = self
-        //     .client
-        //     .get_worker_id(Request::new(self.metadata.clone()))
-        //     .await?
-        //     .into_inner();
-        //
-        // Ok(worker_id)
-
-        let worker_id = 0; // TODO
-
         let mut f_tx: Option<oneshot::Sender<()>> = None;
 
         // Connect to the orchestrator
@@ -379,11 +362,15 @@ impl Worker {
             .worker_connect(Request::new(self.metadata.clone()))
             .await
             .expect("Unable to connect to orchestrator");
+
+        let mut stream = response.into_inner();
+        // Read the assigned unique worker ID
+        let id_message = stream.message().await.expect("Unable to await stream").expect("Unable to receive worker ID");
+        let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
             worker_id
         );
-        let mut stream = response.into_inner();
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
