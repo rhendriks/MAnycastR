@@ -731,7 +731,7 @@ impl Controller for ControllerService {
                         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                         if *clients_finished.lock().unwrap() == number_of_workers {
                             println!("[Orchestrator] CLI disconnected during task distribution");
-                            tx_f.send(()).expect("Failed to send finished signal");
+                            tx_f.send(()).expect("Failed to send abort signal");
                         }
                         return; // abort
                     }
@@ -769,13 +769,14 @@ impl Controller for ControllerService {
                     // Send a message to the other sending threads to let them know the measurement is finished
                     tx_f.send(()).expect("Failed to send finished signal");
                 } else {
-                    // Wait for the last worker to finish
+                    // Wait for the last worker to finish 
                     rx_f.recv()
                         .await
                         .expect("Failed to receive finished signal");
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
                     if *is_active.lock().unwrap() == false {
+                        println!("[Orchestrator] CLI disconnected while waiting for finished signal");
                         return; // abort
                     }
                 }
