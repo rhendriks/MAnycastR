@@ -167,7 +167,7 @@ impl<T> Drop for CLIReceiver<T> {
             // Create termination 'task'
             let end_task = Task {
                 worker_id: None,
-                data: Some(TaskEnd(End { code: 0 })),
+                data: Some(TaskEnd(End { code: 1 })),
             };
 
             let worker_senders: Vec<Sender<Result<Task, Status>>> =
@@ -733,6 +733,7 @@ impl Controller for ControllerService {
                             println!("[Orchestrator] CLI disconnected during task distribution");
                             tx_f.send(()).expect("Failed to send abort signal");
                         }
+                        
                         return; // abort
                     }
 
