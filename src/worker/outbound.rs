@@ -1,4 +1,6 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
@@ -48,7 +50,7 @@ pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
-    mut finish_rx: futures::channel::oneshot::Receiver<()>,
+    finish_rx: Arc<AtomicBool>,
     is_ipv6: bool,
     is_unicast: bool,
     measurement_id: u32,
@@ -69,8 +71,8 @@ pub fn outbound(
 
             let ethernet_header = get_ethernet_header(is_ipv6, if_name);
             'outer: loop {
-                if let Ok(Some(())) = finish_rx.try_recv() {
-                    // If the finish_rx received a signal, break the loop (abort)
+                if finish_rx.load(std::sync::atomic::Ordering::SeqCst) {
+                    // If the finish_rx is set to true, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
                 }
