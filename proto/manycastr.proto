@@ -13,8 +13,6 @@ service Controller {
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
-  // Worker obtains a unique worker ID from the orchestrator
-  rpc GetWorkerID(Metadata) returns (WorkerID) {}
 }
 
 // Empty message
@@ -30,11 +28,6 @@ message Ack {
 message Finished {
   uint32 measurement_id = 1;
   uint32 worker_id = 2;
-}
-
-// A worker ID
-message WorkerID {
-  uint32 worker_id = 1;
 }
 
 // Schedule a measurement with the orchestrator
@@ -92,6 +85,7 @@ message Task {
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
   }
+  optional uint32 worker_id = 4; // Unique worker ID for the client
 }
 
 // A start message, forwards the configuration to the worker
@@ -130,8 +124,6 @@ message Configuration {
 // A list of target addresses
 message Targets {
   repeated Address dst_list = 1;
-  bool is_responsive = 2; // whether the targets are for a responsiveness check
-
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -150,8 +142,6 @@ message Reply {
   IPResult ip_result = 4; // IP result of the reply
   uint64 rx_time = 5; // receive time of the reply
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  bool is_responsive = 7; // whether the measurement is a responsiveness check
-
 }
 
 // IPResult, contains a source address and the TTL captured
