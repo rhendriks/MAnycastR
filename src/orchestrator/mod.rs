@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
+use crate::custom_module::manycastr::Address;
 
 /// Struct for the orchestrator service
 ///
@@ -33,7 +35,8 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
-/// * 'active' - a boolean value that is set to true when there is an active measurement
+/// * 'is_active' - a boolean value that is set to true when there is an active measurement
+/// * 'r_prober' - ID of worker that is probing for responsiveness
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
@@ -43,6 +46,7 @@ pub struct ControllerService {
     current_measurement_id: Arc<Mutex<u32>>,
     current_worker_id: Arc<Mutex<u32>>,
     is_active: Arc<Mutex<bool>>,
+    is_responsive: Arc<AtomicBool>,
 }
 
 /// Special Receiver struct that notices when the worker disconnects.
@@ -327,7 +331,6 @@ impl Controller for ControllerService {
 
             // Add the new worker
             let new_worker = Worker {
-                // TODO combine senders and worker_list into one
                 worker_id,
                 metadata: Some(Metadata {
                     hostname: hostname.clone(),
@@ -355,7 +358,7 @@ impl Controller for ControllerService {
             inner: rx,
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
-            hostname, // TODO can be &hostname ?
+            hostname,
             workers: self.workers.clone(),
             active: self.is_active.clone(),
         };
@@ -532,17 +535,16 @@ impl Controller for ControllerService {
             .unwrap()
             .insert(measurement_id, senders.len() as u32);
 
-        let rate = scheduled_measurement.rate;
+        let mut rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
-        let _is_responsive = scheduled_measurement.is_responsive;
+        let is_responsive = scheduled_measurement.is_responsive;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
             .dst_list;
-        // TODO keep track of responsive addresses if_responsive
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
 
@@ -643,7 +645,7 @@ impl Controller for ControllerService {
         let mut active_worker_i: u64 = 0; // Index for active workers
         let mut all_worker_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
-
+        
         let p_rate = Duration::from_nanos(
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
@@ -668,7 +670,7 @@ impl Controller for ControllerService {
             // Other approach
             // Keep list of responsive addresses
             // Incoming replies -> check if the address is in the list
-            // If not, instruct all workers to probe it and add it to the list
+            // If not, instruct all workers to probe it and remove it from the list
             // If yes, workers have already been instructed to probe it
             // Pros: Allows for distribution responsiveness check among all workers
             // Cons: the worker that checked for responsiveness will probe it a second time
@@ -703,6 +705,8 @@ impl Controller for ControllerService {
                 // All workers get the same hitlist
                 dst_addresses.clone()
             };
+            
+            // TODO if is_responsive only the first client_ID is probing
 
             // increment if this worker is sending probes
             if is_probing {
@@ -819,9 +823,7 @@ impl Controller for ControllerService {
     ) -> Result<Response<ServerStatus>, Status> {
         Ok(Response::new(self.workers.lock().unwrap().clone()))
     }
-
-    // TODO implement send_task(worker_id, task)
-
+    
     /// Receive a TaskResult from the worker and put it in the stream towards the CLI
     ///
     /// # Arguments
@@ -834,7 +836,40 @@ impl Controller for ControllerService {
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
+        
+        // if self.r_prober is not None and equals this task's worker_id
+        if self.r_prober.lock().unwrap().is_some() {
+            let worker_id = task_result;
+            // Get the list of targets
+            let targets: Vec<Address> = task_result // TODO retain only task results where tx_sender > u16::max
+                .result_list
+                .iter()
+                .map(|result_item| {
+                    result_item.ip_result.unwrap().src.unwrap()
+                }).collect();
+            // Get the list of senders
+            let senders = {
+                let senders = self.senders.lock().unwrap();
+                // TODO filter on active senders
 
+                senders.clone()
+            };
+            
+            r_spread(&senders, targets, worker_id).await;
+        }
+        
+        // TODO implement latency-divide
+        // For each received result:
+        // 1. check if discovery probe (assessing receiving catchment), identified using tx_worker_id + u16::max
+        // 1.a if yes; get real tx_worker_id = tx_worker_id - u16::max
+        // 2.a check if sender == receiver
+        // if yes; forward result to CLI
+        // if no; instruct the receiver to perform a latency probe
+        // 1.b if no; get real tx_worker_id = tx_worker_id - u16::max
+        // 2.b check if sender == receiver
+        // if yes; forward result to CLI
+        // if no; do nothing (weird asymmetric routing case that can cause a loop where sender != receiver, e.g., when the target is anycast too)
+        
         // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -876,6 +911,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
         current_worker_id: Arc::new(Mutex::new(1)),
         is_active: Arc::new(Mutex::new(false)),
+        is_responsive: Arc::new(AtomicBool::new(false)),
     };
 
     let svc = ControllerServer::new(controller)
@@ -908,6 +944,39 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     Ok(())
+}
+
+/// Spread a task to all workers after identifying the target as responsive
+/// 
+/// # Arguments
+/// 
+/// * 'senders' - a map of worker IDs to their corresponding senders
+/// 
+/// * 'targets' - a vector of addresses to send the task to
+/// 
+/// * 'worker_id' - the ID of the worker that has already probed the target and is excluded from the task
+async fn r_spread(
+    senders: &HashMap<u32, Sender<Result<Task, Status>>>,
+    targets: Vec<Address>,
+    worker_id: u32,
+) {
+    for sender in senders.iter() {
+        // If the sender is not the one that probed the target
+        if sender.0 != &worker_id {
+            let task = Task {
+                worker_id: None,
+                data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                    dst_list: targets.clone(),
+                })),
+            };
+
+            // Send the task to the worker
+            match sender.1.send(Ok(task)).await {
+                Ok(_) => (),
+                Err(e) => println!("[Orchestrator] Failed to send task {:?}", e),
+            }
+        }
+    }
 }
 
 // 1. Generate private key:
