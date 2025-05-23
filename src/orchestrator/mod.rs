@@ -539,6 +539,9 @@ impl Controller for ControllerService {
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
         let is_responsive = scheduled_measurement.is_responsive;
+        if is_responsive {
+            self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
@@ -817,6 +820,7 @@ impl Controller for ControllerService {
         
         // if self.r_prober is not None and equals this task's worker_id
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("checking for discovery replies");
             let worker_id = task_result.worker_id;
             // Get the list of targets
             let targets: Vec<Address> = task_result
