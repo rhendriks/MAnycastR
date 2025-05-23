@@ -306,7 +306,7 @@ fn parse_icmpv4(
     }
 
     let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
+    let mut tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32; // TODO store worker_id as u32 in payload
     let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
     let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..22].try_into().unwrap());
 
@@ -320,6 +320,13 @@ fn parse_icmpv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
+    
+    let is_discovery = if tx_worker_id > u16::MAX as u32 {
+        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        Some(true)
+    } else {
+        None
+    };
 
     // Create a Reply for the received ping reply
     Some(Reply {
@@ -330,6 +337,7 @@ fn parse_icmpv4(
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
@@ -383,7 +391,7 @@ fn parse_icmpv6(
     }
 
     let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32;
+    let mut tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32; // TODO store worker_id as u32 in payload
     let probe_src = u128::from_be_bytes(*&icmp_packet.body[14..30].try_into().unwrap());
     let probe_dst = u128::from_be_bytes(*&icmp_packet.body[30..46].try_into().unwrap());
 
@@ -397,6 +405,13 @@ fn parse_icmpv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
+    
+    let is_discovery = if tx_worker_id > u16::MAX as u32 {
+        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        Some(true)
+    } else {
+        None
+    };
 
     // Create a Reply for the received ping reply
     Some(Reply {
@@ -407,6 +422,7 @@ fn parse_icmpv6(
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
@@ -461,19 +477,26 @@ fn parse_udpv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let udp_result = if measurement_type == 2 {
-        let (udp_result, probe_sport, probe_src, probe_dst) =
+    let (udp_result, is_discovery) = if measurement_type == 2 {
+        let (udp_result, probe_sport, probe_src, probe_dst, is_discovery) =
             parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_src != reply_dst) | (probe_dst != reply_src) {
             return None; // spoofed reply
         }
 
-        Some(udp_result)
+        let is_discovery = if is_discovery {
+            Some(true)
+        } else {
+            None
+        };
+
+        (Some(udp_result), is_discovery)
     } else if measurement_type == 4 {
-        parse_chaos(udp_packet.body.as_slice())
+        // TODO is_discovery for chaos
+        (parse_chaos(udp_packet.body.as_slice()), None)
     } else {
-        None
+        (None, None)
     };
 
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
@@ -484,6 +507,7 @@ fn parse_udpv4(
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
@@ -538,19 +562,25 @@ fn parse_udpv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let udp_result = if measurement_type == 2 {
-        let (udp_result, probe_sport, probe_src, probe_dst) =
+    let (udp_result, is_discovery) = if measurement_type == 2 {
+        let (udp_result, probe_sport, probe_src, probe_dst, is_discovery) =
             parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
             return None; // spoofed reply
         }
+        
+        let is_discovery = if is_discovery {
+            Some(true)
+        } else {
+            None
+        };
 
-        Some(udp_result)
+        (Some(udp_result), is_discovery)
     } else if measurement_type == 4 {
-        parse_chaos(udp_packet.body.as_slice())
+        (parse_chaos(udp_packet.body.as_slice()), None)
     } else {
-        None
+        (None, None)
     };
 
     let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
@@ -561,6 +591,7 @@ fn parse_udpv6(
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
@@ -572,12 +603,12 @@ fn parse_udpv6(
 ///
 /// # Returns
 ///
-/// * `Option<UdpResult, u16, u128, u128>` - the UDP result containing the DNS A record with the source port and source and destination addresses
+/// * `Option<UdpResult, u16, u128, u128>` - the UDP result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u128)> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u128, bool)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -590,8 +621,15 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
     let tx_time = parts[0].parse::<u64>().ok()?;
     let probe_src = parts[1].parse::<u128>().ok()?;
     let probe_dst = parts[2].parse::<u128>().ok()?;
-    let tx_worker_id = parts[3].parse::<u16>().ok()? as u32;
+    let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
+    
+    let is_discovery = if tx_worker_id > u16::MAX as u32 {
+        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        true
+    } else {
+        false
+    };
 
     Some((
         UdpResult {
@@ -603,6 +641,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
         probe_sport,
         probe_src,
         probe_dst,
+        is_discovery
     ))
 }
 
@@ -614,12 +653,12 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
 ///
 /// # Returns
 ///
-/// * `Option<UdpResult, u16, u128, u128>` - the UDP result containing the DNS A record with the source port and source and destination addresses
+/// * `Option<UdpResult, u16, u128, u128, bool>` - the UDP result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u32)> {
+fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u32, bool)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -633,8 +672,15 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u3
     let tx_time = parts[0].parse::<u64>().ok()?;
     let probe_src = parts[1].parse::<u32>().ok()?;
     let probe_dst = parts[2].parse::<u32>().ok()?;
-    let tx_worker_id = parts[3].parse::<u16>().ok()? as u32;
+    let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
+    
+    let is_discovery = if tx_worker_id > u16::MAX as u32 {
+        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        true
+    } else {
+        false
+    };
 
     Some((
         UdpResult {
@@ -646,6 +692,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u3
         probe_sport,
         probe_src,
         probe_dst,
+        is_discovery
     ))
 }
 
@@ -727,14 +774,24 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         tcp_packet.destination_port,
         origin_map,
     )?;
+    
+    let mut seq = tcp_packet.seq;
+    
+    let is_discovery = if seq > u16::MAX as u32 { // TODO will fail for GCD using TCP
+        seq = seq - u16::MAX as u32;
+        Some(true)
+    } else {
+        None
+    };
 
     Some(Reply {
         value: Some(Value::Tcp(TcpResult {
-            seq: tcp_packet.seq,
+            seq,
         })),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
@@ -779,13 +836,24 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         origin_map,
     )?;
 
+
+    let mut seq = tcp_packet.seq;
+
+    let is_discovery = if seq > u16::MAX as u32 { // TODO will fail for GCD using TCP
+        seq = seq - u16::MAX as u32;
+        Some(true)
+    } else {
+        None
+    };
+
     Some(Reply {
         value: Some(Value::Tcp(TcpResult {
-            seq: tcp_packet.seq,
+            seq,
         })),
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
+        is_discovery,
     })
 }
 
