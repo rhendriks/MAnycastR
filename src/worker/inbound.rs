@@ -281,8 +281,8 @@ fn parse_icmpv4(
     measurement_id: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // ICMPv4 50 length (IPv4 header (20) + ICMP header (8) + ICMP body 22 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
-    if (packet_bytes.len() < 50) || (packet_bytes[20] != 0) {
+    // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
+    if (packet_bytes.len() < 52) || (packet_bytes[20] != 0) {
         return None;
     }
 
@@ -306,9 +306,9 @@ fn parse_icmpv4(
     }
 
     let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32; // TODO store worker_id as u32 in payload
-    let probe_src = u32::from_be_bytes(*&icmp_packet.body[14..18].try_into().unwrap());
-    let probe_dst = u32::from_be_bytes(*&icmp_packet.body[18..22].try_into().unwrap());
+    let mut tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
+    let probe_src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
+    let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
 
     if (probe_src != reply_dst) | (probe_dst != reply_src) {
         return None; // spoofed reply
@@ -367,8 +367,8 @@ fn parse_icmpv6(
     measurement_id: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // ICMPv6 64 length (IPv6 header (40) + ICMP header (8) + ICMP body 46 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
-    if (packet_bytes.len() < 94) || (packet_bytes[40] != 129) {
+    // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
+    if (packet_bytes.len() < 66) || (packet_bytes[40] != 129) {
         return None;
     }
     let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
@@ -391,9 +391,9 @@ fn parse_icmpv6(
     }
 
     let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u16::from_be_bytes(*&icmp_packet.body[12..14].try_into().unwrap()) as u32; // TODO store worker_id as u32 in payload
-    let probe_src = u128::from_be_bytes(*&icmp_packet.body[14..30].try_into().unwrap());
-    let probe_dst = u128::from_be_bytes(*&icmp_packet.body[30..46].try_into().unwrap());
+    let mut tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
+    let probe_src = u128::from_be_bytes(*&icmp_packet.body[16..32].try_into().unwrap());
+    let probe_dst = u128::from_be_bytes(*&icmp_packet.body[32..48].try_into().unwrap());
 
     if (probe_src != reply_dst) | (probe_dst != reply_src) {
         return None; // spoofed reply

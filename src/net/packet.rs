@@ -183,7 +183,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 pub fn create_ping(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
+    worker_id: u32,
     measurement_id: u32,
     info_url: &str,
 ) -> Vec<u8> {
@@ -197,12 +197,12 @@ pub fn create_ping(
     let mut payload_bytes: Vec<u8> = Vec::new();
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
-    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 13
+    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
 
     // add the source address
     if src.is_v6() {
-        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 14 - 31
-        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 32 - 49
+        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 16 - 33
+        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 34 - 51
 
         ICMPPacket::echo_request_v6(
             origin.dport as u16,
@@ -214,8 +214,8 @@ pub fn create_ping(
             info_url,
         )
     } else {
-        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 14 - 17
-        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 18 - 21
+        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 16 - 19
+        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 20 - 23
 
         ICMPPacket::echo_request(
             origin.dport as u16,
@@ -255,7 +255,7 @@ pub fn create_ping(
 pub fn create_udp(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
+    worker_id: u32,
     measurement_type: u8,
     is_ipv6: bool,
     qname: &str,
@@ -324,21 +324,21 @@ pub fn create_udp(
 pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
+    worker_id: u32,
     is_ipv6: bool,
     is_unicast: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let transmit_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u32; // The least significant bits are kept
     let seq = 0; // information in seq gets lost
                  // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
     let ack = if !is_unicast {
-        worker_id as u32
+        worker_id
     } else {
-        transmit_time
+        // The least significant bits are kept
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u32
     };
 
     if is_ipv6 {

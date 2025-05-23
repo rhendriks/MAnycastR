@@ -101,6 +101,11 @@ pub fn outbound(
                         break;
                     }
                     Targets(targets) => {
+                        let worker_id = if targets.is_discovery == Some(true) {
+                            worker_id as u32 + u16::MAX as u32
+                        } else {
+                            worker_id as u32
+                        };
                         for origin in &tx_origins {
                             match measurement_type {
                                 1 => { // ICMP

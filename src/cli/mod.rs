@@ -113,6 +113,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_unicast = matches.get_flag("unicast");
         let is_divide = matches.get_flag("divide");
         let is_responsive = matches.get_flag("responsive");
+        // TODO implement more restraints for is_responsive mode
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
