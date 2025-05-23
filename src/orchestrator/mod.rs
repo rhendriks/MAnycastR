@@ -510,6 +510,11 @@ impl Controller for ControllerService {
             };
         
         let number_of_workers = workers.len() as u32;
+        let number_of_probing_workers = if probing_workers.is_empty() {
+            number_of_workers as usize
+        } else {
+            probing_workers.len()
+        };
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -531,9 +536,9 @@ impl Controller for ControllerService {
         let info_url = scheduled_measurement.url;
         
         if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, probing_workers.len(), probing_interval);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, probing_interval);
         } else {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, probing_workers.len());
+            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, number_of_probing_workers);
         }
 
         // Establish a stream with the CLI to return the TaskResults through
@@ -629,11 +634,11 @@ impl Controller for ControllerService {
                 vec![]
             } else if is_divide || is_responsive {
                 // Each worker gets its own chunk of the hitlist
-                let targets_chunk = dst_addresses.len() / probing_workers.len();
+                let targets_chunk = dst_addresses.len() / number_of_probing_workers;
         
                 // Get start and end index of targets to probe for this worker
                 let start_index = i * targets_chunk;
-                let end_index = if i == probing_workers.len() - 1 {
+                let end_index = if i == number_of_probing_workers - 1 {
                     dst_addresses.len() // End of the list
                 } else {
                     start_index + targets_chunk
