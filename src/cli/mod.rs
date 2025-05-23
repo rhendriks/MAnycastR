@@ -629,12 +629,7 @@ impl CliClient {
             }
         };
 
-        // Get the u32s of the workers that are active
-        let active_workers = if measurement_definition.workers.is_empty() {
-            workers.keys().cloned().collect() // All workers are active
-        } else {
-            measurement_definition.workers.clone()
-        };
+        let active_workers = vec![]; // TODO
 
         let measurement_length = if is_divide {
             ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0)

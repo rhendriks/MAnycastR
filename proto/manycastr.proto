@@ -90,15 +90,14 @@ message Task {
 // A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  bool is_active = 2;
-  uint32 measurement_id = 3;
-  uint32 measurement_type = 4;
-  repeated Origin tx_origins = 5; // origins to send with
-  bool is_unicast = 6;
-  bool is_ipv6 = 7;
-  repeated Origin rx_origins = 8; // origins to listen for
-  string record = 9; // domain to use for DNS queries (TXT/A/AAAA)
-  string url = 10; // URL encoded in probes
+  uint32 measurement_id = 2;
+  uint32 measurement_type = 3;
+  repeated Origin tx_origins = 4; // origins to send with
+  bool is_unicast = 5;
+  bool is_ipv6 = 6;
+  repeated Origin rx_origins = 7; // origins to listen for
+  string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
+  string url = 9; // URL encoded in probes
 }
 
 // An end message, indicates the worker should stop sending out probes

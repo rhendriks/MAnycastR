@@ -495,7 +495,7 @@ impl Controller for ControllerService {
         }
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let mut probing_workers;
+        let mut probing_workers = vec![];
 
         // Update selected_workers to contain all workers that are in the configuration list
         for configuration in &scheduled_measurement.configurations {
@@ -594,7 +594,6 @@ impl Controller for ControllerService {
                 data: Some(TaskStart(Start {
                     rate,
                     measurement_id,
-                    is_active,
                     measurement_type,
                     is_unicast,
                     is_ipv6,
@@ -634,141 +633,141 @@ impl Controller for ControllerService {
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
 
-        // Create a thread that streams tasks for each worker
-        for sender in senders.iter() {
-            let sender = sender.clone();
-            // This worker's unique ID
-            let worker_id = *worker_ids.get(all_worker_i as usize).unwrap();
-            all_worker_i += 1;
-            let workers = probing_workers.clone();
-            // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-            let is_probing = workers.is_empty() || workers.contains(&worker_id);
-
-            // Get the hitlist for this worker
-            let hitlist_targets = if !is_probing {
-                vec![]
-            } else if is_divide || is_responsive {
-                // Each worker gets its own chunk of the hitlist
-                let targets_chunk = dst_addresses.len() / current_active_worker as usize;
-
-                // Get start and end index of targets to probe for this worker
-                let start_index = active_worker_i as usize * targets_chunk;
-                let end_index = if active_worker_i == current_active_worker - 1 {
-                    dst_addresses.len() // End of the list
-                } else {
-                    start_index + targets_chunk
-                };
-
-                dst_addresses[start_index..end_index].to_vec()
-            } else {
-                // All workers get the same hitlist
-                dst_addresses.clone()
-            };
-
-            // increment if this worker is sending probes
-            if is_probing {
-                active_worker_i += 1;
-            }
-
-            let tx_f = tx_f.clone();
-            let mut rx_f = tx_f.subscribe();
-            let clients_finished = workers_finished.clone();
-            let is_active = self.is_active.clone();
-            let is_discovery = if is_responsive { // TODO || is_latency
-                self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
-                Some(true)
-            } else {
-                None
-            };
-
-            spawn(async move {
-                // Send out packets at the required interval
-                let mut interval = tokio::time::interval(p_rate);
-                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if is_probing && !is_divide {
-                    tokio::time::sleep(Duration::from_secs(
-                        (active_worker_i - 1) * probing_interval,
-                    ))
-                    .await;
-                }
-
-                for chunk in hitlist_targets.chunks(chunk_size) {
-                    // If the CLI disconnects during task distribution, abort
-                    if *is_active.lock().unwrap() == false {
-                        clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                        if *clients_finished.lock().unwrap() == number_of_workers {
-                            println!("[Orchestrator] CLI disconnected during task distribution");
-                            tx_f.send(()).expect("Failed to send abort signal");
-                        }
-
-                        return; // abort
-                    }
-
-                    if is_probing {
-                        let task = Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_list: chunk.to_vec(),
-                                is_discovery,
-                            })),
-                        };
-
-                        // Send packet to worker
-                        match sender.send(Ok(task)).await {
-                            Ok(_) => (),
-                            Err(e) => {
-                                println!(
-                                    "[Orchestrator] Failed to send task {:?} to worker {}",
-                                    e, worker_id
-                                );
-                                if sender.is_closed() {
-                                    // If the worker is no longer connected
-                                    println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    interval.tick().await;
-                }
-
-                clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                if *clients_finished.lock().unwrap() == number_of_workers {
-                    println!("[Orchestrator] Measurement finished, awaiting clients... ");
-                    // Send a message to the other sending threads to let them know the measurement is finished
-                    tx_f.send(()).expect("Failed to send finished signal");
-                } else {
-                    // Wait for the last worker to finish
-                    rx_f.recv()
-                        .await
-                        .expect("Failed to receive finished signal");
-
-                    // If the CLI disconnects whilst waiting for the finished signal, abort
-                    if *is_active.lock().unwrap() == false {
-                        println!("[Orchestrator] CLI disconnected while waiting for finished signal");
-                        return; // abort
-                    }
-                }
-
-                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                // Send a message to the worker to let it know it has received everything for the current measurement
-                match sender
-                    .send(Ok(Task {
-                        worker_id: None,
-                        data: Some(TaskEnd(End { code: 0 })),
-                    }))
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(e) => println!(
-                        "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
-                        e, worker_id
-                    ),
-                }
-            });
-        }
+        // Create a thread that streams tasks for each worker TODO
+        // for sender in senders.iter() {
+        //     let sender = sender.clone();
+        //     // This worker's unique ID
+        //     let worker_id = *worker_ids.get(all_worker_i as usize).unwrap();
+        //     all_worker_i += 1;
+        //     let workers = probing_workers.clone();
+        //     // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
+        //     let is_probing = workers.is_empty() || workers.contains(&worker_id);
+        //
+        //     // Get the hitlist for this worker
+        //     let hitlist_targets = if !is_probing {
+        //         vec![]
+        //     } else if is_divide || is_responsive {
+        //         // Each worker gets its own chunk of the hitlist
+        //         let targets_chunk = dst_addresses.len() / current_active_worker as usize;
+        //
+        //         // Get start and end index of targets to probe for this worker
+        //         let start_index = active_worker_i as usize * targets_chunk;
+        //         let end_index = if active_worker_i == current_active_worker - 1 {
+        //             dst_addresses.len() // End of the list
+        //         } else {
+        //             start_index + targets_chunk
+        //         };
+        //
+        //         dst_addresses[start_index..end_index].to_vec()
+        //     } else {
+        //         // All workers get the same hitlist
+        //         dst_addresses.clone()
+        //     };
+        //
+        //     // increment if this worker is sending probes
+        //     if is_probing {
+        //         active_worker_i += 1;
+        //     }
+        //
+        //     let tx_f = tx_f.clone();
+        //     let mut rx_f = tx_f.subscribe();
+        //     let clients_finished = workers_finished.clone();
+        //     let is_active = self.is_active.clone();
+        //     let is_discovery = if is_responsive { // TODO || is_latency
+        //         self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
+        //         Some(true)
+        //     } else {
+        //         None
+        //     };
+        //
+        //     spawn(async move {
+        //         // Send out packets at the required interval
+        //         let mut interval = tokio::time::interval(p_rate);
+        //         // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+        //         if is_probing && !is_divide {
+        //             tokio::time::sleep(Duration::from_secs(
+        //                 (active_worker_i - 1) * probing_interval,
+        //             ))
+        //             .await;
+        //         }
+        //
+        //         for chunk in hitlist_targets.chunks(chunk_size) {
+        //             // If the CLI disconnects during task distribution, abort
+        //             if *is_active.lock().unwrap() == false {
+        //                 clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+        //                 if *clients_finished.lock().unwrap() == number_of_workers {
+        //                     println!("[Orchestrator] CLI disconnected during task distribution");
+        //                     tx_f.send(()).expect("Failed to send abort signal");
+        //                 }
+        //
+        //                 return; // abort
+        //             }
+        //
+        //             if is_probing {
+        //                 let task = Task {
+        //                     worker_id: None,
+        //                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+        //                         dst_list: chunk.to_vec(),
+        //                         is_discovery,
+        //                     })),
+        //                 };
+        //
+        //                 // Send packet to worker
+        //                 match sender.send(Ok(task)).await {
+        //                     Ok(_) => (),
+        //                     Err(e) => {
+        //                         println!(
+        //                             "[Orchestrator] Failed to send task {:?} to worker {}",
+        //                             e, worker_id
+        //                         );
+        //                         if sender.is_closed() {
+        //                             // If the worker is no longer connected
+        //                             println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
+        //                             break;
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //             interval.tick().await;
+        //         }
+        //
+        //         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+        //         if *clients_finished.lock().unwrap() == number_of_workers {
+        //             println!("[Orchestrator] Measurement finished, awaiting clients... ");
+        //             // Send a message to the other sending threads to let them know the measurement is finished
+        //             tx_f.send(()).expect("Failed to send finished signal");
+        //         } else {
+        //             // Wait for the last worker to finish
+        //             rx_f.recv()
+        //                 .await
+        //                 .expect("Failed to receive finished signal");
+        //
+        //             // If the CLI disconnects whilst waiting for the finished signal, abort
+        //             if *is_active.lock().unwrap() == false {
+        //                 println!("[Orchestrator] CLI disconnected while waiting for finished signal");
+        //                 return; // abort
+        //             }
+        //         }
+        //
+        //         // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+        //         tokio::time::sleep(Duration::from_secs(1)).await;
+        //
+        //         // Send a message to the worker to let it know it has received everything for the current measurement
+        //         match sender
+        //             .send(Ok(Task {
+        //                 worker_id: None,
+        //                 data: Some(TaskEnd(End { code: 0 })),
+        //             }))
+        //             .await
+        //         {
+        //             Ok(_) => (),
+        //             Err(e) => println!(
+        //                 "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
+        //                 e, worker_id
+        //             ),
+        //         }
+        //     });
+        // }
 
         let rx = CLIReceiver {
             inner: rx,
