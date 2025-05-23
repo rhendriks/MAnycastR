@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -593,7 +593,7 @@ impl CliClient {
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.is_divide;
         let is_ipv6 = measurement_definition.is_ipv6;
-        let probing_rate = measurement_definition.rate;
+        let probing_rate = measurement_definition.rate as f32;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.is_unicast;
         let interval = measurement_definition.interval;
@@ -601,7 +601,7 @@ impl CliClient {
             measurement_definition
                 .configurations
                 .first()
-                .and_then(|conf| conf.origin.as_ref()) // Use as_ref to borrow if Origin is not Copy
+                .and_then(|conf| conf.origin.as_ref())
                 .map(|origin| {
                     format!(
                         "Unicast (source port: {}, destination port: {})",
@@ -629,14 +629,33 @@ impl CliClient {
             }
         };
 
-        let active_workers = vec![]; // TODO
+        // List of Worker IDs that are sending out probes (empty means all)
+        let probing_workers: Vec<u32> =
+            if measurement_definition.configurations.iter().any(|config| config.worker_id == u32::MAX) {
+                Vec::new() // all workers are probing
+            } else {
+                // Get list of unique worker IDs that are probing
+                measurement_definition
+                    .configurations
+                    .iter()
+                    .map(|config| config.worker_id)
+                    .collect::<HashSet<u32>>()
+                    .into_iter()
+                    .collect::<Vec<u32>>()
+            };
+        
+        let number_of_probers = if probing_workers.is_empty() {
+            workers.len() as f32
+        } else {
+            probing_workers.len() as f32
+        };
 
         let measurement_length = if is_divide {
-            ((hitlist_length as f32 / (probing_rate * active_workers.len() as u32) as f32) + 1.0)
+            ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0)
                 / 60.0
         } else {
-            (((active_workers.len() as f32 - 1.0) * interval as f32) // Last worker starts probing
-                + (hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
+            (((number_of_probers - 1.0) * interval as f32) // Last worker starts probing
+                + (hitlist_length as f32 / probing_rate) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
@@ -748,11 +767,11 @@ impl CliClient {
             hitlist,
             is_shuffle,
             type_str,
-            probing_rate,
+            probing_rate as u32,
             interval,
             timestamp_start_str,
             measurement_length,
-            active_workers,
+            probing_workers,
             &workers,
             &measurement_definition.configurations,
             is_config,
@@ -929,7 +948,7 @@ fn get_metadata(
         "# Expected measurement length (seconds): {:.6}",
         expected_length
     ));
-    if active_workers.len() < all_workers.len() {
+    if !active_workers.is_empty() {
         md_file.push(format!(
             "# Selective probing using the following workers: {:?}",
             active_workers
