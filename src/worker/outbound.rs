@@ -105,6 +105,7 @@ pub fn outbound(
                             println!("Sending discovery packets");
                             worker_id as u32 + u16::MAX as u32
                         } else {
+                            println!("Sending measurement packets");
                             worker_id as u32
                         };
                         for origin in &tx_origins {
