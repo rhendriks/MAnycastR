@@ -199,6 +199,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             },
         );
 
+        // TODO test whether a measurement with both a configuration and selective client list is allowed (it should not be)
+        // TODO test whether a measurement with both a configuration and unicast probing is allowed (it should not be)
+
         // Print selected workers
         if !sender_ids.is_empty() {
             println!("[CLI] Selective probing using the following workers:");
@@ -211,7 +214,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Read the configuration file (unnecessary for unicast)
-        let configurations = if is_config && !is_unicast {
+        let configurations = if is_config {
             let conf_file = matches.get_one::<String>("configuration").unwrap();
             println!("[CLI] Using configuration file: {}", conf_file);
             let file = File::open(conf_file)
@@ -527,7 +530,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
             rate,
-            workers: sender_ids,
             configurations,
             measurement_type: measurement_type as u32,
             is_unicast,

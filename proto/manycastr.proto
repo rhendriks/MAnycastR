@@ -33,17 +33,16 @@ message Finished {
 // Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
   uint32 rate = 1;
-  repeated uint32 workers = 2;
-  repeated Configuration configurations = 3; // Configuration of worker and origin combinations
-  uint32 measurement_type = 4;
-  bool is_unicast = 5;
-  bool is_ipv6 = 6;
-  uint32 interval = 7;
-  bool is_responsive = 8;
-  bool is_divide = 9;
-  Targets targets = 10;
-  string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
-  string url = 12;
+  repeated Configuration configurations = 2; // Configuration of worker and origin combinations
+  uint32 measurement_type = 3;
+  bool is_unicast = 4;
+  bool is_ipv6 = 5;
+  uint32 interval = 6;
+  bool is_responsive = 7;
+  bool is_divide = 8;
+  Targets targets = 9;
+  string record = 10; // Record to send CHAOS (TXT) or A/AAAA requests for
+  string url = 11;
 }
 
 // A list of workers (an empty list is used when all workers have to send out probes)
