@@ -539,9 +539,6 @@ impl Controller for ControllerService {
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
         let is_responsive = scheduled_measurement.is_responsive;
-        if is_responsive {
-            self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
@@ -693,6 +690,7 @@ impl Controller for ControllerService {
             let clients_finished = workers_finished.clone();
             let is_active = self.is_active.clone();
             let is_discovery = if is_responsive { // TODO || is_latency
+                self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
                 Some(true)
             } else {
                 None
