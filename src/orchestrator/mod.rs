@@ -821,17 +821,12 @@ impl Controller for ControllerService {
             // Get the list of targets
             let targets: Vec<Address> = task_result
                 .result_list
-                .iter() // Iterates over &SomeResultItemStruct
-                .filter(|result| { // Filter first
-                    result.is_discovery == Some(true) // Cast u16::MAX if tx_value is u32/u64
-
-                    // Example 2: Nested field, potentially optional
-                    // result_item.some_other_struct
-                    //     .map_or(false, |other_struct| other_struct.tx_sender_field > u16::MAX as u32)
+                .iter()
+                .filter(|result| {
+                    result.is_discovery == Some(true)
                 })
-                .map(|result_item_that_passed_filter| { // Then map the filtered items
-                    // We expect ip_result and src to be Some, otherwise panic.
-                    result_item_that_passed_filter.ip_result.unwrap().src.unwrap()
+                .map(|result_f| {
+                    result_f.ip_result.unwrap().src.unwrap()
                 })
                 .collect();
             // Get the list of senders
@@ -842,6 +837,7 @@ impl Controller for ControllerService {
                 senders.clone()
             };
             
+            println!("Spreading {} targets to all workers", targets.len());
             r_spread(&senders, targets, worker_id).await;
         }
         
@@ -946,8 +942,8 @@ async fn r_spread(
     senders: &HashMap<u32, Sender<Result<Task, Status>>>,
     targets: Vec<Address>,
     worker_id: u32,
-) { // TODO filter out non-probing workers
-    for sender in senders.iter() {
+) {
+    for sender in senders.iter() { // TODO interval between workers
         // If the sender is not the one that probed the target
         if sender.0 != &worker_id {
             let task = Task {
