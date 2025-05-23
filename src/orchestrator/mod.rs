@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::AddAssign;
@@ -14,7 +14,7 @@ use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
     task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, ScheduleMeasurement,
-    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker, task::Data::Targets as TaskTargets,
+    Start, Status as ServerStatus, Targets, Task, TaskResult, Worker,
 };
 use futures_core::Stream;
 use rand::Rng;
@@ -428,7 +428,7 @@ impl Controller for ControllerService {
         }
 
         // Get the list of Senders (that connect to the workers)
-        let senders: Vec<Sender<Result<Task, Status>>> = {
+        let senders: HashMap<u32, Sender<Result<Task, Status>>> = {
             let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
             senders.retain(|worker_id, sender| {
@@ -442,7 +442,7 @@ impl Controller for ControllerService {
                     true
                 }
             });
-            senders.values().cloned().collect()
+            senders.clone()
         };
 
         // If there are no connected workers that can perform this measurement
@@ -495,21 +495,21 @@ impl Controller for ControllerService {
         }
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let mut probing_workers = vec![];
-
-        // Update selected_workers to contain all workers that are in the configuration list
-        for configuration in &scheduled_measurement.configurations {
-            // All workers are selected
-            if configuration.worker_id == u32::MAX {
-                probing_workers = vec![];
-                break;
-            }
-
-            // Add the new worker ID (avoid duplicates)
-            if !probing_workers.contains(&configuration.worker_id) {
-                probing_workers.push(configuration.worker_id);
-            }
-        }
+        let probing_workers: Vec<u32> =
+            if scheduled_measurement.configurations.iter().any(|config| config.worker_id == u32::MAX) {
+                Vec::new() // all workers are probing
+            } else {
+                // Get list of unique worker IDs that are probing
+                scheduled_measurement
+                    .configurations
+                    .iter()
+                    .map(|config| config.worker_id)
+                    .collect::<HashSet<u32>>()
+                    .into_iter()
+                    .collect::<Vec<u32>>()
+            };
+        
+        let number_of_workers = workers.len() as u32;
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -529,6 +529,12 @@ impl Controller for ControllerService {
             .dst_list;
         let dns_record = scheduled_measurement.record;
         let info_url = scheduled_measurement.url;
+        
+        if !is_divide {
+            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, probing_workers.len(), probing_interval);
+        } else {
+            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, probing_workers.len());
+        }
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -548,26 +554,29 @@ impl Controller for ControllerService {
         }
 
         // Create channel for TaskDistributor
-        let (tx_t, mut rx_t) = mpsc::channel::<(u32, Task)>(1000);
+        let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
 
-        // Start the TaskDistributor TODO
-        // tokio::spawn(async move {
-        //     task_distributor(
-        //         rx_t,
-        //         senders,
-        //         probing_workers.clone(),
-        //         probing_interval,
-        //     ).await
-        // });
+        // Start the TaskDistributor
+        let probing_workers_c = probing_workers.clone();
+        spawn(async move {
+            task_distributor(
+                rx_t,
+                senders,
+                probing_workers_c,
+                probing_interval,
+            ).await
+        });
+
+        // Get list of worker_ids
+        let all_workers: Vec<u32> = workers.iter().map(|worker| worker.worker_id).collect();
 
         // Notify all workers that a measurement is starting
-        for worker in workers {
-            let worker_id = worker.worker_id;
+        for worker_id in all_workers.iter() {
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
-                if (configuration.worker_id == worker_id)
+                if (&configuration.worker_id == worker_id)
                     | (configuration.worker_id == u32::MAX)
                 {
                     if let Some(origin) = &configuration.origin {
@@ -575,19 +584,6 @@ impl Controller for ControllerService {
                     }
                 }
             }
-
-            // Check if the current worker is selected to send probes
-            let is_active = if probing_workers.is_empty() {
-                // No worker-selective probing
-                if worker_tx_origins.is_empty() {
-                    false // No probe origins -> not probing
-                } else {
-                    true
-                }
-            } else {
-                // Make sure the current worker is selected to perform the measurement
-                probing_workers.contains(&worker_id)
-            };
 
             let start_task = Task {
                 worker_id: None,
@@ -604,7 +600,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((worker_id, start_task.clone()))
+            tx_t.send((*worker_id, start_task))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -612,162 +608,135 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // Number of workers participating in the measurement (listening and/or probing)
-        let number_of_workers = self.workers.clone().lock().unwrap().workers.len() as u64; // TODO retr
-
-        if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, probing_workers.len(), probing_interval);
-        } else {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, probing_workers.len());
-        }
-
         // Shared variable to keep track of the number of workers that have finished
         let workers_finished = Arc::new(Mutex::new(0));
         // Shared channel that workers will wait for till the last worker has finished
         let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
-        let mut active_worker_i: u64 = 0; // Index for active workers
-        let mut all_worker_i = 0; // Index for the worker list
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
 
         let p_rate = Duration::from_nanos(
             ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
+        
+        // Stream tasks to the workers TODO
+        let mut i = 0; // index for the hitlist distribution
+        for worker_id in all_workers.iter() {
+            // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
+            let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
+        
+            // Get the hitlist for this worker
+            let hitlist_targets = if !is_probing {
+                vec![]
+            } else if is_divide || is_responsive {
+                // Each worker gets its own chunk of the hitlist
+                let targets_chunk = dst_addresses.len() / probing_workers.len();
+        
+                // Get start and end index of targets to probe for this worker
+                let start_index = i * targets_chunk;
+                let end_index = if i == probing_workers.len() - 1 {
+                    dst_addresses.len() // End of the list
+                } else {
+                    start_index + targets_chunk
+                };
+                
+                i += 1; // Increment the index for the next probing worker
+                
+                dst_addresses[start_index..end_index].to_vec()
+            } else {
+                // All workers get the same hitlist
+                dst_addresses.clone()
+            };
+        
+            let tx_f = tx_f.clone();
+            let mut rx_f = tx_f.subscribe();
+            let clients_finished = workers_finished.clone();
+            let is_active = self.is_active.clone();
+            let is_discovery = if is_responsive { // TODO || is_latency
+                self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
+                Some(true)
+            } else {
+                None
+            };
 
-        // Create a thread that streams tasks for each worker TODO
-        // for sender in senders.iter() {
-        //     let sender = sender.clone();
-        //     // This worker's unique ID
-        //     let worker_id = *worker_ids.get(all_worker_i as usize).unwrap();
-        //     all_worker_i += 1;
-        //     let workers = probing_workers.clone();
-        //     // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-        //     let is_probing = workers.is_empty() || workers.contains(&worker_id);
-        //
-        //     // Get the hitlist for this worker
-        //     let hitlist_targets = if !is_probing {
-        //         vec![]
-        //     } else if is_divide || is_responsive {
-        //         // Each worker gets its own chunk of the hitlist
-        //         let targets_chunk = dst_addresses.len() / current_active_worker as usize;
-        //
-        //         // Get start and end index of targets to probe for this worker
-        //         let start_index = active_worker_i as usize * targets_chunk;
-        //         let end_index = if active_worker_i == current_active_worker - 1 {
-        //             dst_addresses.len() // End of the list
-        //         } else {
-        //             start_index + targets_chunk
-        //         };
-        //
-        //         dst_addresses[start_index..end_index].to_vec()
-        //     } else {
-        //         // All workers get the same hitlist
-        //         dst_addresses.clone()
-        //     };
-        //
-        //     // increment if this worker is sending probes
-        //     if is_probing {
-        //         active_worker_i += 1;
-        //     }
-        //
-        //     let tx_f = tx_f.clone();
-        //     let mut rx_f = tx_f.subscribe();
-        //     let clients_finished = workers_finished.clone();
-        //     let is_active = self.is_active.clone();
-        //     let is_discovery = if is_responsive { // TODO || is_latency
-        //         self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
-        //         Some(true)
-        //     } else {
-        //         None
-        //     };
-        //
-        //     spawn(async move {
-        //         // Send out packets at the required interval
-        //         let mut interval = tokio::time::interval(p_rate);
-        //         // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-        //         if is_probing && !is_divide {
-        //             tokio::time::sleep(Duration::from_secs(
-        //                 (active_worker_i - 1) * probing_interval,
-        //             ))
-        //             .await;
-        //         }
-        //
-        //         for chunk in hitlist_targets.chunks(chunk_size) {
-        //             // If the CLI disconnects during task distribution, abort
-        //             if *is_active.lock().unwrap() == false {
-        //                 clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-        //                 if *clients_finished.lock().unwrap() == number_of_workers {
-        //                     println!("[Orchestrator] CLI disconnected during task distribution");
-        //                     tx_f.send(()).expect("Failed to send abort signal");
-        //                 }
-        //
-        //                 return; // abort
-        //             }
-        //
-        //             if is_probing {
-        //                 let task = Task {
-        //                     worker_id: None,
-        //                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-        //                         dst_list: chunk.to_vec(),
-        //                         is_discovery,
-        //                     })),
-        //                 };
-        //
-        //                 // Send packet to worker
-        //                 match sender.send(Ok(task)).await {
-        //                     Ok(_) => (),
-        //                     Err(e) => {
-        //                         println!(
-        //                             "[Orchestrator] Failed to send task {:?} to worker {}",
-        //                             e, worker_id
-        //                         );
-        //                         if sender.is_closed() {
-        //                             // If the worker is no longer connected
-        //                             println!("[Orchestrator] Worker {} is no longer connected and removed from the measurement", worker_id);
-        //                             break;
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //             interval.tick().await;
-        //         }
-        //
-        //         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-        //         if *clients_finished.lock().unwrap() == number_of_workers {
-        //             println!("[Orchestrator] Measurement finished, awaiting clients... ");
-        //             // Send a message to the other sending threads to let them know the measurement is finished
-        //             tx_f.send(()).expect("Failed to send finished signal");
-        //         } else {
-        //             // Wait for the last worker to finish
-        //             rx_f.recv()
-        //                 .await
-        //                 .expect("Failed to receive finished signal");
-        //
-        //             // If the CLI disconnects whilst waiting for the finished signal, abort
-        //             if *is_active.lock().unwrap() == false {
-        //                 println!("[Orchestrator] CLI disconnected while waiting for finished signal");
-        //                 return; // abort
-        //             }
-        //         }
-        //
-        //         // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
-        //         tokio::time::sleep(Duration::from_secs(1)).await;
-        //
-        //         // Send a message to the worker to let it know it has received everything for the current measurement
-        //         match sender
-        //             .send(Ok(Task {
-        //                 worker_id: None,
-        //                 data: Some(TaskEnd(End { code: 0 })),
-        //             }))
-        //             .await
-        //         {
-        //             Ok(_) => (),
-        //             Err(e) => println!(
-        //                 "[Orchestrator] Failed to send 'end message' {:?} to worker {}",
-        //                 e, worker_id
-        //             ),
-        //         }
-        //     });
-        // }
+            let tx_t = tx_t.clone();
+            let mut interval = tokio::time::interval(p_rate);
+            let worker_id = *worker_id;
+            
+            // Create thread to forward tasks to the task distributor for this worker
+            spawn(async move {
+                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+                if is_probing && !is_divide {
+                    tokio::time::sleep(Duration::from_secs(
+                        (i as u64 - 1) * probing_interval,
+                    ))
+                    .await;
+                }
+        
+                for chunk in hitlist_targets.chunks(chunk_size) {
+                    // If the CLI disconnects during task distribution, abort
+                    if *is_active.lock().unwrap() == false {
+                        clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+                        if *clients_finished.lock().unwrap() == number_of_workers {
+                            println!("[Orchestrator] CLI disconnected during task distribution");
+                            tx_f.send(()).expect("Failed to send abort signal");
+                        }
+        
+                        return; // abort
+                    }
+        
+                    let task = Task {
+                        worker_id: None,
+                        data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            dst_list: chunk.to_vec(),
+                            is_discovery,
+                        })),
+                    };
+                    
+                    tx_t.send((worker_id, task))
+                        .await
+                        .expect("Failed to send task to TaskDistributor");
+                    
+                    interval.tick().await;
+                }
+                
+                let mut last = false;
+        
+                clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
+                if *clients_finished.lock().unwrap() == number_of_workers {
+                    println!("[Orchestrator] Measurement finished, awaiting clients... ");
+                    last = true; // This is the last worker
+                    // Send a message to the other sending threads to let them know the measurement is finished
+                    tx_f.send(()).expect("Failed to send finished signal");
+                } else {
+                    // Wait for the last worker to finish
+                    rx_f.recv()
+                        .await
+                        .expect("Failed to receive finished signal");
+        
+                    // If the CLI disconnects whilst waiting for the finished signal, abort
+                    if *is_active.lock().unwrap() == false {
+                        println!("[Orchestrator] CLI disconnected while waiting for finished signal");
+                        return; // abort
+                    }
+                }
+        
+                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+                tokio::time::sleep(Duration::from_secs(1)).await;
+        
+                // Send a message to the worker to let it know it has received everything for the current measurement
+                tx_t.send((worker_id, Task {
+                    worker_id: None,
+                    data: Some(TaskEnd(End { code: 0 })),
+                })).await.expect("Failed to send end task to TaskDistributor");
+                
+                if last {
+                    tx_t.send((u32::MAX - 1, Task {
+                        worker_id: None,
+                        data: None,
+                    })).await.expect("Failed to send end task to TaskDistributor");
+                }
+            });
+        }
 
         let rx = CLIReceiver {
             inner: rx,
@@ -877,7 +846,10 @@ async fn task_distributor(
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
-        if worker_id == 0 { // to all
+        if worker_id == u32::MAX - 1 {
+            println!("[Orchestrator] Received end task, terminating task distributor");
+            break;
+        } else if worker_id == 0 { // to all
             for (worker_id, worker_sender) in &senders {
                 worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
@@ -914,6 +886,8 @@ async fn task_distributor(
 
         }
     }
+    
+    println!("[Orchestrator] Task distributor finished");
 }
 
 /// Start the orchestrator.
