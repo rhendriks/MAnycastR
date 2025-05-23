@@ -535,7 +535,7 @@ impl Controller for ControllerService {
             .unwrap()
             .insert(measurement_id, senders.len() as u32);
 
-        let mut rate = scheduled_measurement.rate;
+        let rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
@@ -717,6 +717,11 @@ impl Controller for ControllerService {
             let mut rx_f = tx_f.subscribe();
             let clients_finished = workers_finished.clone();
             let is_active = self.is_active.clone();
+            let is_discovery = if is_responsive { // TODO || is_latency
+                Some(true)
+            } else {
+                None
+            };
 
             spawn(async move {
                 // Send out packets at the required interval
@@ -746,6 +751,7 @@ impl Controller for ControllerService {
                             worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                                 dst_list: chunk.to_vec(),
+                                is_discovery,
                             })),
                         };
 
@@ -838,15 +844,24 @@ impl Controller for ControllerService {
         let task_result = request.into_inner();
         
         // if self.r_prober is not None and equals this task's worker_id
-        if self.r_prober.lock().unwrap().is_some() {
-            let worker_id = task_result;
+        if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
+            let worker_id = task_result.worker_id;
             // Get the list of targets
-            let targets: Vec<Address> = task_result // TODO retain only task results where tx_sender > u16::max
+            let targets: Vec<Address> = task_result
                 .result_list
-                .iter()
-                .map(|result_item| {
-                    result_item.ip_result.unwrap().src.unwrap()
-                }).collect();
+                .iter() // Iterates over &SomeResultItemStruct
+                .filter(|result| { // Filter first
+                    result.is_discovery == Some(true) // Cast u16::MAX if tx_value is u32/u64
+
+                    // Example 2: Nested field, potentially optional
+                    // result_item.some_other_struct
+                    //     .map_or(false, |other_struct| other_struct.tx_sender_field > u16::MAX as u32)
+                })
+                .map(|result_item_that_passed_filter| { // Then map the filtered items
+                    // We expect ip_result and src to be Some, otherwise panic.
+                    result_item_that_passed_filter.ip_result.unwrap().src.unwrap()
+                })
+                .collect();
             // Get the list of senders
             let senders = {
                 let senders = self.senders.lock().unwrap();
@@ -959,7 +974,7 @@ async fn r_spread(
     senders: &HashMap<u32, Sender<Result<Task, Status>>>,
     targets: Vec<Address>,
     worker_id: u32,
-) {
+) { // TODO filter out non-probing workers
     for sender in senders.iter() {
         // If the sender is not the one that probed the target
         if sender.0 != &worker_id {
@@ -967,6 +982,7 @@ async fn r_spread(
                 worker_id: None,
                 data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                     dst_list: targets.clone(),
+                    is_discovery: None,
                 })),
             };
 
