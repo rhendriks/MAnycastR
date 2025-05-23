@@ -429,7 +429,6 @@ impl Controller for ControllerService {
 
         // Get the list of Senders (that connect to the workers)
         let senders: Vec<Sender<Result<Task, Status>>> = {
-            // TODO filter out clients that are not sending using the worker_id (if applicable)
             let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
             senders.retain(|worker_id, sender| {
@@ -660,35 +659,10 @@ impl Controller for ControllerService {
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = workers.is_empty() || workers.contains(&worker_id);
 
-            // TODO implement responsiveness check
-            // Send responsiveness check using the first client
-            // Received replies with that client ID as sender -> instruct all others to probe it
-            // Problems: what if this client drops? measurement fails.
-            // Problems: GCD using TCP -> no sender client ID known
-            // Problems: responsiveness probing burden is all on the first client
-
-            // Other approach
-            // Keep list of responsive addresses
-            // Incoming replies -> check if the address is in the list
-            // If not, instruct all workers to probe it and remove it from the list
-            // If yes, workers have already been instructed to probe it
-            // Pros: Allows for distribution responsiveness check among all workers
-            // Cons: the worker that checked for responsiveness will probe it a second time
-            // Solutions: still send from client 1 and don't instruct this client to probe it additionally
-            // Solutions: keep track of which client did the responsiveness check for a particular address
-
-            // Include responsiveness check in outgoing probes (requires computation at Sender -> not ideal)
-            // ICMP encode in payload (using the u32 reserved for the sender_client_ID)
-            // UDP/DNS encode in A record
-            // TCP encode in ack number (first 16 bits, last 16 bits for the sender ID)
-            // Perform responsiveness check divide-and-conquer style
-            // Perform task sending thread at probing rate / number of workers (to achieve desired actual probing rate)
-            // Instruct all workers (except responsive check originating worker) to perform a task when receiving a responsive check
-
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
                 vec![]
-            } else if is_divide {
+            } else if is_divide || is_responsive {
                 // Each worker gets its own chunk of the hitlist
                 let targets_chunk = dst_addresses.len() / current_active_worker as usize;
 
@@ -706,8 +680,6 @@ impl Controller for ControllerService {
                 dst_addresses.clone()
             };
             
-            // TODO if is_responsive only the first client_ID is probing
-
             // increment if this worker is sending probes
             if is_probing {
                 active_worker_i += 1;
