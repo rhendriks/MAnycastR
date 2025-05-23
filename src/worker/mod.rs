@@ -168,7 +168,7 @@ impl Worker {
         let is_ipv6 = start_measurement.is_ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
         let is_unicast = start_measurement.is_unicast;
-        let is_probing = start_measurement.is_active;
+        let is_probing = !start_measurement.tx_origins.is_empty();
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
@@ -448,7 +448,7 @@ impl Worker {
 
                 let (is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (start.is_active, start.measurement_id),
+                        Data::Start(start) => (!start.tx_origins.is_empty(), start.measurement_id),
                         _ => {
                             // First task is not a start measurement task
                             println!("[Worker] Received non-start packet for init");
@@ -464,7 +464,7 @@ impl Worker {
                     // Initialize signal finish channel
                     // create AtomicBool
                     finish = Some(Arc::new(AtomicBool::new(false)));
-                    
+
                     self.init(task, worker_id, finish.clone());
                 } else {
                     // This worker is not probing
