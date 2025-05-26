@@ -109,9 +109,29 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a MAnycastR measurement
         let is_unicast = matches.get_flag("unicast");
-        let is_divide = matches.get_flag("divide");
-        let is_responsive = matches.get_flag("responsive");
-        let is_latency = matches.get_flag("latency");
+        let mut is_divide = matches.get_flag("divide");
+        let mut is_responsive = matches.get_flag("responsive");
+        let mut is_latency = matches.get_flag("latency");
+        
+        if is_latency && is_unicast {
+            // Unicast measurements are inherently latency measurements
+            is_latency = false;
+        }
+        
+        if is_latency && is_divide {
+            // Latency measurements are inherently divide-and-conquer measurements
+            is_divide = false;
+        }
+        
+        if is_latency && is_responsive {
+            // Latency measurements are inherently responsiveness measurements
+            is_responsive = false;
+        }
+        
+        // TODO enforce latency mode is only when all workers are sending
+        
+        
+        
         // TODO implement more restraints for is_responsive mode
         // TODO implement more restraints for is_latency mode
 
@@ -603,9 +623,9 @@ impl CliClient {
         let is_divide = measurement_definition.is_divide;
         let is_ipv6 = measurement_definition.is_ipv6;
         let probing_rate = measurement_definition.rate as f32;
+        let worker_interval = measurement_definition.interval;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.is_unicast;
-        let interval = measurement_definition.interval;
         let is_latency = measurement_definition.is_latency;
         let is_responsive = measurement_definition.is_responsive;
         let origin_str = if is_unicast {
@@ -665,7 +685,7 @@ impl CliClient {
             ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0)
                 / 60.0
         } else {
-            (((number_of_probers - 1.0) * interval as f32) // Last worker starts probing
+            (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / probing_rate) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
@@ -780,7 +800,7 @@ impl CliClient {
             is_shuffle,
             type_str,
             probing_rate as u32,
-            interval,
+            worker_interval,
             timestamp_start_str,
             measurement_length,
             probing_workers,
