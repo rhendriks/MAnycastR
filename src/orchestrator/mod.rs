@@ -668,16 +668,18 @@ impl Controller for ControllerService {
             };
 
             let tx_t = tx_t.clone();
-            let mut interval = tokio::time::interval(p_rate);
+            let mut probing_rate_interval = if is_responsive {
+                // Send responsiveness probes at a rate of probing_rate / number_of_probing_workers
+                tokio::time::interval(p_rate / number_of_probing_workers as u32)
+            } else {
+                tokio::time::interval(p_rate)
+            };
             let worker_id = *worker_id;
-
-            // TODO if is_responsive sent out at probing rate / number_of_probing_workers
-            // TODO if is_responsive do not wait i seconds between workers
-
+            
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if is_probing && !(is_divide || is_latency) {
+                if is_probing && !(is_divide || is_latency || is_responsive) {
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
                     ))
@@ -710,7 +712,7 @@ impl Controller for ControllerService {
                         .expect("Failed to send task to TaskDistributor");
                     println!("[] sent task to TaskDistributor");
 
-                    interval.tick().await;
+                    probing_rate_interval.tick().await;
                 }
 
                 let mut last = false;
