@@ -777,6 +777,7 @@ impl Controller for ControllerService {
         let task_result = request.into_inner();
 
         // if self.r_prober is not None and equals this task's worker_id
+        println!("checking self.is_responsive");
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
             println!("checking for discovery replies");
             let worker_id = task_result.worker_id;
