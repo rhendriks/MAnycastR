@@ -181,6 +181,7 @@ fn handle_results(
 
         // Do not send empty results
         if !rq.is_empty() {
+            println!("forwarding {} results to the orchestrator", rq.len());
             // Send the result to the worker handler
             tx.send(TaskResult {
                 worker_id: worker_id as u32,
