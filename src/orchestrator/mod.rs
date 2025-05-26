@@ -841,16 +841,10 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-            let mut cli_results = Vec::new();
             let rx_worker_id = task_result.worker_id;
-            // TODO implement latency divide
             for result in &task_result.result_list {
-                // Check discovery probes
-
-                if result.tx_worker_id == rx_worker_id {
-                    // Sender is the same as receiver, forward result to CLI
-                    cli_results.push(result.clone());
-                } else if result.is_discovery == Some(true) {
+                // Check for discovery probes where the sender is not the receiver
+                if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     task_sender.send((rx_worker_id, Task {
@@ -863,20 +857,21 @@ impl Controller for ControllerService {
                 }
             }
             println!("Latency probe result received, forwarding to CLI");
+
+            // Keep only results where the sender is the same as the receiver
+            task_result.result_list.retain(|result| {
+                result.tx_worker_id == rx_worker_id
+            });
+
+            if task_result.result_list.is_empty() {
+                // If there are no valid results left, we can return early
+                return Ok(Response::new(Ack {
+                    is_success: true,
+                    error_message: "".to_string(),
+                }));
+            }
         }
-
-        // TODO implement latency-divide
-        // For each received result:
-        // 1. check if discovery probe (assessing receiving catchment), identified using tx_worker_id + u16::max
-        // 1.a if yes; get real tx_worker_id = tx_worker_id - u16::max
-        // 2.a check if sender == receiver
-        // if yes; forward result to CLI
-        // if no; instruct the receiver to perform a latency probe
-        // 1.b if no; get real tx_worker_id = tx_worker_id - u16::max
-        // 2.b check if sender == receiver
-        // if yes; forward result to CLI
-        // if no; do nothing (weird asymmetric routing case that can cause a loop where sender != receiver, e.g., when the target is anycast too)
-
+        
         // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
