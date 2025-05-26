@@ -643,7 +643,7 @@ impl CliClient {
                     .into_iter()
                     .collect::<Vec<u32>>()
             };
-        
+
         let number_of_probers = if probing_workers.is_empty() {
             workers.len() as f32
         } else {
@@ -659,6 +659,8 @@ impl CliClient {
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
+        // TODO if is_responsive add number_of_probes * interval
+
         if is_divide {
             println!("[CLI] Divide-and-conquer enabled");
         }
