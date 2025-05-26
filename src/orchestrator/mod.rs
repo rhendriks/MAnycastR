@@ -618,7 +618,7 @@ impl Controller for ControllerService {
         // Shared variable to keep track of the number of workers that have finished
         let workers_finished = Arc::new(Mutex::new(0));
         // Shared channel that workers will wait for till the last worker has finished
-        let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1);
+        let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1); // TODO replace with AtomicBool ?
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
 
         let p_rate = Duration::from_nanos(
@@ -671,6 +671,8 @@ impl Controller for ControllerService {
 
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
+                println!("hitlist distribution");
+
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if is_probing && !is_divide {
                     tokio::time::sleep(Duration::from_secs(
@@ -679,6 +681,7 @@ impl Controller for ControllerService {
                     .await;
                 }
 
+                println!("starting hitlist distribution");
                 for chunk in hitlist_targets.chunks(chunk_size) {
                     println!("[] iterating over hitlist");
                     // If the CLI disconnects during task distribution, abort
@@ -823,7 +826,7 @@ impl Controller for ControllerService {
                         is_discovery: None,
                     })),
                 })).await.expect("Failed to send discovery task to TaskDistributor");
-                
+
                 if task_result.result_list.is_empty() {
                     // If there are no regular results, we can return early
                     return Ok(Response::new(Ack {
