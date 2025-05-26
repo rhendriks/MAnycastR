@@ -675,6 +675,8 @@ impl Controller for ControllerService {
 
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if is_probing && !is_divide {
+                    println!("i = {}", i);
+                    println!("probing_interval = {}", probing_interval);
                     println!("[] Worker {} sleeping for {} seconds before starting hitlist distribution", worker_id, (i as u64 - 1) * probing_interval);
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
