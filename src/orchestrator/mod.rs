@@ -716,9 +716,11 @@ impl Controller for ControllerService {
                     tx_f.send(()).expect("Failed to send finished signal");
                 } else {
                     // Wait for the last worker to finish
+                    println!("[] Waiting for other workers to finish measurement... ");
                     rx_f.recv()
                         .await
                         .expect("Failed to receive finished signal");
+                    println!("[] Received finished signal from other workers");
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
                     if *is_active.lock().unwrap() == false {
@@ -735,6 +737,7 @@ impl Controller for ControllerService {
                     tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
                 }
 
+                println!("[] Worker {} finished measurement", worker_id);
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 tx_t.send((worker_id, Task {
                     worker_id: None,
@@ -875,7 +878,7 @@ async fn task_distributor(
             for (worker_id, worker_sender) in &senders {
                 worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
-                        "[Orchestrator] Failed to send Start task to worker {}: {:?}",
+                        "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
                         worker_id, e
                     );
                 });
@@ -885,7 +888,7 @@ async fn task_distributor(
                 if sending_workers.contains(worker_id) {
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
-                            "[Orchestrator] Failed to send Start task to worker {}: {:?}",
+                            "[Orchestrator] Failed to send broadcast task to all probing worker {}: {:?}",
                             worker_id, e
                         );
                     });
@@ -900,7 +903,7 @@ async fn task_distributor(
                 if *worker_id != worker_id - u16::MAX as u32 {
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
-                            "[Orchestrator] Failed to send Start task to worker {}: {:?}",
+                            "[Orchestrator] Failed to send Spreading task to worker {}: {:?}",
                             worker_id, e
                         );
                     });
@@ -912,7 +915,7 @@ async fn task_distributor(
             if let Some(worker_sender) = senders.get(&worker_id) {
                 worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
-                        "[Orchestrator] Failed to send Start task to worker {}: {:?}",
+                        "[Orchestrator] Failed to send task to worker {}: {:?}",
                         worker_id, e
                     );
                 });
