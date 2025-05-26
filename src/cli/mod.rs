@@ -606,6 +606,8 @@ impl CliClient {
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.is_unicast;
         let interval = measurement_definition.interval;
+        let is_latency = measurement_definition.is_latency;
+        let is_responsive = measurement_definition.is_responsive;
         let origin_str = if is_unicast {
             measurement_definition
                 .configurations
@@ -786,6 +788,8 @@ impl CliClient {
             &workers,
             &measurement_definition.configurations,
             is_config,
+            is_latency,
+            is_responsive,
         );
 
         let is_multi_origin = if is_unicast {
@@ -807,6 +811,7 @@ impl CliClient {
             md_file,
             measurement_type,
             is_multi_origin,
+            is_unicast || is_latency,
         );
 
         let mut replies_count = 0;
@@ -940,10 +945,18 @@ fn get_metadata(
     all_workers: &HashMap<u32, String>,
     configurations: &Vec<Configuration>,
     is_config: bool,
+    is_latency: bool,
+    is_responsive: bool,
 ) -> Vec<String> {
     let mut md_file = Vec::new();
     if is_divide {
         md_file.push("# Divide-and-conquer measurement".to_string());
+    }
+    if is_latency {
+        md_file.push("# Latency measurement".to_string());
+    }
+    if is_responsive {
+        md_file.push("# Responsive measurement".to_string());
     }
     md_file.push(format!("# Origin used: {}", origin_str));
     md_file.push(format!(
@@ -1022,6 +1035,8 @@ fn get_metadata(
 /// * 'measurement_type' - The type of measurement being performed
 ///
 /// * is_multi_origin - A boolean that determines whether multiple origins are used
+/// 
+/// * is_symmetric - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
     is_cli: bool,
@@ -1029,6 +1044,7 @@ fn write_results(
     md_file: Vec<String>,
     measurement_type: u32,
     is_multi_origin: bool,
+    is_symmetric: bool,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if is_cli {
@@ -1051,7 +1067,7 @@ fn write_results(
     let mut wtr_file = Writer::from_writer(gz_encoder);
 
     // Write header
-    let header = get_header(measurement_type, is_multi_origin);
+    let header = get_header(measurement_type, is_multi_origin, is_symmetric);
     // TODO write header to CLI
     if is_cli {
         wtr_cli
@@ -1075,7 +1091,7 @@ fn write_results(
             }
             let results: Vec<Reply> = task_result.result_list;
             for result in results {
-                let result = get_result(result, task_result.worker_id);
+                let result = get_result(result, task_result.worker_id, measurement_type, is_symmetric);
 
                 // Write to command-line
                 if is_cli {
@@ -1106,18 +1122,21 @@ fn write_results(
 /// * 'measurement_type' - The type of measurement being performed
 ///
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
-fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str> {
-    // Information available for all measurement types
-    let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"];
-    // Information specific to each measurement type
-    // header.append(&mut match measurement_type { TODO redundant 0 rows for TCP
-    //     1 => vec!["tx_time", "tx_worker_id"],    // ICMP
-    //     2 => vec!["tx_time", "tx_worker_id"],    // UDP/DNS (A record)
-    //     3 => vec!["seq"],                        // TCP
-    //     4 => vec!["tx_worker_id", "chaos_data"], // UDP/DNS (CHAOS record)
-    //     _ => panic!("Undefined type."),
-    // });
-
+/// 
+/// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
+    let mut header = if is_symmetric {
+        vec!["worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time"]
+    } else {
+        // TCP anycast does not have tx_time
+        if measurement_type == 3 {
+            vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_worker_id"]
+        } else {
+            vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"]
+        }
+        
+    };
+    
     if measurement_type == 4 {
         header.push("chaos_data");
     }
@@ -1136,7 +1155,7 @@ fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str>
 /// * `result` - The Reply that is being written to this row
 ///
 /// * `x_worker_id` - The worker ID of the receiver
-fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
+fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmetric: bool) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
@@ -1148,9 +1167,18 @@ fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
     let reply_src = ip_result.get_src_str();
     let ttl = ip_result.ttl.to_string();
 
-    let mut row = vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id];
+    let mut row = if is_symmetric {
+        vec![rx_worker_id, rx_time, reply_src, ttl, tx_time]
+    } else {
+        // TCP anycast does not have tx_time
+        if measurement_type == 3 {
+            vec![rx_worker_id, rx_time, reply_src, ttl, tx_worker_id]
+        } else {
+            vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id]
+        }
+    };
     
-    // Optinal field
+    // Optional field
     if let Some(chaos) = result.chaos {
         row.push(chaos);
     }

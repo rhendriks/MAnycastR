@@ -676,7 +676,7 @@ impl Controller for ControllerService {
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if is_probing && !is_divide {
+                if is_probing && !(is_divide || is_latency) {
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
                     ))
@@ -742,7 +742,7 @@ impl Controller for ControllerService {
                 if is_responsive {
                     tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
                 }
-                
+
                 // Wait for the last latency targets to be scanned
                 if is_latency {
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -838,10 +838,25 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
+            let mut cli_results = Vec::new();
+            let rx_worker_id = task_result.worker_id;
             // TODO implement latency divide
             for result in &task_result.result_list {
-                if result.is_discovery == Some(true) {
-                    
+                // Check discovery probes
+                
+                if result.tx_worker_id == rx_worker_id {
+                    // Sender is the same as receiver, forward result to CLI
+                    cli_results.push(result.clone());
+                } else if result.is_discovery == Some(true) {
+                    // Discovery probe; we need to probe it from the catching PoP
+                    let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
+                    task_sender.send((rx_worker_id, Task {
+                        worker_id: None,
+                        data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            dst_list: vec![result.ip_result.as_ref().unwrap().src.unwrap()],
+                            is_discovery: None,
+                        })),
+                    })).await.expect("Failed to send discovery task to TaskDistributor");
                 }
             }
             println!("Latency probe result received, forwarding to CLI");
