@@ -141,7 +141,7 @@ message Reply {
   IPResult ip_result = 4; // IP result of the reply
   uint64 rx_time = 5; // receive time of the reply
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  optional bool is_discovery = 7;
+  optional bool is_discovery = 7; // whether the reply is part of a discovery measurement
 }
 
 // IPResult, contains a source address and the TTL captured

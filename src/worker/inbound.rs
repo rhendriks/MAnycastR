@@ -76,13 +76,11 @@ pub fn listen(
                 let result = if measurement_type == 1 {
                     // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-                    let icmp_result = if is_ipv6 {
+                    if is_ipv6 {
                         parse_icmpv6(&packet[14..], measurement_id, &origin_map)
                     } else {
                         parse_icmpv4(&packet[14..], measurement_id, &origin_map)
-                    };
-
-                    icmp_result
+                    }
                 } else if measurement_type == 2 || measurement_type == 4 {
                     // DNS A
                     let udp_result = if is_ipv6 {
@@ -104,13 +102,11 @@ pub fn listen(
                     udp_result
                 } else if measurement_type == 3 {
                     // TCP
-                    let tcp_result = if is_ipv6 {
+                    if is_ipv6 {
                         parse_tcpv6(&packet[14..], &origin_map)
                     } else {
                         parse_tcpv4(&packet[14..], &origin_map)
-                    };
-
-                    tcp_result
+                    }
                 } else {
                     panic!("Invalid measurement type");
                 };
@@ -119,6 +115,8 @@ pub fn listen(
                 if result == None {
                     continue;
                 }
+                
+                // TODO second transmission queue for discovery packets
 
                 // Put result in transmission queue
                 {

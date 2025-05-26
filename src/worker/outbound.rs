@@ -102,7 +102,7 @@ pub fn outbound(
                     }
                     Targets(targets) => {
                         let worker_id = if targets.is_discovery == Some(true) {
-                            println!("Sending discovery packets");
+                            println!("Sending {} discovery packets", targets.dst_list.len());
                             worker_id as u32 + u16::MAX as u32
                         } else {
                             println!("Sending measurement packets");
