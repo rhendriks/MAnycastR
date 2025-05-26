@@ -706,11 +706,9 @@ impl Controller for ControllerService {
                         })),
                     };
 
-                    println!("[] Worker {} sending {} targets", worker_id, chunk.len());
                     tx_t.send((worker_id, task))
                         .await
                         .expect("Failed to send task to TaskDistributor");
-                    println!("[] sent task to TaskDistributor");
 
                     probing_rate_interval.tick().await;
                 }
@@ -725,11 +723,9 @@ impl Controller for ControllerService {
                     tx_f.send(()).expect("Failed to send finished signal");
                 } else {
                     // Wait for the last worker to finish
-                    println!("[] Waiting for other workers to finish measurement... ");
                     rx_f.recv()
                         .await
                         .expect("Failed to receive finished signal");
-                    println!("[] Received finished signal from other workers");
 
                     // If the CLI disconnects whilst waiting for the finished signal, abort
                     if *is_active.lock().unwrap() == false {
@@ -799,9 +795,7 @@ impl Controller for ControllerService {
         let mut task_result = request.into_inner();
 
         // if self.r_prober is not None and equals this task's worker_id
-        println!("checking self.is_responsive");
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("checking for discovery replies");
             // Get the list of targets
             let responsive_targets: Vec<Address> = task_result
                 .result_list
@@ -821,7 +815,6 @@ impl Controller for ControllerService {
                     result.is_discovery != Some(true)
                 });
 
-                println!("Spreading {} targets to all workers", responsive_targets.len());
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 // TODO send to all workers except the one that sent this result (tx_worker_id)
                 task_sender.send((u32::MAX, Task {
@@ -856,7 +849,6 @@ impl Controller for ControllerService {
                     })).await.expect("Failed to send discovery task to TaskDistributor");
                 }
             }
-            println!("Latency probe result received, forwarding to CLI");
 
             // Keep only results where the sender is the same as the receiver
             task_result.result_list.retain(|result| {
