@@ -655,15 +655,13 @@ impl Controller for ControllerService {
                 dst_addresses.clone()
             };
 
+            self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
+            self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
             let tx_f = tx_f.clone();
             let mut rx_f = tx_f.subscribe();
             let clients_finished = workers_finished.clone();
             let is_active = self.is_active.clone();
-            let is_discovery = if is_responsive {
-                self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
-                Some(true)
-            } else if is_latency {
-                self.is_latency.store(true, std::sync::atomic::Ordering::SeqCst);
+            let is_discovery = if is_responsive || is_latency {
                 Some(true)
             } else {
                 None
@@ -672,6 +670,9 @@ impl Controller for ControllerService {
             let tx_t = tx_t.clone();
             let mut interval = tokio::time::interval(p_rate);
             let worker_id = *worker_id;
+
+            // TODO if is_responsive sent out at probing rate / number_of_probing_workers
+            // TODO if is_responsive do not wait i seconds between workers
 
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
@@ -843,7 +844,7 @@ impl Controller for ControllerService {
             // TODO implement latency divide
             for result in &task_result.result_list {
                 // Check discovery probes
-                
+
                 if result.tx_worker_id == rx_worker_id {
                     // Sender is the same as receiver, forward result to CLI
                     cli_results.push(result.clone());
@@ -969,7 +970,6 @@ async fn task_distributor(
                         worker_id, e
                     );
                 });
-                println!("[Orchestrator] Task sent to worker {}", worker_id);
             } else {
                 eprintln!("[Orchestrator] Worker {} not found", worker_id);
             }
