@@ -523,7 +523,7 @@ impl Controller for ControllerService {
             .unwrap()
             .insert(measurement_id, senders.len() as u32);
 
-        let rate = scheduled_measurement.rate;
+        let probing_rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
@@ -595,7 +595,7 @@ impl Controller for ControllerService {
             let start_task = Task {
                 worker_id: None,
                 data: Some(TaskStart(Start {
-                    rate,
+                    rate: probing_rate,
                     measurement_id,
                     measurement_type,
                     is_unicast,
@@ -622,7 +622,7 @@ impl Controller for ControllerService {
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
 
         let p_rate = Duration::from_nanos(
-            ((1.0 / rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
+            ((1.0 / probing_rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
         );
 
         // Stream tasks to the workers TODO
@@ -672,6 +672,8 @@ impl Controller for ControllerService {
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
+                // TODO 29 replies when 30 expected
+                // TODO 3 responsive targets -> one is not found as being responsive; why?
                 if is_probing && !is_divide {
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
@@ -790,9 +792,9 @@ impl Controller for ControllerService {
         println!("checking self.is_responsive");
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
             println!("checking for discovery replies");
-            let rx_worker_id = task_result.worker_id;
             // Get the list of targets
-            let targets: Vec<Address> = task_result
+            // TODO if is_discovery
+            let responsive_targets: Vec<Address> = task_result
                 .result_list
                 .iter()
                 .filter(|result| {
@@ -802,24 +804,32 @@ impl Controller for ControllerService {
                     result_f.ip_result.unwrap().src.unwrap()
                 })
                 .collect();
-            
 
-            if !targets.is_empty() {
+
+            if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
                 task_result.result_list.retain(|result| { // TODO use these results (and send to all except this tx worker)
                     result.is_discovery != Some(true)
                 });
-                
-                println!("Spreading {} targets to all workers", targets.len());
+
+                println!("Spreading {} targets to all workers", responsive_targets.len());
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 // TODO send to all workers except the one that sent this result (tx_worker_id)
                 task_sender.send((u32::MAX, Task {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                        dst_list: targets,
+                        dst_list: responsive_targets,
                         is_discovery: None,
                     })),
                 })).await.expect("Failed to send discovery task to TaskDistributor");
+                
+                if task_result.result_list.is_empty() {
+                    // If there are no regular results, we can return early
+                    return Ok(Response::new(Ack {
+                        is_success: true,
+                        error_message: "".to_string(),
+                    }));
+                }
             }
         }
 
@@ -873,10 +883,6 @@ async fn task_distributor(
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
-        println!(
-            "[td] Received task for worker {}",
-            worker_id
-        );
         if worker_id == u32::MAX - 1 {
             println!("[Orchestrator] Received end task, terminating task distributor");
             break;
@@ -890,11 +896,15 @@ async fn task_distributor(
                 });
             };
         } else if worker_id == u32::MAX { // to all workers in sending_workers (spaced with interval)
-            for (worker_id, worker_sender) in &senders {
+            let senders_clone = senders.clone();
+            let sending_workers = sending_workers.clone();
+            // TODO large overhead
+            spawn(async move {
+            for (worker_id, worker_sender) in senders_clone.iter() {
                 if sending_workers.is_empty() || sending_workers.contains(worker_id) {
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
-                            "[Orchestrator] Failed to send broadcast task to all probing worker {}: {:?}",
+                            "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
                             worker_id, e
                         );
                     });
@@ -903,7 +913,8 @@ async fn task_distributor(
                     tokio::time::sleep(Duration::from_millis(interval)).await;
                 }
             };
-        } else if worker_id > u16::MAX as u32 {
+        });
+    } else if worker_id > u16::MAX as u32 {
             // Send to all workers except this one
             for (worker_id, worker_sender) in &senders {
                 if *worker_id != worker_id - u16::MAX as u32 {
