@@ -114,9 +114,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_latency = matches.get_flag("latency");
         // TODO implement more restraints for is_responsive mode
         // TODO implement more restraints for is_latency mode
-        
+
         // TODO is_responsive does not work with GCD TCP
-        
+
         // TODO is_latency only for anycast measurements
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
@@ -431,7 +431,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive {
             println!("[CLI] Responsive mode enabled");
         }
-        
+
         if is_latency {
             println!("[CLI] Latency mode enabled");
         }
@@ -661,7 +661,7 @@ impl CliClient {
             probing_workers.len() as f32
         };
 
-        let measurement_length = if is_divide {
+        let measurement_length = if is_divide || is_latency {
             ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0)
                 / 60.0
         } else {
@@ -670,7 +670,6 @@ impl CliClient {
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
-        // TODO if is_responsive add number_of_probes * interval
 
         if is_divide {
             println!("[CLI] Divide-and-conquer enabled");
@@ -1035,7 +1034,7 @@ fn get_metadata(
 /// * 'measurement_type' - The type of measurement being performed
 ///
 /// * is_multi_origin - A boolean that determines whether multiple origins are used
-/// 
+///
 /// * is_symmetric - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
@@ -1122,7 +1121,7 @@ fn write_results(
 /// * 'measurement_type' - The type of measurement being performed
 ///
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
-/// 
+///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
     let mut header = if is_symmetric {
@@ -1134,13 +1133,13 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
         } else {
             vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"]
         }
-        
+
     };
-    
+
     if measurement_type == 4 {
         header.push("chaos_data");
     }
-    
+
     if is_multi_origin {
         header.push("origin_id");
     }
@@ -1177,7 +1176,7 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
             vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id]
         }
     };
-    
+
     // Optional field
     if let Some(chaos) = result.chaos {
         row.push(chaos);
