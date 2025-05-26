@@ -637,7 +637,7 @@ impl Controller for ControllerService {
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
                 vec![]
-            } else if is_divide || is_responsive {
+            } else if is_divide || is_responsive || is_latency {
                 // Each worker gets its own chunk of the hitlist
                 let targets_chunk = dst_addresses.len() / number_of_probing_workers;
 
@@ -675,7 +675,7 @@ impl Controller for ControllerService {
                 tokio::time::interval(p_rate)
             };
             let worker_id = *worker_id;
-            
+
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
