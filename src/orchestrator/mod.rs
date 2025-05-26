@@ -672,8 +672,6 @@ impl Controller for ControllerService {
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                // TODO 29 replies when 30 expected
-                // TODO 3 responsive targets -> one is not found as being responsive; why?
                 if is_probing && !is_divide {
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
@@ -682,6 +680,7 @@ impl Controller for ControllerService {
                 }
 
                 for chunk in hitlist_targets.chunks(chunk_size) {
+                    println!("[] iterating over hitlist");
                     // If the CLI disconnects during task distribution, abort
                     if *is_active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
@@ -701,9 +700,11 @@ impl Controller for ControllerService {
                         })),
                     };
 
+                    println!("[] Worker {} sending {} targets", worker_id, chunk.len());
                     tx_t.send((worker_id, task))
                         .await
                         .expect("Failed to send task to TaskDistributor");
+                    println!("[] sent task to TaskDistributor");
 
                     interval.tick().await;
                 }
