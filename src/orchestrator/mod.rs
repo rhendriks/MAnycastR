@@ -571,7 +571,7 @@ impl Controller for ControllerService {
                 senders,
                 probing_workers_c,
                 probing_interval,
-            )
+            ).await;
         });
 
         // Get list of worker_ids
