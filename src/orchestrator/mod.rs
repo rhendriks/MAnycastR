@@ -743,6 +743,7 @@ impl Controller for ControllerService {
                     worker_id: None,
                     data: Some(TaskEnd(End { code: 0 })),
                 })).await.expect("Failed to send end task to TaskDistributor");
+                println!("sent end task");
 
                 if last {
                     tx_t.send((u32::MAX - 1, Task {
@@ -871,6 +872,10 @@ async fn task_distributor(
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
+        println!(
+            "[td] Received task for worker {}",
+            worker_id
+        );
         if worker_id == u32::MAX - 1 {
             println!("[Orchestrator] Received end task, terminating task distributor");
             break;
