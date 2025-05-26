@@ -891,7 +891,7 @@ async fn task_distributor(
             };
         } else if worker_id == u32::MAX { // to all workers in sending_workers (spaced with interval)
             for (worker_id, worker_sender) in &senders {
-                if sending_workers.contains(worker_id) {
+                if sending_workers.is_empty() || sending_workers.contains(worker_id) {
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
                             "[Orchestrator] Failed to send broadcast task to all probing worker {}: {:?}",
