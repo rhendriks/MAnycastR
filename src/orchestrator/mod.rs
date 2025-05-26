@@ -729,6 +729,11 @@ impl Controller for ControllerService {
 
                 // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
                 tokio::time::sleep(Duration::from_secs(1)).await;
+                
+                // Wait for the last responsive targets to be scanned
+                if is_responsive {
+                    tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
+                }
 
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 tx_t.send((worker_id, Task {
