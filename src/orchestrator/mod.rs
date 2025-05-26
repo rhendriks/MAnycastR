@@ -628,6 +628,7 @@ impl Controller for ControllerService {
         // Stream tasks to the workers TODO
         let mut i = 0; // index for the hitlist distribution
         for worker_id in all_workers.iter() {
+            i += 1; // Increment the index for the next probing worker
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
 
@@ -645,8 +646,6 @@ impl Controller for ControllerService {
                 } else {
                     start_index + targets_chunk
                 };
-
-                i += 1; // Increment the index for the next probing worker
 
                 dst_addresses[start_index..end_index].to_vec()
             } else {
