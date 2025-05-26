@@ -731,7 +731,7 @@ impl Controller for ControllerService {
 
                 // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                
+
                 // Wait for the last responsive targets to be scanned
                 if is_responsive {
                     tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
@@ -800,14 +800,14 @@ impl Controller for ControllerService {
                     result_f.ip_result.unwrap().src.unwrap()
                 })
                 .collect();
-            
+
             // // Remove discovery results from the result list for the CLI
             // task_result.result_list.retain(|result| {
             //     result.is_discovery != Some(true)
             // });
 
             // TODO send to all workers except the one that sent tis result
-            
+
             if !targets.is_empty() {
                 println!("Spreading {} targets to all workers", targets.len());
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
@@ -913,12 +913,17 @@ async fn task_distributor(
             }
         } else { // to specific worker
             if let Some(worker_sender) = senders.get(&worker_id) {
-                worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                println!(
+                    "[Orchestrator] Sending task to worker {}: {:?}",
+                    worker_id, task
+                );
+                worker_sender.send(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                         worker_id, e
                     );
                 });
+                println!("[Orchestrator] Task sent to worker {}", worker_id);
             } else {
                 eprintln!("[Orchestrator] Worker {} not found", worker_id);
             }
