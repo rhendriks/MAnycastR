@@ -812,7 +812,7 @@ impl Controller for ControllerService {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                         dst_list: targets,
-                        is_discovery: Some(true),
+                        is_discovery: None,
                     })),
                 })).await.expect("Failed to send discovery task to TaskDistributor");
             }
