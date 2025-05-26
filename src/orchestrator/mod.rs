@@ -746,6 +746,7 @@ impl Controller for ControllerService {
                 println!("sent end task");
 
                 if last {
+                    tokio::time::sleep(Duration::from_secs(1)).await; // TaskEnd must be sent to all workers before the end distributor signal
                     tx_t.send((u32::MAX - 1, Task {
                         worker_id: None,
                         data: None,
@@ -783,13 +784,13 @@ impl Controller for ControllerService {
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
-        let task_result = request.into_inner();
+        let mut task_result = request.into_inner();
 
         // if self.r_prober is not None and equals this task's worker_id
         println!("checking self.is_responsive");
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
             println!("checking for discovery replies");
-            let worker_id = task_result.worker_id;
+            let rx_worker_id = task_result.worker_id;
             // Get the list of targets
             let targets: Vec<Address> = task_result
                 .result_list
@@ -801,18 +802,18 @@ impl Controller for ControllerService {
                     result_f.ip_result.unwrap().src.unwrap()
                 })
                 .collect();
-
-            // // Remove discovery results from the result list for the CLI
-            // task_result.result_list.retain(|result| {
-            //     result.is_discovery != Some(true)
-            // });
-
-            // TODO send to all workers except the one that sent tis result
+            
 
             if !targets.is_empty() {
+                // Remove discovery results from the result list for the CLI
+                task_result.result_list.retain(|result| { // TODO use these results (and send to all except this tx worker)
+                    result.is_discovery != Some(true)
+                });
+                
                 println!("Spreading {} targets to all workers", targets.len());
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
-                task_sender.send((u16::MAX as u32 + worker_id, Task {
+                // TODO send to all workers except the one that sent this result (tx_worker_id)
+                task_sender.send((u32::MAX, Task {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                         dst_list: targets,
