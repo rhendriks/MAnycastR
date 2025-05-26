@@ -26,9 +26,7 @@ use flate2::Compression;
 use std::io::BufWriter;
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, reply::Value::Ping as ResultPing,
-    reply::Value::Tcp as ResultTcp, reply::Value::Udp as ResultUdp, udp_result::Value::DnsARecord,
-    udp_result::Value::DnsChaos, Address, Configuration, Empty, Origin, Reply, ScheduleMeasurement,
+    controller_client::ControllerClient, Address, Configuration, Empty, Origin, Reply, ScheduleMeasurement,
     Targets, TaskResult,
 };
 use custom_module::Separated;
@@ -113,7 +111,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_unicast = matches.get_flag("unicast");
         let is_divide = matches.get_flag("divide");
         let is_responsive = matches.get_flag("responsive");
+        let is_latency = matches.get_flag("latency");
         // TODO implement more restraints for is_responsive mode
+        // TODO implement more restraints for is_latency mode
+        
+        // TODO is_responsive does not work with GCD TCP
+        
+        // TODO is_latency only for anycast measurements
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
@@ -427,6 +431,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive {
             println!("[CLI] Responsive mode enabled");
         }
+        
+        if is_latency {
+            println!("[CLI] Latency mode enabled");
+        }
 
         // Print the origins used
         if is_unicast {
@@ -537,6 +545,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             is_divide,
             interval,
             is_responsive,
+            is_latency,
             targets: Some(Targets { dst_list: ips, is_discovery: None }),
             record: dns_record.to_string(),
             url,
@@ -1099,16 +1108,20 @@ fn write_results(
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 fn get_header(measurement_type: u32, is_multi_origin: bool) -> Vec<&'static str> {
     // Information available for all measurement types
-    let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl"];
+    let mut header = vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"];
     // Information specific to each measurement type
-    header.append(&mut match measurement_type {
-        1 => vec!["tx_time", "tx_worker_id"],    // ICMP
-        2 => vec!["tx_time", "tx_worker_id"],    // UDP/DNS (A record)
-        3 => vec!["seq"],                        // TCP
-        4 => vec!["tx_worker_id", "chaos_data"], // UDP/DNS (CHAOS record)
-        _ => panic!("Undefined type."),
-    });
+    // header.append(&mut match measurement_type { TODO redundant 0 rows for TCP
+    //     1 => vec!["tx_time", "tx_worker_id"],    // ICMP
+    //     2 => vec!["tx_time", "tx_worker_id"],    // UDP/DNS (A record)
+    //     3 => vec!["seq"],                        // TCP
+    //     4 => vec!["tx_worker_id", "chaos_data"], // UDP/DNS (CHAOS record)
+    //     _ => panic!("Undefined type."),
+    // });
 
+    if measurement_type == 4 {
+        header.push("chaos_data");
+    }
+    
     if is_multi_origin {
         header.push("origin_id");
     }
@@ -1128,41 +1141,22 @@ fn get_result(result: Reply, rx_worker_id: u32) -> Vec<String> {
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
     let rx_time = result.rx_time.to_string();
+    let tx_time = result.tx_time.to_string(); // TODO unknown for anycast TCP
+    let tx_worker_id = result.tx_worker_id.to_string(); // TODO unknown for unicast TCP
 
     let ip_result = result.ip_result.unwrap();
     let reply_src = ip_result.get_src_str();
     let ttl = ip_result.ttl.to_string();
 
-    let mut row = vec![rx_worker_id, rx_time, reply_src, ttl];
-    match result.value.unwrap() {
-        ResultPing(ping) => {
-            row.push(ping.tx_time.to_string());
-            row.push(ping.tx_worker_id.to_string());
-        }
-        ResultUdp(udp) => {
-            // DNS reply
-            match udp.value {
-                Some(DnsARecord(dns_a_record)) => {
-                    row.push(dns_a_record.tx_time.to_string());
-                    row.push(dns_a_record.tx_worker_id.to_string());
-                }
-                Some(DnsChaos(dns_chaos)) => {
-                    row.push(dns_chaos.tx_worker_id.to_string());
-                    row.push(dns_chaos.chaos_data);
-                }
-                None => {
-                    panic!("No payload found for UDP result!");
-                }
-            }
-        }
-        ResultTcp(tcp) => {
-            row.push(tcp.seq.to_string());
-        }
+    let mut row = vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id];
+    
+    // Optinal field
+    if let Some(chaos) = result.chaos {
+        row.push(chaos);
     }
-
     if is_multi_origin {
         row.push(origin_id);
     }
 
-    return row;
+    row
 }

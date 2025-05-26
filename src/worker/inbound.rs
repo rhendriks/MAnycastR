@@ -7,8 +7,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
-    reply::Value, udp_result, Address, DnsARecord, DnsChaos, IpResult, Origin, PingResult, Reply,
-    TaskResult, TcpResult, UdpResult,
+    Address, IpResult, Origin, Reply, TaskResult
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
@@ -329,14 +328,13 @@ fn parse_icmpv4(
 
     // Create a Reply for the received ping reply
     Some(Reply {
-        value: Some(Value::Ping(PingResult {
-            tx_time,
-            tx_worker_id,
-        })),
+        tx_time,
+        tx_worker_id,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos: None,
     })
 }
 
@@ -414,14 +412,13 @@ fn parse_icmpv6(
 
     // Create a Reply for the received ping reply
     Some(Reply {
-        value: Some(Value::Ping(PingResult {
-            tx_time,
-            tx_worker_id,
-        })),
+        tx_time,
+        tx_worker_id,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos: None,
     })
 }
 
@@ -476,8 +473,8 @@ fn parse_udpv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let (udp_result, is_discovery) = if measurement_type == 2 {
-        let (udp_result, probe_sport, probe_src, probe_dst, is_discovery) =
+    let (tx_time, tx_worker_id, chaos, is_discovery) = if measurement_type == 2 {
+        let (tx_time, tx_worker_id, probe_sport, probe_src, probe_dst, is_discovery) =
             parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_src != reply_dst) | (probe_dst != reply_src) {
@@ -490,23 +487,27 @@ fn parse_udpv4(
             None
         };
 
-        (Some(udp_result), is_discovery)
+        (tx_time, tx_worker_id, None, is_discovery)
     } else if measurement_type == 4 {
         // TODO is_discovery for chaos
-        (parse_chaos(udp_packet.body.as_slice()), None)
+        let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
+
+        (tx_time, tx_worker_id, Some(chaos), None)
     } else {
-        (None, None)
+        panic!("Invalid measurement type");
     };
 
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(udp_result?)),
+        tx_time,
+        tx_worker_id,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos,
     })
 }
 
@@ -561,8 +562,8 @@ fn parse_udpv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let (udp_result, is_discovery) = if measurement_type == 2 {
-        let (udp_result, probe_sport, probe_src, probe_dst, is_discovery) =
+    let (tx_time, tx_worker_id, chaos, is_discovery) = if measurement_type == 2 {
+        let (tx_time, tx_worker_id, probe_sport, probe_src, probe_dst, is_discovery) =
             parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
         if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
@@ -575,22 +576,26 @@ fn parse_udpv6(
             None
         };
 
-        (Some(udp_result), is_discovery)
+        (tx_time, tx_worker_id, None, is_discovery)
     } else if measurement_type == 4 {
-        (parse_chaos(udp_packet.body.as_slice()), None)
+        // TODO is_discovery for CHAOS
+        let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
+        (tx_time, tx_worker_id, Some(chaos), None)
     } else {
-        (None, None)
+        panic!("Invalid measurement type");
     };
 
     let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received UDP reply
     Some(Reply {
-        value: Some(Value::Udp(udp_result?)),
+        tx_time,
+        tx_worker_id,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos,
     })
 }
 
@@ -607,7 +612,7 @@ fn parse_udpv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u128, bool)> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -631,12 +636,8 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
     };
 
     Some((
-        UdpResult {
-            value: Some(udp_result::Value::DnsARecord(DnsARecord {
-                tx_time,
-                tx_worker_id,
-            })),
-        },
+        tx_time,
+        tx_worker_id,
         probe_sport,
         probe_src,
         probe_dst,
@@ -657,7 +658,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u128, u
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u32, bool)> {
+fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32, bool)> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -682,12 +683,8 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u3
     };
 
     Some((
-        UdpResult {
-            value: Some(udp_result::Value::DnsARecord(DnsARecord {
-                tx_time,
-                tx_worker_id,
-            })),
-        },
+        tx_time,
+        tx_worker_id,
         probe_sport,
         probe_src,
         probe_dst,
@@ -708,29 +705,19 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(UdpResult, u16, u32, u3
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS Chaos record.
-fn parse_chaos(packet_bytes: &[u8]) -> Option<UdpResult> {
+fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
     let record = DNSRecord::from(packet_bytes);
 
     // 8 right most bits are the sender worker_id
     let tx_worker_id = ((record.transaction_id >> 8) & 0xFF) as u32;
 
     if record.answer == 0 {
-        return Some(UdpResult {
-            value: Some(udp_result::Value::DnsChaos(DnsChaos {
-                tx_worker_id,
-                chaos_data: "Not implemented".to_string(),
-            })),
-        });
+        return Some((0u64, tx_worker_id, "Not implemented".to_string()));
     }
 
     let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;
 
-    return Some(UdpResult {
-        value: Some(udp_result::Value::DnsChaos(DnsChaos {
-            tx_worker_id,
-            chaos_data,
-        })),
-    });
+    Some((0u64, tx_worker_id, chaos_data))
 }
 
 /// Parse TCPv4 packets (including v4 headers) into a Reply result.
@@ -784,13 +771,13 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     };
 
     Some(Reply {
-        value: Some(Value::Tcp(TcpResult {
-            seq,
-        })),
+        tx_time: seq as u64, // TODO
+        tx_worker_id: seq,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos: None,
     })
 }
 
@@ -846,13 +833,13 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     };
 
     Some(Reply {
-        value: Some(Value::Tcp(TcpResult {
-            seq,
-        })),
+        tx_time: seq as u64, // TODO
+        tx_worker_id: seq,
         ip_result: Some(ip_result),
         rx_time,
         origin_id,
         is_discovery,
+        chaos: None,
     })
 }
 

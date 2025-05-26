@@ -47,6 +47,7 @@ pub struct ControllerService {
     current_worker_id: Arc<Mutex<u32>>,
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
+    is_latency: Arc<AtomicBool>,
     task_sender: Arc<Mutex<Option<Sender<(u32, Task)>>>>,
 }
 
@@ -528,6 +529,7 @@ impl Controller for ControllerService {
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let is_divide = scheduled_measurement.is_divide;
         let is_responsive = scheduled_measurement.is_responsive;
+        let is_latency = scheduled_measurement.is_latency;
         let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
@@ -657,8 +659,11 @@ impl Controller for ControllerService {
             let mut rx_f = tx_f.subscribe();
             let clients_finished = workers_finished.clone();
             let is_active = self.is_active.clone();
-            let is_discovery = if is_responsive { // TODO || is_latency
+            let is_discovery = if is_responsive {
                 self.is_responsive.store(true, std::sync::atomic::Ordering::SeqCst);
+                Some(true)
+            } else if is_latency {
+                self.is_latency.store(true, std::sync::atomic::Ordering::SeqCst);
                 Some(true)
             } else {
                 None
@@ -670,23 +675,15 @@ impl Controller for ControllerService {
 
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
-                println!("hitlist distribution");
-
                 // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
                 if is_probing && !is_divide {
-                    println!("i = {}", i);
-                    println!("probing_interval = {}", probing_interval);
-                    println!("[] Worker {} sleeping for {} seconds before starting hitlist distribution", worker_id, (i as u64 - 1) * probing_interval);
                     tokio::time::sleep(Duration::from_secs(
                         (i as u64 - 1) * probing_interval,
                     ))
                     .await;
-                    println!("[] Worker {} finished sleeping", worker_id);
                 }
 
-                println!("starting hitlist distribution");
                 for chunk in hitlist_targets.chunks(chunk_size) {
-                    println!("[] iterating over hitlist");
                     // If the CLI disconnects during task distribution, abort
                     if *is_active.lock().unwrap() == false {
                         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
@@ -745,14 +742,17 @@ impl Controller for ControllerService {
                 if is_responsive {
                     tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
                 }
+                
+                // Wait for the last latency targets to be scanned
+                if is_latency {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
 
-                println!("[] Worker {} finished measurement", worker_id);
                 // Send a message to the worker to let it know it has received everything for the current measurement
                 tx_t.send((worker_id, Task {
                     worker_id: None,
                     data: Some(TaskEnd(End { code: 0 })),
                 })).await.expect("Failed to send end task to TaskDistributor");
-                println!("sent end task");
 
                 if last {
                     tokio::time::sleep(Duration::from_secs(1)).await; // TaskEnd must be sent to all workers before the end distributor signal
@@ -800,7 +800,6 @@ impl Controller for ControllerService {
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
             println!("checking for discovery replies");
             // Get the list of targets
-            // TODO if is_discovery
             let responsive_targets: Vec<Address> = task_result
                 .result_list
                 .iter()
@@ -838,6 +837,14 @@ impl Controller for ControllerService {
                     }));
                 }
             }
+        } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
+            // TODO implement latency divide
+            for result in &task_result.result_list {
+                if result.is_discovery == Some(true) {
+                    
+                }
+            }
+            println!("Latency probe result received, forwarding to CLI");
         }
 
         // TODO implement latency-divide
@@ -981,6 +988,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         current_worker_id: Arc::new(Mutex::new(1)),
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
+        is_latency: Arc::new(AtomicBool::new(false)),
         task_sender: Arc::new(Mutex::new(None)),
     };
 
