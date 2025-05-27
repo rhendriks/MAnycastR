@@ -409,6 +409,8 @@ impl Worker {
                                     .expect(
                                         "Unable to send measurement_finished to outbound thread",
                                     );
+                                
+                                self.outbound_tx = None;
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
@@ -431,6 +433,7 @@ impl Worker {
                         }
                     }
                     Some(task) => {
+                        // TODO may receive responsiveness follow-up tasks after the measurement has finished and the outbound_tx has closed
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober

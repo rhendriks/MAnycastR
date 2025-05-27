@@ -838,6 +838,7 @@ impl Controller for ControllerService {
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
             let rx_worker_id = task_result.worker_id;
             for result in &task_result.result_list {
+                // TODO will send tasks after the measurement is finished
                 // Check for discovery probes where the sender is not the receiver
                 if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
                     // Discovery probe; we need to probe it from the catching PoP
@@ -902,6 +903,8 @@ async fn task_distributor(
     sending_workers: Vec<u32>,
     interval: u64,
 ) {
+    
+    let mut active = true; // flag to indicate if the measurement is still active
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
         if worker_id == u32::MAX - 1 {
@@ -922,6 +925,7 @@ async fn task_distributor(
             spawn(async move {
             for (worker_id, worker_sender) in senders_clone.iter() {
                 if sending_workers.is_empty() || sending_workers.contains(worker_id) {
+                    // TODO will send tasks to workers after the measurement is finished
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
                             "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
