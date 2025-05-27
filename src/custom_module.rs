@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6, IpResult};
+use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6};
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
@@ -201,22 +201,6 @@ impl From<IpAddr> for Address {
                     p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
                     p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
                 })),
-            },
-        }
-    }
-}
-
-impl IpResult {
-    pub fn get_src_str(&self) -> String {
-        match &self.src {
-            None => String::from("None"),
-            Some(src) => match src.value {
-                Some(V4(v4)) => v4.to_string(),
-                Some(V6(v6)) => {
-                    let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
-                    str
-                }
-                None => String::from("None"),
             },
         }
     }

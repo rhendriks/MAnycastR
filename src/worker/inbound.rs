@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use pnet::datalink::DataLinkReceiver;
 
 use crate::custom_module::manycastr::{
-    Address, IpResult, Origin, Reply, TaskResult
+    Address, Origin, Reply, TaskResult
 };
 use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
 
@@ -207,20 +207,18 @@ fn handle_results(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv4 header.
-fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)> {
+fn parse_ipv4(packet_bytes: &[u8]) -> (Address, u32, PacketPayload, u32, u32) {
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
 
     // Create a Reply for the received ping reply
-    return Some((
-        IpResult {
-            src: Some(Address::from(packet.src)),
-            ttl: packet.ttl as u32,
-        },
+    (
+        Address::from(packet.src),
+        packet.ttl as u32,
         packet.payload,
         packet.dst,
         packet.src,
-    ));
+    )
 }
 
 /// Parse packet bytes into an IPv6 header, returns the IP result for this header and the payload.
@@ -236,20 +234,18 @@ fn parse_ipv4(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u32, u32)
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv6 header.
-fn parse_ipv6(packet_bytes: &[u8]) -> Option<(IpResult, PacketPayload, u128, u128)> {
+fn parse_ipv6(packet_bytes: &[u8]) -> (Address, u32, PacketPayload, u128, u128) {
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
     // Create a Reply for the received ping reply
-    Some((
-        IpResult {
-            src: Some(Address::from(packet.src)),
-            ttl: packet.hop_limit as u32,
-        },
+    (
+        Address::from(packet.src),
+        packet.hop_limit as u32,
         packet.payload,
         packet.dst,
         packet.src,
-    ))
+    )
 }
 
 /// Parse ICMPv4 packets (including v4 headers) into a Reply result.
@@ -283,7 +279,7 @@ fn parse_icmpv4(
         return None;
     }
 
-    let (ip_result, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
+    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let icmp_packet = if let PacketPayload::ICMP { value: icmp_packet } = payload {
         icmp_packet
@@ -329,7 +325,8 @@ fn parse_icmpv4(
     Some(Reply {
         tx_time,
         tx_worker_id,
-        ip_result: Some(ip_result),
+        src: Some(src),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,
@@ -367,7 +364,7 @@ fn parse_icmpv6(
     if (packet_bytes.len() < 66) || (packet_bytes[40] != 129) {
         return None;
     }
-    let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
+    let (address, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     // Parse the ICMP header
     let icmp_packet = if let PacketPayload::ICMP { value } = payload {
@@ -413,7 +410,8 @@ fn parse_icmpv6(
     Some(Reply {
         tx_time,
         tx_worker_id,
-        ip_result: Some(ip_result),
+        src: Some(address),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,
@@ -449,7 +447,7 @@ fn parse_udpv4(
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
     }
-    let (ip_result, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes)?;
+    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let udp_packet = if let PacketPayload::UDP { value: udp_packet } = payload {
         udp_packet
@@ -502,7 +500,8 @@ fn parse_udpv4(
     Some(Reply {
         tx_time,
         tx_worker_id,
-        ip_result: Some(ip_result),
+        src: Some(src),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,
@@ -538,7 +537,7 @@ fn parse_udpv6(
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
         return None;
     }
-    let (ip_result, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes)?;
+    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     let udp_packet = if let PacketPayload::UDP { value: udp_packet } = payload {
         udp_packet
@@ -590,7 +589,8 @@ fn parse_udpv6(
     Some(Reply {
         tx_time,
         tx_worker_id,
-        ip_result: Some(ip_result),
+        src: Some(src),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,
@@ -739,7 +739,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
-    let (ip_result, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes)?;
+    let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
     let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
@@ -772,7 +772,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     Some(Reply {
         tx_time: seq as u64, // TODO
         tx_worker_id: seq,
-        ip_result: Some(ip_result),
+        src: Some(src),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,
@@ -800,7 +801,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     if (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0) {
         return None;
     }
-    let (ip_result, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes)?;
+    let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
     let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
@@ -834,7 +835,8 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     Some(Reply {
         tx_time: seq as u64, // TODO
         tx_worker_id: seq,
-        ip_result: Some(ip_result),
+        src: Some(src),
+        ttl,
         rx_time,
         origin_id,
         is_discovery,

@@ -138,7 +138,7 @@ impl<T> Drop for WorkerReceiver<T> {
 /// Special Sender struct for workers that sends tasks after a delay (based on the Worker interval).
 ///
 /// # Fields
-/// 
+///
 /// * interval - the interval in seconds to wait between a task being put in the sender and sending it
 
 #[derive(Clone)]
@@ -157,12 +157,12 @@ impl<T> WorkerSender<T> {
         tokio::time::sleep(Duration::from_secs(self.interval)).await;
         self.inner.send(task).await
     }
-    
+
     /// Sends a task directly without waiting for the interval (used for termination tasks)
     pub async fn send_direct(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         self.inner.send(task).await
     }
-    
+
     /// Updates the interval of the sender
     pub fn update_interval(&mut self, interval: u64) {
         self.interval = interval;
@@ -394,7 +394,7 @@ impl Controller for ControllerService {
         }))
         .await
         .expect("Failed to send worker ID");
-        
+
         let worker_tx = WorkerSender {
             inner: tx,
             interval: 0, // default is no interval
@@ -545,7 +545,7 @@ impl Controller for ControllerService {
         }
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> =
+        let probing_workers: Vec<u32> = // TODO omit this and encode it in the WorkerSender
             if scheduled_measurement.configurations.iter().any(|config| config.worker_id == u32::MAX) {
                 Vec::new() // all workers are probing
             } else {
@@ -612,10 +612,26 @@ impl Controller for ControllerService {
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
+        
+        if !is_latency && !is_divide {
+            // Set intervals
+            let mut i = 0;
+            for probing_worker in probing_workers.iter() {
+                if let Some(sender) = self.senders.lock().unwrap().get_mut(probing_worker) {
+                    // Set the probing interval for this worker
+                    sender.update_interval((i as u64 - 1) * probing_interval);
+                } else {
+                    println!(
+                        "[Orchestrator] Worker {} not found in senders, skipping",
+                        probing_worker
+                    );
+                }
+                i += 1;
+            }
+        }
 
         // Start the TaskDistributor
         let probing_workers_c = probing_workers.clone();
-        
         let is_latency_c = self.is_latency.clone();
         let is_responsive_c = self.is_responsive.clone();
         spawn(async move {
@@ -682,16 +698,6 @@ impl Controller for ControllerService {
         for worker_id in all_workers.iter() {
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
-            
-            let worker_interval = (i as u64 - 1) * probing_interval;
-            
-            // Update this worker's probing interval
-            if let Some(sender) = self.senders.lock().unwrap().get_mut(worker_id) {
-                sender.update_interval(worker_interval);
-            } else {
-                println!("[Orchestrator] Worker {} not found in senders, skipping", worker_id);
-                continue;
-            }
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
@@ -792,7 +798,7 @@ impl Controller for ControllerService {
                         worker_id: None,
                         data: None,
                     })).await.expect("Failed to send end task to TaskDistributor");
-                    
+
                 }
             });
         }
@@ -838,10 +844,10 @@ impl Controller for ControllerService {
                     result.is_discovery == Some(true)
                 })
                 .map(|result_f| {
-                    result_f.ip_result.unwrap().src.unwrap()
+                    result_f.src.unwrap()
                 })
                 .collect();
-            
+
             if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
                 task_result.result_list.retain(|result| { // TODO use these results (and send to all except this tx worker)
@@ -872,13 +878,13 @@ impl Controller for ControllerService {
                 // TODO will send tasks after the measurement is finished
                 // Check for discovery probes where the sender is not the receiver
                 if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
-                    println!("Probing {} from catcher {}", result.ip_result.as_ref().unwrap().src.unwrap(), rx_worker_id);
+                    println!("Probing {} from catcher {}", result.src.unwrap(), rx_worker_id);
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     task_sender.send((rx_worker_id, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                            dst_list: vec![result.ip_result.as_ref().unwrap().src.unwrap()],
+                            dst_list: vec![result.src.unwrap()],
                             is_discovery: None,
                         })),
                     })).await.expect("Failed to send discovery task to TaskDistributor");
@@ -898,9 +904,9 @@ impl Controller for ControllerService {
                 }));
             }
         }
-        
+
         for result in &task_result.result_list {
-            println!("address with result {}", result.ip_result.as_ref().unwrap().src.unwrap());
+            println!("address with result {}", result.src.unwrap());
         }
 
         // Forward the result to the CLI
