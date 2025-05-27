@@ -679,8 +679,6 @@ impl Controller for ControllerService {
 
         // Shared variable to keep track of the number of workers that have finished
         let workers_finished = Arc::new(Mutex::new(0));
-        // Shared channel that workers will wait for till the last worker has finished
-        let (tx_f, _) = tokio::sync::broadcast::channel::<()>(1); // TODO replace with AtomicBool ?
         let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
 
         let p_rate = Duration::from_nanos(
@@ -729,8 +727,6 @@ impl Controller for ControllerService {
 
             self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
             self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
-            let tx_f = tx_f.clone();
-            let mut rx_f = tx_f.subscribe();
             let clients_finished = workers_finished.clone();
             let is_active = self.is_active.clone();
             let is_discovery = if is_responsive || is_latency {
@@ -756,7 +752,6 @@ impl Controller for ControllerService {
                         clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                         if *clients_finished.lock().unwrap() == number_of_workers {
                             println!("[Orchestrator] CLI disconnected during task distribution");
-                            tx_f.send(()).expect("Failed to send abort signal");
                         }
 
                         return; // abort
@@ -777,52 +772,36 @@ impl Controller for ControllerService {
                     probing_rate_interval.tick().await;
                 }
 
-                let mut last = false;
 
                 clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                 if *clients_finished.lock().unwrap() == number_of_workers {
-                    println!("[Orchestrator] Measurement finished, awaiting clients... ");
-                    last = true; // This is the last worker
-                    // Send a message to the other sending threads to let them know the measurement is finished
-                    tx_f.send(()).expect("Failed to send finished signal");
-                } else {
-                    // Wait for the last worker to finish
-                    rx_f.recv()
-                        .await
-                        .expect("Failed to receive finished signal");
-
-                    // If the CLI disconnects whilst waiting for the finished signal, abort
-                    if *is_active.lock().unwrap() == false {
-                        println!("[Orchestrator] CLI disconnected while waiting for finished signal");
-                        return; // abort
-                    }
-                }
-
-                // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                // Wait for the last responsive targets to be scanned
-                if is_responsive {
-                    tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
-                }
-
-                // Wait for the last latency targets to be scanned
-                if is_latency {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-
-                if last {
+                    println!("[Orchestrator] Measurement finished");
                     // Send end message to all workers directly to let them know the measurement is finished
                     tx_t.send((0, Task {
                         worker_id: None,
                         data: Some(TaskEnd(End { code: 0 })),
                     })).await.expect("Failed to send end task to TaskDistributor");
-                    
+
                     // Close the TaskDistributor channel
                     tx_t.send((u32::MAX - 1, Task {
                         worker_id: None,
                         data: None,
                     })).await.expect("Failed to send end task to TaskDistributor");
+
+                    // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+
+                    // Wait for the last responsive targets to be scanned
+                    if is_responsive {
+                        tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
+                    }
+
+                    // Wait for the last latency targets to be scanned
+                    if is_latency {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                    
+                    
                 }
             });
         }
