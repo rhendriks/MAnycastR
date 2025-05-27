@@ -40,7 +40,7 @@ use crate::custom_module::manycastr::Address;
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
-    senders: Arc<Mutex<HashMap<u32, Sender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<HashMap<u32, WorkerSender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     current_measurement_id: Arc<Mutex<u32>>,
@@ -135,6 +135,61 @@ impl<T> Drop for WorkerReceiver<T> {
     }
 }
 
+/// Special Sender struct for workers that sends tasks after a delay (based on the Worker interval).
+///
+/// # Fields
+/// 
+/// * interval - the interval in seconds to wait between a task being put in the sender and sending it
+
+#[derive(Clone)]
+pub struct WorkerSender<T> {
+    inner: Sender<T>,
+    interval: u64,
+}
+impl<T> WorkerSender<T> {
+    /// Checks if the sender is closed
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
+
+    /// Creates a new WorkerSender with the given interval
+    pub fn new(inner: Sender<T>, interval: u64) -> Self {
+        WorkerSender { inner, interval }
+    }
+
+    fn clone(&self) -> Self {
+        WorkerSender {
+            inner: self.inner.clone(),
+            interval: self.interval,
+        }
+    }
+
+    /// Sends a task after the specified interval
+    pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
+        tokio::time::sleep(Duration::from_secs(self.interval)).await;
+        self.inner.send(task).await
+    }
+    
+    /// Sends a task directly without waiting for the interval (used for termination tasks)
+    pub async fn send_direct(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
+        self.inner.send(task).await
+    }
+    
+    /// Updates the interval of the sender
+    pub fn update_interval(&mut self, interval: u64) {
+        self.interval = interval;
+    }
+}
+impl<T> std::fmt::Debug for WorkerSender<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerSender")
+            .field("interval", &self.interval)
+            .finish()
+    }
+}
+
+
+
 /// Special Receiver struct that notices when the CLI disconnects.
 ///
 /// When a CLI disconnects we cancel all open measurements. We set this orchestrator as available for receiving a new measurement.
@@ -149,7 +204,7 @@ impl<T> Drop for WorkerReceiver<T> {
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
-    senders: Arc<Mutex<HashMap<u32, Sender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<HashMap<u32, WorkerSender<Result<Task, Status>>>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -176,7 +231,7 @@ impl<T> Drop for CLIReceiver<T> {
                 data: Some(TaskEnd(End { code: 1 })),
             };
 
-            let worker_senders: Vec<Sender<Result<Task, Status>>> =
+            let worker_senders: Vec<WorkerSender<Result<Task, Status>>> =
                 { self.senders.lock().unwrap().values().cloned().collect() };
 
             // Tell each worker to terminate the measurement
@@ -184,7 +239,7 @@ impl<T> Drop for CLIReceiver<T> {
                 let end_task = end_task.clone();
 
                 spawn(async move {
-                    if let Err(e) = worker.send(Ok(end_task.clone())).await {
+                    if let Err(e) = worker.send_direct(Ok(end_task.clone())).await {
                         println!(
                             "[Orchestrator] ERROR - Failed to terminate measurement {}",
                             e
@@ -351,9 +406,14 @@ impl Controller for ControllerService {
         }))
         .await
         .expect("Failed to send worker ID");
+        
+        let worker_tx = WorkerSender {
+            inner: tx,
+            interval: 0, // default is no interval
+        };
 
         // Add worker_id, tx to senders map
-        self.senders.lock().unwrap().insert(worker_id, tx);
+        self.senders.lock().unwrap().insert(worker_id, worker_tx);
 
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
@@ -430,7 +490,7 @@ impl Controller for ControllerService {
         }
 
         // Get the list of Senders (that connect to the workers)
-        let senders: HashMap<u32, Sender<Result<Task, Status>>> = {
+        let senders: HashMap<u32, WorkerSender<Result<Task, Status>>> = { // TODO include worker_id in the senders struct
             let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
             senders.retain(|worker_id, sender| {
@@ -632,6 +692,16 @@ impl Controller for ControllerService {
         for worker_id in all_workers.iter() {
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
+            
+            let worker_interval = (i as u64 - 1) * probing_interval;
+            
+            // Update this worker's probing interval
+            if let Some(sender) = self.senders.lock().unwrap().get_mut(worker_id) {
+                sender.update_interval(worker_interval);
+            } else {
+                println!("[Orchestrator] Worker {} not found in senders, skipping", worker_id);
+                continue;
+            }
 
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
@@ -680,14 +750,6 @@ impl Controller for ControllerService {
 
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
-                // Synchronize clients probing by sleeping for a certain amount of time (ensures clients send out probes to the same target 1 second after each other)
-                if is_probing && !(is_divide || is_latency || is_responsive) {
-                    tokio::time::sleep(Duration::from_secs(
-                        (i as u64 - 1) * probing_interval,
-                    ))
-                    .await;
-                }
-
                 for chunk in hitlist_targets.chunks(chunk_size) {
                     // If the CLI disconnects during task distribution, abort
                     if *is_active.lock().unwrap() == false {
@@ -749,14 +811,14 @@ impl Controller for ControllerService {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
-                // Send a message to the worker to let it know it has received everything for the current measurement
-                tx_t.send((worker_id, Task {
-                    worker_id: None,
-                    data: Some(TaskEnd(End { code: 0 })),
-                })).await.expect("Failed to send end task to TaskDistributor");
-
                 if last {
-                    tokio::time::sleep(Duration::from_secs(1)).await; // TaskEnd must be sent to all workers before the end distributor signal
+                    // Send end message to all workers directly to let them know the measurement is finished
+                    tx_t.send((0, Task {
+                        worker_id: None,
+                        data: Some(TaskEnd(End { code: 0 })),
+                    })).await.expect("Failed to send end task to TaskDistributor");
+                    
+                    // Close the TaskDistributor channel
                     tx_t.send((u32::MAX - 1, Task {
                         worker_id: None,
                         data: None,
@@ -899,7 +961,7 @@ impl Controller for ControllerService {
 /// * 'sending_workers' - a vector of worker IDs that are currently performing the measurement
 async fn task_distributor(
     mut rx: mpsc::Receiver<(u32, Task)>,
-    senders: HashMap<u32, Sender<Result<Task, Status>>>,
+    senders: HashMap<u32, WorkerSender<Result<Task, Status>>>,
     sending_workers: Vec<u32>,
     interval: u64,
 ) {
@@ -909,21 +971,17 @@ async fn task_distributor(
     while let Some((worker_id, task)) = rx.recv().await {
         if worker_id == u32::MAX - 1 {
             break;
-        } else if worker_id == 0 { // to all
+        } else if worker_id == 0 { // to all direct
             for (worker_id, worker_sender) in &senders {
-                worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                worker_sender.send_direct(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
                         worker_id, e
                     );
                 });
             };
-        } else if worker_id == u32::MAX { // to all workers in sending_workers (spaced with interval)
-            let senders_clone = senders.clone();
-            let sending_workers = sending_workers.clone();
-            // TODO large overhead
-            spawn(async move {
-            for (worker_id, worker_sender) in senders_clone.iter() {
+        } else if worker_id == u32::MAX { // to all workers in sending_workers
+            for (worker_id, worker_sender) in senders.iter() {
                 if sending_workers.is_empty() || sending_workers.contains(worker_id) {
                     // TODO will send tasks to workers after the measurement is finished
                     worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
@@ -932,12 +990,8 @@ async fn task_distributor(
                             worker_id, e
                         );
                     });
-
-                    // Sleep for the interval
-                    tokio::time::sleep(Duration::from_millis(interval)).await;
                 }
             };
-        });
     } else if worker_id > u16::MAX as u32 {
             // Send to all workers except this one
             for (worker_id, worker_sender) in &senders {
@@ -948,13 +1002,11 @@ async fn task_distributor(
                             worker_id, e
                         );
                     });
-
-                    tokio::time::sleep(Duration::from_millis(interval)).await;
                 }
             }
         } else { // to specific worker
             if let Some(worker_sender) = senders.get(&worker_id) {
-                worker_sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                worker_sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                         worker_id, e
