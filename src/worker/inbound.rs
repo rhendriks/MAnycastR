@@ -114,7 +114,7 @@ pub fn listen(
                 if result == None {
                     continue;
                 }
-                
+
                 // TODO second transmission queue for discovery packets
 
                 // Put result in transmission queue
