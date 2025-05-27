@@ -875,7 +875,6 @@ impl Controller for ControllerService {
                     println!("Probing {} from catcher {}", result.ip_result.as_ref().unwrap().src.unwrap(), rx_worker_id);
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
-                    // Sleep 1 second to avoid ICMP rate limiting
                     task_sender.send((rx_worker_id, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
@@ -982,6 +981,7 @@ async fn task_distributor(
                 }
             }
         } else { // to specific worker
+            println!("[] Sending task to worker {}", worker_id);
             if let Some(worker_sender) = senders.get(&worker_id) {
                 worker_sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
