@@ -152,18 +152,6 @@ impl<T> WorkerSender<T> {
         self.inner.is_closed()
     }
 
-    /// Creates a new WorkerSender with the given interval
-    pub fn new(inner: Sender<T>, interval: u64) -> Self {
-        WorkerSender { inner, interval }
-    }
-
-    fn clone(&self) -> Self {
-        WorkerSender {
-            inner: self.inner.clone(),
-            interval: self.interval,
-        }
-    }
-
     /// Sends a task after the specified interval
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         tokio::time::sleep(Duration::from_secs(self.interval)).await;
@@ -632,7 +620,6 @@ impl Controller for ControllerService {
                 rx_t,
                 senders,
                 probing_workers_c,
-                probing_interval,
             ).await;
         });
 
@@ -884,6 +871,7 @@ impl Controller for ControllerService {
                 if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
+                    // Sleep 1 second to avoid ICMP rate limiting
                     task_sender.send((rx_worker_id, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
@@ -942,10 +930,7 @@ async fn task_distributor(
     mut rx: mpsc::Receiver<(u32, Task)>,
     senders: HashMap<u32, WorkerSender<Result<Task, Status>>>,
     sending_workers: Vec<u32>,
-    interval: u64,
 ) {
-    
-    let mut active = true; // flag to indicate if the measurement is still active
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
         if worker_id == u32::MAX - 1 {
