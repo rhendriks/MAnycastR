@@ -134,7 +134,7 @@ message TaskResult {
 
 // A reply, either a PingResult, UDPResult, or TCPResult; the IP result, the receive time, and the origin ID of the reply
 message Reply {
-  IPResult ip_result = 1; // IP result of the reply
+  IPResult ip_result = 1; // IP result of the reply TODO flatten
   uint64 rx_time = 2; // receive time of the reply
   uint64 tx_time = 3;
   fixed32 tx_worker_id = 4;

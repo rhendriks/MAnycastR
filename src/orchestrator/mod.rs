@@ -784,7 +784,7 @@ impl Controller for ControllerService {
 
                     // Wait for the last latency targets to be scanned
                     if is_latency {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                     }
 
                     // Close the TaskDistributor channel
@@ -841,8 +841,7 @@ impl Controller for ControllerService {
                     result_f.ip_result.unwrap().src.unwrap()
                 })
                 .collect();
-
-
+            
             if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
                 task_result.result_list.retain(|result| { // TODO use these results (and send to all except this tx worker)
@@ -873,6 +872,7 @@ impl Controller for ControllerService {
                 // TODO will send tasks after the measurement is finished
                 // Check for discovery probes where the sender is not the receiver
                 if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
+                    println!("Probing {} from catcher {}", result.ip_result.as_ref().unwrap().src.unwrap(), rx_worker_id);
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     // Sleep 1 second to avoid ICMP rate limiting
@@ -898,6 +898,10 @@ impl Controller for ControllerService {
                     error_message: "".to_string(),
                 }));
             }
+        }
+        
+        for result in &task_result.result_list {
+            println!("address with result {}", result.ip_result.as_ref().unwrap().src.unwrap());
         }
 
         // Forward the result to the CLI
