@@ -630,7 +630,6 @@ impl Controller for ControllerService {
         // Stream tasks to the workers TODO
         let mut i = 0; // index for the hitlist distribution
         for worker_id in all_workers.iter() {
-            i += 1; // Increment the index for the next probing worker
             // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
             let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
 
@@ -654,6 +653,9 @@ impl Controller for ControllerService {
                 // All workers get the same hitlist
                 dst_addresses.clone()
             };
+
+            i += 1; // Increment the index for the next probing worker
+
 
             self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
             self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
@@ -863,7 +865,7 @@ impl Controller for ControllerService {
                 }));
             }
         }
-        
+
         // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
