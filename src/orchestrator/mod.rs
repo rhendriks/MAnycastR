@@ -615,11 +615,16 @@ impl Controller for ControllerService {
 
         // Start the TaskDistributor
         let probing_workers_c = probing_workers.clone();
+        
+        let is_latency_c = self.is_latency.clone();
+        let is_responsive_c = self.is_responsive.clone();
         spawn(async move {
             task_distributor(
                 rx_t,
                 senders,
                 probing_workers_c,
+                is_latency_c,
+                is_responsive_c,
             ).await;
         });
 
@@ -769,12 +774,6 @@ impl Controller for ControllerService {
                         data: Some(TaskEnd(End { code: 0 })),
                     })).await.expect("Failed to send end task to TaskDistributor");
 
-                    // Close the TaskDistributor channel
-                    tx_t.send((u32::MAX - 1, Task {
-                        worker_id: None,
-                        data: None,
-                    })).await.expect("Failed to send end task to TaskDistributor");
-
                     // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
                     tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -787,7 +786,12 @@ impl Controller for ControllerService {
                     if is_latency {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
-                    
+
+                    // Close the TaskDistributor channel
+                    tx_t.send((u32::MAX - 1, Task {
+                        worker_id: None,
+                        data: None,
+                    })).await.expect("Failed to send end task to TaskDistributor");
                     
                 }
             });
@@ -930,10 +934,15 @@ async fn task_distributor(
     mut rx: mpsc::Receiver<(u32, Task)>,
     senders: HashMap<u32, WorkerSender<Result<Task, Status>>>,
     sending_workers: Vec<u32>,
+    is_latency: Arc<AtomicBool>,
+    is_responsive: Arc<AtomicBool>,
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
         if worker_id == u32::MAX - 1 {
+            // Close distributor channel
+            is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
+            is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
         } else if worker_id == 0 { // to all direct
             for (worker_id, worker_sender) in &senders {
