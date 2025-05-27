@@ -903,7 +903,6 @@ async fn task_distributor(
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
         if worker_id == u32::MAX - 1 {
-            println!("[Orchestrator] Received end task, terminating task distributor");
             break;
         } else if worker_id == 0 { // to all
             for (worker_id, worker_sender) in &senders {
@@ -949,10 +948,6 @@ async fn task_distributor(
             }
         } else { // to specific worker
             if let Some(worker_sender) = senders.get(&worker_id) {
-                println!(
-                    "[Orchestrator] Sending task to worker {}: {:?}",
-                    worker_id, task
-                );
                 worker_sender.send(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
