@@ -27,7 +27,7 @@ use std::io::BufWriter;
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, Address, Configuration, Empty, Origin, Reply, ScheduleMeasurement,
-    Targets, TaskResult,
+    Targets, TaskResult, address::Value::V4, address::Value::V6
 };
 use custom_module::Separated;
 
@@ -1181,11 +1181,20 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
     let rx_time = result.rx_time.to_string();
     let tx_time = result.tx_time.to_string(); // TODO unknown for anycast TCP
     let tx_worker_id = result.tx_worker_id.to_string(); // TODO unknown for unicast TCP
+    let ttl = result.ttl.to_string();
 
-    let ip_result = result.ip_result.unwrap();
-    let reply_src = ip_result.get_src_str();
-    let ttl = ip_result.ttl.to_string();
-
+    let reply_src = match result.src {
+        None => String::from("None"),
+        Some(src) => match src.value {
+            Some(V4(v4)) => v4.to_string(),
+            Some(V6(v6)) => {
+                let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
+                str
+            }
+            None => String::from("None"),
+        },
+    };
+    
     let mut row = if is_symmetric {
         vec![rx_worker_id, rx_time, reply_src, ttl, tx_time]
     } else {
