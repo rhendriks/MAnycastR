@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::AddAssign;
@@ -40,7 +40,7 @@ use crate::custom_module::manycastr::Address;
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<ServerStatus>>,
-    senders: Arc<Mutex<HashMap<u32, WorkerSender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     current_measurement_id: Arc<Mutex<u32>>,
@@ -139,12 +139,19 @@ impl<T> Drop for WorkerReceiver<T> {
 ///
 /// # Fields
 ///
+/// * inner - the inner sender that connects to the worker
+///
 /// * interval - the interval in seconds to wait between a task being put in the sender and sending it
+///
+/// * is_probing - a boolean value that is set to true when the worker is probing (or only listening)
 
 #[derive(Clone)]
 pub struct WorkerSender<T> {
     inner: Sender<T>,
     interval: u64,
+    is_probing: bool,
+    worker_id: u32,
+    hostname: String,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -166,6 +173,11 @@ impl<T> WorkerSender<T> {
     /// Updates the interval of the sender
     pub fn update_interval(&mut self, interval: u64) {
         self.interval = interval;
+    }
+    
+    /// Update is_probing flag
+    pub fn update_is_probing(&mut self, is_probing: bool) {
+        self.is_probing = is_probing;
     }
 }
 impl<T> std::fmt::Debug for WorkerSender<T> {
@@ -192,7 +204,7 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
-    senders: Arc<Mutex<HashMap<u32, WorkerSender<Result<Task, Status>>>>>,
+    senders: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -219,8 +231,7 @@ impl<T> Drop for CLIReceiver<T> {
                 data: Some(TaskEnd(End { code: 1 })),
             };
 
-            let worker_senders: Vec<WorkerSender<Result<Task, Status>>> =
-                { self.senders.lock().unwrap().values().cloned().collect() };
+            let worker_senders = self.senders.lock().unwrap().clone();
 
             // Tell each worker to terminate the measurement
             for worker in worker_senders {
@@ -398,10 +409,13 @@ impl Controller for ControllerService {
         let worker_tx = WorkerSender {
             inner: tx,
             interval: 0, // default is no interval
+            is_probing: false, // default is not probing
+            worker_id,
+            hostname: hostname.clone(),
         };
 
-        // Add worker_id, tx to senders map
-        self.senders.lock().unwrap().insert(worker_id, worker_tx);
+        // Add worker_id, tx to senders
+        self.senders.lock().unwrap().push(worker_tx);
 
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
@@ -476,22 +490,65 @@ impl Controller for ControllerService {
 
             *active = true;
         }
+        
+        // The measurement that the CLI wants to perform
+        let scheduled_measurement = request.into_inner();
+        let is_responsive = scheduled_measurement.is_responsive;
+        let is_latency = scheduled_measurement.is_latency;
+        let is_divide = scheduled_measurement.is_divide;
+        let probing_interval = scheduled_measurement.interval as u64;
 
-        // Get the list of Senders (that connect to the workers)
-        let senders: HashMap<u32, WorkerSender<Result<Task, Status>>> = { // TODO include worker_id in the senders struct
+        // Configure and get the senders
+        let senders: Vec<WorkerSender<Result<Task, Status>>> = {
             let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
-            senders.retain(|worker_id, sender| {
+            senders.retain(|sender| {
                 if sender.is_closed() {
                     println!(
                         "[Orchestrator] Worker {} unavailable, connection closed. Worker removed.",
-                        worker_id
+                        sender.hostname
                     );
                     false
                 } else {
                     true
                 }
             });
+
+            // Make sure no unknown workers are in the configuration
+            if scheduled_measurement
+                .configurations
+                .iter()
+                .any(|conf| !senders.iter().any(|sender| sender.worker_id == conf.worker_id) && conf.worker_id != u32::MAX)
+            {
+                println!(
+                    "[Orchestrator] Unknown worker in configuration list, terminating measurement."
+                );
+                *self.is_active.lock().unwrap() = false;
+                return Err(Status::new(
+                    tonic::Code::Cancelled,
+                    "Unknown worker in configuration",
+                ));
+            }
+
+            // Set the is_probing bool for each worker_tx
+            for sender in senders.iter_mut() {
+                let is_probing = scheduled_measurement
+                    .configurations
+                    .iter()
+                    .any(|config| config.worker_id == sender.worker_id || config.worker_id == u32::MAX);
+                sender.update_is_probing(is_probing);
+            }
+            
+            // Set the interval
+            if !is_latency && !is_divide {
+                // Set intervals
+                let mut i = 0;
+                for sender in senders.iter_mut() {
+                    sender.update_interval((i as u64 - 1) * probing_interval);
+                    i += 1;
+                }
+            }
+            
             senders.clone()
         };
 
@@ -512,10 +569,7 @@ impl Controller for ControllerService {
             *current_measurement_id = current_measurement_id.wrapping_add(1);
             id
         };
-
-        // The measurement that the CLI wants to perform
-        let scheduled_measurement = request.into_inner();
-
+        
         // Update active measurement in the worker list
         {
             let mut workers = self.workers.lock().unwrap();
@@ -524,47 +578,12 @@ impl Controller for ControllerService {
                 .iter_mut()
                 .for_each(|worker| worker.measurements.push(measurement_id));
         }
-
+        
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.is_unicast;
-
-        // Make sure no unknown workers are in the configuration
-        if scheduled_measurement
-            .configurations
-            .iter()
-            .any(|conf| !workers.iter().any(|worker| worker.worker_id == conf.worker_id) && conf.worker_id != u32::MAX)
-        {
-            println!(
-                "[Orchestrator] Unknown worker in configuration list, terminating measurement."
-            );
-            *self.is_active.lock().unwrap() = false;
-            return Err(Status::new(
-                tonic::Code::Cancelled,
-                "Unknown worker in configuration",
-            ));
-        }
-
-        // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> = // TODO omit this and encode it in the WorkerSender
-            if scheduled_measurement.configurations.iter().any(|config| config.worker_id == u32::MAX) {
-                Vec::new() // all workers are probing
-            } else {
-                // Get list of unique worker IDs that are probing
-                scheduled_measurement
-                    .configurations
-                    .iter()
-                    .map(|config| config.worker_id)
-                    .collect::<HashSet<u32>>()
-                    .into_iter()
-                    .collect::<Vec<u32>>()
-            };
-
+        
         let number_of_workers = workers.len() as u32;
-        let number_of_probing_workers = if probing_workers.is_empty() {
-            number_of_workers as usize
-        } else {
-            probing_workers.len()
-        };
+        let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing).count();
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -575,10 +594,6 @@ impl Controller for ControllerService {
         let probing_rate = scheduled_measurement.rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
-        let is_divide = scheduled_measurement.is_divide;
-        let is_responsive = scheduled_measurement.is_responsive;
-        let is_latency = scheduled_measurement.is_latency;
-        let probing_interval = scheduled_measurement.interval as u64;
         let dst_addresses = scheduled_measurement
             .targets
             .expect("Received measurement with no targets")
@@ -612,48 +627,27 @@ impl Controller for ControllerService {
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
-        
-        if !is_latency && !is_divide {
-            // Set intervals
-            let mut i = 0;
-            for probing_worker in probing_workers.iter() {
-                if let Some(sender) = self.senders.lock().unwrap().get_mut(probing_worker) {
-                    // Set the probing interval for this worker
-                    sender.update_interval((i as u64 - 1) * probing_interval);
-                } else {
-                    println!(
-                        "[Orchestrator] Worker {} not found in senders, skipping",
-                        probing_worker
-                    );
-                }
-                i += 1;
-            }
-        }
 
         // Start the TaskDistributor
-        let probing_workers_c = probing_workers.clone();
         let is_latency_c = self.is_latency.clone();
         let is_responsive_c = self.is_responsive.clone();
         spawn(async move {
             task_distributor(
                 rx_t,
                 senders,
-                probing_workers_c,
                 is_latency_c,
                 is_responsive_c,
             ).await;
         });
-
-        // Get list of worker_ids
-        let all_workers: Vec<u32> = workers.iter().map(|worker| worker.worker_id).collect();
-
+        
         // Notify all workers that a measurement is starting
-        for worker_id in all_workers.iter() {
+        for worker in workers.iter() {
+            let worker_id = worker.worker_id;
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
-                if (&configuration.worker_id == worker_id)
+                if (configuration.worker_id == worker_id)
                     | (configuration.worker_id == u32::MAX)
                 {
                     if let Some(origin) = &configuration.origin {
@@ -677,7 +671,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((*worker_id, start_task))
+            tx_t.send((worker_id, start_task))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -695,10 +689,12 @@ impl Controller for ControllerService {
 
         // Stream tasks to the workers TODO
         let mut i = 0; // index for the hitlist distribution
-        for worker_id in all_workers.iter() {
-            // If workers is empty, all workers are probing, otherwise only the workers in the list are probing
-            let is_probing = probing_workers.is_empty() || probing_workers.contains(&worker_id);
-
+        for worker in &workers {
+            let worker_id = worker.worker_id;
+            let is_probing = &scheduled_measurement.configurations.iter().any(|config| {
+                config.worker_id == worker_id || config.worker_id == u32::MAX
+            });
+            
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
                 vec![]
@@ -740,7 +736,6 @@ impl Controller for ControllerService {
             } else {
                 tokio::time::interval(p_rate)
             };
-            let worker_id = *worker_id;
 
             // Create thread to forward tasks to the task distributor for this worker
             spawn(async move {
@@ -937,12 +932,9 @@ impl Controller for ControllerService {
 /// * 'rx' - the channel containing the tasks
 ///
 /// * 'senders' - a map of worker IDs to their corresponding senders
-///
-/// * 'sending_workers' - a vector of worker IDs that are currently performing the measurement
 async fn task_distributor(
     mut rx: mpsc::Receiver<(u32, Task)>,
-    senders: HashMap<u32, WorkerSender<Result<Task, Status>>>,
-    sending_workers: Vec<u32>,
+    senders: Vec<WorkerSender<Result<Task, Status>>>,
     is_latency: Arc<AtomicBool>,
     is_responsive: Arc<AtomicBool>,
 ) {
@@ -954,52 +946,52 @@ async fn task_distributor(
             is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
         } else if worker_id == 0 { // to all direct
-            for (worker_id, worker_sender) in &senders {
-                worker_sender.send_direct(Ok(task.clone())).await.unwrap_or_else(|e| {
+            for sender in &senders {
+                sender.send_direct(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
-                        worker_id, e
+                        sender.hostname, e
                     );
                 });
             };
         } else if worker_id == u32::MAX { // to all workers in sending_workers
-            for (worker_id, worker_sender) in senders.iter() {
-                if sending_workers.is_empty() || sending_workers.contains(worker_id) {
-                    // TODO will send tasks to workers after the measurement is finished
-                    worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+            for sender in &senders {
+                if sender.is_probing {
+                    sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
                             "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
-                            worker_id, e
+                            sender.hostname, e
                         );
                     });
                 }
             };
     } else if worker_id > u16::MAX as u32 {
             // Send to all workers except this one
-            for (worker_id, worker_sender) in &senders {
-                if *worker_id != worker_id - u16::MAX as u32 {
-                    worker_sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+            for sender in &senders {
+                if sender.worker_id != worker_id - u16::MAX as u32 {
+                    sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                         eprintln!(
                             "[Orchestrator] Failed to send Spreading task to worker {}: {:?}",
-                            worker_id, e
+                            sender.hostname, e
                         );
                     });
                 }
             }
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
-            if let Some(worker_sender) = senders.get(&worker_id) {
-                println!("sending");
-                worker_sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
+            if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
+                sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
-                        worker_id, e
+                        sender.hostname, e
                     );
                 });
             } else {
-                eprintln!("[Orchestrator] Worker {} not found", worker_id);
+                eprintln!(
+                    "[Orchestrator] No sender found for worker ID {}",
+                    worker_id
+                );
             }
-
         }
     }
 
@@ -1022,7 +1014,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(ServerStatus::default())),
-        senders: Arc::new(Mutex::new(HashMap::new())),
+        senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
