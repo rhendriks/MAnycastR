@@ -768,12 +768,6 @@ impl Controller for ControllerService {
                 clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
                 if *clients_finished.lock().unwrap() == number_of_workers {
                     println!("[Orchestrator] Measurement finished");
-                    // Send end message to all workers directly to let them know the measurement is finished
-                    tx_t.send((0, Task {
-                        worker_id: None,
-                        data: Some(TaskEnd(End { code: 0 })),
-                    })).await.expect("Failed to send end task to TaskDistributor");
-
                     // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
                     tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -786,6 +780,12 @@ impl Controller for ControllerService {
                     if is_latency {
                         tokio::time::sleep(Duration::from_secs(5)).await;
                     }
+
+                    // Send end message to all workers directly to let them know the measurement is finished
+                    tx_t.send((0, Task {
+                        worker_id: None,
+                        data: Some(TaskEnd(End { code: 0 })),
+                    })).await.expect("Failed to send end task to TaskDistributor");
 
                     // Close the TaskDistributor channel
                     tx_t.send((u32::MAX - 1, Task {
