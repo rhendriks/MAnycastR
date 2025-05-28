@@ -912,6 +912,10 @@ async fn task_distributor(
             spawn(async move {
                 for sender in &senders {
                     if sender.is_probing {
+                        println!(
+                            "[] Sending task to probing worker {} with interval {} seconds",
+                            sender.worker_id, interval
+                        );
                         sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                             eprintln!(
                                 "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
@@ -920,6 +924,10 @@ async fn task_distributor(
                         });
                     }
                     // Wait inter-probe interval
+                    println!(
+                        "[] Waiting {} seconds before sending next task to worker {}",
+                        interval, sender.worker_id
+                    );
                     tokio::time::sleep(Duration::from_secs(interval)).await;
                 };
             });
