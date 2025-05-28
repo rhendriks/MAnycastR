@@ -723,7 +723,7 @@ impl Controller for ControllerService {
             }
 
             // All tasks are sent
-            println!("[Orchestrator] Measurement finished");
+            println!("[Orchestrator] All tasks are sent");
             // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
             tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -732,8 +732,9 @@ impl Controller for ControllerService {
                 tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
             } else {
                 tokio::time::sleep(Duration::from_secs(2)).await;
-
             }
+            
+            println!("[Orchestrator] Measurement finished");
 
             // Send end message to all workers directly to let them know the measurement is finished
             tx_t.send((ALL_WORKERS_DIRECT, Task {
@@ -801,6 +802,7 @@ impl Controller for ControllerService {
 
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 // TODO send to all workers except the one that sent this result (tx_worker_id)
+                println!("Sending follow-up task to all workers with responsive targets: {:?}", responsive_targets);
                 task_sender.send((ALL_WORKERS_INTERVAL, Task {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
