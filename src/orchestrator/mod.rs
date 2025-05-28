@@ -549,9 +549,9 @@ impl Controller for ControllerService {
                 for sender in senders.iter_mut() {
                     println!(
                         "[Orchestrator] Setting interval for worker {} to {} seconds",
-                        sender.worker_id, (i as u64) * probing_interval
+                        sender.worker_id, i * probing_interval
                     );
-                    sender.update_interval((i as u64 - 1) * probing_interval);
+                    sender.update_interval(i * probing_interval);
                     i += 1;
                 }
             }
@@ -631,6 +631,13 @@ impl Controller for ControllerService {
             }
         }
 
+        // Create a list of probing worker IDs
+        let probing_worker_ids = senders
+            .iter()
+            .filter(|sender| sender.is_probing)
+            .map(|sender| sender.worker_id)
+            .collect::<Vec<u32>>();
+
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
@@ -682,128 +689,91 @@ impl Controller for ControllerService {
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
+        
+        // TODO restructure task sending
 
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
+        
+        self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
+        self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
 
-        // Shared variable to keep track of the number of workers that have finished
-        let workers_finished = Arc::new(Mutex::new(0));
-        let chunk_size: usize = 100; // TODO try increasing chunk size to reduce overhead
+        let mut probing_rate_interval = if is_responsive || is_latency || is_divide {
+            // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
+            tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32)
+        } else {
+            // We send a chunk every second
+            tokio::time::interval(Duration::from_secs(1))
+        };
 
-        let p_rate = Duration::from_nanos(
-            ((1.0 / probing_rate as f64) * chunk_size as f64 * 1_000_000_000.0) as u64,
-        );
+        let is_active = self.is_active.clone();
+        // Instruct the workers to probe the targets
+        spawn(async move {
+            let mut sender_cycler = probing_worker_ids.iter().cycle();
+            // TODO if a sender disconnects, we should remove it from the cycler
 
-        // Stream tasks to the workers TODO
-        let mut i = 0; // index for the hitlist distribution
-        for worker in &workers {
-            let worker_id = worker.worker_id;
-            let is_probing = &scheduled_measurement.configurations.iter().any(|config| {
-                config.worker_id == worker_id || config.worker_id == u32::MAX
-            });
-
-            // Get the hitlist for this worker
-            let hitlist_targets = if !is_probing {
-                vec![]
-            } else if is_divide || is_responsive || is_latency {
-                // Each worker gets its own chunk of the hitlist
-                let targets_chunk = dst_addresses.len() / number_of_probing_workers;
-
-                // Get start and end index of targets to probe for this worker
-                let start_index = i * targets_chunk;
-                let end_index = if i == number_of_probing_workers - 1 {
-                    dst_addresses.len() // End of the list
-                } else {
-                    start_index + targets_chunk
-                };
-
-                dst_addresses[start_index..end_index].to_vec()
-            } else {
-                // All workers get the same hitlist
-                dst_addresses.clone()
-            };
-
-            i += 1; // Increment the index for the next probing worker
-
-
-            self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
-            self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
-            let clients_finished = workers_finished.clone();
-            let is_active = self.is_active.clone();
-            let is_discovery = if is_responsive || is_latency {
-                Some(true)
-            } else {
-                None
-            };
-
-            let tx_t = tx_t.clone();
-            let mut probing_rate_interval = if is_responsive {
-                // Send responsiveness probes at a rate of probing_rate / number_of_probing_workers
-                tokio::time::interval(p_rate / number_of_probing_workers as u32)
-            } else {
-                tokio::time::interval(p_rate)
-            };
-
-            // Create thread to forward tasks to the task distributor for this worker
-            spawn(async move {
-                for chunk in hitlist_targets.chunks(chunk_size) {
-                    // If the CLI disconnects during task distribution, abort
-                    if *is_active.lock().unwrap() == false {
-                        clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                        if *clients_finished.lock().unwrap() == number_of_workers {
-                            println!("[Orchestrator] CLI disconnected during task distribution");
-                        }
-
-                        return; // abort
-                    }
-
-                    let task = Task {
+            // Iterate over hitlist targets
+            for chunk in dst_addresses.chunks(probing_rate as usize) {
+                // If the CLI disconnects during task distribution, abort
+                if *is_active.lock().unwrap() == false {
+                    println!("[Orchestrator] CLI disconnected during task distribution");
+                    break; // abort
+                }
+                
+                if is_divide || is_responsive || is_latency {
+                    // targets are divided among the workers
+                    let worker_id = sender_cycler.next().expect("No probing workers available");
+                    // Rotate among probing workers
+                    tx_t.send((*worker_id, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                             dst_list: chunk.to_vec(),
-                            is_discovery,
+                            is_discovery: None,
                         })),
-                    };
-
-                    tx_t.send((worker_id, task))
-                        .await
-                        .expect("Failed to send task to TaskDistributor");
-
-                    probing_rate_interval.tick().await;
-                }
-
-
-                clients_finished.lock().unwrap().add_assign(1); // This worker is 'finished'
-                if *clients_finished.lock().unwrap() == number_of_workers {
-                    println!("[Orchestrator] Measurement finished");
-                    // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-
-                    // Wait for the last responsive targets to be scanned
-                    if is_responsive {
-                        tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
-                    }
-
-                    // Wait for the last latency targets to be scanned
-                    if is_latency {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    }
-
-                    // Send end message to all workers directly to let them know the measurement is finished
+                    })).await.expect("Failed to send task to TaskDistributor");
+                    
+                } else {
+                    // targets are probed by all workers
                     tx_t.send((0, Task {
                         worker_id: None,
-                        data: Some(TaskEnd(End { code: 0 })),
-                    })).await.expect("Failed to send end task to TaskDistributor");
-
-                    // Close the TaskDistributor channel
-                    tx_t.send((u32::MAX - 1, Task {
-                        worker_id: None,
-                        data: None,
-                    })).await.expect("Failed to send end task to TaskDistributor");
-
+                        data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            dst_list: chunk.to_vec(),
+                            is_discovery: None,
+                        })),
+                    })).await.expect("Failed to send task to TaskDistributor");
                 }
-            });
-        }
+                
+                // Wait at specified probing rate before sending the next chunk
+                probing_rate_interval.tick().await;
+            }
+            
+            // All tasks are sent
+            println!("[Orchestrator] Measurement finished");
+            // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            // Wait for the last responsive targets to be scanned
+            if is_responsive {
+                tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
+            }
+
+            // Wait for the last latency targets to be scanned
+            if is_latency {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+
+            // Send end message to all workers directly to let them know the measurement is finished
+            tx_t.send((0, Task {
+                worker_id: None,
+                data: Some(TaskEnd(End { code: 0 })),
+            })).await.expect("Failed to send end task to TaskDistributor");
+
+            // Close the TaskDistributor channel
+            tx_t.send((u32::MAX - 1, Task {
+                worker_id: None,
+                data: None,
+            })).await.expect("Failed to send end task to TaskDistributor");
+        });
 
         let rx = CLIReceiver {
             inner: rx,
