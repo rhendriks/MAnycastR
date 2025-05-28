@@ -782,6 +782,7 @@ impl Controller for ControllerService {
 
         // if self.r_prober is not None and equals this task's worker_id
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("responsive mode enabled, processing results");
             // Get the list of targets
             let responsive_targets: Vec<Address> = task_result
                 .result_list
