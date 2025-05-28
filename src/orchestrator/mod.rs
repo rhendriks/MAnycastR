@@ -161,12 +161,15 @@ impl<T> WorkerSender<T> {
 
     /// Sends a task after the specified interval
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
+        println!("waiting for {} seconds before sending task to worker {}", self.interval, self.worker_id);
         tokio::time::sleep(Duration::from_secs(self.interval)).await;
+        println!(" done waiting ");
         self.inner.send(task).await
     }
 
     /// Sends a task directly without waiting for the interval (used for termination tasks)
     pub async fn send_direct(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
+        println!("sending direct")
         self.inner.send(task).await
     }
 
@@ -174,7 +177,7 @@ impl<T> WorkerSender<T> {
     pub fn update_interval(&mut self, interval: u64) {
         self.interval = interval;
     }
-    
+
     /// Update is_probing flag
     pub fn update_is_probing(&mut self, is_probing: bool) {
         self.is_probing = is_probing;
@@ -490,7 +493,7 @@ impl Controller for ControllerService {
 
             *active = true;
         }
-        
+
         // The measurement that the CLI wants to perform
         let scheduled_measurement = request.into_inner();
         let is_responsive = scheduled_measurement.is_responsive;
@@ -538,7 +541,7 @@ impl Controller for ControllerService {
                     .any(|config| config.worker_id == sender.worker_id || config.worker_id == u32::MAX);
                 sender.update_is_probing(is_probing);
             }
-            
+
             // Set the interval
             if !is_latency && !is_divide {
                 // Set intervals
@@ -552,7 +555,7 @@ impl Controller for ControllerService {
                     i += 1;
                 }
             }
-            
+
             senders.clone()
         };
 
@@ -573,7 +576,7 @@ impl Controller for ControllerService {
             *current_measurement_id = current_measurement_id.wrapping_add(1);
             id
         };
-        
+
         // Update active measurement in the worker list
         {
             let mut workers = self.workers.lock().unwrap();
@@ -582,10 +585,10 @@ impl Controller for ControllerService {
                 .iter_mut()
                 .for_each(|worker| worker.measurements.push(measurement_id));
         }
-        
+
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.is_unicast;
-        
+
         let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing).count();
 
@@ -643,7 +646,7 @@ impl Controller for ControllerService {
                 is_responsive_c,
             ).await;
         });
-        
+
         // Notify all workers that a measurement is starting
         for worker in workers.iter() {
             let worker_id = worker.worker_id;
@@ -698,7 +701,7 @@ impl Controller for ControllerService {
             let is_probing = &scheduled_measurement.configurations.iter().any(|config| {
                 config.worker_id == worker_id || config.worker_id == u32::MAX
             });
-            
+
             // Get the hitlist for this worker
             let hitlist_targets = if !is_probing {
                 vec![]
