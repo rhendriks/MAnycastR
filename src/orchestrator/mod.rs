@@ -683,6 +683,13 @@ impl Controller for ControllerService {
         };
 
         let is_active = self.is_active.clone();
+        
+        let is_discovery = if is_responsive || is_latency {
+            // If we are in responsive or latency mode, we want to discover the targets
+            Some(true)
+        } else {
+            None
+        };
         // Instruct the workers to probe the targets
         spawn(async move {
             let mut sender_cycler = probing_worker_ids.iter().cycle();
@@ -705,7 +712,7 @@ impl Controller for ControllerService {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                             dst_list: chunk.to_vec(),
-                            is_discovery: None,
+                            is_discovery,
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
                 } else {
@@ -714,7 +721,7 @@ impl Controller for ControllerService {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                             dst_list: chunk.to_vec(),
-                            is_discovery: None,
+                            is_discovery,
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
                 }
@@ -795,9 +802,9 @@ impl Controller for ControllerService {
                     result_f.src.unwrap()
                 })
                 .collect();
-            
+
             println!("responsive targets: {:?}", responsive_targets.len());
-            
+
             println!("task result list: {:?}", task_result.result_list.len());
 
             if !responsive_targets.is_empty() {
