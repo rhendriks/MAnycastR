@@ -671,6 +671,7 @@ impl Controller for ControllerService {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
+        println!("[Orchestrator] Responsive probing mode: {}", is_responsive);
         self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
 
         let mut probing_rate_interval = if is_responsive || is_latency || is_divide {
