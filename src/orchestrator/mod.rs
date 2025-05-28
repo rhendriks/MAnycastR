@@ -152,7 +152,6 @@ impl<T> Drop for WorkerReceiver<T> {
 #[derive(Clone)]
 pub struct WorkerSender<T> {
     inner: Sender<T>,
-    interval: u64,
     is_probing: bool,
     worker_id: u32,
     hostname: String,
@@ -165,21 +164,7 @@ impl<T> WorkerSender<T> {
 
     /// Sends a task after the specified interval
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
-        println!("waiting for {} seconds before sending task to worker {}", self.interval, self.worker_id);
-        tokio::time::sleep(Duration::from_secs(self.interval)).await;
-        println!(" done waiting ");
         self.inner.send(task).await
-    }
-
-    /// Sends a task directly without waiting for the interval (used for termination tasks)
-    pub async fn send_direct(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
-        println!("sending direct");
-        self.inner.send(task).await
-    }
-
-    /// Updates the interval of the sender
-    pub fn update_interval(&mut self, interval: u64) {
-        self.interval = interval;
     }
 
     /// Update is_probing flag
@@ -189,9 +174,11 @@ impl<T> WorkerSender<T> {
 }
 impl<T> std::fmt::Debug for WorkerSender<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorkerSender")
-            .field("interval", &self.interval)
-            .finish()
+        write!(
+            f,
+            "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
+            self.worker_id, self.hostname, self.is_probing
+        )
     }
 }
 
@@ -245,7 +232,7 @@ impl<T> Drop for CLIReceiver<T> {
                 let end_task = end_task.clone();
 
                 spawn(async move {
-                    if let Err(e) = worker.send_direct(Ok(end_task.clone())).await {
+                    if let Err(e) = worker.send(Ok(end_task.clone())).await {
                         println!(
                             "[Orchestrator] ERROR - Failed to terminate measurement {}",
                             e
@@ -415,7 +402,6 @@ impl Controller for ControllerService {
 
         let worker_tx = WorkerSender {
             inner: tx,
-            interval: 0, // default is no interval
             is_probing: false, // default is not probing
             worker_id,
             hostname: hostname.clone(),
@@ -546,20 +532,6 @@ impl Controller for ControllerService {
                 sender.update_is_probing(is_probing);
             }
 
-            // Set the interval
-            if !is_latency && !is_divide {
-                // Set intervals
-                let mut i = 0;
-                for sender in senders.iter_mut() {
-                    println!(
-                        "[Orchestrator] Setting interval for worker {} to {} seconds",
-                        sender.worker_id, i * probing_interval
-                    );
-                    sender.update_interval(i * probing_interval);
-                    i += 1;
-                }
-            }
-
             senders.clone()
         };
 
@@ -655,6 +627,7 @@ impl Controller for ControllerService {
                 senders,
                 is_latency_c,
                 is_responsive_c,
+                probing_interval,
             ).await;
         });
 
@@ -694,8 +667,6 @@ impl Controller for ControllerService {
                 .expect("Failed to send task to TaskDistributor");
         }
 
-        // TODO restructure task sending
-
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -715,6 +686,7 @@ impl Controller for ControllerService {
         spawn(async move {
             let mut sender_cycler = probing_worker_ids.iter().cycle();
             // TODO if a sender disconnects, we should remove it from the cycler
+            // TODO test what happens when a client drops, do measurements deadlock?
 
             // Iterate over hitlist targets
             for chunk in dst_addresses.chunks(probing_rate as usize) {
@@ -735,7 +707,6 @@ impl Controller for ControllerService {
                             is_discovery: None,
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
-
                 } else {
                     // targets are probed by all workers
                     tx_t.send((ALL_WORKERS_INTERVAL, Task {
@@ -918,6 +889,7 @@ async fn task_distributor(
     senders: Vec<WorkerSender<Result<Task, Status>>>,
     is_latency: Arc<AtomicBool>,
     is_responsive: Arc<AtomicBool>,
+    interval: u64,
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
@@ -928,7 +900,7 @@ async fn task_distributor(
             break;
         } else if worker_id == ALL_WORKERS_DIRECT { // to all direct
             for sender in &senders {
-                sender.send_direct(Ok(task.clone())).await.unwrap_or_else(|e| {
+                sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
                         sender.hostname, e
@@ -947,24 +919,14 @@ async fn task_distributor(
                             );
                         });
                     }
+                    // Wait inter-probe interval
+                    tokio::time::sleep(Duration::from_secs(interval)).await;
                 };
             });
-        } else if worker_id > u16::MAX as u32 { // TODO not used
-            // Send to all workers except this one
-            for sender in &senders {
-                if sender.worker_id != worker_id - u16::MAX as u32 {
-                    sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
-                        eprintln!(
-                            "[Orchestrator] Failed to send Spreading task to worker {}: {:?}",
-                            sender.hostname, e
-                        );
-                    });
-                }
-            }
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
-                sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
+                sender.send(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                         sender.hostname, e
