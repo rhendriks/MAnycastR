@@ -169,7 +169,7 @@ impl<T> WorkerSender<T> {
 
     /// Sends a task directly without waiting for the interval (used for termination tasks)
     pub async fn send_direct(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
-        println!("sending direct")
+        println!("sending direct");
         self.inner.send(task).await
     }
 
