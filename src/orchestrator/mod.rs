@@ -987,7 +987,7 @@ async fn task_distributor(
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
-                sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
+                sender.send(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                         sender.hostname, e
