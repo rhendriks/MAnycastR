@@ -727,14 +727,12 @@ impl Controller for ControllerService {
             // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
             tokio::time::sleep(Duration::from_secs(1)).await;
 
-            // Wait for the last responsive targets to be scanned
-            if is_responsive {
+            // Wait for the last targets to be scanned
+            if !is_divide && !is_latency {
                 tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
-            }
+            } else {
+                tokio::time::sleep(Duration::from_secs(2)).await;
 
-            // Wait for the last latency targets to be scanned
-            if is_latency {
-                tokio::time::sleep(Duration::from_secs(5)).await;
             }
 
             // Send end message to all workers directly to let them know the measurement is finished
