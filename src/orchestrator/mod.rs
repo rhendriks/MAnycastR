@@ -544,6 +544,10 @@ impl Controller for ControllerService {
                 // Set intervals
                 let mut i = 0;
                 for sender in senders.iter_mut() {
+                    println!(
+                        "[Orchestrator] Setting interval for worker {} to {} seconds",
+                        sender.worker_id, (i as u64) * probing_interval
+                    );
                     sender.update_interval((i as u64 - 1) * probing_interval);
                     i += 1;
                 }
