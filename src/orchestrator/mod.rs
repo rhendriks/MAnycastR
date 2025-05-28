@@ -795,6 +795,10 @@ impl Controller for ControllerService {
                     result_f.src.unwrap()
                 })
                 .collect();
+            
+            println!("responsive targets: {:?}", responsive_targets.len());
+            
+            println!("task result list: {:?}", task_result.result_list.len());
 
             if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
