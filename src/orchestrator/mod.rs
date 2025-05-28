@@ -51,6 +51,10 @@ pub struct ControllerService {
     task_sender: Arc<Mutex<Option<Sender<(u32, Task)>>>>,
 }
 
+const BREAK_SIGNAL: u32 = u32::MAX - 1;
+const ALL_WORKERS_DIRECT: u32 = u32::MAX;
+const ALL_WORKERS_INTERVAL: u32 = 0;
+
 /// Special Receiver struct that notices when the worker disconnects.
 ///
 /// When a worker drops we update the open_measurements such that the orchestrator knows this worker is not participating in any measurements.
@@ -689,12 +693,12 @@ impl Controller for ControllerService {
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
-        
+
         // TODO restructure task sending
 
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
-        
+
         self.is_responsive.store(is_responsive, std::sync::atomic::Ordering::SeqCst);
         self.is_latency.store(is_latency, std::sync::atomic::Ordering::SeqCst);
 
@@ -719,7 +723,7 @@ impl Controller for ControllerService {
                     println!("[Orchestrator] CLI disconnected during task distribution");
                     break; // abort
                 }
-                
+
                 if is_divide || is_responsive || is_latency {
                     // targets are divided among the workers
                     let worker_id = sender_cycler.next().expect("No probing workers available");
@@ -731,10 +735,10 @@ impl Controller for ControllerService {
                             is_discovery: None,
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
-                    
+
                 } else {
                     // targets are probed by all workers
-                    tx_t.send((0, Task {
+                    tx_t.send((ALL_WORKERS_INTERVAL, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                             dst_list: chunk.to_vec(),
@@ -742,11 +746,11 @@ impl Controller for ControllerService {
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
                 }
-                
+
                 // Wait at specified probing rate before sending the next chunk
                 probing_rate_interval.tick().await;
             }
-            
+
             // All tasks are sent
             println!("[Orchestrator] Measurement finished");
             // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
@@ -763,13 +767,13 @@ impl Controller for ControllerService {
             }
 
             // Send end message to all workers directly to let them know the measurement is finished
-            tx_t.send((0, Task {
+            tx_t.send((ALL_WORKERS_DIRECT, Task {
                 worker_id: None,
                 data: Some(TaskEnd(End { code: 0 })),
             })).await.expect("Failed to send end task to TaskDistributor");
 
             // Close the TaskDistributor channel
-            tx_t.send((u32::MAX - 1, Task {
+            tx_t.send((BREAK_SIGNAL, Task {
                 worker_id: None,
                 data: None,
             })).await.expect("Failed to send end task to TaskDistributor");
@@ -828,7 +832,7 @@ impl Controller for ControllerService {
 
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 // TODO send to all workers except the one that sent this result (tx_worker_id)
-                task_sender.send((u32::MAX, Task {
+                task_sender.send((ALL_WORKERS_INTERVAL, Task {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                         dst_list: responsive_targets,
@@ -917,12 +921,12 @@ async fn task_distributor(
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
-        if worker_id == u32::MAX - 1 {
+        if worker_id == BREAK_SIGNAL {
             // Close distributor channel
             is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
             is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
-        } else if worker_id == 0 { // to all direct
+        } else if worker_id == ALL_WORKERS_DIRECT { // to all direct
             for sender in &senders {
                 sender.send_direct(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
@@ -931,18 +935,21 @@ async fn task_distributor(
                     );
                 });
             };
-        } else if worker_id == u32::MAX { // to all workers in sending_workers
-            for sender in &senders {
-                if sender.is_probing {
-                    sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
-                        eprintln!(
-                            "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
-                            sender.hostname, e
-                        );
-                    });
-                }
-            };
-    } else if worker_id > u16::MAX as u32 {
+        } else if worker_id == ALL_WORKERS_INTERVAL { // to all workers in sending_workers (with interval)
+            let senders = senders.clone(); // TODO cloning overhead
+            spawn(async move {
+                for sender in &senders {
+                    if sender.is_probing {
+                        sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                            eprintln!(
+                                "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
+                                sender.hostname, e
+                            );
+                        });
+                    }
+                };
+            });
+        } else if worker_id > u16::MAX as u32 { // TODO not used
             // Send to all workers except this one
             for sender in &senders {
                 if sender.worker_id != worker_id - u16::MAX as u32 {
@@ -957,7 +964,7 @@ async fn task_distributor(
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
-                sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                sender.send_direct(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                         sender.hostname, e
