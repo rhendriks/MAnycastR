@@ -733,7 +733,7 @@ impl Controller for ControllerService {
             } else {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
-            
+
             println!("[Orchestrator] Measurement finished");
 
             // Send end message to all workers directly to let them know the measurement is finished
@@ -908,6 +908,7 @@ async fn task_distributor(
                 });
             };
         } else if worker_id == ALL_WORKERS_INTERVAL { // to all workers in sending_workers (with interval)
+            println!("received all workers task");
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
                 for sender in &senders {
