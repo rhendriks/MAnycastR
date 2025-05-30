@@ -12,7 +12,7 @@ use tonic::Request;
 use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
+    controller_client::ControllerClient, task::Data, Address, End, Finished, Origin,
     Task, TaskResult,
 };
 
@@ -39,7 +39,7 @@ mod outbound;
 #[derive(Clone)]
 pub struct Worker {
     client: ControllerClient<Channel>,
-    metadata: Metadata,
+    hostname: String,
     is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
@@ -62,10 +62,6 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
 
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
-        // This worker's metadata (shared with the orchestrator)
-        let metadata = Metadata {
-            hostname: hostname.parse().unwrap(),
-        };
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
             .await
@@ -74,7 +70,7 @@ impl Worker {
         // Initialize a worker instance
         let mut worker = Worker {
             client,
-            metadata,
+            hostname,
             is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -355,11 +351,17 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
         let mut finish: Option<Arc<AtomicBool>> = None;
+        
+        let worker = custom_module::manycastr::Worker {
+            hostname: self.hostname.clone(),
+            worker_id: 0, // This will be set after the connection
+            status: "".to_string(),
+        };
 
         // Connect to the orchestrator
         let response = self
             .client
-            .worker_connect(Request::new(self.metadata.clone()))
+            .worker_connect(Request::new(worker))
             .await
             .expect("Unable to connect to orchestrator");
 

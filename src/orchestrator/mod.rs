@@ -13,7 +13,7 @@ use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     controller_server::Controller, controller_server::ControllerServer, task::Data::End as TaskEnd,
-    task::Data::Start as TaskStart, Ack, Empty, End, Finished, Metadata, ScheduleMeasurement,
+    task::Data::Start as TaskStart, Ack, Empty, End, Finished, ScheduleMeasurement,
     Start, Status as ServerStatus, Targets, Task, TaskResult, Worker,
 };
 use futures_core::Stream;
@@ -39,7 +39,6 @@ use crate::custom_module::manycastr::Address;
 /// * 'r_prober' - ID of worker that is probing for responsiveness
 #[derive(Debug)]
 pub struct ControllerService {
-    workers: Arc<Mutex<ServerStatus>>,
     senders: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
@@ -75,7 +74,6 @@ pub struct WorkerReceiver<T> {
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
-    workers: Arc<Mutex<ServerStatus>>,
     active: Arc<Mutex<bool>>,
 }
 
@@ -90,16 +88,6 @@ impl<T> Stream for WorkerReceiver<T> {
 impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
         println!("[Orchestrator] Worker {} lost connection", self.hostname);
-
-        // Remove this worker from the workers list
-        {
-            self.workers.lock().unwrap().workers.retain(|workers| {
-                let Some(metadata) = &workers.metadata else {
-                    panic!("Worker without metadata")
-                };
-                metadata.hostname != self.hostname
-            });
-        }
 
         // // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
@@ -155,6 +143,7 @@ pub struct WorkerSender<T> {
     is_probing: bool,
     worker_id: u32,
     hostname: String,
+    status: String,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -169,6 +158,11 @@ impl<T> WorkerSender<T> {
 
     /// Update is_probing flag
     pub fn update_is_probing(&mut self, is_probing: bool) {
+        if is_probing {
+            self.status = "PROBING".to_string();
+        } else {
+            self.status = "LISTENING".to_string();
+        }
         self.is_probing = is_probing;
     }
 }
@@ -179,6 +173,14 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
             "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
             self.worker_id, self.hostname, self.is_probing
         )
+    }
+}
+
+impl <T> Drop for WorkerSender<T> {
+    fn drop(&mut self) {
+        self.status = "DISCONNECTED".to_string();
+        self.is_probing = false;
+        println!("[Orchestrator] Worker {} with ID {} dropped", self.hostname, self.worker_id);
     }
 }
 
@@ -268,7 +270,6 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
         let measurement_id: u32 = finished_measurement.measurement_id;
-        let worker_id: u32 = finished_measurement.worker_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'measurement_finished' from all workers that executed this measurement
@@ -285,18 +286,6 @@ impl Controller for ControllerService {
                     error_message: "Measurement unknown".to_string(),
                 }));
             };
-
-            // Update worker-list that this worker is no longer working on this measurement
-            let mut workers = self.workers.lock().unwrap();
-            if let Some(worker) = workers
-                .workers
-                .iter_mut()
-                .find(|w| w.worker_id == worker_id)
-            {
-                worker
-                    .measurements
-                    .retain(|measurement| measurement != &measurement_id);
-            }
 
             if remaining == &(1u32) {
                 // If this is the last worker we are finished
@@ -349,47 +338,48 @@ impl Controller for ControllerService {
     /// * 'request' - a Metadata message containing the hostname of the worker
     async fn worker_connect(
         &self,
-        request: Request<Metadata>,
+        request: Request<Worker>,
     ) -> Result<Response<Self::WorkerConnectStream>, Status> {
         let hostname = request.into_inner().hostname;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
+        let mut reconnect_id = None;
 
         // Check if the hostname already exists
         let worker_id = {
-            let mut worker_list = self.workers.lock().unwrap();
-            for worker in &worker_list.workers {
-                match &worker.metadata {
-                    Some(metadata) if hostname == metadata.hostname => {
-                        println!(
-                            "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                            hostname
-                        );
+            let workers_list = self.senders.lock().unwrap();
+            for worker in workers_list.iter() {
+                if worker.hostname == hostname {
+                    println!(
+                        "[Orchestrator] Refusing worker as the hostname already exists: {}",
+                        hostname
+                    );
+                    if worker.status != "DISCONNECTED" {
+                        // If the worker is not disconnected, we return an error
                         return Err(Status::new(
                             tonic::Code::AlreadyExists,
                             "This hostname already exists",
                         ));
+                    } else {
+                        // Reconnecting worker, we reuse the worker ID
+                        println!("[Orchestrator] Worker {} reconnected", hostname);
+                        reconnect_id = Some(worker.worker_id);
+                        break;
                     }
-                    _ => {}
                 }
             }
+            
+            if let Some(reconnect_id) = reconnect_id {
+                // If we are reconnecting a worker, we use the existing worker ID
+               reconnect_id
+            } else {
+                // Obtain unique worker id
+                let mut current_client_id = self.current_worker_id.lock().unwrap();
+                let worker_id = *current_client_id;
+                current_client_id.add_assign(1);
 
-            // Obtain unique worker id
-            let mut current_client_id = self.current_worker_id.lock().unwrap();
-            let worker_id = *current_client_id;
-            current_client_id.add_assign(1);
-
-            // Add the new worker
-            let new_worker = Worker {
-                worker_id,
-                metadata: Some(Metadata {
-                    hostname: hostname.clone(),
-                }),
-                measurements: vec![],
-            };
-            worker_list.workers.push(new_worker);
-
-            worker_id
+                worker_id
+            }
         };
 
         // Send worker ID
@@ -405,8 +395,15 @@ impl Controller for ControllerService {
             is_probing: false, // default is not probing
             worker_id,
             hostname: hostname.clone(),
+            status: "IDLE".to_string(),
         };
 
+        // Remove the disconnected worker if it existed
+        if let Some(reconnect_id) = reconnect_id {
+            let mut senders = self.senders.lock().unwrap();
+            senders.retain(|sender| sender.worker_id != reconnect_id);
+        }
+        
         // Add worker_id, tx to senders
         self.senders.lock().unwrap().push(worker_tx);
 
@@ -416,7 +413,6 @@ impl Controller for ControllerService {
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
             hostname,
-            workers: self.workers.clone(),
             active: self.is_active.clone(),
         };
 
@@ -542,9 +538,6 @@ impl Controller for ControllerService {
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
         }
 
-        // Copy the current workers (as used for this measurement)
-        let workers = self.workers.lock().unwrap().workers.clone();
-
         // Assign a unique ID the measurement and increment the measurement ID counter
         let measurement_id = {
             let mut current_measurement_id = self.current_measurement_id.lock().unwrap();
@@ -553,19 +546,10 @@ impl Controller for ControllerService {
             id
         };
 
-        // Update active measurement in the worker list
-        {
-            let mut workers = self.workers.lock().unwrap();
-            workers
-                .workers
-                .iter_mut()
-                .for_each(|worker| worker.measurements.push(measurement_id));
-        }
-
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.is_unicast;
 
-        let number_of_workers = workers.len() as u32;
+        let number_of_workers = senders.len() as u32;
         let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing).count();
 
         // Store the number of workers that will perform this measurement
@@ -632,13 +616,12 @@ impl Controller for ControllerService {
         });
 
         // Notify all workers that a measurement is starting
-        for worker in workers.iter() {
-            let worker_id = worker.worker_id;
+        for worker_id in probing_worker_ids.iter() {
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
-                if (configuration.worker_id == worker_id)
+                if (configuration.worker_id == *worker_id)
                     | (configuration.worker_id == u32::MAX)
                 {
                     if let Some(origin) = &configuration.origin {
@@ -662,7 +645,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((worker_id, start_task))
+            tx_t.send((*worker_id, start_task))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -772,7 +755,21 @@ impl Controller for ControllerService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<ServerStatus>, Status> {
-        Ok(Response::new(self.workers.lock().unwrap().clone()))
+        // Lock the workers list and clone it to return
+        let workers_list = self.senders.lock().unwrap();
+        let mut workers = Vec::new();
+        for worker in workers_list.iter() {
+            workers.push(Worker {
+                worker_id: worker.worker_id,
+                hostname: worker.hostname.clone(),
+                status: worker.status.clone(),
+            });
+        }
+        
+        let status = ServerStatus {
+            workers,
+        };
+        Ok(Response::new(status))
     }
 
     /// Receive a TaskResult from the worker and put it in the stream towards the CLI
@@ -981,7 +978,6 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let measurement_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
-        workers: Arc::new(Mutex::new(ServerStatus::default())),
         senders: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
