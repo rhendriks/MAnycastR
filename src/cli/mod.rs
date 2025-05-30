@@ -82,24 +82,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         ]));
 
         for worker in response.into_inner().workers {
-            let measurements_str = if worker.measurements.is_empty() {
-                "Idle".to_string()
-            } else {
-                format!(
-                    "Active: {}",
-                    worker
-                        .measurements
-                        .iter()
-                        .map(|m| m.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
-            };
-
             table.add_row(prettytable::row!(
-                worker.metadata.unwrap().hostname,
+                worker.hostname,
                 worker.worker_id,
-                measurements_str,
+                worker.status,
             ));
         }
         table.printstd();
@@ -149,10 +135,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .into_inner()
             .workers
             .into_iter()
-            .filter_map(|worker| {
-                worker
-                    .metadata
-                    .map(|metadata| (worker.worker_id, metadata.hostname))
+            .map(|worker| {
+                (worker.worker_id, worker.hostname.clone())
             })
             .collect();
 

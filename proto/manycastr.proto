@@ -6,7 +6,7 @@ service Controller {
   // Worker lets the orchestrator know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
   // Worker announces itself, and starts its connection with the orchestrator. The orchestrator sends a stream of tasks
-  rpc WorkerConnect(Metadata) returns (stream Task) {}
+  rpc WorkerConnect(Worker) returns (stream Task) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
   // CLI asks orchestrator its current status (list of connected workers and measurements)
@@ -46,22 +46,16 @@ message ScheduleMeasurement {
   string url = 12; // URL to encode in probes (e.g., opt-out link)
 }
 
-// A list of workers (an empty list is used when all workers have to send out probes)
+// A list of workers
 message Status {
   repeated Worker workers = 1;
-  repeated fixed32 measurements = 2;
 }
 
 // Worker definition, contains a worker ID, metadata (hostname), and a list of current measurements
 message Worker {
   fixed32 worker_id = 1;
-  Metadata metadata = 2;
-  repeated fixed32 measurements = 3;
-}
-
-// Metadata (as used in worker), contains a hostname
-message Metadata {
-  string hostname = 1;
+  string hostname = 2;
+  string status = 3; // IDLE, PROBING, LISTENING, DISCONNECTED
 }
 
 // Address message, can be either an IPv4 or IPv6 address
