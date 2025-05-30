@@ -140,10 +140,10 @@ impl<T> Drop for WorkerReceiver<T> {
 #[derive(Clone)]
 pub struct WorkerSender<T> {
     inner: Sender<T>,
-    is_probing: bool,
+    is_probing: Arc<AtomicBool>,
     worker_id: u32,
     hostname: String,
-    status: String,
+    status: Arc<Mutex<String>>,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -153,17 +153,44 @@ impl<T> WorkerSender<T> {
 
     /// Sends a task after the specified interval
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
-        self.inner.send(task).await
+        match self.inner.send(task).await {
+            Ok(_) => {
+                Ok(())
+            }
+            Err(e) => {
+                self.cleanup();
+                Err(e)
+            }
+        }
+    }
+
+    fn cleanup(&self) {
+        // If the worker is disconnected, we set the status to DISCONNECTED
+        let mut status = self.status.lock().unwrap();
+        *status = "DISCONNECTED".to_string();
+        
+        // Set the is_probing flag to false
+        self.is_probing.store(false, std::sync::atomic::Ordering::SeqCst);
+        println!("[Orchestrator] Worker {} with ID {} dropped", self.hostname, self.worker_id);
+    }
+    
+    pub fn is_probing(&self) -> bool {
+        self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    
+    pub fn get_status(&self) -> String {
+        self.status.lock().unwrap().clone()
     }
 
     /// Update is_probing flag
-    pub fn update_is_probing(&mut self, is_probing: bool) {
+    pub fn update_is_probing(&self, is_probing: bool) {
+        let mut status = self.status.lock().unwrap();
         if is_probing {
-            self.status = "PROBING".to_string();
+            *status = "PROBING".to_string();
         } else {
-            self.status = "LISTENING".to_string();
+            *status = "LISTENING".to_string();
         }
-        self.is_probing = is_probing;
+        self.is_probing.store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
 }
 impl<T> std::fmt::Debug for WorkerSender<T> {
@@ -171,16 +198,8 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
         write!(
             f,
             "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
-            self.worker_id, self.hostname, self.is_probing
+            self.worker_id, self.hostname, self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
         )
-    }
-}
-
-impl <T> Drop for WorkerSender<T> {
-    fn drop(&mut self) {
-        self.status = "DISCONNECTED".to_string();
-        self.is_probing = false;
-        println!("[Orchestrator] Worker {} with ID {} dropped", self.hostname, self.worker_id);
     }
 }
 
@@ -354,7 +373,7 @@ impl Controller for ControllerService {
                         "[Orchestrator] Refusing worker as the hostname already exists: {}",
                         hostname
                     );
-                    if worker.status != "DISCONNECTED" {
+                    if !worker.is_closed() {
                         // If the worker is not disconnected, we return an error
                         return Err(Status::new(
                             tonic::Code::AlreadyExists,
@@ -368,7 +387,7 @@ impl Controller for ControllerService {
                     }
                 }
             }
-            
+
             if let Some(reconnect_id) = reconnect_id {
                 // If we are reconnecting a worker, we use the existing worker ID
                reconnect_id
@@ -392,10 +411,10 @@ impl Controller for ControllerService {
 
         let worker_tx = WorkerSender {
             inner: tx,
-            is_probing: false, // default is not probing
+            is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
             worker_id,
             hostname: hostname.clone(),
-            status: "IDLE".to_string(),
+            status: Arc::new(Mutex::new("IDLE".to_string())),
         };
 
         // Remove the disconnected worker if it existed
@@ -403,7 +422,7 @@ impl Controller for ControllerService {
             let mut senders = self.senders.lock().unwrap();
             senders.retain(|sender| sender.worker_id != reconnect_id);
         }
-        
+
         // Add worker_id, tx to senders
         self.senders.lock().unwrap().push(worker_tx);
 
@@ -550,7 +569,7 @@ impl Controller for ControllerService {
         let is_unicast = scheduled_measurement.is_unicast;
 
         let number_of_workers = senders.len() as u32;
-        let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing).count();
+        let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing()).count();
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
@@ -594,7 +613,7 @@ impl Controller for ControllerService {
         // Create a list of probing worker IDs
         let probing_worker_ids = senders
             .iter()
-            .filter(|sender| sender.is_probing)
+            .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
 
@@ -666,7 +685,7 @@ impl Controller for ControllerService {
         };
 
         let is_active = self.is_active.clone();
-        
+
         let is_discovery = if is_responsive || is_latency {
             // If we are in responsive or latency mode, we want to discover the targets
             Some(true)
@@ -762,10 +781,10 @@ impl Controller for ControllerService {
             workers.push(Worker {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
-                status: worker.status.clone(),
+                status: worker.get_status().clone(),
             });
         }
-        
+
         let status = ServerStatus {
             workers,
         };
@@ -922,7 +941,7 @@ async fn task_distributor(
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
                 for sender in &senders {
-                    if sender.is_probing {
+                    if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                         println!(
                             "[] Sending task to probing worker {} with interval {} seconds",
                             sender.worker_id, interval
