@@ -99,7 +99,7 @@ impl<T> Drop for WorkerReceiver<T> {
                 }
                 // If this is the last worker for this open measurement
                 if remaining == &1 {
-                    // The orchestrator no longer has to wait for this worker
+                    // The orchestrator no longer has to wait for this measurement
                     open_measurements.remove(&measurement_id);
 
                     println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
@@ -192,7 +192,7 @@ impl<T> WorkerSender<T> {
         }
         self.is_probing.store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// The worker finished its measurement
     pub fn finished(&self) {
         let mut status = self.status.lock().unwrap();
@@ -221,10 +221,13 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
 ///
 /// * 'inner' - the receiver that connects to the CLI
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'senders' - a list of senders that connect to the workers
+/// * 'open_measurements' - a list of the current open measurements, and the number of workers that are currently working on it
+/// * 'measurement_id' - the ID of the measurement that this receiver is associated with
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
+    open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
+    measurement_id: u32,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -245,6 +248,14 @@ impl<T> Drop for CLIReceiver<T> {
                 "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
             );
             *is_active = false; // No longer an active measurement
+            
+            // Remove the open measurement for this measurement ID
+            let mut open_measurements = self.open_measurements.lock().unwrap();
+            if let Some(_) = open_measurements.get_mut(&self.measurement_id) {
+                open_measurements.remove(&self.measurement_id);
+            } else {
+                println!("[Orchestrator] No open measurement found for ID {}", self.measurement_id);
+            }
         }
     }
 }
@@ -518,7 +529,7 @@ impl Controller for ControllerService {
                     "Unknown worker in configuration",
                 ));
             }
-            
+
             // Set the is_probing bool for each worker_tx
             for sender in senders.iter_mut() {
                 let is_probing = scheduled_measurement
@@ -599,10 +610,10 @@ impl Controller for ControllerService {
             .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
-        
+
         // Create a list of all workers
         let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();
-        
+
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
@@ -748,6 +759,8 @@ impl Controller for ControllerService {
         let rx = CLIReceiver {
             inner: rx,
             active: self.is_active.clone(),
+            open_measurements: self.open_measurements.clone(),
+            measurement_id,
         };
 
         Ok(Response::new(rx))
