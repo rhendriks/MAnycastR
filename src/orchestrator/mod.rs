@@ -537,7 +537,7 @@ impl Controller for ControllerService {
                     "Unknown worker in configuration",
                 ));
             }
-            
+
             println!("[] configuration {:?}", scheduled_measurement.configurations);
 
             // Set the is_probing bool for each worker_tx
@@ -546,6 +546,8 @@ impl Controller for ControllerService {
                     .configurations
                     .iter()
                     .any(|config| config.worker_id == sender.worker_id || config.worker_id == u32::MAX);
+                print!("[] setting is_probing to {} for worker {}", is_probing, sender.worker_id);
+
                 sender.update_is_probing(is_probing);
             }
 
@@ -611,14 +613,14 @@ impl Controller for ControllerService {
                 }
             }
         }
-        
+
         // Create a list of probing worker IDs
         let probing_worker_ids = senders
             .iter()
             .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
-        
+
         println!("[] Probing workers: {:?}", probing_worker_ids);
 
         // Create channel for TaskDistributor
@@ -723,7 +725,8 @@ impl Controller for ControllerService {
                         })),
                     })).await.expect("Failed to send task to TaskDistributor");
                 } else {
-                    // targets are probed by all workers
+                    // targets are probed by all selected workers
+                    
                     tx_t.send((ALL_WORKERS_INTERVAL, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
@@ -957,13 +960,13 @@ async fn task_distributor(
                                 sender.hostname, e
                             );
                         });
+                        // Wait inter-probe interval
+                        println!(
+                            "[] Waiting {} seconds before sending next task to worker {}",
+                            interval, sender.worker_id
+                        );
+                        tokio::time::sleep(Duration::from_secs(interval)).await;
                     }
-                    // Wait inter-probe interval
-                    println!(
-                        "[] Waiting {} seconds before sending next task to worker {}",
-                        interval, sender.worker_id
-                    );
-                    tokio::time::sleep(Duration::from_secs(interval)).await;
                 };
             });
         } else { // to specific worker
