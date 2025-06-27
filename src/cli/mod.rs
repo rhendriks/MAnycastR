@@ -31,7 +31,7 @@ use custom_module::manycastr::{
 };
 use custom_module::Separated;
 
-use crate::custom_module;
+use crate::{custom_module, ALL_ID, CHAOS_ID, ICMP_ID, TCP_ID, UDP_ID};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -160,13 +160,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .to_lowercase()
             .as_str()
         {
-            "icmp" => 1,
-            "dns" => 2,
-            "tcp" => 3,
-            "chaos" => 4,
-            "all" => 255,
+            "icmp" => ICMP_ID,
+            "dns" => UDP_ID,
+            "tcp" => TCP_ID,
+            "chaos" => CHAOS_ID,
+            "all" => ALL_ID,
             _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
         };
+
+        // Temporarily broken
+        if is_responsive && is_unicast && measurement_type == TCP_ID {
+            panic!("Responsive mode not supported for unicast TCP measurements");
+        }
 
         let is_config = matches.contains_id("configuration");
 

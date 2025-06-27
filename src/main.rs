@@ -209,6 +209,14 @@ mod net;
 mod orchestrator;
 mod worker;
 
+// Measurement type IDs
+pub const ICMP_ID: u8 = 1; // ICMP ECHO
+pub const UDP_ID: u8 = 2; // UDP DNS A Record
+pub const TCP_ID: u8 = 3; // TCP SYN/ACK
+pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
+pub const ALL_ID: u8 = 255; // All measurement types
+
+
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
