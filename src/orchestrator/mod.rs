@@ -620,7 +620,7 @@ impl Controller for ControllerService {
             .collect::<Vec<u32>>();
         
         // Create a list of all workers
-        let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();;
+        let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();
         
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);

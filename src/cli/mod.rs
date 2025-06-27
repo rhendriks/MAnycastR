@@ -114,16 +114,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             is_responsive = false;
         }
         
-        // TODO enforce latency mode is only when all workers are sending
-        
-        
-        
-        // TODO implement more restraints for is_responsive mode
-        // TODO implement more restraints for is_latency mode
-
-        // TODO is_responsive does not work with GCD TCP
-
-        // TODO is_latency only for anycast measurements
+        // TODO enforce latency mode is only allowed when all workers are sending
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
@@ -319,7 +310,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .get_one::<u16>("destination port")
                 .map(|&port| port as u32)
                 .unwrap_or_else(|| {
-                    if measurement_type == 2 || measurement_type == 4 {
+                    if measurement_type == UDP_ID || measurement_type == CHAOS_ID {
                         53
                     } else {
                         63853
@@ -412,7 +403,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == 4 || measurement_type == 255 {
+        let dns_record = if measurement_type == CHAOS_ID || measurement_type == ALL_ID {
             // get CHAOS query
             matches
                 .get_one::<String>("query")
@@ -433,11 +424,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let interval = *matches.get_one::<u32>("interval").unwrap();
         let rate = *matches.get_one::<u32>("rate").unwrap();
         let t_type = match measurement_type {
-            1 => "ICMP/ping",
-            2 => "UDP/DNS",
-            3 => "TCP/SYN-ACK",
-            4 => "UDP/CHAOS",
-            255 => "All (ICMP,UDP,TCP)",
+            ICMP_ID => "ICMP/ping",
+            UDP_ID => "UDP/DNS",
+            TCP_ID => "TCP/SYN-ACK",
+            CHAOS_ID => "UDP/CHAOS",
+            ALL_ID => "All (ICMP,UDP,TCP)",
             _ => "ICMP/ping",
         };
         let hitlist_length = ips.len();
@@ -755,11 +746,11 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get measurement type
-        let type_str = match measurement_type {
-            1 => "ICMP",
-            2 => "UDP",
-            3 => "TCP",
-            4 => "UDP-CHAOS",
+        let type_str = match measurement_type as u8 {
+            ICMP_ID => "ICMP",
+            UDP_ID => "UDP",
+            TCP_ID => "TCP",
+            CHAOS_ID => "UDP-CHAOS",
             _ => "ICMP",
         };
         let type_str = if is_ipv6 {
@@ -1157,7 +1148,7 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
 
     };
 
-    if measurement_type == 4 {
+    if measurement_type == CHAOS_ID as u32 {
         header.push("chaos_data");
     }
 
