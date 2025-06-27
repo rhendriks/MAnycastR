@@ -225,7 +225,6 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
-    senders: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -238,38 +237,14 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        let mut active = self.active.lock().unwrap();
+        let mut is_active = self.active.lock().unwrap();
 
         // If there is an active measurement we need to cancel it and notify the workers
-        if *active {
+        if *is_active {
             println!(
                 "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
             );
-
-            // Create termination 'task'
-            let end_task = Task {
-                worker_id: None,
-                data: Some(TaskEnd(End { code: 1 })),
-            };
-
-            let worker_senders = self.senders.lock().unwrap().clone();
-
-            // Tell each worker to terminate the measurement
-            for worker in worker_senders {
-                let end_task = end_task.clone();
-
-                spawn(async move {
-                    if let Err(e) = worker.send(Ok(end_task.clone())).await {
-                        println!(
-                            "[Orchestrator] ERROR - Failed to terminate measurement {}",
-                            e
-                        );
-                    }
-                });
-            }
-            println!("[Orchestrator] Terminated the current measurement at all workers");
-
-            *active = false; // No longer an active measurement
+            *is_active = false; // No longer an active measurement
         }
     }
 }
@@ -773,7 +748,6 @@ impl Controller for ControllerService {
         let rx = CLIReceiver {
             inner: rx,
             active: self.is_active.clone(),
-            senders: self.senders.clone(),
         };
 
         Ok(Response::new(rx))
