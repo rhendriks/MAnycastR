@@ -181,7 +181,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the workers that have to send out probes
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || {
-                println!("[CLI] Probes will be sent out from all workers");
+                println!("[CLI] Probes will be sent out from all ({}) workers", worker_map.len());
                 Vec::new()
             },
             |worker_entries_str| {
