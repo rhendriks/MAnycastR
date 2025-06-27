@@ -450,17 +450,16 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                println!("[Worker] Starting new measurement");
-
                 let (is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
                         Data::Start(start) => (!start.tx_origins.is_empty(), start.measurement_id),
                         _ => {
                             // First task is not a start measurement task
-                            println!("[Worker] Received non-start packet for init");
                             continue;
                         }
                     };
+
+                println!("[Worker] Starting new measurement");
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
