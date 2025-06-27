@@ -192,6 +192,12 @@ impl<T> WorkerSender<T> {
         }
         self.is_probing.store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
+    
+    /// The worker finished its measurement
+    pub fn finished(&self) {
+        let mut status = self.status.lock().unwrap();
+        *status = "IDLE".to_string();
+    }
 }
 impl<T> std::fmt::Debug for WorkerSender<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -932,7 +938,7 @@ async fn task_distributor(
             is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
             is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
-        } else if worker_id == ALL_WORKERS_DIRECT { // to all direct
+        } else if worker_id == ALL_WORKERS_DIRECT { // to all direct (used for 'end measurement' only)
             for sender in &senders {
                 sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
@@ -940,6 +946,7 @@ async fn task_distributor(
                         sender.hostname, e
                     );
                 });
+                sender.finished();
             };
         } else if worker_id == ALL_WORKERS_INTERVAL { // to all workers in sending_workers (with interval)
             println!("received all workers task");
