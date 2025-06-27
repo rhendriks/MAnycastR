@@ -697,6 +697,7 @@ impl Controller for ControllerService {
             let mut sender_cycler = probing_worker_ids.iter().cycle();
             // TODO if a sender disconnects, we should remove it from the cycler
             // TODO test what happens when a client drops, do measurements deadlock?
+            // TODO unicast and responsive mode results in spam
 
             // Iterate over hitlist targets
             for chunk in dst_addresses.chunks(probing_rate as usize) {
