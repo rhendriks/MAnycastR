@@ -127,6 +127,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
+        
+        if is_responsive && is_latency {
+            is_responsive = false; // Latency measurements are responsive measurements by implementation
+        }
+        
+        if is_divide && is_responsive {
+            is_responsive == false; // Divide-and-conquer are responsive measurements by implementation
+        }
+        
+        if is_latency && is_unicast {
+            is_latency == false; // Unicast measurements are inherently latency measurements
+        }
 
         // TODO responsive also makes no sense when; only one worker is sending and only one origin is used
 
