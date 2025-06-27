@@ -537,6 +537,8 @@ impl Controller for ControllerService {
                     "Unknown worker in configuration",
                 ));
             }
+            
+            println!("[] configuration {:?}", scheduled_measurement.configurations);
 
             // Set the is_probing bool for each worker_tx
             for sender in senders.iter_mut() {
@@ -609,13 +611,15 @@ impl Controller for ControllerService {
                 }
             }
         }
-
+        
         // Create a list of probing worker IDs
         let probing_worker_ids = senders
             .iter()
             .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
+        
+        println!("[] Probing workers: {:?}", probing_worker_ids);
 
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
