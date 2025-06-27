@@ -537,9 +537,7 @@ impl Controller for ControllerService {
                     "Unknown worker in configuration",
                 ));
             }
-
-            println!("[] configuration {:?}", scheduled_measurement.configurations);
-
+            
             // Set the is_probing bool for each worker_tx
             for sender in senders.iter_mut() {
                 let is_probing = scheduled_measurement
@@ -620,9 +618,10 @@ impl Controller for ControllerService {
             .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
-
-        println!("[] Probing workers: {:?}", probing_worker_ids);
-
+        
+        // Create a list of all workers
+        let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();;
+        
         // Create channel for TaskDistributor
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
@@ -641,7 +640,7 @@ impl Controller for ControllerService {
         });
 
         // Notify all workers that a measurement is starting
-        for worker_id in probing_worker_ids.iter() {
+        for worker_id in all_workers.iter() {
             let mut worker_tx_origins = vec![];
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
@@ -703,7 +702,6 @@ impl Controller for ControllerService {
             let mut sender_cycler = probing_worker_ids.iter().cycle();
             // TODO if a sender disconnects, we should remove it from the cycler
             // TODO test what happens when a client drops, do measurements deadlock?
-            // TODO unicast and responsive mode results in spam
 
             // Iterate over hitlist targets
             for chunk in dst_addresses.chunks(probing_rate as usize) {
@@ -726,7 +724,6 @@ impl Controller for ControllerService {
                     })).await.expect("Failed to send task to TaskDistributor");
                 } else {
                     // targets are probed by all selected workers
-                    
                     tx_t.send((ALL_WORKERS_INTERVAL, Task {
                         worker_id: None,
                         data: Some(custom_module::manycastr::task::Data::Targets(Targets {
