@@ -51,7 +51,7 @@ message Status {
   repeated Worker workers = 1;
 }
 
-// Worker definition, contains a worker ID, metadata (hostname), and a list of current measurements
+// Worker definition, contains a worker ID, metadata (hostname), status
 message Worker {
   fixed32 worker_id = 1;
   string hostname = 2;

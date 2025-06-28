@@ -247,7 +247,7 @@ impl<T> Drop for CLIReceiver<T> {
             println!(
                 "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
             );
-\        }
+        }
         *is_active = false; // No longer an active measurement
 
         // Remove the current measurement TODO test
@@ -912,6 +912,7 @@ async fn task_distributor(
     is_latency: Arc<AtomicBool>,
     is_responsive: Arc<AtomicBool>,
     interval: u64,
+    // TODO implement multiple probes per target 
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task)) = rx.recv().await {
