@@ -226,8 +226,8 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     active: Arc<Mutex<bool>>,
-    open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     measurement_id: u32,
+    open_measurements: Arc<Mutex<HashMap<u32, u32>>>
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -247,16 +247,12 @@ impl<T> Drop for CLIReceiver<T> {
             println!(
                 "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
             );
-            *is_active = false; // No longer an active measurement
-            
-            // Remove the open measurement for this measurement ID
-            let mut open_measurements = self.open_measurements.lock().unwrap();
-            if let Some(_) = open_measurements.get_mut(&self.measurement_id) {
-                open_measurements.remove(&self.measurement_id);
-            } else {
-                println!("[Orchestrator] No open measurement found for ID {}", self.measurement_id);
-            }
-        }
+\        }
+        *is_active = false; // No longer an active measurement
+
+        // Remove the current measurement TODO test
+        let mut open_measurements = self.open_measurements.lock().unwrap();
+        open_measurements.remove(&self.measurement_id);
     }
 }
 
@@ -693,7 +689,6 @@ impl Controller for ControllerService {
         spawn(async move {
             let mut sender_cycler = probing_worker_ids.iter().cycle();
             // TODO if a sender disconnects, we should remove it from the cycler
-            // TODO test what happens when a client drops, do measurements deadlock?
 
             // Iterate over hitlist targets
             for chunk in dst_addresses.chunks(probing_rate as usize) {
@@ -759,8 +754,8 @@ impl Controller for ControllerService {
         let rx = CLIReceiver {
             inner: rx,
             active: self.is_active.clone(),
-            open_measurements: self.open_measurements.clone(),
             measurement_id,
+            open_measurements: self.open_measurements.clone(),
         };
 
         Ok(Response::new(rx))
