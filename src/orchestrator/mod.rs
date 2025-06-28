@@ -47,7 +47,7 @@ pub struct ControllerService {
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
-    task_sender: Arc<Mutex<Option<Sender<(u32, Task)>>>>,
+    task_sender: Arc<Mutex<Option<Sender<(u32, Task, u8)>>>>,
 }
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
@@ -492,7 +492,9 @@ impl Controller for ControllerService {
         let is_responsive = scheduled_measurement.is_responsive;
         let is_latency = scheduled_measurement.is_latency;
         let is_divide = scheduled_measurement.is_divide;
-        let probing_interval = scheduled_measurement.interval as u64;
+        let worker_interval = scheduled_measurement.worker_interval as u64;
+        let probe_interval = scheduled_measurement.probe_interval as u64;
+        let number_of_probes = scheduled_measurement.number_of_probes as u8;
 
         // Configure and get the senders
         let senders: Vec<WorkerSender<Result<Task, Status>>> = {
@@ -567,7 +569,7 @@ impl Controller for ControllerService {
             .unwrap()
             .insert(measurement_id, senders.len() as u32);
 
-        let probing_rate = scheduled_measurement.rate;
+        let probing_rate = scheduled_measurement.probing_rate;
         let measurement_type = scheduled_measurement.measurement_type;
         let is_ipv6 = scheduled_measurement.is_ipv6;
         let dst_addresses = scheduled_measurement
@@ -578,7 +580,7 @@ impl Controller for ControllerService {
         let info_url = scheduled_measurement.url;
 
         if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, probing_interval);
+            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, worker_interval);
         } else {
             println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, number_of_probing_workers);
         }
@@ -610,8 +612,8 @@ impl Controller for ControllerService {
         // Create a list of all workers
         let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();
 
-        // Create channel for TaskDistributor
-        let (tx_t, rx_t) = mpsc::channel::<(u32, Task)>(1000);
+        // Create channel for TaskDistributor (client_id, task, number_of_times)
+        let (tx_t, rx_t) = mpsc::channel::<(u32, Task, u8)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
 
         // Start the TaskDistributor
@@ -623,7 +625,8 @@ impl Controller for ControllerService {
                 senders,
                 is_latency_c,
                 is_responsive_c,
-                probing_interval,
+                worker_interval,
+                probe_interval,
             ).await;
         });
 
@@ -657,7 +660,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((*worker_id, start_task))
+            tx_t.send((*worker_id, start_task, number_of_probes))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -708,7 +711,7 @@ impl Controller for ControllerService {
                             dst_list: chunk.to_vec(),
                             is_discovery,
                         })),
-                    })).await.expect("Failed to send task to TaskDistributor");
+                    }, number_of_probes)).await.expect("Failed to send task to TaskDistributor");
                 } else {
                     // targets are probed by all selected workers
                     tx_t.send((ALL_WORKERS_INTERVAL, Task {
@@ -717,7 +720,7 @@ impl Controller for ControllerService {
                             dst_list: chunk.to_vec(),
                             is_discovery,
                         })),
-                    })).await.expect("Failed to send task to TaskDistributor");
+                    }, number_of_probes)).await.expect("Failed to send task to TaskDistributor");
                 }
 
                 // Wait at specified probing rate before sending the next chunk
@@ -731,7 +734,7 @@ impl Controller for ControllerService {
 
             // Wait for the last targets to be scanned
             if !is_divide && !is_latency {
-                tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * probing_interval) + 1)).await;
+                tokio::time::sleep(Duration::from_secs((number_of_probing_workers as u64 * worker_interval) + 1)).await;
             } else {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
@@ -742,13 +745,13 @@ impl Controller for ControllerService {
             tx_t.send((ALL_WORKERS_DIRECT, Task {
                 worker_id: None,
                 data: Some(TaskEnd(End { code: 0 })),
-            })).await.expect("Failed to send end task to TaskDistributor");
+            }, 1)).await.expect("Failed to send end task to TaskDistributor");
 
             // Close the TaskDistributor channel
             tx_t.send((BREAK_SIGNAL, Task {
                 worker_id: None,
                 data: None,
-            })).await.expect("Failed to send end task to TaskDistributor");
+            }, 1)).await.expect("Failed to send end task to TaskDistributor");
         });
 
         let rx = CLIReceiver {
@@ -831,7 +834,7 @@ impl Controller for ControllerService {
                         dst_list: responsive_targets,
                         is_discovery: None,
                     })),
-                })).await.expect("Failed to send discovery task to TaskDistributor");
+                }, 1)).await.expect("Failed to send discovery task to TaskDistributor"); // TODO use number_of_probes here
 
                 if task_result.result_list.is_empty() {
                     // If there are no regular results, we can return early
@@ -856,7 +859,7 @@ impl Controller for ControllerService {
                             dst_list: vec![result.src.unwrap()],
                             is_discovery: None,
                         })),
-                    })).await.expect("Failed to send discovery task to TaskDistributor");
+                    }, 1)).await.expect("Failed to send discovery task to TaskDistributor");
                 }
             }
 
@@ -903,19 +906,20 @@ impl Controller for ControllerService {
 ///
 /// # Arguments
 ///
-/// * 'rx' - the channel containing the tasks
+/// * 'rx' - the channel containing the tuple (task_ID, task, number_of_probes)
 ///
-/// * 'senders' - a map of worker IDs to their corresponding senders
+/// * 'senders' - a map of worker IDs to their corresponding senders TODO fix rustdoc
 async fn task_distributor(
-    mut rx: mpsc::Receiver<(u32, Task)>,
+    mut rx: mpsc::Receiver<(u32, Task, u8)>,
     senders: Vec<WorkerSender<Result<Task, Status>>>,
     is_latency: Arc<AtomicBool>,
     is_responsive: Arc<AtomicBool>,
-    interval: u64,
+    inter_client_interval: u64,
+    inter_probe_interval: u64, // default interval between probes
     // TODO implement multiple probes per target 
 ) {
     // Loop over the tasks in the channel
-    while let Some((worker_id, task)) = rx.recv().await {
+    while let Some((worker_id, task, number_of_probes)) = rx.recv().await {
         if worker_id == BREAK_SIGNAL {
             // Close distributor channel
             is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -935,36 +939,61 @@ async fn task_distributor(
             println!("received all workers task");
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
-                for sender in &senders {
-                    if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
-                        println!(
-                            "[] Sending task to probing worker {} with interval {} seconds",
-                            sender.worker_id, interval
-                        );
-                        sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
-                            eprintln!(
-                                "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
-                                sender.hostname, e
+                // for i .. 0..number_of_probes {
+                for _ in 0..number_of_probes { // repeat for number_of_probes times
+                    for sender in &senders {
+                        if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
+                            println!(
+                                "[] Sending task to probing worker {} with interval {} seconds",
+                                sender.worker_id, inter_client_interval
                             );
-                        });
-                        // Wait inter-probe interval
-                        println!(
-                            "[] Waiting {} seconds before sending next task to worker {}",
-                            interval, sender.worker_id
-                        );
-                        tokio::time::sleep(Duration::from_secs(interval)).await;
+                            sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                                eprintln!(
+                                    "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
+                                    sender.hostname, e
+                                );
+                            });
+                            // Wait inter-probe interval
+                            println!(
+                                "[] Waiting {} seconds before sending next task to worker {}",
+                                inter_client_interval, sender.worker_id
+                            );
+                            tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
+                        }
                     }
-                };
+                    
+                    // sleep for the inter-probe interval
+                    tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                }
             });
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
-                sender.send(Ok(task)).await.unwrap_or_else(|e| {
-                    eprintln!(
-                        "[Orchestrator] Failed to send task to worker {}: {:?}",
-                        sender.hostname, e
-                    );
-                });
+                if number_of_probes < 2 {
+                    // probe once
+                    sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                        eprintln!(
+                            "[Orchestrator] Failed to send task to worker {}: {:?}",
+                            sender.hostname, e
+                        );
+                    });
+                } else {
+                    // probe multiple times (in separate thread)
+                    let sender_clone = sender.clone();
+                    spawn(async move {
+                        for _ in 0..number_of_probes {
+                            sender_clone.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                                eprintln!(
+                                    "[Orchestrator] Failed to send task to worker {}: {:?}",
+                                    sender_clone.hostname, e
+                                );
+                            });
+                            // Wait inter-probe interval
+                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                        }
+                    });
+                    
+                }
             } else {
                 eprintln!(
                     "[Orchestrator] No sender found for worker ID {}",

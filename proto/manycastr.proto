@@ -32,18 +32,20 @@ message Finished {
 
 // Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
-  uint32 rate = 1;
+  uint32 probing_rate = 1;
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
   uint32 measurement_type = 3;
   bool is_unicast = 4;
   bool is_ipv6 = 5;
-  uint32 interval = 6;
+  uint32 worker_interval = 6;
   bool is_responsive = 7;
   bool is_latency = 8;
   bool is_divide = 9;
   Targets targets = 10;
   string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
   string url = 12; // URL to encode in probes (e.g., opt-out link)
+  uint32 probe_interval = 13; // interval between probes from/to the same origin,dst pair
+  uint32 number_of_probes = 14; // number of probes to send per origin,dst pair
 }
 
 // A list of workers

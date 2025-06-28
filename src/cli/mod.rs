@@ -408,7 +408,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             matches
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == 2 {
+        } else if measurement_type == UDP_ID {
             // TODO change default A record value
             matches
                 .get_one::<String>("query")
@@ -421,8 +421,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_cli = matches.get_flag("stream");
 
         // Get interval, rate. Default values are 1 and 1000 respectively
-        let interval = *matches.get_one::<u32>("interval").unwrap();
-        let rate = *matches.get_one::<u32>("rate").unwrap();
+        let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
+        let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
+        let probing_rate = *matches.get_one::<u32>("rate").unwrap();
+        let number_of_probes = *matches.get_one::<u32>("nprobes").unwrap();
         let t_type = match measurement_type {
             ICMP_ID => "ICMP/ping",
             UDP_ID => "UDP/DNS",
@@ -436,8 +438,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         println!("[CLI] Performing {} measurement targeting {} addresses, with a rate of {}, and an interval of {}",
                  t_type,
                  hitlist_length.with_separator(),
-                 rate.with_separator(),
-                 interval
+                 probing_rate.with_separator(),
+                 worker_interval
         );
 
         if is_responsive {
@@ -549,18 +551,20 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Create the measurement definition and send it to the orchestrator
         let measurement_definition = ScheduleMeasurement {
-            rate,
+            probing_rate,
             configurations,
             measurement_type: measurement_type as u32,
             is_unicast,
             is_ipv6,
             is_divide,
-            interval,
+            worker_interval,
             is_responsive,
             is_latency,
             targets: Some(Targets { dst_list: ips, is_discovery: None }),
             record: dns_record.to_string(),
             url,
+            probe_interval,
+            number_of_probes,
         };
         cli_client
             .do_measurement_to_server(
@@ -614,8 +618,8 @@ impl CliClient {
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.is_divide;
         let is_ipv6 = measurement_definition.is_ipv6;
-        let probing_rate = measurement_definition.rate as f32;
-        let worker_interval = measurement_definition.interval;
+        let probing_rate = measurement_definition.probing_rate as f32;
+        let worker_interval = measurement_definition.worker_interval;
         let measurement_type = measurement_definition.measurement_type;
         let is_unicast = measurement_definition.is_unicast;
         let is_latency = measurement_definition.is_latency;
@@ -1140,7 +1144,7 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
         vec!["worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time"]
     } else {
         // TCP anycast does not have tx_time
-        if measurement_type == 3 {
+        if measurement_type == TCP_ID as u32 {
             vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_worker_id"]
         } else {
             vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"]
@@ -1171,8 +1175,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
     let rx_time = result.rx_time.to_string();
-    let tx_time = result.tx_time.to_string(); // TODO unknown for anycast TCP
-    let tx_worker_id = result.tx_worker_id.to_string(); // TODO unknown for unicast TCP
+    let tx_time = result.tx_time.to_string();
+    let tx_worker_id = result.tx_worker_id.to_string();
     let ttl = result.ttl.to_string();
 
     let reply_src = match result.src {
@@ -1191,7 +1195,7 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
         vec![rx_worker_id, rx_time, reply_src, ttl, tx_time]
     } else {
         // TCP anycast does not have tx_time
-        if measurement_type == 3 {
+        if measurement_type == TCP_ID as u32 {
             vec![rx_worker_id, rx_time, reply_src, ttl, tx_worker_id]
         } else {
             vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id]
