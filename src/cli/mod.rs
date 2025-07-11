@@ -1204,7 +1204,7 @@ fn get_result(
     };
     
     let mut row = if is_symmetric {
-        let rtt = format!("{:.2}", (result.rx_time - result.tx_time) as f64 / 1_000.0);
+        let rtt = format!("{:.2}", (result.rx_time - result.tx_time) as f64 / 1_000_000.0);
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
         let tx_hostname = worker_map
