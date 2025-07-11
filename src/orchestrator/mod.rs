@@ -47,7 +47,7 @@ pub struct ControllerService {
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
-    task_sender: Arc<Mutex<Option<Sender<(u32, Task, u8)>>>>,
+    task_sender: Arc<Mutex<Option<Sender<(u32, Task, bool)>>>>,
 }
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
@@ -613,7 +613,7 @@ impl Controller for ControllerService {
         let all_workers = senders.iter().map(|sender| sender.worker_id).collect::<Vec<u32>>();
 
         // Create channel for TaskDistributor (client_id, task, number_of_times)
-        let (tx_t, rx_t) = mpsc::channel::<(u32, Task, u8)>(1000);
+        let (tx_t, rx_t) = mpsc::channel::<(u32, Task, bool)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
 
         // Start the TaskDistributor
@@ -627,6 +627,7 @@ impl Controller for ControllerService {
                 is_responsive_c,
                 worker_interval,
                 probe_interval,
+                number_of_probes,
             ).await;
         });
 
@@ -660,7 +661,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((*worker_id, start_task, 1))
+            tx_t.send((*worker_id, start_task, false))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -711,7 +712,7 @@ impl Controller for ControllerService {
                             dst_list: chunk.to_vec(),
                             is_discovery,
                         })),
-                    }, number_of_probes)).await.expect("Failed to send task to TaskDistributor");
+                    }, !(is_responsive || is_latency))).await.expect("Failed to send task to TaskDistributor");
                 } else {
                     // targets are probed by all selected workers
                     tx_t.send((ALL_WORKERS_INTERVAL, Task {
@@ -720,7 +721,7 @@ impl Controller for ControllerService {
                             dst_list: chunk.to_vec(),
                             is_discovery,
                         })),
-                    }, number_of_probes)).await.expect("Failed to send task to TaskDistributor");
+                    }, false)).await.expect("Failed to send task to TaskDistributor");
                 }
 
                 // Wait at specified probing rate before sending the next chunk
@@ -745,13 +746,13 @@ impl Controller for ControllerService {
             tx_t.send((ALL_WORKERS_DIRECT, Task {
                 worker_id: None,
                 data: Some(TaskEnd(End { code: 0 })),
-            }, 1)).await.expect("Failed to send end task to TaskDistributor");
+            }, false)).await.expect("Failed to send end task to TaskDistributor");
 
             // Close the TaskDistributor channel
             tx_t.send((BREAK_SIGNAL, Task {
                 worker_id: None,
                 data: None,
-            }, 1)).await.expect("Failed to send end task to TaskDistributor");
+            }, false)).await.expect("Failed to send end task to TaskDistributor");
         });
 
         let rx = CLIReceiver {
@@ -834,7 +835,7 @@ impl Controller for ControllerService {
                         dst_list: responsive_targets,
                         is_discovery: None,
                     })),
-                }, 1)).await.expect("Failed to send discovery task to TaskDistributor"); // TODO use number_of_probes here
+                }, true)).await.expect("Failed to send discovery task to TaskDistributor");
 
                 if task_result.result_list.is_empty() {
                     // If there are no regular results, we can return early
@@ -859,7 +860,7 @@ impl Controller for ControllerService {
                             dst_list: vec![result.src.unwrap()],
                             is_discovery: None,
                         })),
-                    }, 1)).await.expect("Failed to send discovery task to TaskDistributor");
+                    }, true)).await.expect("Failed to send discovery task to TaskDistributor");
                 }
             }
 
@@ -906,20 +907,27 @@ impl Controller for ControllerService {
 ///
 /// # Arguments
 ///
-/// * 'rx' - the channel containing the tuple (task_ID, task, number_of_probes)
+/// * 'rx' - the channel containing the tuple (task_ID, task, multiple_times)
 ///
 /// * 'senders' - a map of worker IDs to their corresponding senders TODO fix rustdoc
 async fn task_distributor(
-    mut rx: mpsc::Receiver<(u32, Task, u8)>,
+    mut rx: mpsc::Receiver<(u32, Task, bool)>,
     senders: Vec<WorkerSender<Result<Task, Status>>>,
     is_latency: Arc<AtomicBool>,
     is_responsive: Arc<AtomicBool>,
     inter_client_interval: u64,
     inter_probe_interval: u64, // default interval between probes
+    number_of_probes: u8,
     // TODO implement multiple probes per target 
 ) {
     // Loop over the tasks in the channel
-    while let Some((worker_id, task, number_of_probes)) = rx.recv().await {
+    while let Some((worker_id, task, multiple)) = rx.recv().await {
+        let nprobes = if multiple {
+            number_of_probes
+        } else {
+            1
+        };
+        
         if worker_id == BREAK_SIGNAL {
             // Close distributor channel
             is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -939,8 +947,7 @@ async fn task_distributor(
             println!("received all workers task");
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
-                // for i .. 0..number_of_probes {
-                for _ in 0..number_of_probes { // repeat for number_of_probes times
+                for _ in 0..nprobes {
                     for sender in &senders {
                         if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                             println!(
@@ -969,7 +976,7 @@ async fn task_distributor(
         } else { // to specific worker
             println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
-                if number_of_probes < 2 {
+                if nprobes < 2 {
                     // probe once
                     sender.send(Ok(task)).await.unwrap_or_else(|e| {
                         eprintln!(
