@@ -680,7 +680,7 @@ impl UDPPacket {
 
         // DNS Header
         dns_body
-            .write_u32::<byteorder::BigEndian>(worker_id)
+            .write_u16::<byteorder::BigEndian>(worker_id as u16)
             .unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
