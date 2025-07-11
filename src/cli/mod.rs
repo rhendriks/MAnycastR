@@ -615,7 +615,7 @@ impl CliClient {
         hitlist_length: usize,
         path: Option<&String>,
         is_config: bool,
-        workers: HashMap<u32, String>,
+        worker_map: HashMap<u32, String>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = measurement_definition.is_divide;
         let is_ipv6 = measurement_definition.is_ipv6;
@@ -673,7 +673,7 @@ impl CliClient {
             };
 
         let number_of_probers = if probing_workers.is_empty() {
-            workers.len() as f32
+            worker_map.len() as f32
         } else {
             probing_workers.len() as f32
         };
@@ -801,7 +801,7 @@ impl CliClient {
             timestamp_start_str,
             measurement_length,
             probing_workers,
-            &workers,
+            &worker_map,
             &measurement_definition.configurations,
             is_config,
             is_latency,
@@ -828,6 +828,7 @@ impl CliClient {
             measurement_type,
             is_multi_origin,
             is_unicast || is_latency,
+            worker_map,
         );
 
         let mut replies_count = 0;
@@ -1061,6 +1062,7 @@ fn write_results(
     measurement_type: u32,
     is_multi_origin: bool,
     is_symmetric: bool,
+    worker_map: HashMap<u32, String>,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if is_cli {
@@ -1107,7 +1109,7 @@ fn write_results(
             }
             let results: Vec<Reply> = task_result.result_list;
             for result in results {
-                let result = get_result(result, task_result.worker_id, measurement_type, is_symmetric);
+                let result = get_result(result, task_result.worker_id, measurement_type, is_symmetric, worker_map.clone());
 
                 // Write to command-line
                 if is_cli {
@@ -1144,13 +1146,13 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
     // TODO replace worker_id with hostname (since we write compressed)
     // TODO replace tx_time, rx_time with RTT (for symmetric measurements)
     let mut header = if is_symmetric {
-        vec!["worker_id", "reply_src_addr", "ttl", "rtt"]
+        vec!["rx", "reply_src_addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
         if measurement_type == TCP_ID as u32 {
-            vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_worker_id"]
+            vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx"]
         } else {
-            vec!["rx_worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx_worker_id"]
+            vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx"]
         }
 
     };
@@ -1173,13 +1175,23 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
 /// * `result` - The Reply that is being written to this row
 ///
 /// * `x_worker_id` - The worker ID of the receiver
-fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmetric: bool) -> Vec<String> {
+fn get_result(
+    result: Reply, 
+    rx_worker_id: u32, 
+    measurement_type: u32, 
+    is_symmetric: bool, 
+    worker_map: HashMap<u32, String>
+) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
+    // convert the worker ID to hostname TODO
+    let rx_hostname = worker_map
+        .get(&rx_worker_id.parse::<u32>().unwrap())
+        .unwrap_or(&String::from("Unknown")).to_string();
     let rx_time = result.rx_time.to_string();
     let tx_time = result.tx_time.to_string();
-    let tx_worker_id = result.tx_worker_id.to_string();
+    let tx_worker_id = result.tx_worker_id;
     let ttl = result.ttl.to_string();
 
     let reply_src = match result.src {
@@ -1196,13 +1208,17 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
     
     let mut row = if is_symmetric {
         let rtt = ((result.rx_time - result.tx_time) / 1_000_000).to_string(); // RTT in microseconds
-        vec![rx_worker_id, reply_src, ttl, rtt]
+        vec![rx_hostname, reply_src, ttl, rtt]
     } else {
+        let tx_hostname = worker_map
+            .get(&tx_worker_id)
+            .unwrap_or(&String::from("Unknown")).to_string();
+        
         // TCP anycast does not have tx_time
         if measurement_type == TCP_ID as u32 {
-            vec![rx_worker_id, rx_time, reply_src, ttl, tx_worker_id]
+            vec![rx_hostname, rx_time, reply_src, ttl, tx_hostname]
         } else {
-            vec![rx_worker_id, rx_time, reply_src, ttl, tx_time, tx_worker_id]
+            vec![rx_hostname, rx_time, reply_src, ttl, tx_time, tx_hostname]
         }
     };
 
