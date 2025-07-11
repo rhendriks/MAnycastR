@@ -850,7 +850,7 @@ impl Controller for ControllerService {
             for result in &task_result.result_list {
                 // TODO will send tasks after the measurement is finished
                 // Check for discovery probes where the sender is not the receiver
-                if (result.tx_worker_id != rx_worker_id) && (result.is_discovery == Some(true)) {
+                if result.is_discovery == Some(true) {
                     println!("Probing {} from catcher {}", result.src.unwrap(), rx_worker_id);
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
@@ -864,9 +864,9 @@ impl Controller for ControllerService {
                 }
             }
 
-            // Keep only results where the sender is the same as the receiver
+            // Keep non-discovery results
             task_result.result_list.retain(|result| {
-                result.tx_worker_id == rx_worker_id
+                result.is_discovery != Some(true)
             });
 
             if task_result.result_list.is_empty() {
@@ -927,7 +927,7 @@ async fn task_distributor(
         } else {
             1
         };
-        
+
         if worker_id == BREAK_SIGNAL {
             // Close distributor channel
             is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
