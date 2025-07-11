@@ -166,7 +166,6 @@ impl Worker {
         let is_unicast = start_measurement.is_unicast;
         let is_probing = !start_measurement.tx_origins.is_empty();
         let qname = start_measurement.record;
-        println!("found qname: {}", qname);
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
 
