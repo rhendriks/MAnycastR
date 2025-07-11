@@ -1093,9 +1093,7 @@ fn write_results(
             .unwrap()
             .write_record(&header)
             .expect("Failed to write header to stdout")
-        // TODO CLI should print more concise information
-        // ip address instead of ip number
-        // measured RTT instead of tx_time and rx_time
+        // TODO ip address instead of ip number
     };
     wtr_file
         .write_record(header)
@@ -1144,7 +1142,6 @@ fn write_results(
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
     // TODO replace worker_id with hostname (since we write compressed)
-    // TODO replace tx_time, rx_time with RTT (for symmetric measurements)
     let mut header = if is_symmetric {
         vec!["rx", "reply_src_addr", "ttl", "rtt"]
     } else {
@@ -1207,7 +1204,7 @@ fn get_result(
     };
     
     let mut row = if is_symmetric {
-        let rtt = ((result.rx_time - result.tx_time) / 1_000_000).to_string(); // RTT in microseconds
+        let rtt = format!("{:.2}", (result.rx_time - result.tx_time) as f64 / 1_000.0);
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
         let tx_hostname = worker_map
