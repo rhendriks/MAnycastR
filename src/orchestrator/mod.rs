@@ -660,7 +660,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((*worker_id, start_task, number_of_probes))
+            tx_t.send((*worker_id, start_task, 1))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
