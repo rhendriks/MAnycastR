@@ -730,8 +730,8 @@ impl Controller for ControllerService {
 
             // All tasks are sent
             println!("[Orchestrator] All tasks are sent");
-            // Sleep 1 second to give the worker time to finish the measurement and receive the last responses
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // Wait for last probe tasks to be sent
+            tokio::time::sleep(Duration::from_secs(number_of_probes as u64 * probe_interval)).await;
 
             // Wait for the last targets to be scanned
             if !is_divide && !is_latency {
