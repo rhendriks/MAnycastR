@@ -772,7 +772,7 @@ impl CliClient {
             if path.unwrap().ends_with('/') {
                 // user provided a path, use default naming convention for file
                 format!(
-                    "{}{}{}{}.csv.gz",
+                    "{}{}{}{}.csv.gz", // TODO write parquet instead
                     path.unwrap(),
                     filetype,
                     type_str,
@@ -1141,8 +1141,10 @@ fn write_results(
 ///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
+    // TODO replace worker_id with hostname (since we write compressed)
+    // TODO replace tx_time, rx_time with RTT (for symmetric measurements)
     let mut header = if is_symmetric {
-        vec!["worker_id", "rx_time", "reply_src_addr", "ttl", "tx_time"]
+        vec!["worker_id", "reply_src_addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
         if measurement_type == TCP_ID as u32 {
@@ -1193,7 +1195,8 @@ fn get_result(result: Reply, rx_worker_id: u32, measurement_type: u32, is_symmet
     };
     
     let mut row = if is_symmetric {
-        vec![rx_worker_id, rx_time, reply_src, ttl, tx_time]
+        let rtt = ((result.rx_time - result.tx_time) / 1_000_000).to_string(); // RTT in microseconds
+        vec![rx_worker_id, reply_src, ttl, rtt]
     } else {
         // TCP anycast does not have tx_time
         if measurement_type == TCP_ID as u32 {
