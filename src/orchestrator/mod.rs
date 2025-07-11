@@ -697,7 +697,7 @@ impl Controller for ControllerService {
             for chunk in dst_addresses.chunks(probing_rate as usize) {
                 // If the CLI disconnects during task distribution, abort
                 if *is_active.lock().unwrap() == false {
-                    println!("[Orchestrator] CLI disconnected during task distribution");
+                    println!("[Orchestrator] Measurement no longer active");
                     break; // abort
                 }
 

@@ -99,6 +99,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut is_responsive = matches.get_flag("responsive");
         let mut is_latency = matches.get_flag("latency");
         
+        // TODO clean up if statement spam
         if is_latency && is_unicast {
             // Unicast measurements are inherently latency measurements
             is_latency = false;

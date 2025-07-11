@@ -447,6 +447,7 @@ fn parse_udpv4(
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
     }
+    println!("Parsing UDPv4 packet with length {}", packet_bytes.len());
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let udp_packet = if let PacketPayload::UDP { value: udp_packet } = payload {
