@@ -425,7 +425,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
         let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
         let probing_rate = *matches.get_one::<u32>("rate").unwrap();
-        let number_of_probes = *matches.get_one::<u32>("nprobes").unwrap();
+        let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
         let t_type = match measurement_type {
             ICMP_ID => "ICMP/ping",
             UDP_ID => "UDP/DNS",
