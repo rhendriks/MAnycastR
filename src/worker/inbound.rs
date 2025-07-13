@@ -85,14 +85,14 @@ pub fn listen(
                     let udp_result = if is_ipv6 {
                         if packet[20] == 17 {
                             // 17 is the protocol number for UDP
-                            parse_udpv6(&packet[14..], measurement_type, &origin_map)
+                            parse_dnsv6(&packet[14..], measurement_type, &origin_map)
                         } else {
                             None
                         }
                     } else {
                         if packet[23] == 17 {
                             // 17 is the protocol number for UDP
-                            parse_udpv4(&packet[14..], measurement_type, &origin_map)
+                            parse_dnsv4(&packet[14..], measurement_type, &origin_map)
                         } else {
                             None
                         }
@@ -281,9 +281,7 @@ fn parse_icmpv4(
 
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
-    let icmp_packet = if let PacketPayload::ICMP { value: icmp_packet } = payload {
-        icmp_packet
-    } else {
+    let PacketPayload::ICMP { value: icmp_packet } = payload else {
         return None;
     };
 
@@ -367,11 +365,10 @@ fn parse_icmpv6(
     let (address, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     // Parse the ICMP header
-    let icmp_packet = if let PacketPayload::ICMP { value } = payload {
-        value
-    } else {
+    let PacketPayload::ICMP { value: icmp_packet } = payload else {
         return None;
     };
+    
     // Obtain the payload
     if *&icmp_packet.icmp_type != 129 {
         return None;
@@ -438,21 +435,19 @@ fn parse_icmpv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv4(
+fn parse_dnsv4(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // UDPv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
+    // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
     }
     println!("Parsing UDPv4 packet with length {}", packet_bytes.len());
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
-    let udp_packet = if let PacketPayload::UDP { value: udp_packet } = payload {
-        udp_packet
-    } else {
+    let PacketPayload::UDP { value: udp_packet } = payload else {
         return None;
     };
 
@@ -529,20 +524,18 @@ fn parse_udpv4(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a UDP header.
-fn parse_udpv6(
+fn parse_dnsv6(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
 ) -> Option<Reply> {
-    // UDPv6 64 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
+    // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
         return None;
     }
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
-    let udp_packet = if let PacketPayload::UDP { value: udp_packet } = payload {
-        udp_packet
-    } else {
+    let PacketPayload::UDP { value: udp_packet } = payload else {
         return None;
     };
 
@@ -743,9 +736,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
-    let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
-        tcp_packet
-    } else {
+    let PacketPayload::TCP { value: tcp_packet } = payload else {
         return None;
     };
 
@@ -805,9 +796,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
-    let tcp_packet = if let PacketPayload::TCP { value: tcp_packet } = payload {
-        tcp_packet
-    } else {
+    let PacketPayload::TCP { value: tcp_packet } = payload else {
         return None;
     };
 
