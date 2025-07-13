@@ -658,6 +658,7 @@ impl Controller for ControllerService {
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
+                    is_latency,
                 })),
             };
 
