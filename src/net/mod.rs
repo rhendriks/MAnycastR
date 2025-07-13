@@ -3,6 +3,7 @@ use std::io::{Cursor, Read, Write};
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
+use crate::custom_module::manycastr::Address;
 
 pub(crate) mod netv6;
 pub(crate) mod packet;
@@ -610,8 +611,8 @@ impl UDPPacket {
     /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
     /// source_address, destination_address, worker_id, source_port, destination_port
     pub fn dns_request(
-        source_address: u32,
-        destination_address: u32,
+        source_address: &Address,
+        destination_address: &Address,
         source_port: u16,
         domain_name: &str,
         transmit_time: u64,
@@ -639,8 +640,8 @@ impl UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeader {
-            src: source_address,
-            dst: destination_address,
+            src: source_address.get_v4(),
+            dst: destination_address.get_v4(),
             zeroes: 0,
             protocol: 17,
             length: udp_length,
@@ -651,8 +652,8 @@ impl UDPPacket {
         let v4_packet = IPv4Packet {
             length: 20 + udp_length,
             ttl,
-            src: source_address,
-            dst: destination_address,
+            src: source_address.get_v4(),
+            dst: destination_address.get_v4(),
             payload: PacketPayload::UDP {
                 value: udp_packet.into(),
             },
@@ -664,8 +665,8 @@ impl UDPPacket {
     fn create_a_record_request(
         domain_name: &str,
         transmit_time: u64,
-        source_address: u32,
-        destination_address: u32,
+        source_address: &Address,
+        destination_address: &Address,
         worker_id: u32,
         source_port: u16,
     ) -> Vec<u8> {
@@ -674,7 +675,7 @@ impl UDPPacket {
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = format!(
             "{}-{}-{}-{}-{}.{}",
-            transmit_time, source_address, destination_address, worker_id, source_port, domain_name
+            transmit_time, source_address.get_v6(), destination_address.get_v6(), worker_id, source_port, domain_name
         );
         let mut dns_body: Vec<u8> = Vec::new();
 

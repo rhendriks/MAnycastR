@@ -1,5 +1,5 @@
 use std::io::{Cursor, Write};
-
+use crate::custom_module::manycastr::Address;
 use super::byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use super::{ICMPPacket, PacketPayload};
 
@@ -313,8 +313,8 @@ impl super::UDPPacket {
     ///
     /// * 'hop_limit' - the hop limit (TTL) of the packet
     pub fn dns_request_v6(
-        src: u128,
-        dst: u128,
+        src: &Address,
+        dst: &Address,
         sport: u16,
         qname: &str,
         tx_time: u64,
@@ -323,7 +323,7 @@ impl super::UDPPacket {
     ) -> Vec<u8> {
         let destination_port = 53u16; // DNS port
         let dns_packet =
-            Self::create_dns_a_record_request_v6(&qname, tx_time, src, dst, worker_id, sport);
+            Self::create_a_record_request(&qname, tx_time, src, dst, worker_id, sport);
         let udp_length = (8 + dns_packet.len()) as u32;
 
         let mut udp_packet = Self {
@@ -337,8 +337,8 @@ impl super::UDPPacket {
         // Calculate the UDP checksum (using a pseudo header)
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         let pseudo_header = PseudoHeaderv6 {
-            src,
-            dst,
+            src: src.get_v6(),
+            dst: dst.get_v6(),
             zeros: 0,
             next_header: 17,
             length: udp_length,
@@ -350,67 +350,12 @@ impl super::UDPPacket {
             payload_length: udp_length as u16,
             next_header: 17, // UDP
             hop_limit,
-            src,
-            dst,
+            src: src.get_v6(),
+            dst: dst.get_v6(),
             payload: PacketPayload::UDP { value: udp_packet },
         };
 
         v6_packet.into()
-    }
-
-    /// Creating the DNS body with the A record request
-    ///
-    /// # Arguments
-    ///
-    /// * 'domain_name' - the domain name of the A record (excluding encoded values)
-    ///
-    /// * 'tx_time' - the time of transmission
-    ///
-    /// * 'src' - the source address of the packet
-    ///
-    /// * 'dst' - the destination address of the packet
-    ///
-    /// * 'worker_id' - the sender worker ID
-    ///
-    /// * 'sport' - the source port of the packet
-    fn create_dns_a_record_request_v6(
-        domain_name: &str,
-        tx_time: u64,
-        src: u128,
-        dst: u128,
-        worker_id: u32,
-        sport: u16,
-    ) -> Vec<u8> {
-        // Max length of DNS domain name is 253 characters
-
-        // Each label has a max length of 63 characters
-        // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
-        // u128 highest value has 39 digits
-        let subdomain = format!(
-            "{}.{}.{}.{}.{}.{}",
-            tx_time, src, dst, worker_id, sport, domain_name
-        );
-        let mut dns_body: Vec<u8> = Vec::new();
-        // DNS Header
-        dns_body
-            .write_u32::<byteorder::BigEndian>(worker_id)
-            .expect("Unable to write to byte buffer for UDP packet"); // Transaction ID
-        dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
-        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
-        dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
-
-        // DNS Question
-        for label in subdomain.split('.') {
-            dns_body.push(label.len() as u8);
-            dns_body.write_all(label.as_bytes()).unwrap();
-        }
-        dns_body.push(0); // Terminate the QNAME
-        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QTYPE (A record)
-        dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QCLASS (IN)
-
-        dns_body
     }
 
     /// Create a UDP packet with a CHAOS TXT record request.

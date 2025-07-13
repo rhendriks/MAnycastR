@@ -427,12 +427,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let probing_rate = *matches.get_one::<u32>("rate").unwrap();
         let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
         let t_type = match measurement_type {
-            ICMP_ID => "ICMP/ping",
+            ICMP_ID => "ICMP",
             A_ID => "DNS/A",
             TCP_ID => "TCP/SYN-ACK",
             CHAOS_ID => "DNS/CHAOS",
             ALL_ID => "All (ICMP,DNS/A,TCP)",
-            _ => "ICMP/ping",
+            _ => "Unknown",
         };
         let hitlist_length = ips.len();
 
