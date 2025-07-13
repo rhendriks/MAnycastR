@@ -31,7 +31,7 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'is_unicast' - whether we are sending probes with unicast or anycast
+/// * 'is_latency' - whether we are measuring latency
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
@@ -52,7 +52,7 @@ pub fn outbound(
     mut outbound_channel_rx: Receiver<Data>,
     finish_rx: Arc<AtomicBool>,
     is_ipv6: bool,
-    is_unicast: bool,
+    is_latency: bool,
     measurement_id: u32,
     measurement_type: u8,
     qname: String,
@@ -168,7 +168,7 @@ pub fn outbound(
                                             dst,
                                             worker_id,
                                             is_ipv6,
-                                            is_unicast,
+                                            is_latency,
                                             &info_url,
                                         ));
 

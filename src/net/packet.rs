@@ -314,7 +314,7 @@ pub fn create_udp(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'is_unicast' - whether we are performing anycast-based (false) or GCD probing (true)
+/// * 'is_latency' - whether we are measuring latency
 ///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
@@ -326,15 +326,15 @@ pub fn create_tcp(
     dst: &Address,
     worker_id: u32,
     is_ipv6: bool,
-    is_unicast: bool,
+    is_latency: bool,
     info_url: &str,
 ) -> Vec<u8> {
     let seq = 0; // information in seq gets lost
-                 // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
-    let ack = if !is_unicast {
+    let ack = if !is_latency || worker_id > u16::MAX as u32 {
+        // catchment mapping (or discovery probe for latency measurement)
         worker_id
     } else {
-        // The least significant bits are kept
+        // latency measurement
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

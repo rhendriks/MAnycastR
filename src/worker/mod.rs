@@ -168,6 +168,7 @@ impl Worker {
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
+        let is_latency = start_measurement.is_latency;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -297,7 +298,7 @@ impl Worker {
                 outbound_rx.unwrap(),
                 finish.unwrap(),
                 is_ipv6,
-                is_unicast,
+                is_latency,
                 measurement_id,
                 start_measurement.measurement_type as u8,
                 qname,
@@ -466,8 +467,7 @@ impl Worker {
 
                 if is_probing {
                     // This worker is probing
-                    // Initialize signal finish channel
-                    // create AtomicBool
+                    // Initialize signal finish atomic boolean
                     finish = Some(Arc::new(AtomicBool::new(false)));
 
                     self.init(task, worker_id, finish.clone());

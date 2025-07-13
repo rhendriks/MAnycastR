@@ -95,6 +95,7 @@ message Start {
   repeated Origin rx_origins = 7; // origins to listen for
   string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
   string url = 9; // URL encoded in probes
+  bool is_latency = 10; // whether the measurement is for latency
 }
 
 // An end message, indicates the worker should stop sending out probes

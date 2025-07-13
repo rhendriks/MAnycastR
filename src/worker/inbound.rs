@@ -763,7 +763,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     
     let mut seq = tcp_packet.seq;
     
-    let is_discovery = if seq > u16::MAX as u32 { // TODO will fail for GCD using TCP
+    let is_discovery = if seq > u16::MAX as u32 {
         seq = seq - u16::MAX as u32;
         Some(true)
     } else {
@@ -771,7 +771,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     };
 
     Some(Reply {
-        tx_time: seq as u64, // TODO
+        tx_time: seq as u64,
         tx_worker_id: seq,
         src: Some(src),
         ttl,
