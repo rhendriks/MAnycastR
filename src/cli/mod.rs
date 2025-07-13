@@ -31,7 +31,7 @@ use custom_module::manycastr::{
 };
 use custom_module::Separated;
 
-use crate::{custom_module, ALL_ID, CHAOS_ID, ICMP_ID, TCP_ID, UDP_ID};
+use crate::{custom_module, ALL_ID, CHAOS_ID, ICMP_ID, TCP_ID, A_ID};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -165,7 +165,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .as_str()
         {
             "icmp" => ICMP_ID,
-            "dns" => UDP_ID,
+            "dns" => A_ID,
             "tcp" => TCP_ID,
             "chaos" => CHAOS_ID,
             "all" => ALL_ID,
@@ -311,7 +311,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .get_one::<u16>("destination port")
                 .map(|&port| port as u32)
                 .unwrap_or_else(|| {
-                    if measurement_type == UDP_ID || measurement_type == CHAOS_ID {
+                    if measurement_type == A_ID || measurement_type == CHAOS_ID {
                         53
                     } else {
                         63853
@@ -409,7 +409,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             matches
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == UDP_ID {
+        } else if measurement_type == A_ID {
             // TODO change default A record value
             matches
                 .get_one::<String>("query")
@@ -428,10 +428,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
         let t_type = match measurement_type {
             ICMP_ID => "ICMP/ping",
-            UDP_ID => "UDP/DNS",
+            A_ID => "DNS/A",
             TCP_ID => "TCP/SYN-ACK",
-            CHAOS_ID => "UDP/CHAOS",
-            ALL_ID => "All (ICMP,UDP,TCP)",
+            CHAOS_ID => "DNS/CHAOS",
+            ALL_ID => "All (ICMP,DNS/A,TCP)",
             _ => "ICMP/ping",
         };
         let hitlist_length = ips.len();
@@ -753,9 +753,9 @@ impl CliClient {
         // Get measurement type
         let type_str = match measurement_type as u8 {
             ICMP_ID => "ICMP",
-            UDP_ID => "UDP",
+            A_ID => "DNS",
             TCP_ID => "TCP",
-            CHAOS_ID => "UDP-CHAOS",
+            CHAOS_ID => "CHAOS",
             _ => "ICMP",
         };
         let type_str = if is_ipv6 {

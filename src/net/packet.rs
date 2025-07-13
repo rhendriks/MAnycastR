@@ -7,6 +7,7 @@ use std::io::BufRead;
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::{CHAOS_ID, A_ID};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
     let output = Command::new("ip")
@@ -229,7 +230,7 @@ pub fn create_ping(
     }
 }
 
-/// Creates a UDP packet.
+/// Creates a DNS packet.
 ///
 /// # Arguments
 ///
@@ -237,9 +238,9 @@ pub fn create_ping(
 ///
 /// * 'worker_id' - the unique worker ID of this worker
 ///
-/// * 'dst' - the destination address for the UDP packet
+/// * 'dst' - the destination address for the DNS packet
 ///
-/// * 'measurement_type' - the type of measurement being performed (2 = UDP/DNS, 4 = UDP/CHAOS)
+/// * 'measurement_type' - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -247,12 +248,12 @@ pub fn create_ping(
 ///
 /// # Returns
 ///
-/// A UDP packet (including the IP header) as a byte vector.
+/// A DNS packet (including the IP header) as a byte vector.
 ///
 /// # Panics
 ///
 /// If the measurement type is not 2 or 4
-pub fn create_udp(
+pub fn create_dns(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
@@ -268,7 +269,7 @@ pub fn create_udp(
     let sport = origin.sport as u16;
 
     if is_ipv6 {
-        if measurement_type == 2 {
+        if measurement_type == A_ID {
             UDPPacket::dns_request_v6(
                 src.get_v6(),
                 dst.get_v6(),
@@ -278,13 +279,13 @@ pub fn create_udp(
                 worker_id,
                 255,
             )
-        } else if measurement_type == 4 {
+        } else if measurement_type == CHAOS_ID {
             UDPPacket::chaos_request_v6(src.get_v6(), dst.get_v6(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
         }
     } else {
-        if measurement_type == 2 {
+        if measurement_type == A_ID {
             UDPPacket::dns_request(
                 src.get_v4(),
                 dst.get_v4(),
@@ -294,7 +295,7 @@ pub fn create_udp(
                 worker_id,
                 255,
             )
-        } else if measurement_type == 4 {
+        } else if measurement_type == CHAOS_ID {
             UDPPacket::chaos_request(src.get_v4(), dst.get_v4(), sport, worker_id, qname)
         } else {
             panic!("Invalid measurement type")
