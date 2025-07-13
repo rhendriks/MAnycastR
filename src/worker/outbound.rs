@@ -15,7 +15,7 @@ use pnet::datalink::DataLinkSender;
 
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
-use crate::net::packet::{create_ping, create_tcp, create_dns, get_ethernet_header};
+use crate::net::packet::{create_icmp, create_tcp, create_dns, get_ethernet_header};
 
 /// Spawns thread that sends out ICMP, DNS, or TCP probes.
 ///
@@ -112,7 +112,7 @@ pub fn outbound(
                                 1 => { // ICMP
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
-                                        packet.extend_from_slice(&create_ping(
+                                        packet.extend_from_slice(&create_icmp(
                                             origin,
                                             dst,
                                             worker_id,

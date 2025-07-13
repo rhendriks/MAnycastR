@@ -181,7 +181,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 /// # Returns
 ///
 /// A ping packet (including the IP header) as a byte vector.
-pub fn create_ping(
+pub fn create_icmp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
@@ -265,14 +265,14 @@ pub fn create_dns(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let src = origin.src.expect("None IP address");
+    let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
     if is_ipv6 {
         if measurement_type == A_ID {
             UDPPacket::dns_request_v6(
-                src.get_v6(),
-                dst.get_v6(),
+                src,
+                dst,
                 sport,
                 qname,
                 tx_time,
@@ -287,8 +287,8 @@ pub fn create_dns(
     } else {
         if measurement_type == A_ID {
             UDPPacket::dns_request(
-                src.get_v4(),
-                dst.get_v4(),
+                src,
+                dst,
                 sport,
                 qname,
                 tx_time,
