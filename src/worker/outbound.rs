@@ -15,9 +15,9 @@ use pnet::datalink::DataLinkSender;
 
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
-use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_header};
+use crate::net::packet::{create_ping, create_tcp, create_dns, get_ethernet_header};
 
-/// Spawns thread that sends out ICMP, UDP, or TCP probes.
+/// Spawns thread that sends out ICMP, DNS, or TCP probes.
 ///
 /// # Arguments
 ///
@@ -35,7 +35,7 @@ use crate::net::packet::{create_ping, create_tcp, create_udp, get_ethernet_heade
 ///
 /// * 'measurement_id' - the unique ID of the current measurement
 ///
-/// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = UDP/DNS, 3 = TCP, 4 = UDP/CHAOS)
+/// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = DNS/A, 3 = TCP, 4 = DNS/CHAOS)
 ///
 /// * 'qname' - the domain name to use for DNS measurements
 ///
@@ -134,10 +134,10 @@ pub fn outbound(
                                         }
                                     }
                                 }
-                                2 | 4 => { // UDP or UDP/CHAOS
+                                2 | 4 => { // DNS A record or CHAOS
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
-                                        packet.extend_from_slice(&create_udp(
+                                        packet.extend_from_slice(&create_dns(
                                             origin,
                                             dst,
                                             worker_id,
@@ -153,7 +153,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send UDP packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send DNS packet: {}", e);
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),

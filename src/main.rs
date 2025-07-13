@@ -51,7 +51,7 @@
 //!
 //! ## Variables
 //! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
-//! * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
+//! * **Type of measurement** - ICMP, DNS, TCP, or CHAOS
 //! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 //! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 //! * **Interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -211,7 +211,7 @@ mod worker;
 
 // Measurement type IDs
 pub const ICMP_ID: u8 = 1; // ICMP ECHO
-pub const UDP_ID: u8 = 2; // UDP DNS A Record
+pub const A_ID: u8 = 2; // UDP DNS A Record
 pub const TCP_ID: u8 = 3; // TCP SYN/ACK
 pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
 pub const ALL_ID: u8 = 255; // All measurement types
