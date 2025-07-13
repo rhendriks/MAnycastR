@@ -129,7 +129,7 @@ message TaskResult {
   repeated Reply result_list = 2;
 }
 
-// A reply, either a PingResult, UDPResult, or TCPResult; the IP result, the receive time, and the origin ID of the reply
+// Probe reply message
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
