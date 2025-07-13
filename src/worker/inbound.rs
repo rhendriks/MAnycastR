@@ -313,7 +313,7 @@ fn parse_icmpv4(
         .as_nanos() as u64;
     
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        tx_worker_id -= u16::MAX as u32;
         Some(true)
     } else {
         None
@@ -397,7 +397,7 @@ fn parse_icmpv6(
         .as_nanos() as u64;
     
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        tx_worker_id -= u16::MAX as u32;
         Some(true)
     } else {
         None
@@ -416,9 +416,9 @@ fn parse_icmpv6(
     })
 }
 
-/// Parse UDPv4 packets (including v4 headers) into a Reply result.
+/// Parse DNSv4 packets (including v4 headers) into a Reply result.
 ///
-/// Filters out spoofed packets and only parses UDP replies valid for the current measurement.
+/// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
 ///
 /// # Arguments
 ///
@@ -430,7 +430,7 @@ fn parse_icmpv6(
 ///
 /// # Returns
 ///
-/// * `Option<Reply>` - the received UDP reply
+/// * `Option<Reply>` - the received DNS reply
 ///
 /// # Remarks
 ///
@@ -444,7 +444,7 @@ fn parse_dnsv4(
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
     }
-    println!("Parsing UDPv4 packet with length {}", packet_bytes.len());
+
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let PacketPayload::UDP { value: udp_packet } = payload else {
@@ -492,7 +492,7 @@ fn parse_dnsv4(
 
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
 
-    // Create a Reply for the received UDP reply
+    // Create a Reply for the received DNS reply
     Some(Reply {
         tx_time,
         tx_worker_id,
@@ -505,9 +505,9 @@ fn parse_dnsv4(
     })
 }
 
-/// Parse UDPv6 packets (including v6 headers) into a Reply.
+/// Parse DNSv6 packets (including v6 headers) into a Reply.
 ///
-/// Filters out spoofed packets and only parses UDP replies valid for the current measurement.
+/// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
 ///
 /// # Arguments
 ///
@@ -519,7 +519,7 @@ fn parse_dnsv4(
 ///
 /// # Returns
 ///
-/// * `Option<Reply>` - the received UDP reply
+/// * `Option<Reply>` - the received DNS reply
 ///
 /// # Remarks
 ///
@@ -579,7 +579,7 @@ fn parse_dnsv6(
 
     let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
 
-    // Create a Reply for the received UDP reply
+    // Create a Reply for the received DNS reply
     Some(Reply {
         tx_time,
         tx_worker_id,
@@ -592,7 +592,7 @@ fn parse_dnsv6(
     })
 }
 
-/// Attempts to parse the DNS A record from a UDP payload body.
+/// Attempts to parse the DNS A record from a DNS payload body.
 ///
 /// # Arguments
 ///
@@ -620,9 +620,9 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
     let probe_dst = parts[2].parse::<u128>().ok()?;
     let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
-    
+
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        tx_worker_id -= u16::MAX as u32;
         true
     } else {
         false
@@ -669,7 +669,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
     let probe_sport = parts[4].parse::<u16>().ok()?;
     
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id = tx_worker_id - u16::MAX as u32;
+        tx_worker_id -= u16::MAX as u32;
         true
     } else {
         false
@@ -751,14 +751,11 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         tcp_packet.destination_port,
         origin_map,
     )?;
-    
-    let mut seq = tcp_packet.seq;
-    
-    let is_discovery = if seq > u16::MAX as u32 {
-        seq = seq - u16::MAX as u32;
-        Some(true)
+
+    let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
+        (tcp_packet.seq - u16::MAX as u32, Some(true))
     } else {
-        None
+        (tcp_packet.seq, None)
     };
 
     Some(Reply {
@@ -813,13 +810,10 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     )?;
 
 
-    let mut seq = tcp_packet.seq;
-
-    let is_discovery = if seq > u16::MAX as u32 { // TODO will fail for GCD using TCP
-        seq = seq - u16::MAX as u32;
-        Some(true)
+    let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
+        (tcp_packet.seq - u16::MAX as u32, Some(true))
     } else {
-        None
+        (tcp_packet.seq, None)
     };
 
     Some(Reply {
