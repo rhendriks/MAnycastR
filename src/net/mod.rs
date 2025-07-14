@@ -4,7 +4,7 @@ use std::io::{Cursor, Read, Write};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use crate::custom_module::manycastr::Address;
-use crate::net::netv6::{calculate_checksum_v6, IPv6Packet, PseudoHeaderv6};
+use crate::net::netv6::IPv6Packet;
 
 pub(crate) mod netv6;
 pub(crate) mod packet;
@@ -156,30 +156,63 @@ impl Into<Vec<u8>> for PacketPayload {
 }
 
 /// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
+// #[derive(Debug)]
+// pub struct PseudoHeader {
+//     pub src: u32,
+//     pub dst: u32,
+//     pub zeroes: u8,   // 8 bits of zeros
+//     pub protocol: u8, // 6 for TCP, 17 for UDP
+//     pub length: u16,  // TCP/UDP header + data length
+// }
+
+/// Struct defining the IPv4 pseudo-header for checksum calculation.
 #[derive(Debug)]
-pub struct PseudoHeader {
+pub struct PseudoHeaderV4 {
     pub src: u32,
     pub dst: u32,
-    pub zeroes: u8,   // 8 bits of zeros
-    pub protocol: u8, // 6 for TCP, 17 for UDP
-    pub length: u16,  // TCP/UDP header + data length
+    pub protocol: u8,
+    pub length: u16,
 }
 
-/// Converting PsuedoHeader to bytes
-impl Into<Vec<u8>> for PseudoHeader {
-    fn into(self) -> Vec<u8> {
-        let mut wtr = vec![];
-        wtr.write_u32::<NetworkEndian>(self.src)
-            .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u32::<NetworkEndian>(self.dst)
-            .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u8(self.zeroes)
-            .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u8(self.protocol)
-            .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u16::<NetworkEndian>(self.length)
-            .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr
+/// Struct defining the IPv6 pseudo-header for checksum calculation.
+#[derive(Debug)]
+pub struct PseudoHeaderV6 {
+    pub src: u128,
+    pub dst: u128,
+    pub upper_layer_packet_length: u32,
+    pub next_header: u8,
+}
+
+/// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
+#[derive(Debug)]
+pub enum PseudoHeader {
+    V4(PseudoHeaderV4),
+    V6(PseudoHeaderV6),
+}
+
+impl PseudoHeader {
+    /// Creates a new PseudoHeader (V4 or V6) based on the address types.
+    pub fn new(
+        src_addr: &Address,
+        dst_addr: &Address,
+        protocol: u8,
+        packet_length: u32,
+    ) -> Self {
+        if src_addr.is_v6() {
+            Self::V4(PseudoHeaderV4 {
+                src: src_addr.get_v4(),
+                dst: dst_addr.get_v4(),
+                protocol,
+                length: packet_length as u16, // Length field is 16 bits for IPv4
+            })
+        } else {
+            Self::V6(PseudoHeaderV6 {
+                src: src_addr.get_v6(),
+                dst: dst_addr.get_v6(),
+                upper_layer_packet_length: packet_length, // Length field is 32 bits for IPv6
+                next_header: protocol,
+            })
+        }
     }
 }
 
@@ -187,37 +220,52 @@ impl Into<Vec<u8>> for PseudoHeader {
 ///
 /// # Arguments
 ///
-/// * 'buffer' - the UDP/TCP packet as bytes (without the IPv4 header)
+/// * 'buffer' - the UDP/TCP packet as bytes (without the IP header)
 ///
-/// * 'pseudo_header' - the pseudo header for this packet
+/// * 'pseudo_header' - the pseudo header for this packet (IPv4 or IPv6)
 pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
-    let packet_len = buffer.len();
     let mut sum = 0u32;
 
-    // Sum the pseudo header
-    sum += pseudo_header.src >> 16;
-    sum += pseudo_header.src & 0xffff;
-    sum += pseudo_header.dst >> 16;
-    sum += pseudo_header.dst & 0xffff;
-    sum += u32::from(pseudo_header.protocol);
-    sum += u32::from(pseudo_header.length);
-
-    // Sum the packet
+    // Sum the appropriate pseudo-header based on its variant (V4 or V6).
+    match pseudo_header {
+        PseudoHeader::V4(ph) => {
+            sum += (ph.src >> 16) + (ph.src & 0xffff);
+            sum += (ph.dst >> 16) + (ph.dst & 0xffff);
+            sum += u32::from(ph.protocol);
+            sum += u32::from(ph.length);
+        }
+        PseudoHeader::V6(ph) => {
+            // Sum the 128-bit addresses by breaking them into 16-bit chunks
+            for chunk in ph.src.to_be_bytes().chunks_exact(2) {
+                sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+            }
+            for chunk in ph.dst.to_be_bytes().chunks_exact(2) {
+                sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+            }
+            // Sum the 32-bit length field and the next_header (protocol)
+            sum += (ph.upper_layer_packet_length >> 16) + (ph.upper_layer_packet_length & 0xffff);
+            sum += u32::from(ph.next_header);
+        }
+    }
+    
+    // Sum the packet buffer
+    let packet_len = buffer.len();
     for chunk in buffer.chunks_exact(2) {
         let word = u16::from_be_bytes([chunk[0], chunk[1]]);
         sum += u32::from(word);
     }
 
-    // If the packet length is odd, add the last byte as a half-word
+    // If the packet length is odd, add the last byte as a half-word (padded with 0)
     if packet_len % 2 != 0 {
         sum += u32::from(buffer[packet_len - 1]) << 8;
     }
 
     // Fold the sum to 16 bits by adding the carry
-    while sum >> 16 != 0 {
+    while (sum >> 16) != 0 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
 
+    // Return the one's complement of the sum
     !(sum as u16)
 }
 
@@ -568,47 +616,6 @@ impl From<&[u8]> for TXTRecord {
 }
 
 impl UDPPacket {
-    /// Create a basic UDP packet with checksum (v4 only).
-    pub fn udp_request(
-        source_address: u32,
-        destination_address: u32,
-        source_port: u16,
-        destination_port: u16,
-        body: Vec<u8>,
-        info_url: &str,
-    ) -> Vec<u8> {
-        let length = (8 + body.len() + info_url.bytes().len()) as u16;
-
-        let mut packet = Self {
-            source_port,
-            destination_port,
-            length,
-            checksum: 0,
-            body,
-        };
-        let mut bytes: Vec<u8> = (&packet).into();
-        bytes.extend(info_url.bytes()); // Add INFO_URL
-
-        let pseudo_header = PseudoHeader {
-            src: source_address,
-            dst: destination_address,
-            zeroes: 0,
-            protocol: 17,
-            length,
-        };
-
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
-
-        // Put the checksum at the right position in the packet (calling into() again is also
-        // possible but is likely slower).
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(6); // Skip source port (2 bytes), destination port (2 bytes), udp length (2 bytes)
-        cursor.write_u16::<NetworkEndian>(packet.checksum).unwrap();
-
-        // Return the vec
-        cursor.into_inner()
-    }
-
     /// Create a UDP packet with a DNS A record request. In the domain of the A record, we encode: transmit_time,
     /// source_address, destination_address, worker_id, source_port, destination_port
     pub fn dns_request(
@@ -640,17 +647,15 @@ impl UDPPacket {
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         
+        let pseudo_header = PseudoHeader::new(
+            source_address,
+            destination_address,
+            17, // UDP protocol
+            udp_length as u32,
+        );
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
+
         if source_address.is_v6() {
-            // Calculate the UDP checksum (using a pseudo header)
-            let pseudo_header = PseudoHeaderv6 {
-                src: source_address.get_v6(),
-                dst: destination_address.get_v6(),
-                length: udp_length as u32,
-                zeros: 0,
-                next_header: 17,
-            };
-            udp_packet.checksum = calculate_checksum_v6(&udp_bytes, &pseudo_header);
-            
             (&IPv6Packet {
                 payload_length: udp_length as u16,
                 next_header: 17, // UDP
@@ -660,16 +665,6 @@ impl UDPPacket {
                 payload: PacketPayload::UDP { value: udp_packet },
             }).into()
         } else {
-            // Calculate the UDP checksum (using a pseudo header)
-            let pseudo_header = PseudoHeader {
-                src: source_address.get_v4(),
-                dst: destination_address.get_v4(),
-                zeroes: 0,
-                protocol: 17,
-                length: udp_length,
-            };
-            udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
-            
             (&IPv4Packet {
                 length: 20 + udp_length,
                 ttl,
@@ -739,17 +734,17 @@ impl UDPPacket {
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
         
-        if source_address.is_v6() {
-            // Calculate the UDP checksum (using a pseudo header)
-            let pseudo_header = PseudoHeaderv6 {
-                src: source_address.get_v6(),
-                dst: destination_address.get_v6(),
-                length: udp_length,
-                zeros: 0,
-                next_header: 17,
-            };
-            udp_packet.checksum = calculate_checksum_v6(&udp_bytes, &pseudo_header);
+        let pseudo_header = PseudoHeader::new(
+            source_address,
+            destination_address,
+            17, // UDP protocol
+            udp_length,
+        );
+        
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
+
+        if source_address.is_v6() {
             // Create the IPv6 packet
             let v6_packet = IPv6Packet {
                 payload_length: udp_length as u16,
@@ -763,16 +758,6 @@ impl UDPPacket {
             };
             (&v6_packet).into()
         } else {
-            let pseudo_header = PseudoHeader {
-                src: source_address.get_v4(),
-                dst: destination_address.get_v4(),
-                zeroes: 0,
-                protocol: 17,
-                length: udp_length as u16,
-            };
-
-            udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
-
             // Create the IPv4 packet
             let v4_packet = IPv4Packet {
                 length: 20 + udp_length as u16,
@@ -891,8 +876,8 @@ impl Into<Vec<u8>> for &TCPPacket {
 impl TCPPacket {
     /// Create a basic TCP SYN/ACK packet with checksum
     pub fn tcp_syn_ack(
-        source_address: u32,
-        destination_address: u32,
+        source_address: &Address,
+        destination_address: &Address,
         source_port: u16,
         destination_port: u16,
         seq: u32,
@@ -915,25 +900,41 @@ impl TCPPacket {
 
         // Turn everything into a vec of bytes and calculate checksum
         let bytes: Vec<u8> = (&packet).into();
-        let pseudo_header = PseudoHeader {
-            src: source_address,
-            dst: destination_address,
-            zeroes: 0,
-            protocol: 6,                // TCP
-            length: bytes.len() as u16, // the length of the TCP header and data (measured in octets)
-        };
+
+        let pseudo_header = PseudoHeader::new(
+            source_address,
+            destination_address,
+            6, // TCP protocol
+            bytes.len() as u32, // Length of the TCP header and data (measured in octets)
+        );
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
 
-        let v4_packet = IPv4Packet {
-            length: 20 + bytes.len() as u16,
-            ttl,
-            src: source_address,
-            dst: destination_address,
-            payload: PacketPayload::TCP {
-                value: packet.into(),
-            },
-        };
+        if source_address.is_v6() {
+            // Create the IPv6 packet
+            let v6_packet = IPv6Packet {
+                payload_length: bytes.len() as u16,
+                next_header: 6, // TCP
+                hop_limit: ttl,
+                src: source_address.get_v6(),
+                dst: destination_address.get_v6(),
+                payload: PacketPayload::TCP {
+                    value: packet.into(),
+                },
+            };
+            (&v6_packet).into()
+        } else {
+            // Create the IPv4 packet
+            let v4_packet = IPv4Packet {
+                length: 20 + bytes.len() as u16,
+                ttl,
+                src: source_address.get_v4(),
+                dst: destination_address.get_v4(),
+                payload: PacketPayload::TCP {
+                    value: packet.into(),
+                },
+            };
 
-        (&v4_packet).into()
+            (&v4_packet).into()
+        }
     }
 }

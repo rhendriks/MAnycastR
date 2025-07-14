@@ -166,7 +166,6 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            is_ipv6,
                                             is_latency,
                                             &info_url,
                                         ));

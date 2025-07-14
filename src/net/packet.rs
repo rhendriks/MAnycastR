@@ -307,7 +307,6 @@ pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    is_ipv6: bool,
     is_latency: bool,
     info_url: &str,
 ) -> Vec<u8> {
@@ -322,30 +321,17 @@ pub fn create_tcp(
             .unwrap()
             .as_millis() as u32
     };
-
-    if is_ipv6 {
-        TCPPacket::tcp_syn_ack_v6(
-            origin.src.unwrap().get_v6(),
-            dst.get_v6(),
-            origin.sport as u16,
-            origin.dport as u16,
-            seq,
-            ack,
-            255,
-            info_url,
-        )
-    } else {
-        TCPPacket::tcp_syn_ack(
-            origin.src.unwrap().get_v4(),
-            dst.get_v4(),
-            origin.sport as u16,
-            origin.dport as u16,
-            seq,
-            ack,
-            255,
-            info_url,
-        )
-    }
+    
+    TCPPacket::tcp_syn_ack(
+        &origin.src.unwrap(),
+        dst,
+        origin.sport as u16,
+        origin.dport as u16,
+        seq,
+        ack,
+        255,
+        info_url,
+    )
 }
 
 /// Checks if the given address is in the given prefix.
