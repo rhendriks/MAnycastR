@@ -9,7 +9,7 @@ use pnet::datalink::DataLinkReceiver;
 use crate::custom_module::manycastr::{
     Address, Origin, Reply, TaskResult
 };
-use crate::net::{netv6::IPv6Packet, DNSAnswer, DNSRecord, IPv4Packet, PacketPayload, TXTRecord};
+use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
