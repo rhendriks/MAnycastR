@@ -4,6 +4,7 @@ use std::io::{Cursor, Read, Write};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use crate::custom_module::manycastr::Address;
+use crate::net::netv6::IPv6Packet;
 
 pub(crate) mod netv6;
 pub(crate) mod packet;
@@ -647,18 +648,25 @@ impl UDPPacket {
             length: udp_length,
         };
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
-
-        // Create the IPv4 packet
-        let v4_packet = IPv4Packet {
-            length: 20 + udp_length,
-            ttl,
-            src: source_address.get_v4(),
-            dst: destination_address.get_v4(),
-            payload: PacketPayload::UDP {
-                value: udp_packet.into(),
-            },
-        };
-        (&v4_packet).into()
+        
+        if source_address.is_v6() {
+            (&IPv6Packet {
+                payload_length: udp_length as u16,
+                next_header: 17, // UDP
+                hop_limit: ttl,
+                src: source_address.get_v6(),
+                dst: destination_address.get_v6(),
+                payload: PacketPayload::UDP { value: udp_packet },
+            }).into()
+        } else {
+            (&IPv4Packet {
+                length: 20 + udp_length,
+                ttl,
+                src: source_address.get_v4(),
+                dst: destination_address.get_v4(),
+                payload: PacketPayload::UDP { value: udp_packet }
+            }).into()
+        }
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>

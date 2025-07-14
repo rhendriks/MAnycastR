@@ -77,7 +77,7 @@ impl From<&[u8]> for IPv6Packet {
 }
 
 /// Convert an IPv6Packet into bytes
-impl Into<Vec<u8>> for IPv6Packet {
+impl Into<Vec<u8>> for &IPv6Packet {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
         // Write traffic class 0x60 and flow label 0x003a7d
@@ -94,11 +94,16 @@ impl Into<Vec<u8>> for IPv6Packet {
         wtr.write_u128::<NetworkEndian>(self.dst)
             .expect("Unable to write destination address to byte buffer for IPv6Packet");
 
-        // Write the payload
-        let payload_bytes: Vec<u8> = self.payload.into();
-        wtr.write_all(&*payload_bytes)
-            .expect("Unable to write to byte buffer for IPv6 packet"); // Payload
-
+        let payload = match &self.payload {
+            PacketPayload::ICMP { value } => value.into(),
+            PacketPayload::UDP { value } => value.into(),
+            PacketPayload::TCP { value } => value.into(),
+            PacketPayload::Unimplemented => vec![],
+        };
+        
+        wtr.write_all(&payload)
+            .expect("Unable to write payload to byte buffer for IPv6Packet");
+        
         wtr
     }
 }
@@ -169,7 +174,7 @@ impl ICMPPacket {
             payload: PacketPayload::ICMP { value: packet },
         };
 
-        let mut bytes: Vec<u8> = v6_packet.into();
+        let mut bytes: Vec<u8> = (&v6_packet).into();
         bytes.extend(info_url.bytes());
 
         bytes
@@ -355,7 +360,7 @@ impl super::UDPPacket {
             payload: PacketPayload::UDP { value: udp_packet },
         };
 
-        v6_packet.into()
+        (&v6_packet).into()
     }
 
     /// Create a UDP packet with a CHAOS TXT record request.
@@ -400,7 +405,7 @@ impl super::UDPPacket {
             payload: PacketPayload::UDP { value: udp_packet },
         };
 
-        v6_packet.into()
+        (&v6_packet).into()
     }
 }
 
@@ -466,6 +471,6 @@ impl super::TCPPacket {
             payload: PacketPayload::TCP { value: packet },
         };
 
-        v6_packet.into()
+        (&v6_packet).into()
     }
 }
