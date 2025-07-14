@@ -258,7 +258,6 @@ pub fn create_dns(
     dst: &Address,
     worker_id: u32,
     measurement_type: u8,
-    is_ipv6: bool,
     qname: &str,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
@@ -268,38 +267,20 @@ pub fn create_dns(
     let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
-    if is_ipv6 {
-        if measurement_type == A_ID {
-            UDPPacket::dns_request_v6(
-                src,
-                dst,
-                sport,
-                qname,
-                tx_time,
-                worker_id,
-                255,
-            )
-        } else if measurement_type == CHAOS_ID {
-            UDPPacket::chaos_request_v6(src.get_v6(), dst.get_v6(), sport, worker_id, qname)
-        } else {
-            panic!("Invalid measurement type")
-        }
+    if measurement_type == A_ID {
+        UDPPacket::dns_request(
+            src,
+            dst,
+            sport,
+            qname,
+            tx_time,
+            worker_id,
+            255,
+        )
+    } else if measurement_type == CHAOS_ID {
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
-        if measurement_type == A_ID {
-            UDPPacket::dns_request(
-                src,
-                dst,
-                sport,
-                qname,
-                tx_time,
-                worker_id,
-                255,
-            )
-        } else if measurement_type == CHAOS_ID {
-            UDPPacket::chaos_request(src.get_v4(), dst.get_v4(), sport, worker_id, qname)
-        } else {
-            panic!("Invalid measurement type")
-        }
+        panic!("Invalid measurement type")
     }
 }
 

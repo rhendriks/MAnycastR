@@ -142,7 +142,6 @@ pub fn outbound(
                                             dst,
                                             worker_id,
                                             measurement_type,
-                                            is_ipv6,
                                             &qname,
                                         ));
 
