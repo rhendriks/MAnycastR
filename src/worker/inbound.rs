@@ -531,11 +531,14 @@ fn parse_dnsv6(
 ) -> Option<Reply> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
+        println!("fail1")
         return None;
     }
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
+    println!("parsed ipv6");
 
     let PacketPayload::UDP { value: udp_packet } = payload else {
+        println!("fail2");
         return None;
     };
 
@@ -544,6 +547,7 @@ fn parse_dnsv6(
     if ((measurement_type == 2) & (udp_packet.body.len() < 66))
         | ((measurement_type == 4) & (udp_packet.body.len() < 10))
     {
+        println!("fail3");
         return None;
     }
 
