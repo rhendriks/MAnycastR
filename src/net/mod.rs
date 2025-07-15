@@ -861,10 +861,17 @@ impl UDPPacket {
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
-        let subdomain = format!(
-            "{}-{}-{}-{}-{}.{}",
-            tx_time, src.get_v6(), dst.get_v6(), tx_id, src_port, domain_name
-        );
+        let subdomain = if src.is_v6() {
+            format!(
+                "{}-{}-{}-{}-{}.{}",
+                tx_time, src.get_v6(), dst.get_v6(), tx_id, src_port, domain_name
+            )
+        } else {
+            format!(
+                "{}-{}-{}-{}-{}.{}",
+                tx_time, src.get_v4(), dst.get_v4(), tx_id, src_port, domain_name
+            )
+        };
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
