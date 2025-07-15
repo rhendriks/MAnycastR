@@ -1,8 +1,8 @@
 use clap::ArgMatches;
-use futures::channel::oneshot;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
 use std::error::Error;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -12,8 +12,8 @@ use tonic::Request;
 use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, task::Data, Address, End, Finished, Metadata, Origin,
-    Task, TaskResult, WorkerId,
+    controller_client::ControllerClient, task::Data, Address, End, Finished, Origin, Task,
+    TaskResult,
 };
 
 use crate::custom_module;
@@ -39,7 +39,7 @@ mod outbound;
 #[derive(Clone)]
 pub struct Worker {
     client: ControllerClient<Channel>,
-    metadata: Metadata,
+    hostname: String,
     is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
@@ -60,12 +60,8 @@ impl Worker {
             .get_one::<String>("hostname")
             .map(|h| h.parse::<String>().expect("Unable to parse hostname"))
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
-        
+
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
-        // This worker's metadata (shared with the orchestrator)
-        let metadata = Metadata {
-            hostname: hostname.parse().unwrap(),
-        };
         let fqdn = args.get_one::<String>("tls");
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
             .await
@@ -74,7 +70,7 @@ impl Worker {
         // Initialize a worker instance
         let mut worker = Worker {
             client,
-            metadata,
+            hostname,
             is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
@@ -158,20 +154,21 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    fn init(&mut self, task: Task, worker_id: u16, outbound_f: Option<oneshot::Receiver<()>>) {
+    fn init(&mut self, task: Task, worker_id: u16, finish: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
         } else {
             panic!("Received non-start packet for init")
         };
         let measurement_id = start_measurement.measurement_id;
-        let is_ipv6 = start_measurement.ipv6;
+        let is_ipv6 = start_measurement.is_ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let is_unicast = start_measurement.unicast;
-        let is_probing = start_measurement.active;
+        let is_unicast = start_measurement.is_unicast;
+        let is_probing = !start_measurement.tx_origins.is_empty();
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
+        let is_latency = start_measurement.is_latency;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -188,18 +185,17 @@ impl Worker {
             let dport = start_measurement.tx_origins[0].dport;
 
             // Get the local unicast address
-            let unicast_ip = Address::from(
-                if is_ipv6 {
-                    local_ipv6().expect("Unable to get local unicast IPv6 address")
-                } else {
-                    local_ip().expect("Unable to get local unicast IPv4 address")
-                });
+            let unicast_ip = Address::from(if is_ipv6 {
+                local_ipv6().expect("Unable to get local unicast IPv6 address")
+            } else {
+                local_ip().expect("Unable to get local unicast IPv4 address")
+            });
 
             let unicast_origin = Origin {
                 src: Some(unicast_ip), // Unicast IP
-                sport,                  // CLI defined source port
-                dport,                  // CLI defined destination port
-                origin_id: u32::MAX,                  // ID for unicast address
+                sport,                 // CLI defined source port
+                dport,                 // CLI defined destination port
+                origin_id: u32::MAX,   // ID for unicast address
             };
 
             // We only listen to our own unicast address (each worker has its own unicast address)
@@ -241,8 +237,7 @@ impl Worker {
             // Use the default interface (first non-loopback interface)
             let interface = interfaces
                 .into_iter()
-                .filter(|iface| !iface.is_loopback())
-                .next()
+                .find(|iface| !iface.is_loopback())
                 .expect("Failed to find default interface");
             println!(
                 "[Worker] No interface found for address: {}, using default interface {}",
@@ -276,7 +271,7 @@ impl Worker {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
-                            "[Worker] Sending on address: {} using identifier {}",
+                            "[Worker] Sending on address: {} using ICMP identifier {}",
                             origin.src.unwrap(),
                             origin.dport
                         );
@@ -286,7 +281,7 @@ impl Worker {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
-                            "[Worker] Sending on address: {}, from src port {}, to dst port {}", // TODO default to port 53 for DNS
+                            "[Worker] Sending on address: {}, from src port {}, to dst port {}",
                             origin.src.unwrap(),
                             origin.sport,
                             origin.dport
@@ -300,9 +295,9 @@ impl Worker {
                 worker_id,
                 tx_origins,
                 outbound_rx.unwrap(),
-                outbound_f.unwrap(),
+                finish.unwrap(),
                 is_ipv6,
-                is_unicast,
+                is_latency,
                 measurement_id,
                 start_measurement.measurement_type as u8,
                 qname,
@@ -355,25 +350,33 @@ impl Worker {
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
-        // Get the worker_id from the orchestrator
-        let worker_id = self
-            .get_worker_id()
-            .await
-            .expect("Unable to get a worker ID from the orchestrator")
-            .worker_id as u16;
-        let mut f_tx: Option<oneshot::Sender<()>> = None;
+        let mut finish: Option<Arc<AtomicBool>> = None;
+
+        let worker = custom_module::manycastr::Worker {
+            hostname: self.hostname.clone(),
+            worker_id: 0, // This will be set after the connection
+            status: "".to_string(),
+        };
 
         // Connect to the orchestrator
         let response = self
             .client
-            .worker_connect(Request::new(self.metadata.clone()))
+            .worker_connect(Request::new(worker))
             .await
             .expect("Unable to connect to orchestrator");
+
+        let mut stream = response.into_inner();
+        // Read the assigned unique worker ID
+        let id_message = stream
+            .message()
+            .await
+            .expect("Unable to await stream")
+            .expect("Unable to receive worker ID");
+        let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
             worker_id
         );
-        let mut stream = response.into_inner();
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
@@ -412,6 +415,8 @@ impl Worker {
                                     .expect(
                                         "Unable to send measurement_finished to outbound thread",
                                     );
+
+                                self.outbound_tx = None;
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
@@ -423,13 +428,10 @@ impl Worker {
                                     .await
                                     .expect("Unable to send finish signal to inbound thread");
                             }
-                            // f_tx will be None if this worker is not probing
-                            if f_tx.is_some() {
+                            // finish will be None if this worker is not probing
+                            if let Some(finish) = &finish {
                                 // Close outbound threads
-                                f_tx.take()
-                                    .unwrap()
-                                    .send(())
-                                    .expect("Unable to send abort signal to outbound thread");
+                                finish.store(true, Ordering::SeqCst);
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
@@ -437,6 +439,7 @@ impl Worker {
                         }
                     }
                     Some(task) => {
+                        // TODO may receive responsiveness follow-up tasks after the measurement has finished and the outbound_tx has closed
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
@@ -450,31 +453,29 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                println!("[Worker] Starting new measurement");
-
                 let (is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (start.active, start.measurement_id),
+                        Data::Start(start) => (!start.tx_origins.is_empty(), start.measurement_id),
                         _ => {
                             // First task is not a start measurement task
-                            println!("[Worker] Received non-start packet for init");
                             continue;
                         }
                     };
+
+                println!("[Worker] Starting new measurement");
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
 
                 if is_probing {
                     // This worker is probing
-                    // Initialize signal finish channel
-                    let (outbound_tx_f, outbound_rx_f) = oneshot::channel();
-                    f_tx = Some(outbound_tx_f);
+                    // Initialize signal finish atomic boolean
+                    finish = Some(Arc::new(AtomicBool::new(false)));
 
-                    self.init(task, worker_id, Some(outbound_rx_f));
+                    self.init(task, worker_id, finish.clone());
                 } else {
                     // This worker is not probing
-                    f_tx = None;
+                    finish = None;
                     self.outbound_tx = None;
                     self.init(task, worker_id, None);
                 }
@@ -483,17 +484,6 @@ impl Worker {
         println!("[Worker] Stopped awaiting tasks");
 
         Ok(())
-    }
-
-    /// Send the get_worker_id command to the orchestrator to obtain a unique worker ID
-    async fn get_worker_id(&mut self) -> Result<WorkerId, Box<dyn Error>> {
-        let worker_id = self
-            .client
-            .get_worker_id(Request::new(self.metadata.clone()))
-            .await?
-            .into_inner();
-
-        Ok(worker_id)
     }
 
     /// Send a TaskResult to the orchestrator
