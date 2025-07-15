@@ -237,8 +237,7 @@ impl Worker {
             // Use the default interface (first non-loopback interface)
             let interface = interfaces
                 .into_iter()
-                .filter(|iface| !iface.is_loopback())
-                .next()
+                .find(|iface| !iface.is_loopback())
                 .expect("Failed to find default interface");
             println!(
                 "[Worker] No interface found for address: {}, using default interface {}",
