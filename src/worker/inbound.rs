@@ -459,8 +459,8 @@ fn parse_dnsv4(
         return None;
     }
 
-    let reply_sport = udp_packet.source_port;
-    let reply_dport = udp_packet.destination_port;
+    let reply_sport = udp_packet.src_port;
+    let reply_dport = udp_packet.dst_port;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -547,8 +547,8 @@ fn parse_dnsv6(
         return None;
     }
 
-    let reply_sport = udp_packet.source_port;
-    let reply_dport = udp_packet.destination_port;
+    let reply_sport = udp_packet.src_port;
+    let reply_dport = udp_packet.dst_port;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -747,8 +747,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v4(
         reply_dst,
-        tcp_packet.source_port,
-        tcp_packet.destination_port,
+        tcp_packet.src_port,
+        tcp_packet.dst_port,
         origin_map,
     )?;
 
@@ -804,8 +804,8 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v6(
         reply_dst,
-        tcp_packet.source_port,
-        tcp_packet.destination_port,
+        tcp_packet.src_port,
+        tcp_packet.dst_port,
         origin_map,
     )?;
 
