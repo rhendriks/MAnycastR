@@ -107,7 +107,6 @@ pub fn outbound(
                             worker_id as u32
                         };
                         for origin in &tx_origins {
-                            println!("probing the following targets: {:?}", targets.dst_list);
                             match measurement_type {
                                 1 => { // ICMP
                                     for dst in &targets.dst_list {
