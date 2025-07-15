@@ -104,10 +104,9 @@ pub fn outbound(
                     }
                     Targets(targets) => {
                         let worker_id = if targets.is_discovery == Some(true) {
-                            sent_discovery += 1;
+                            sent_discovery += targets.dst_list.len();
                             worker_id as u32 + u16::MAX as u32
                         } else {
-                            sent += 1;
                             worker_id as u32
                         };
                         for origin in &tx_origins {
