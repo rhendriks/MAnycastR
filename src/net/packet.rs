@@ -71,7 +71,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
-        .expect(&format! {"No MAC address found for interface: {}", if_name})
+        .unwrap_or_else(|_| panic!("No MAC address found for interface: {}", if_name))
         .unwrap()
         .bytes()
         .to_vec();
@@ -108,39 +108,37 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
 
-    for line in lines {
-        if let Ok(line) = line {
-            let parts: Vec<&str> = line.split_whitespace().collect();
+    for line in lines.map_while(Result::ok) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
 
-            if parts.len() > 3 {
-                let addr = parts[0]; // IP address
+        if parts.len() > 3 {
+            let addr = parts[0]; // IP address
 
-                if addr != gateway_ip {
-                    // Skip if not the default gateway
-                    continue;
-                }
+            if addr != gateway_ip {
+                // Skip if not the default gateway
+                continue;
+            }
 
-                let mac_address = if cfg!(target_os = "freebsd") {
-                    // For FreeBSD, MAC address is in the second column
-                    parts[1]
-                } else {
-                    // For Linux, MAC address is in the fourth column
-                    parts[3]
-                };
+            let mac_address = if cfg!(target_os = "freebsd") {
+                // For FreeBSD, MAC address is in the second column
+                parts[1]
+            } else {
+                // For Linux, MAC address is in the fourth column
+                parts[3]
+            };
 
-                // Skip local-loopback and broadcast
-                if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
-                    continue;
-                }
+            // Skip local-loopback and broadcast
+            if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
+                continue;
+            }
 
-                // If interface name matches, return the MAC address
-                if parts[5] == if_name {
-                    mac_dst = parts[3]
-                        .split(':')
-                        .map(|s| u8::from_str_radix(s, 16).unwrap())
-                        .collect();
-                    break;
-                }
+            // If interface name matches, return the MAC address
+            if parts[5] == if_name {
+                mac_dst = parts[3]
+                    .split(':')
+                    .map(|s| u8::from_str_radix(s, 16).unwrap())
+                    .collect();
+                break;
             }
         }
     }
@@ -343,7 +341,7 @@ pub fn create_tcp(
 /// If the address is not a valid IP address.
 ///
 /// If the prefix is not a valid prefix.
-pub fn is_in_prefix(address: &String, prefix: &IpNetwork) -> bool {
+pub fn is_in_prefix(address: &str, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
     let address = address
         .parse::<IpAddr>()

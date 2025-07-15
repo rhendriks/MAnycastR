@@ -87,13 +87,11 @@ pub fn listen(
                         } else {
                             None
                         }
+                    } else if packet[23] == 17 {
+                        // 17 is the protocol number for UDP
+                        parse_dnsv4(&packet[14..], measurement_type, &origin_map)
                     } else {
-                        if packet[23] == 17 {
-                            // 17 is the protocol number for UDP
-                            parse_dnsv4(&packet[14..], measurement_type, &origin_map)
-                        } else {
-                            None
-                        }
+                        None
                     }
                 } else if measurement_type == 3 {
                     // TCP
@@ -277,11 +275,11 @@ fn parse_icmpv4(
 
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
-    let PacketPayload::ICMP { value: icmp_packet } = payload else {
+    let PacketPayload::Icmp { value: icmp_packet } = payload else {
         return None;
     };
 
-    if *&icmp_packet.icmp_type != 0 {
+    if icmp_packet.icmp_type != 0 {
         return None;
     } // Only parse ICMP echo replies
 
@@ -292,10 +290,10 @@ fn parse_icmpv4(
         return None;
     }
 
-    let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
-    let probe_src = u32::from_be_bytes(*&icmp_packet.body[16..20].try_into().unwrap());
-    let probe_dst = u32::from_be_bytes(*&icmp_packet.body[20..24].try_into().unwrap());
+    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
+    let mut tx_worker_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let probe_src = u32::from_be_bytes(icmp_packet.body[16..20].try_into().unwrap());
+    let probe_dst = u32::from_be_bytes(icmp_packet.body[20..24].try_into().unwrap());
 
     if (probe_src != reply_dst) | (probe_dst != reply_src) {
         return None; // spoofed reply
@@ -361,12 +359,12 @@ fn parse_icmpv6(
     let (address, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     // Parse the ICMP header
-    let PacketPayload::ICMP { value: icmp_packet } = payload else {
+    let PacketPayload::Icmp { value: icmp_packet } = payload else {
         return None;
     };
 
     // Obtain the payload
-    if *&icmp_packet.icmp_type != 129 {
+    if icmp_packet.icmp_type != 129 {
         return None;
     } // Only parse ICMP echo replies
 
@@ -376,10 +374,10 @@ fn parse_icmpv6(
         return None;
     }
 
-    let tx_time = u64::from_be_bytes(*&icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u32::from_be_bytes(*&icmp_packet.body[12..16].try_into().unwrap());
-    let probe_src = u128::from_be_bytes(*&icmp_packet.body[16..32].try_into().unwrap());
-    let probe_dst = u128::from_be_bytes(*&icmp_packet.body[32..48].try_into().unwrap());
+    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
+    let mut tx_worker_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let probe_src = u128::from_be_bytes(icmp_packet.body[16..32].try_into().unwrap());
+    let probe_dst = u128::from_be_bytes(icmp_packet.body[32..48].try_into().unwrap());
 
     if (probe_src != reply_dst) | (probe_dst != reply_src) {
         return None; // spoofed reply
@@ -443,7 +441,7 @@ fn parse_dnsv4(
 
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
-    let PacketPayload::UDP { value: udp_packet } = payload else {
+    let PacketPayload::Udp { value: udp_packet } = payload else {
         return None;
     };
 
@@ -527,7 +525,7 @@ fn parse_dnsv6(
     }
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
-    let PacketPayload::UDP { value: udp_packet } = payload else {
+    let PacketPayload::Udp { value: udp_packet } = payload else {
         return None;
     };
 
@@ -725,7 +723,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
-    let PacketPayload::TCP { value: tcp_packet } = payload else {
+    let PacketPayload::Tcp { value: tcp_packet } = payload else {
         return None;
     };
 
@@ -777,7 +775,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
-    let PacketPayload::TCP { value: tcp_packet } = payload else {
+    let PacketPayload::Tcp { value: tcp_packet } = payload else {
         return None;
     };
 
