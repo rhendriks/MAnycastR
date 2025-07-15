@@ -531,14 +531,11 @@ fn parse_dnsv6(
 ) -> Option<Reply> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
-        println!("fail1");
         return None;
     }
     let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
-    println!("parsed ipv6");
 
     let PacketPayload::UDP { value: udp_packet } = payload else {
-        println!("fail2");
         return None;
     };
 
@@ -547,7 +544,6 @@ fn parse_dnsv6(
     if ((measurement_type == 2) & (udp_packet.body.len() < 66))
         | ((measurement_type == 4) & (udp_packet.body.len() < 10))
     {
-        println!("fail3");
         return None;
     }
 
@@ -613,9 +609,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
-    println!("Domain: {}", domain);
     let parts: Vec<&str> = domain.split('.').collect();
-    println!("Parts: {:?}", parts);
     // Our domains have at least 5 parts
     if parts.len() < 5 {
         return None;

@@ -148,7 +148,7 @@ impl<T> Drop for WorkerReceiver<T> {
             }
         }
     }
-    
+
     // TODO update worker list
 }
 
@@ -193,7 +193,7 @@ impl<T> WorkerSender<T> {
         // If the worker is disconnected, we set the status to DISCONNECTED
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
-        
+
         // Set the is_probing flag to false
         self.is_probing.store(false, std::sync::atomic::Ordering::SeqCst);
         println!("[Orchestrator] Worker {} with ID {} dropped", self.hostname, self.worker_id);
@@ -202,7 +202,7 @@ impl<T> WorkerSender<T> {
     pub fn is_probing(&self) -> bool {
         self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
     }
-    
+
     pub fn get_status(&self) -> String {
         self.status.lock().unwrap().clone().to_string()
     }
@@ -397,7 +397,7 @@ impl Controller for ControllerService {
                             "[Orchestrator] Refusing worker as the hostname already exists: {}",
                             hostname
                         );
-                        
+
                         return Err(Status::new(
                             tonic::Code::AlreadyExists,
                             "This hostname already exists",
@@ -430,7 +430,7 @@ impl Controller for ControllerService {
         }))
         .await
         .expect("Failed to send worker ID");
-        
+
         let worker_tx = WorkerSender {
             inner: tx,
             is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
@@ -766,7 +766,7 @@ impl Controller for ControllerService {
                 // Wait at specified probing rate before sending the next chunk
                 probing_rate_interval.tick().await;
             }
-            
+
             // Wait for last probe tasks to be sent
             tokio::time::sleep(Duration::from_secs(number_of_probes as u64 * probe_interval)).await;
 
@@ -840,7 +840,6 @@ impl Controller for ControllerService {
 
         // if self.r_prober is not None and equals this task's worker_id
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("responsive mode enabled, processing results");
             // Get the list of targets
             let responsive_targets: Vec<Address> = task_result
                 .result_list
@@ -852,10 +851,6 @@ impl Controller for ControllerService {
                     result_f.src.unwrap()
                 })
                 .collect();
-
-            println!("responsive targets: {:?}", responsive_targets.len());
-
-            println!("task result list: {:?}", task_result.result_list.len());
 
             if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
@@ -885,7 +880,6 @@ impl Controller for ControllerService {
             for result in &task_result.result_list {
                 // Check for discovery probes where the sender is not the receiver
                 if result.is_discovery == Some(true) {
-                    println!("Probing {} from catcher {}", result.src.unwrap(), rx_worker_id);
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     task_sender.send((rx_worker_id, Task {
@@ -911,7 +905,7 @@ impl Controller for ControllerService {
                 }));
             }
         }
-        
+
         // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
@@ -973,16 +967,11 @@ async fn task_distributor(
                 sender.finished();
             };
         } else if worker_id == ALL_WORKERS_INTERVAL { // to all workers in sending_workers (with interval)
-            println!("received all workers task");
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
                 for _ in 0..nprobes {
                     for sender in &senders {
                         if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
-                            println!(
-                                "[] Sending task to probing worker {} with interval {} seconds",
-                                sender.worker_id, inter_client_interval
-                            );
                             sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                                 eprintln!(
                                     "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
@@ -990,10 +979,6 @@ async fn task_distributor(
                                 );
                             });
                             // Wait inter-probe interval
-                            println!(
-                                "[] Waiting {} seconds before sending next task to worker {}",
-                                inter_client_interval, sender.worker_id
-                            );
                             tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                         }
                     }
@@ -1003,7 +988,6 @@ async fn task_distributor(
                 }
             });
         } else { // to specific worker
-            println!("[] Sending task to worker {}", worker_id);
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
                     // probe once
