@@ -95,6 +95,7 @@ pub fn outbound(
                         }
                     };
                 }
+                println!("[] Received task: {:?}", task);
 
                 match task {
                     End(_) => {
