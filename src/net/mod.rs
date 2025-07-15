@@ -258,16 +258,6 @@ impl Into<Vec<u8>> for PacketPayload {
     }
 }
 
-/// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
-// #[derive(Debug)]
-// pub struct PseudoHeader {
-//     pub src: u32,
-//     pub dst: u32,
-//     pub zeroes: u8,   // 8 bits of zeros
-//     pub protocol: u8, // 6 for TCP, 17 for UDP
-//     pub length: u16,  // TCP/UDP header + data length
-// }
-
 /// Struct defining the IPv4 pseudo-header for checksum calculation.
 #[derive(Debug)]
 pub struct PseudoHeaderV4 {
@@ -277,6 +267,24 @@ pub struct PseudoHeaderV4 {
     pub length: u16,
 }
 
+/// Converting PsuedoHeader to bytes
+impl Into<Vec<u8>> for &PseudoHeaderV4 {
+    fn into(self) -> Vec<u8> {
+        let mut wtr = vec![];
+        wtr.write_u32::<NetworkEndian>(self.src)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u32::<NetworkEndian>(self.dst)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u8(0) // 8 bits of zeroes
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u8(self.protocol)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u16::<NetworkEndian>(self.length)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr
+    }
+}
+
 /// Struct defining the IPv6 pseudo-header for checksum calculation.
 #[derive(Debug)]
 pub struct PseudoHeaderV6 {
@@ -284,6 +292,24 @@ pub struct PseudoHeaderV6 {
     pub dst: u128,
     pub upper_layer_packet_length: u32,
     pub next_header: u8,
+}
+
+/// Converting PsuedoHeaderv6 to bytes
+impl Into<Vec<u8>> for &PseudoHeaderV6 {
+    fn into(self) -> Vec<u8> {
+        let mut wtr = vec![];
+        wtr.write_u128::<NetworkEndian>(self.src)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u128::<NetworkEndian>(self.dst)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u32::<NetworkEndian>(self.upper_layer_packet_length)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u24::<NetworkEndian>(0) // 24 bits of zeroes
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr.write_u8(self.next_header)
+            .expect("Unable to write to byte buffer for PseudoHeader");
+        wtr
+    }
 }
 
 /// Struct defining a pseudo header that is used by both TCP and UDP to calculate their checksum
@@ -319,6 +345,15 @@ impl PseudoHeader {
     }
 }
 
+impl Into<Vec<u8>> for &PseudoHeader {
+    fn into(self) -> Vec<u8> {
+        match self {
+            PseudoHeader::V4(header) => header.into(),
+            PseudoHeader::V6(header) => header.into(),
+        }
+    }
+}
+
 /// Calculate the checksum for a UDP/TCP packet.
 ///
 /// # Arguments
@@ -328,39 +363,19 @@ impl PseudoHeader {
 /// * 'pseudo_header' - the pseudo header for this packet (IPv4 or IPv6)
 pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     let mut sum = 0u32;
-
-    // Sum the appropriate pseudo-header based on its variant (V4 or V6).
-    match pseudo_header {
-        PseudoHeader::V4(ph) => {
-            sum += (ph.src >> 16) + (ph.src & 0xffff);
-            sum += (ph.dst >> 16) + (ph.dst & 0xffff);
-            sum += u32::from(ph.protocol);
-            sum += u32::from(ph.length);
-        }
-        PseudoHeader::V6(ph) => {
-            // Sum the 128-bit addresses by breaking them into 16-bit chunks
-            for chunk in ph.src.to_be_bytes().chunks_exact(2) {
-                sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
-            }
-            for chunk in ph.dst.to_be_bytes().chunks_exact(2) {
-                sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
-            }
-            // Sum the 32-bit length field and the next_header (protocol)
-            sum += (ph.upper_layer_packet_length >> 16) + (ph.upper_layer_packet_length & 0xffff);
-            sum += u32::from(ph.next_header);
-        }
-    }
+    let mut packet: Vec<u8> = pseudo_header.into();
+    packet.extend_from_slice(buffer);
     
     // Sum the packet buffer
-    let packet_len = buffer.len();
-    for chunk in buffer.chunks_exact(2) {
+    let packet_len = packet.len();
+    for chunk in packet.chunks_exact(2) {
         let word = u16::from_be_bytes([chunk[0], chunk[1]]);
         sum += u32::from(word);
     }
 
     // If the packet length is odd, add the last byte as a half-word (padded with 0)
     if packet_len % 2 != 0 {
-        sum += u32::from(buffer[packet_len - 1]) << 8;
+        sum += u32::from(packet[packet_len - 1]) << 8;
     }
 
     // Fold the sum to 16 bits by adding the carry
@@ -795,24 +810,24 @@ impl UDPPacket {
     pub fn dns_request(
         src: &Address,
         dst: &Address,
-        src_port: u16,
+        sport: u16,
         domain_name: &str,
-        transmit_time: u64,
+        tx_time: u64,
         tx_id: u32,
         ttl: u8,
     ) -> Vec<u8> {
         let dns_packet = Self::create_a_record_request(
             &domain_name,
-            transmit_time,
+            tx_time,
             src,
             dst,
             tx_id,
-            src_port,
+            sport,
         );
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
-            src_port,
+            src_port: sport,
             dst_port: 53u16, // DNS port
             length: udp_length,
             checksum: 0,
@@ -831,7 +846,7 @@ impl UDPPacket {
 
         if src.is_v6() {
             (&IPv6Packet {
-                payload_length: udp_length as u16,
+                payload_length: udp_length,
                 next_header: 17, // UDP
                 hop_limit: ttl,
                 src: src.get_v6(),
@@ -856,7 +871,7 @@ impl UDPPacket {
         src: &Address,
         dst: &Address,
         tx_id: u32,
-        src_port: u16,
+        sport: u16,
     ) -> Vec<u8> {
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
@@ -864,14 +879,15 @@ impl UDPPacket {
         let subdomain = if src.is_v6() {
             format!(
                 "{}-{}-{}-{}-{}.{}",
-                tx_time, src.get_v6(), dst.get_v6(), tx_id, src_port, domain_name
+                tx_time, src.get_v6(), dst.get_v6(), tx_id, sport, domain_name
             )
         } else {
             format!(
                 "{}-{}-{}-{}-{}.{}",
-                tx_time, src.get_v4(), dst.get_v4(), tx_id, src_port, domain_name
+                tx_time, src.get_v4(), dst.get_v4(), tx_id, sport, domain_name
             )
         };
+        println!("DNS A Record Request Subdomain: {}", subdomain);
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
