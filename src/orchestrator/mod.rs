@@ -806,13 +806,12 @@ impl Controller for ControllerService {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
 
-            println!("[Orchestrator] Measurement finished");
+            println!("[Orchestrator] Task distribution finished");
 
             // Send end message to all workers directly to let them know the measurement is finished
             tx_t.send((
                 ALL_WORKERS_DIRECT,
                 Task {
-                    // TODO will cause workers to stop listening for discovery probe replies, for those that end prematurely
                     worker_id: None,
                     data: Some(TaskEnd(End { code: 0 })),
                 },
@@ -1029,22 +1028,23 @@ async fn task_distributor(
                 if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
-
                     spawn(async move {
-                        for _ in 0..nprobes {
-                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
-                                eprintln!(
-                                    "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
-                                    sender_c.hostname, e
-                                );
-                            });
-                            // sleep for the inter-probe interval
-                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                        }
+                        spawn(async move {
+                            for _ in 0..nprobes {
+                                sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
+                                    eprintln!(
+                                        "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
+                                        sender_c.hostname, e
+                                    );
+                                });
+                                // sleep for the inter-probe interval
+                                tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                            }
+                        });
+    
+                        // Wait inter-client probing interval
+                        tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                     });
-
-                    // Wait inter-client probing interval
-                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                 }
             }
         } else {
