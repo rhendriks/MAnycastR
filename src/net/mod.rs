@@ -587,8 +587,8 @@ impl ICMPPacket {
 /// An UDPPacket (UDP packet) <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 #[derive(Debug)]
 pub struct UDPPacket {
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub sport: u16,
+    pub dport: u16,
     pub length: u16,
     pub checksum: u16,
     pub body: Vec<u8>,
@@ -599,8 +599,8 @@ impl From<&[u8]> for UDPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
         UDPPacket {
-            src_port: data.read_u16::<NetworkEndian>().unwrap(),
-            dst_port: data.read_u16::<NetworkEndian>().unwrap(),
+            sport: data.read_u16::<NetworkEndian>().unwrap(),
+            dport: data.read_u16::<NetworkEndian>().unwrap(),
             length: data.read_u16::<NetworkEndian>().unwrap(),
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
             body: data.into_inner()[8..].to_vec(),
@@ -612,9 +612,9 @@ impl From<&[u8]> for UDPPacket {
 impl Into<Vec<u8>> for &UDPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
-        wtr.write_u16::<NetworkEndian>(self.src_port)
+        wtr.write_u16::<NetworkEndian>(self.sport)
             .expect("Unable to write to byte buffer for UDP packet");
-        wtr.write_u16::<NetworkEndian>(self.dst_port)
+        wtr.write_u16::<NetworkEndian>(self.dport)
             .expect("Unable to write to byte buffer for UDP packet");
         wtr.write_u16::<NetworkEndian>(self.length)
             .expect("Unable to write to byte buffer for UDP packet");
@@ -827,8 +827,8 @@ impl UDPPacket {
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
-            src_port: sport,
-            dst_port: 53u16, // DNS port
+            sport: sport,
+            dport: 53u16, // DNS port
             length: udp_length,
             checksum: 0,
             body: dns_packet,
@@ -878,16 +878,15 @@ impl UDPPacket {
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
         let subdomain = if src.is_v6() {
             format!(
-                "{}-{}-{}-{}-{}.{}",
+                "{}.{}.{}.{}.{}.{}",
                 tx_time, src.get_v6(), dst.get_v6(), tx_id, sport, domain_name
             )
         } else {
             format!(
-                "{}-{}-{}-{}-{}.{}",
+                "{}.{}.{}.{}.{}.{}",
                 tx_time, src.get_v4(), dst.get_v4(), tx_id, sport, domain_name
             )
         };
-        println!("DNS A Record Request Subdomain: {}", subdomain);
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
@@ -914,7 +913,7 @@ impl UDPPacket {
     pub fn chaos_request(
         src: &Address,
         dst: &Address,
-        src_port: u16,
+        sport: u16,
         tx: u32,
         chaos: &str,
     ) -> Vec<u8> {
@@ -922,8 +921,8 @@ impl UDPPacket {
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
-            src_port,
-            dst_port: 53u16,
+            sport: sport,
+            dport: 53u16,
             length: udp_length as u16,
             checksum: 0,
             body: dns_body,
@@ -1013,8 +1012,8 @@ pub fn get_domain_bytes_length(domain: &str) -> u32 {
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
 #[derive(Debug)]
 pub struct TCPPacket {
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub sport: u16,
+    pub dport: u16,
     pub seq: u32,
     pub ack: u32,
     // offset and reserved are combined into a single u8 (reserved is all 0's)
@@ -1031,8 +1030,8 @@ impl From<&[u8]> for TCPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
         TCPPacket {
-            src_port: data.read_u16::<NetworkEndian>().unwrap(),
-            dst_port: data.read_u16::<NetworkEndian>().unwrap(),
+            sport: data.read_u16::<NetworkEndian>().unwrap(),
+            dport: data.read_u16::<NetworkEndian>().unwrap(),
             seq: data.read_u32::<NetworkEndian>().unwrap(),
             ack: data.read_u32::<NetworkEndian>().unwrap(),
             offset: data.read_u8().unwrap(),
@@ -1049,9 +1048,9 @@ impl From<&[u8]> for TCPPacket {
 impl Into<Vec<u8>> for &TCPPacket {
     fn into(self) -> Vec<u8> {
         let mut wtr = vec![];
-        wtr.write_u16::<NetworkEndian>(self.src_port)
+        wtr.write_u16::<NetworkEndian>(self.sport)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u16::<NetworkEndian>(self.dst_port)
+        wtr.write_u16::<NetworkEndian>(self.dport)
             .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_u32::<NetworkEndian>(self.seq)
             .expect("Unable to write to byte buffer for TCP packet");
@@ -1078,16 +1077,16 @@ impl TCPPacket {
     pub fn tcp_syn_ack(
         src: &Address,
         dst: &Address,
-        src_port: u16,
-        dst_port: u16,
+        sport: u16,
+        dport: u16,
         seq: u32,
         ack: u32,
         ttl: u8,
         info_url: &str,
     ) -> Vec<u8> {
         let mut packet = Self {
-            src_port,
-            dst_port,
+            sport,
+            dport,
             seq,
             ack,
             offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved

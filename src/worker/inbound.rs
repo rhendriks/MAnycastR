@@ -459,8 +459,8 @@ fn parse_dnsv4(
         return None;
     }
 
-    let reply_sport = udp_packet.src_port;
-    let reply_dport = udp_packet.dst_port;
+    let reply_sport = udp_packet.sport;
+    let reply_dport = udp_packet.dport;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -547,8 +547,8 @@ fn parse_dnsv6(
         return None;
     }
 
-    let reply_sport = udp_packet.src_port;
-    let reply_dport = udp_packet.dst_port;
+    let reply_sport = udp_packet.sport;
+    let reply_dport = udp_packet.dport;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -605,7 +605,7 @@ fn parse_dnsv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> { // TODO v6 and v4 can be merged into one function
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -656,9 +656,9 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
 
-    let parts: Vec<&str> = domain.split('.').next().unwrap().split('-').collect();
-    // Our domains have 5 'parts' separated by 4 dashes
-    if parts.len() != 5 {
+    let parts: Vec<&str> = domain.split('.').collect();
+    // Our domains have 8 'parts' separated by 7 dots TODO number of parts is variable
+    if parts.len() != 8 {
         return None;
     }
 
@@ -747,8 +747,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v4(
         reply_dst,
-        tcp_packet.src_port,
-        tcp_packet.dst_port,
+        tcp_packet.sport,
+        tcp_packet.dport,
         origin_map,
     )?;
 
@@ -804,8 +804,8 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v6(
         reply_dst,
-        tcp_packet.src_port,
-        tcp_packet.dst_port,
+        tcp_packet.sport,
+        tcp_packet.dport,
         origin_map,
     )?;
 
