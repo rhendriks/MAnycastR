@@ -1026,28 +1026,28 @@ async fn task_distributor(
                 sender.finished();
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
-            // to all workers in sending_workers (with interval)
-            let senders = senders.clone(); // TODO cloning overhead
-            spawn(async move {
-                for _ in 0..nprobes {
-                    println!("Going nprobes {}", nprobes);
-                    for sender in &senders {
-                        if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
-                            sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+            for sender in &senders {
+                if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
+                    let sender_c = sender.clone();
+                    let task_c = task.clone();
+
+                    spawn(async move {
+                        for _ in 0..nprobes {
+                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
                                 eprintln!(
                                     "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
-                                    sender.hostname, e
+                                    sender_c.hostname, e
                                 );
                             });
-                            // Wait inter-probe interval
-                            tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
+                            // sleep for the inter-probe interval
+                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                         }
-                    }
-
-                    // sleep for the inter-probe interval
-                    tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                    });
+                    
+                    // Wait inter-client probing interval
+                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                 }
-            });
+            }
         } else {
             // to specific worker
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
