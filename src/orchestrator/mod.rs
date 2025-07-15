@@ -1003,6 +1003,7 @@ async fn task_distributor(
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
         let nprobes = if multiple || is_unicast {
+            println!("sending multiple")
             number_of_probes
         } else {
             1
