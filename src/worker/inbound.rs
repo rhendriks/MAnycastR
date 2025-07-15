@@ -610,8 +610,8 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
     let parts: Vec<&str> = domain.split('.').collect();
-    // Our domains have 8 'parts' separated by 7 dots
-    if parts.len() != 8 {
+    // Our domains have at least 5 parts
+    if parts.len() < 5 {
         return None;
     }
 
@@ -657,8 +657,8 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
 
     let parts: Vec<&str> = domain.split('.').collect();
-    // Our domains have 8 'parts' separated by 7 dots TODO number of parts is variable
-    if parts.len() != 8 {
+    // Our domains have at least 5 parts
+    if parts.len() < 5 {
         return None;
     }
 

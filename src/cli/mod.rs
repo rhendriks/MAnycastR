@@ -410,10 +410,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
         } else if measurement_type == A_ID {
-            // TODO change default A record value
             matches
                 .get_one::<String>("query")
-                .map_or("any.dnsjedi.org", |q| q.as_str())
+                .map_or("example.org", |q| q.as_str())
         } else {
             ""
         };
