@@ -859,13 +859,11 @@ impl Controller for ControllerService {
 
             if !responsive_targets.is_empty() {
                 // Remove discovery results from the result list for the CLI
-                task_result.result_list.retain(|result| { // TODO use these results (and send to all except this tx worker)
+                task_result.result_list.retain(|result| {
                     result.is_discovery != Some(true)
                 });
 
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
-                // TODO send to all workers except the one that sent this result (tx_worker_id)
-                println!("Sending follow-up task to all workers with responsive targets: {:?}", responsive_targets);
                 task_sender.send((ALL_WORKERS_INTERVAL, Task {
                     worker_id: None,
                     data: Some(custom_module::manycastr::task::Data::Targets(Targets {
@@ -885,7 +883,6 @@ impl Controller for ControllerService {
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
             let rx_worker_id = task_result.worker_id;
             for result in &task_result.result_list {
-                // TODO will send tasks after the measurement is finished
                 // Check for discovery probes where the sender is not the receiver
                 if result.is_discovery == Some(true) {
                     println!("Probing {} from catcher {}", result.src.unwrap(), rx_worker_id);
@@ -914,11 +911,7 @@ impl Controller for ControllerService {
                 }));
             }
         }
-
-        for result in &task_result.result_list {
-            println!("address with result {}", result.src.unwrap());
-        }
-
+        
         // Forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
