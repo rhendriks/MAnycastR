@@ -30,10 +30,7 @@ impl Display for Address {
 
 impl Address {
     pub fn is_v6(&self) -> bool {
-        match &self.value {
-            Some(V6(_)) => true,
-            _ => false,
-        }
+        matches!(&self.value, Some(V6(_)))
     }
 
     /// Get the prefix of the address
@@ -82,14 +79,14 @@ impl From<&[u8]> for Address {
         match bytes.len() {
             4 => {
                 let mut ip = [0; 4];
-                ip.copy_from_slice(&bytes);
+                ip.copy_from_slice(bytes);
                 Address {
                     value: Some(V4(u32::from_be_bytes(ip))),
                 }
             }
             16 => {
                 let mut ip = [0; 16];
-                ip.copy_from_slice(&bytes);
+                ip.copy_from_slice(bytes);
                 Address {
                     value: Some(V6(IPv6 {
                         p1: u64::from_be_bytes(ip[0..8].try_into().unwrap()),

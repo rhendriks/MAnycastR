@@ -151,9 +151,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let url = matches.get_one::<String>("url").unwrap().clone();
 
         // Source IP for the measurement
-        let src = matches
-            .get_one::<String>("address")
-            .map(|addr| Address::from(addr));
+        let src = matches.get_one::<String>("address").map(Address::from);
 
         // Get the measurement type
         let measurement_type: u8 = match matches
@@ -372,7 +370,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let mut ips: Vec<Address> = reader // Create a vector of addresses from the file
             .lines()
-            .filter_map(|l| l.ok()) // Handle potential errors
+            .map_while(Result::ok) // Handle potential errors
             .filter(|l| !l.trim().is_empty()) // Skip empty lines
             .map(Address::from)
             .collect();
@@ -640,24 +638,22 @@ impl CliClient {
                     )
                 })
                 .expect("No unicast origin found")
+        } else if is_config {
+            "Anycast configuration-based".to_string()
         } else {
-            if is_config {
-                "Anycast configuration-based".to_string()
-            } else {
-                measurement_definition
-                    .configurations
-                    .first()
-                    .and_then(|conf| conf.origin.as_ref())
-                    .map(|origin| {
-                        format!(
-                            "Anycast (source IP: {}, source port: {}, destination port: {})",
-                            origin.src.unwrap(),
-                            origin.sport,
-                            origin.dport
-                        )
-                    })
-                    .expect("No anycast origin found")
-            }
+            measurement_definition
+                .configurations
+                .first()
+                .and_then(|conf| conf.origin.as_ref())
+                .map(|origin| {
+                    format!(
+                        "Anycast (source IP: {}, source port: {}, destination port: {})",
+                        origin.src.unwrap(),
+                        origin.sport,
+                        origin.dport
+                    )
+                })
+                .expect("No anycast origin found")
         };
 
         // List of Worker IDs that are sending out probes (empty means all)
@@ -785,7 +781,7 @@ impl CliClient {
                 )
             } else {
                 // user provided a file (with possibly a path)
-                format!("{}", path.unwrap())
+                path.unwrap().to_string()
             }
         } else {
             // write file to current directory using default naming convention
@@ -818,9 +814,9 @@ impl CliClient {
         } else {
             // Check if any configuration has origin_id that is not 0 or u32::MAX
             measurement_definition.configurations.iter().any(|conf| {
-                conf.origin.as_ref().map_or(false, |origin| {
-                    origin.origin_id != 0 && origin.origin_id != u32::MAX
-                })
+                conf.origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
             })
         };
 
@@ -1039,7 +1035,7 @@ fn get_metadata(
         }
     }
 
-    return md_file;
+    md_file
 }
 
 /// Writes the results to a file (and optionally to the command-line)
@@ -1210,10 +1206,7 @@ fn get_result(
         None => String::from("None"),
         Some(src) => match src.value {
             Some(V4(v4)) => v4.to_string(),
-            Some(V6(v6)) => {
-                let str = ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string();
-                str
-            }
+            Some(V6(v6)) => ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string(),
             None => String::from("None"),
         },
     };

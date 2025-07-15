@@ -48,7 +48,7 @@ impl From<&[u8]> for IPv4Packet {
                 if payload_bytes.len() < 8 {
                     PacketPayload::Unimplemented
                 } else {
-                    PacketPayload::ICMP {
+                    PacketPayload::Icmp {
                         value: ICMPPacket::from(payload_bytes),
                     }
                 }
@@ -57,7 +57,7 @@ impl From<&[u8]> for IPv4Packet {
                 if payload_bytes.len() < 8 {
                     PacketPayload::Unimplemented
                 } else {
-                    PacketPayload::UDP {
+                    PacketPayload::Udp {
                         value: UDPPacket::from(payload_bytes),
                     }
                 }
@@ -66,7 +66,7 @@ impl From<&[u8]> for IPv4Packet {
                 if payload_bytes.len() < 20 {
                     PacketPayload::Unimplemented
                 } else {
-                    PacketPayload::TCP {
+                    PacketPayload::Tcp {
                         value: TCPPacket::from(payload_bytes),
                     }
                 }
@@ -85,12 +85,12 @@ impl From<&[u8]> for IPv4Packet {
 }
 
 /// Convert IPv4Packet into a vector of bytes
-impl Into<Vec<u8>> for &IPv4Packet {
-    fn into(self) -> Vec<u8> {
-        let (payload_type, payload) = match &self.payload {
-            PacketPayload::ICMP { value } => (1, value.into()),
-            PacketPayload::UDP { value } => (17, value.into()),
-            PacketPayload::TCP { value } => (6, value.into()),
+impl From<&IPv4Packet> for Vec<u8> {
+    fn from(packet: &IPv4Packet) -> Self {
+        let (payload_type, payload) = match &packet.payload {
+            PacketPayload::Icmp { value } => (1, value.into()),
+            PacketPayload::Udp { value } => (17, value.into()),
+            PacketPayload::Tcp { value } => (6, value.into()),
             PacketPayload::Unimplemented => (0, vec![]),
         };
 
@@ -99,21 +99,21 @@ impl Into<Vec<u8>> for &IPv4Packet {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
         wtr.write_u8(0x00)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
-        wtr.write_u16::<NetworkEndian>(self.length)
+        wtr.write_u16::<NetworkEndian>(packet.length)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
         wtr.write_u16::<NetworkEndian>(0x3a7d)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Identification
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
-        wtr.write_u8(self.ttl)
+        wtr.write_u8(packet.ttl)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Time To Live
         wtr.write_u8(payload_type)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Protocol (ICMP)
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Header Checksum
-        wtr.write_u32::<NetworkEndian>(self.src)
+        wtr.write_u32::<NetworkEndian>(packet.src)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
-        wtr.write_u32::<NetworkEndian>(self.dst)
+        wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Calculate and write the checksum
@@ -164,7 +164,7 @@ impl From<&[u8]> for IPv6Packet {
             //TODO extension headers
             58 => {
                 // ICMPv6
-                PacketPayload::ICMP {
+                PacketPayload::Icmp {
                     value: ICMPPacket::from(payload),
                 }
             }
@@ -173,7 +173,7 @@ impl From<&[u8]> for IPv6Packet {
                 if payload.len() < 8 {
                     PacketPayload::Unimplemented
                 } else {
-                    PacketPayload::UDP {
+                    PacketPayload::Udp {
                         value: UDPPacket::from(payload),
                     }
                 }
@@ -183,7 +183,7 @@ impl From<&[u8]> for IPv6Packet {
                 if payload.len() < 20 {
                     PacketPayload::Unimplemented
                 } else {
-                    PacketPayload::TCP {
+                    PacketPayload::Tcp {
                         value: TCPPacket::from(payload),
                     }
                 }
@@ -224,9 +224,9 @@ impl From<&IPv6Packet> for Vec<u8> {
             .expect("Unable to write destination address to byte buffer for IPv6Packet");
 
         let payload = match &packet.payload {
-            PacketPayload::ICMP { value } => value.into(),
-            PacketPayload::UDP { value } => value.into(),
-            PacketPayload::TCP { value } => value.into(),
+            PacketPayload::Icmp { value } => value.into(),
+            PacketPayload::Udp { value } => value.into(),
+            PacketPayload::Tcp { value } => value.into(),
             PacketPayload::Unimplemented => vec![],
         };
 
@@ -240,9 +240,9 @@ impl From<&IPv6Packet> for Vec<u8> {
 /// Definition of the IPV4Packet payload (either ICMPv4, UDP, TCP, or unimplemented)
 #[derive(Debug)]
 pub enum PacketPayload {
-    ICMP { value: ICMPPacket },
-    UDP { value: UDPPacket },
-    TCP { value: TCPPacket },
+    Icmp { value: ICMPPacket },
+    Udp { value: UDPPacket },
+    Tcp { value: TCPPacket },
     Unimplemented,
 }
 
@@ -250,9 +250,9 @@ pub enum PacketPayload {
 impl From<PacketPayload> for Vec<u8> {
     fn from(payload: PacketPayload) -> Self {
         match payload {
-            PacketPayload::ICMP { value } => (&value).into(),
-            PacketPayload::UDP { value } => (&value).into(),
-            PacketPayload::TCP { value } => (&value).into(),
+            PacketPayload::Icmp { value } => (&value).into(),
+            PacketPayload::Udp { value } => (&value).into(),
+            PacketPayload::Tcp { value } => (&value).into(),
             PacketPayload::Unimplemented => vec![],
         }
     }
@@ -478,7 +478,7 @@ impl ICMPPacket {
             ttl,
             src,
             dst,
-            payload: PacketPayload::ICMP { value: packet },
+            payload: PacketPayload::Icmp { value: packet },
         };
 
         let mut bytes: Vec<u8> = (&v4_packet).into();
@@ -549,7 +549,7 @@ impl ICMPPacket {
             hop_limit,
             src,
             dst,
-            payload: PacketPayload::ICMP { value: packet },
+            payload: PacketPayload::Icmp { value: packet },
         };
 
         let mut bytes: Vec<u8> = (&v6_packet).into();
@@ -817,7 +817,7 @@ impl UDPPacket {
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
-            sport: sport,
+            sport,
             dport: 53u16, // DNS port
             length: udp_length,
             checksum: 0,
@@ -841,7 +841,7 @@ impl UDPPacket {
                 hop_limit: ttl,
                 src: src.get_v6(),
                 dst: dst.get_v6(),
-                payload: PacketPayload::UDP { value: udp_packet },
+                payload: PacketPayload::Udp { value: udp_packet },
             })
                 .into()
         } else {
@@ -850,7 +850,7 @@ impl UDPPacket {
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::UDP { value: udp_packet },
+                payload: PacketPayload::Udp { value: udp_packet },
             })
                 .into()
         }
@@ -925,7 +925,7 @@ impl UDPPacket {
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
-            sport: sport,
+            sport,
             dport: 53u16,
             length: udp_length as u16,
             checksum: 0,
@@ -949,7 +949,7 @@ impl UDPPacket {
                 hop_limit: 255,
                 src: src.get_v6(),
                 dst: dst.get_v6(),
-                payload: PacketPayload::UDP { value: udp_packet },
+                payload: PacketPayload::Udp { value: udp_packet },
             };
             (&v6_packet).into()
         } else {
@@ -959,7 +959,7 @@ impl UDPPacket {
                 ttl: 255,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::UDP { value: udp_packet },
+                payload: PacketPayload::Udp { value: udp_packet },
             };
             (&v4_packet).into()
         }
@@ -1112,7 +1112,7 @@ impl TCPPacket {
                 hop_limit: ttl,
                 src: src.get_v6(),
                 dst: dst.get_v6(),
-                payload: PacketPayload::TCP { value: packet },
+                payload: PacketPayload::Tcp { value: packet },
             };
             (&v6_packet).into()
         } else {
@@ -1122,7 +1122,7 @@ impl TCPPacket {
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::TCP { value: packet },
+                payload: PacketPayload::Tcp { value: packet },
             };
 
             (&v4_packet).into()
