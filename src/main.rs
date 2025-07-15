@@ -14,7 +14,7 @@
 //! ii) Measuring external anycast infrastructure
 //! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
 //! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
-//! 
+//!
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 //!
 //! # The components
@@ -51,7 +51,7 @@
 //!
 //! ## Variables
 //! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
-//! * **Type of measurement** - ICMP, UDP, TCP, or CHAOS
+//! * **Type of measurement** - ICMP, DNS, TCP, or CHAOS
 //! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 //! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 //! * **Interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -209,6 +209,13 @@ mod net;
 mod orchestrator;
 mod worker;
 
+// Measurement type IDs
+pub const ICMP_ID: u8 = 1; // ICMP ECHO
+pub const A_ID: u8 = 2; // UDP DNS A Record
+pub const TCP_ID: u8 = 3; // TCP SYN/ACK
+pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
+pub const ALL_ID: u8 = 255; // All measurement types
+
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
@@ -225,8 +232,6 @@ fn main() {
             .unwrap();
 
         let _ = rt.block_on(async { worker::Worker::new(worker_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
-
-        return;
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
@@ -242,7 +247,7 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
+        rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
     }
 }
 
@@ -357,13 +362,29 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
                     )
-                    .arg(Arg::new("interval")
-                        .long("interval")
+                    .arg(Arg::new("worker_interval")
+                        .long("worker-interval")
+                        .short('w')
+                        .value_parser(value_parser!(u32))
+                        .required(false)
+                        .default_value("1")
+                        .help("Interval between separate worker's probes to the same target")
+                    )
+                    .arg(Arg::new("probe_interval")
+                        .long("probe-interval")
                         .short('i')
                         .value_parser(value_parser!(u32))
                         .required(false)
                         .default_value("1")
-                        .help("Interval between separate worker's probes to the same target [default: 1s]")
+                        .help("Interval between separate probes to the same target")
+                    )
+                    .arg(Arg::new("number_of_probes")
+                        .long("nprobes")
+                        .short('c')
+                        .value_parser(value_parser!(u32))
+                        .required(false)
+                        .default_value("1")
+                        .help("Number of probes to send to each origin,target pair [NOTE: violates probing rate]")
                     )
                     .arg(Arg::new("divide")
                         .long("divide")
@@ -384,7 +405,7 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(u16))
                         .required(false)
                         .default_value("62321")
-                        .help("Source port to use (default 62321)")
+                        .help("Source port to use")
                     )
                     .arg(Arg::new("destination port")
                         .long("dport")
@@ -412,7 +433,14 @@ fn parse_cmd() -> ArgMatches {
                         .short('v')
                         .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("First check if the target is responsive using the orchestrator before sending probes from workers [UNIMPLEMENTED]")
+                        .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
+                    )
+                    .arg(Arg::new("latency")
+                        .long("latency")
+                        .short('l')
+                        .action(ArgAction::SetTrue)
+                        .required(false)
+                        .help("Measure anycast latencies (first, measure catching PoP; second, measure latency from catching PoP to target) [NOTE: currently violates probing rate at workers with high catchments]")
                     )
                     .arg(Arg::new("out")
                         .long("out")

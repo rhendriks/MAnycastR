@@ -6,15 +6,13 @@ service Controller {
   // Worker lets the orchestrator know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
   // Worker announces itself, and starts its connection with the orchestrator. The orchestrator sends a stream of tasks
-  rpc WorkerConnect(Metadata) returns (stream Task) {}
+  rpc WorkerConnect(Worker) returns (stream Task) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
   // CLI asks orchestrator its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
-  // Worker obtains a unique worker ID from the orchestrator
-  rpc GetWorkerID(Metadata) returns (WorkerID) {}
 }
 
 // Empty message
@@ -22,7 +20,7 @@ message Empty {}
 
 // Acknowledgement of a measurement with a boolean whether it was successful or not and a possible error message.
 message Ack {
-  bool success = 1;
+  bool is_success = 1;
   string error_message = 2;
 }
 
@@ -32,43 +30,34 @@ message Finished {
   uint32 worker_id = 2;
 }
 
-// A worker ID
-message WorkerID {
-  uint32 worker_id = 1;
-}
-
 // Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
-  uint32 rate = 1;
-  repeated uint32 workers = 2;
-  repeated Configuration configurations = 3; // Configuration of worker and origin combinations
-  uint32 measurement_type = 4;
-  bool unicast = 5;
-  bool ipv6 = 6;
-  uint32 interval = 7;
-  bool responsive = 8; // TODO unimplemented
-  bool divide = 9;
+  uint32 probing_rate = 1;
+  repeated Configuration configurations = 2; // Configuration of worker and origin combinations
+  uint32 measurement_type = 3;
+  bool is_unicast = 4;
+  bool is_ipv6 = 5;
+  uint32 worker_interval = 6;
+  bool is_responsive = 7;
+  bool is_latency = 8;
+  bool is_divide = 9;
   Targets targets = 10;
   string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
-  string url = 12;
+  string url = 12; // URL to encode in probes (e.g., opt-out link)
+  uint32 probe_interval = 13; // interval between probes from/to the same origin,dst pair
+  uint32 number_of_probes = 14; // number of probes to send per origin,dst pair
 }
 
-// A list of workers (an empty list is used when all workers have to send out probes)
+// A list of workers
 message Status {
   repeated Worker workers = 1;
-  repeated fixed32 measurements = 2;
 }
 
-// Worker definition, contains a worker ID, metadata (hostname), and a list of current measurements
+// Worker definition, contains a worker ID, metadata (hostname), status
 message Worker {
   fixed32 worker_id = 1;
-  Metadata metadata = 2;
-  repeated fixed32 measurements = 3;
-}
-
-// Metadata (as used in worker), contains a hostname
-message Metadata {
-  string hostname = 1;
+  string hostname = 2;
+  string status = 3; // IDLE, PROBING, LISTENING, DISCONNECTED
 }
 
 // Address message, can be either an IPv4 or IPv6 address
@@ -92,20 +81,21 @@ message Task {
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
   }
+  optional uint32 worker_id = 4; // Unique worker ID for the client
 }
 
 // A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  bool active = 2;
-  uint32 measurement_id = 3;
-  uint32 measurement_type = 4;
-  repeated Origin tx_origins = 5; // origins to send with
-  bool unicast = 6;
-  bool ipv6 = 7;
-  repeated Origin rx_origins = 8; // origins to listen for
-  string record = 9; // domain to use for DNS queries (TXT/A/AAAA)
-  string url = 10; // URL encoded in probes
+  uint32 measurement_id = 2;
+  uint32 measurement_type = 3;
+  repeated Origin tx_origins = 4; // origins to send with
+  bool is_unicast = 5;
+  bool is_ipv6 = 6;
+  repeated Origin rx_origins = 7; // origins to listen for
+  string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
+  string url = 9; // URL encoded in probes
+  bool is_latency = 10; // whether the measurement is for latency
 }
 
 // An end message, indicates the worker should stop sending out probes
@@ -130,6 +120,7 @@ message Configuration {
 // A list of target addresses
 message Targets {
   repeated Address dst_list = 1;
+  optional bool is_discovery = 2; // whether the targets are being probed as discovery (responsiveness, latency)
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -138,51 +129,14 @@ message TaskResult {
   repeated Reply result_list = 2;
 }
 
-// A reply, either a PingResult, UDPResult, or TCPResult; the IP result, the receive time, and the origin ID of the reply
+// Probe reply message
 message Reply {
-  oneof value {
-    PingResult ping = 1;
-    UDPResult udp = 2;
-    TCPResult tcp = 3;
-  }
-  IPResult ip_result = 4; // IP result of the reply
-  uint64 rx_time = 5; // receive time of the reply
-  fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-}
-
-// IPResult, contains a source address and the TTL captured
-message IPResult {
   Address src = 1;
   fixed32 ttl = 2;
-}
-
-// Result of a ping which contains the transmission time and the sender worker ID
-message PingResult {
-  uint64 tx_time = 1;
-  fixed32 tx_worker_id = 2;
-}
-
-// UDP result contains either an A record or a CHAOS record
-message UDPResult {
-  oneof value {
-    DNS_A_Record dns_a_record = 1;
-    DNS_CHAOS dns_chaos = 2;
-  }
-}
-
-// UDP payload, which is extracted from the domain of the DNS A Record reply, containing information about the probe
-message DNS_A_Record {
-  uint64 tx_time = 1;
-  fixed32 tx_worker_id = 2;
-}
-
-// CHAOS payload, which is extracted from the domain of the DNS CHAOS reply
-message DNS_CHAOS {
-  fixed32 tx_worker_id = 1;
-  string chaos_data = 2;
-}
-
-// TCP result with a sequence number which has either the tx_worker_id (MAnycast) or the tx_time (GCD)
-message TCPResult {
-  fixed32 seq = 1;
+  uint64 rx_time = 3; // receive time of the reply
+  uint64 tx_time = 4;
+  fixed32 tx_worker_id = 5;
+  fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
+  optional bool is_discovery = 7; // whether the reply is part of a discovery measurement
+  optional string chaos = 8;
 }

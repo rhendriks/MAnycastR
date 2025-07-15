@@ -1,5 +1,6 @@
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
+use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::io;
@@ -70,7 +71,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
-        .expect(&format! {"No MAC address found for interface: {}", if_name})
+        .unwrap_or_else(|_| panic!("No MAC address found for interface: {}", if_name))
         .unwrap()
         .bytes()
         .to_vec();
@@ -107,39 +108,37 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     let mut lines = reader.lines();
     lines.next(); // Skip the first line (header)
 
-    for line in lines {
-        if let Ok(line) = line {
-            let parts: Vec<&str> = line.split_whitespace().collect();
+    for line in lines.map_while(Result::ok) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
 
-            if parts.len() > 3 {
-                let addr = parts[0]; // IP address
+        if parts.len() > 3 {
+            let addr = parts[0]; // IP address
 
-                if addr != gateway_ip {
-                    // Skip if not the default gateway
-                    continue;
-                }
+            if addr != gateway_ip {
+                // Skip if not the default gateway
+                continue;
+            }
 
-                let mac_address = if cfg!(target_os = "freebsd") {
-                    // For FreeBSD, MAC address is in the second column
-                    parts[1]
-                } else {
-                    // For Linux, MAC address is in the fourth column
-                    parts[3]
-                };
+            let mac_address = if cfg!(target_os = "freebsd") {
+                // For FreeBSD, MAC address is in the second column
+                parts[1]
+            } else {
+                // For Linux, MAC address is in the fourth column
+                parts[3]
+            };
 
-                // Skip local-loopback and broadcast
-                if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
-                    continue;
-                }
+            // Skip local-loopback and broadcast
+            if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
+                continue;
+            }
 
-                // If interface name matches, return the MAC address
-                if parts[5] == if_name {
-                    mac_dst = parts[3]
-                        .split(':')
-                        .map(|s| u8::from_str_radix(s, 16).unwrap())
-                        .collect();
-                    break;
-                }
+            // If interface name matches, return the MAC address
+            if parts[5] == if_name {
+                mac_dst = parts[3]
+                    .split(':')
+                    .map(|s| u8::from_str_radix(s, 16).unwrap())
+                    .collect();
+                break;
             }
         }
     }
@@ -180,10 +179,10 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 /// # Returns
 ///
 /// A ping packet (including the IP header) as a byte vector.
-pub fn create_ping(
+pub fn create_icmp(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
+    worker_id: u32,
     measurement_id: u32,
     info_url: &str,
 ) -> Vec<u8> {
@@ -197,12 +196,12 @@ pub fn create_ping(
     let mut payload_bytes: Vec<u8> = Vec::new();
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
-    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 13
+    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
 
     // add the source address
     if src.is_v6() {
-        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 14 - 31
-        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 32 - 49
+        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 16 - 33
+        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 34 - 51
 
         ICMPPacket::echo_request_v6(
             origin.dport as u16,
@@ -214,8 +213,8 @@ pub fn create_ping(
             info_url,
         )
     } else {
-        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 14 - 17
-        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 18 - 21
+        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 16 - 19
+        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 20 - 23
 
         ICMPPacket::echo_request(
             origin.dport as u16,
@@ -229,7 +228,7 @@ pub fn create_ping(
     }
 }
 
-/// Creates a UDP packet.
+/// Creates a DNS packet.
 ///
 /// # Arguments
 ///
@@ -237,9 +236,9 @@ pub fn create_ping(
 ///
 /// * 'worker_id' - the unique worker ID of this worker
 ///
-/// * 'dst' - the destination address for the UDP packet
+/// * 'dst' - the destination address for the DNS packet
 ///
-/// * 'measurement_type' - the type of measurement being performed (2 = UDP/DNS, 4 = UDP/CHAOS)
+/// * 'measurement_type' - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -247,70 +246,31 @@ pub fn create_ping(
 ///
 /// # Returns
 ///
-/// A UDP packet (including the IP header) as a byte vector.
+/// A DNS packet (including the IP header) as a byte vector.
 ///
 /// # Panics
 ///
 /// If the measurement type is not 2 or 4
-pub fn create_udp(
+pub fn create_dns(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
+    worker_id: u32,
     measurement_type: u8,
-    is_ipv6: bool,
     qname: &str,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let src = origin.src.expect("None IP address");
+    let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
-    if is_ipv6 {
-        if measurement_type == 2 {
-            UDPPacket::dns_request_v6(
-                src.get_v6(),
-                dst.get_v6(),
-                sport,
-                qname,
-                tx_time,
-                worker_id,
-                255,
-            )
-        } else if measurement_type == 4 {
-            UDPPacket::chaos_request_v6(
-                src.get_v6(),
-                dst.get_v6(),
-                sport,
-                worker_id,
-                qname,
-            )
-        } else {
-            panic!("Invalid measurement type")
-        }
+    if measurement_type == A_ID {
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
+    } else if measurement_type == CHAOS_ID {
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
-        if measurement_type == 2 {
-            UDPPacket::dns_request(
-                src.get_v4(),
-                dst.get_v4(),
-                sport,
-                qname,
-                tx_time,
-                worker_id,
-                255,
-            )
-        } else if measurement_type == 4 {
-            UDPPacket::chaos_request(
-                src.get_v4(),
-                dst.get_v4(),
-                sport,
-                worker_id,
-                qname,
-            )
-        } else {
-            panic!("Invalid measurement type")
-        }
+        panic!("Invalid measurement type")
     }
 }
 
@@ -326,7 +286,7 @@ pub fn create_udp(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'is_unicast' - whether we are performing anycast-based (false) or GCD probing (true)
+/// * 'is_latency' - whether we are measuring latency
 ///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
@@ -336,46 +296,32 @@ pub fn create_udp(
 pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
-    worker_id: u16,
-    is_ipv6: bool,
-    is_unicast: bool,
+    worker_id: u32,
+    is_latency: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let transmit_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u32; // The least significant bits are kept
     let seq = 0; // information in seq gets lost
-                 // for MAnycast the ACK is the worker ID, for GCD the ACK is the transmit time
-    let ack = if !is_unicast {
-        worker_id as u32
+    let ack = if !is_latency || worker_id > u16::MAX as u32 {
+        // catchment mapping (or discovery probe for latency measurement)
+        worker_id
     } else {
-        transmit_time
+        // latency measurement
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u32
     };
 
-    if is_ipv6 {
-        TCPPacket::tcp_syn_ack_v6(
-            origin.src.unwrap().get_v6(),
-            dst.get_v6(),
-            origin.sport as u16,
-            origin.dport as u16,
-            seq,
-            ack,
-            255,
-            info_url,
-        )
-    } else {
-        TCPPacket::tcp_syn_ack(
-            origin.src.unwrap().get_v4(),
-            dst.get_v4(),
-            origin.sport as u16,
-            origin.dport as u16,
-            seq,
-            ack,
-            255,
-            info_url,
-        )
-    }
+    TCPPacket::tcp_syn_ack(
+        &origin.src.unwrap(),
+        dst,
+        origin.sport as u16,
+        origin.dport as u16,
+        seq,
+        ack,
+        255,
+        info_url,
+    )
 }
 
 /// Checks if the given address is in the given prefix.
@@ -395,7 +341,7 @@ pub fn create_tcp(
 /// If the address is not a valid IP address.
 ///
 /// If the prefix is not a valid prefix.
-pub fn is_in_prefix(address: &String, prefix: &IpNetwork) -> bool {
+pub fn is_in_prefix(address: &str, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
     let address = address
         .parse::<IpAddr>()
