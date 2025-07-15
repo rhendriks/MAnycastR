@@ -675,6 +675,7 @@ impl Controller for ControllerService {
                 worker_interval,
                 probe_interval,
                 number_of_probes,
+                is_unicast,
             )
             .await;
         });
@@ -997,10 +998,15 @@ async fn task_distributor(
     inter_client_interval: u64,
     inter_probe_interval: u64, // default interval between probes
     number_of_probes: u8,
+    is_unicast: bool, // TODO handle this better
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
-        let nprobes = if multiple { number_of_probes } else { 1 };
+        let nprobes = if multiple || is_unicast {
+            number_of_probes
+        } else {
+            1
+        };
 
         if worker_id == BREAK_SIGNAL {
             // Close distributor channel
