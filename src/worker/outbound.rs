@@ -122,9 +122,10 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
-                                            sleep(Duration::from_millis(1));
-                                        }
+                                        // TODO re-implement rate limiting that works with non-deterministic packet sending (due to discovery probing)
+                                        // while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                        //     sleep(Duration::from_millis(1));
+                                        // }
 
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
@@ -146,7 +147,7 @@ pub fn outbound(
                                             measurement_type,
                                             &qname,
                                         ));
-
+                                        
                                         while let Err(_) = limiter.check() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
