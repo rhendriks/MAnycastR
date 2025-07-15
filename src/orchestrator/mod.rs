@@ -780,7 +780,7 @@ impl Controller for ControllerService {
             println!("[Orchestrator] Measurement finished");
 
             // Send end message to all workers directly to let them know the measurement is finished
-            tx_t.send((ALL_WORKERS_DIRECT, Task {
+            tx_t.send((ALL_WORKERS_DIRECT, Task { // TODO will cause workers to stop listening for discovery probe replies, for those that end prematurely
                 worker_id: None,
                 data: Some(TaskEnd(End { code: 0 })),
             }, false)).await.expect("Failed to send end task to TaskDistributor");
