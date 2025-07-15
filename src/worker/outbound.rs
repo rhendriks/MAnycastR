@@ -95,8 +95,6 @@ pub fn outbound(
                         }
                     };
                 }
-                println!("[] Received task: {:?}", task);
-
                 match task {
                     End(_) => {
                         // An End task means the measurement has finished
