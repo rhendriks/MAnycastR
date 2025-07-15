@@ -302,18 +302,18 @@ impl PseudoHeader {
         packet_length: u32,
     ) -> Self {
         if src_addr.is_v6() {
-            Self::V4(PseudoHeaderV4 {
-                src: src_addr.get_v4(),
-                dst: dst_addr.get_v4(),
-                protocol,
-                length: packet_length as u16, // Length field is 16 bits for IPv4
-            })
-        } else {
             Self::V6(PseudoHeaderV6 {
                 src: src_addr.get_v6(),
                 dst: dst_addr.get_v6(),
                 upper_layer_packet_length: packet_length, // Length field is 32 bits for IPv6
                 next_header: protocol,
+            })
+        } else {
+            Self::V4(PseudoHeaderV4 {
+                src: src_addr.get_v4(),
+                dst: dst_addr.get_v4(),
+                protocol,
+                length: packet_length as u16, // Length field is 16 bits for IPv4
             })
         }
     }
