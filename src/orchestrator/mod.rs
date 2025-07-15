@@ -1,5 +1,6 @@
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::AddAssign;
@@ -64,14 +65,15 @@ pub enum WorkerStatus {
     Disconnected, // Disconnected
 }
 
-impl WorkerStatus {
-    pub fn to_string(&self) -> String {
-        match self {
-            WorkerStatus::Idle => "IDLE".to_string(),
-            WorkerStatus::Probing => "PROBING".to_string(),
-            WorkerStatus::Listening => "LISTENING".to_string(),
-            WorkerStatus::Disconnected => "DISCONNECTED".to_string(),
-        }
+impl fmt::Display for WorkerStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            WorkerStatus::Idle => "IDLE",
+            WorkerStatus::Probing => "PROBING",
+            WorkerStatus::Listening => "LISTENING",
+            WorkerStatus::Disconnected => "DISCONNECTED",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -123,7 +125,7 @@ impl<T> Drop for WorkerReceiver<T> {
                 // If this is the last worker for this open measurement
                 if remaining == &1 {
                     // The orchestrator no longer has to wait for this measurement
-                    open_measurements.remove(&measurement_id);
+                    open_measurements.remove(measurement_id);
 
                     println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
                     *self.active.lock().unwrap() = false;
@@ -143,7 +145,7 @@ impl<T> Drop for WorkerReceiver<T> {
                 } else {
                     // If there are more workers still performing this measurement
                     // The orchestrator no longer has to wait for this worker
-                    *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
+                    *open_measurements.get_mut(measurement_id).unwrap() -= 1;
                 }
             }
         }
@@ -286,13 +288,13 @@ impl<T> Drop for CLIReceiver<T> {
 
 impl PartialEq for WorkerStatus {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (WorkerStatus::Idle, WorkerStatus::Idle) => true,
-            (WorkerStatus::Probing, WorkerStatus::Probing) => true,
-            (WorkerStatus::Listening, WorkerStatus::Listening) => true,
-            (WorkerStatus::Disconnected, WorkerStatus::Disconnected) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (Idle, Idle)
+                | (Probing, Probing)
+                | (Listening, Listening)
+                | (Disconnected, Disconnected)
+        )
     }
 }
 
@@ -747,7 +749,7 @@ impl Controller for ControllerService {
             // Iterate over hitlist targets
             for chunk in dst_addresses.chunks(probing_rate as usize) {
                 // If the CLI disconnects during task distribution, abort
-                if *is_active.lock().unwrap() == false {
+                if !(*is_active.lock().unwrap()) {
                     println!("[Orchestrator] Measurement no longer active");
                     break; // abort
                 }
@@ -1160,7 +1162,5 @@ fn load_tls() -> Identity {
         .expect("Unable to read key file at ./tls/orchestrator.key");
 
     // Create TLS configuration
-    let identity = Identity::from_pem(cert, key);
-
-    identity
+    Identity::from_pem(cert, key)
 }

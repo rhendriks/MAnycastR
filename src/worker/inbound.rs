@@ -80,7 +80,7 @@ pub fn listen(
                     }
                 } else if measurement_type == 2 || measurement_type == 4 {
                     // DNS A
-                    let udp_result = if is_ipv6 {
+                    if is_ipv6 {
                         if packet[20] == 17 {
                             // 17 is the protocol number for UDP
                             parse_dnsv6(&packet[14..], measurement_type, &origin_map)
@@ -94,9 +94,7 @@ pub fn listen(
                         } else {
                             None
                         }
-                    };
-
-                    udp_result
+                    }
                 } else if measurement_type == 3 {
                     // TCP
                     if is_ipv6 {
@@ -109,7 +107,7 @@ pub fn listen(
                 };
 
                 // Invalid packets have value None
-                if result == None {
+                if result.is_none() {
                     continue;
                 }
 
@@ -185,7 +183,7 @@ fn handle_results(
         }
 
         // Exit the thread if worker sends us the signal it's finished
-        if let Ok(_) = rx_f.try_recv() {
+        if rx_f.try_recv().is_ok() {
             // We are finished
             break;
         }
@@ -841,7 +839,7 @@ fn get_origin_id_v4(
             return Some(origin.origin_id);
         }
     }
-    return None;
+    None
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.
@@ -877,5 +875,5 @@ fn get_origin_id_v6(
             return Some(origin.origin_id);
         }
     }
-    return None;
+    None
 }

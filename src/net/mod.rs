@@ -206,24 +206,24 @@ impl From<&[u8]> for IPv6Packet {
 }
 
 /// Convert an IPv6Packet into bytes
-impl Into<Vec<u8>> for &IPv6Packet {
-    fn into(self) -> Vec<u8> {
+impl From<&IPv6Packet> for Vec<u8> {
+    fn from(packet: &IPv6Packet) -> Self {
         let mut wtr = vec![];
         // Write traffic class 0x60 and flow label 0x003a7d
         wtr.write_u32::<NetworkEndian>(0x60003a7d)
             .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u16::<NetworkEndian>(self.payload_length)
+        wtr.write_u16::<NetworkEndian>(packet.payload_length)
             .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u8(self.next_header)
+        wtr.write_u8(packet.next_header)
             .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u8(self.hop_limit)
+        wtr.write_u8(packet.hop_limit)
             .expect("Unable to write to byte buffer for IPv6Packet");
-        wtr.write_u128::<NetworkEndian>(self.src)
+        wtr.write_u128::<NetworkEndian>(packet.src)
             .expect("Unable to write source address to byte buffer for IPv6Packet");
-        wtr.write_u128::<NetworkEndian>(self.dst)
+        wtr.write_u128::<NetworkEndian>(packet.dst)
             .expect("Unable to write destination address to byte buffer for IPv6Packet");
 
-        let payload = match &self.payload {
+        let payload = match &packet.payload {
             PacketPayload::ICMP { value } => value.into(),
             PacketPayload::UDP { value } => value.into(),
             PacketPayload::TCP { value } => value.into(),
@@ -247,9 +247,9 @@ pub enum PacketPayload {
 }
 
 /// Convert a packet payload to bytes
-impl Into<Vec<u8>> for PacketPayload {
-    fn into(self) -> Vec<u8> {
-        match self {
+impl From<PacketPayload> for Vec<u8> {
+    fn from(payload: PacketPayload) -> Self {
+        match payload {
             PacketPayload::ICMP { value } => (&value).into(),
             PacketPayload::UDP { value } => (&value).into(),
             PacketPayload::TCP { value } => (&value).into(),
@@ -268,19 +268,20 @@ pub struct PseudoHeaderV4 {
 }
 
 /// Converting PsuedoHeader to bytes
-impl Into<Vec<u8>> for &PseudoHeaderV4 {
-    fn into(self) -> Vec<u8> {
+impl From<&PseudoHeaderV4> for Vec<u8> {
+    fn from(header: &PseudoHeaderV4) -> Self {
         let mut wtr = vec![];
-        wtr.write_u32::<NetworkEndian>(self.src)
+        wtr.write_u32::<NetworkEndian>(header.src)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u32::<NetworkEndian>(self.dst)
+        wtr.write_u32::<NetworkEndian>(header.dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         wtr.write_u8(0) // 8 bits of zeroes
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u8(self.protocol)
+        wtr.write_u8(header.protocol)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u16::<NetworkEndian>(self.length)
+        wtr.write_u16::<NetworkEndian>(header.length)
             .expect("Unable to write to byte buffer for PseudoHeader");
+
         wtr
     }
 }
@@ -295,19 +296,20 @@ pub struct PseudoHeaderV6 {
 }
 
 /// Converting PsuedoHeaderv6 to bytes
-impl Into<Vec<u8>> for &PseudoHeaderV6 {
-    fn into(self) -> Vec<u8> {
+impl From<&PseudoHeaderV6> for Vec<u8> {
+    fn from(header: &PseudoHeaderV6) -> Self {
         let mut wtr = vec![];
-        wtr.write_u128::<NetworkEndian>(self.src)
+        wtr.write_u128::<NetworkEndian>(header.src)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u128::<NetworkEndian>(self.dst)
+        wtr.write_u128::<NetworkEndian>(header.dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u32::<NetworkEndian>(self.upper_layer_packet_length)
+        wtr.write_u32::<NetworkEndian>(header.upper_layer_packet_length)
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u24::<NetworkEndian>(0) // 24 bits of zeroes
+        wtr.write_u24::<NetworkEndian>(0) // zeroes
             .expect("Unable to write to byte buffer for PseudoHeader");
-        wtr.write_u8(self.next_header)
+        wtr.write_u8(header.next_header)
             .expect("Unable to write to byte buffer for PseudoHeader");
+
         wtr
     }
 }
@@ -340,9 +342,10 @@ impl PseudoHeader {
     }
 }
 
-impl Into<Vec<u8>> for &PseudoHeader {
-    fn into(self) -> Vec<u8> {
-        match self {
+/// Convert PseudoHeader to bytes
+impl From<&PseudoHeader> for Vec<u8> {
+    fn from(header: &PseudoHeader) -> Self {
+        match header {
             PseudoHeader::V4(header) => header.into(),
             PseudoHeader::V6(header) => header.into(),
         }
@@ -409,20 +412,20 @@ impl From<&[u8]> for ICMPPacket {
 }
 
 /// Convert ICMp4Packet into a vector of bytes
-impl Into<Vec<u8>> for &ICMPPacket {
-    fn into(self) -> Vec<u8> {
+impl From<&ICMPPacket> for Vec<u8> {
+    fn from(packet: &ICMPPacket) -> Self {
         let mut wtr = vec![];
-        wtr.write_u8(self.icmp_type)
+        wtr.write_u8(packet.icmp_type)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_u8(self.code)
+        wtr.write_u8(packet.code)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_u16::<NetworkEndian>(self.checksum)
+        wtr.write_u16::<NetworkEndian>(packet.checksum)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_u16::<NetworkEndian>(self.identifier)
+        wtr.write_u16::<NetworkEndian>(packet.identifier)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_u16::<NetworkEndian>(self.sequence_number)
+        wtr.write_u16::<NetworkEndian>(packet.sequence_number)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_all(&self.body)
+        wtr.write_all(&packet.body)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr
     }
@@ -471,13 +474,11 @@ impl ICMPPacket {
         packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
         let v4_packet = IPv4Packet {
-            length: 20 + 8 + body_len + info_url.bytes().len() as u16,
+            length: 20 + 8 + body_len + info_url.len() as u16,
             ttl,
             src,
             dst,
-            payload: PacketPayload::ICMP {
-                value: packet.into(),
-            },
+            payload: PacketPayload::ICMP { value: packet },
         };
 
         let mut bytes: Vec<u8> = (&v4_packet).into();
@@ -532,7 +533,7 @@ impl ICMPPacket {
             .write_u128::<NetworkEndian>(dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
-            .write_u32::<NetworkEndian>((8 + body_len + info_url.bytes().len() as u16) as u32) // ICMP length
+            .write_u32::<NetworkEndian>((8 + body_len + info_url.len() as u16) as u32) // ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
@@ -543,8 +544,8 @@ impl ICMPPacket {
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice()); // Calculate the checksum
 
         let v6_packet = IPv6Packet {
-            payload_length: 8 + body_len + info_url.bytes().len() as u16, // ICMP header (8 bytes) + body length
-            next_header: 58,                                              // ICMPv6
+            payload_length: 8 + body_len + info_url.len() as u16, // ICMP header (8 bytes) + body length
+            next_header: 58,                                      // ICMPv6
             hop_limit,
             src,
             dst,
@@ -604,19 +605,20 @@ impl From<&[u8]> for UDPPacket {
 }
 
 /// Convert UDPPacket into a vector of bytes
-impl Into<Vec<u8>> for &UDPPacket {
-    fn into(self) -> Vec<u8> {
+impl From<&UDPPacket> for Vec<u8> {
+    fn from(packet: &UDPPacket) -> Self {
         let mut wtr = vec![];
-        wtr.write_u16::<NetworkEndian>(self.sport)
+        wtr.write_u16::<NetworkEndian>(packet.sport)
             .expect("Unable to write to byte buffer for UDP packet");
-        wtr.write_u16::<NetworkEndian>(self.dport)
+        wtr.write_u16::<NetworkEndian>(packet.dport)
             .expect("Unable to write to byte buffer for UDP packet");
-        wtr.write_u16::<NetworkEndian>(self.length)
+        wtr.write_u16::<NetworkEndian>(packet.length)
             .expect("Unable to write to byte buffer for UDP packet");
-        wtr.write_u16::<NetworkEndian>(self.checksum)
+        wtr.write_u16::<NetworkEndian>(packet.checksum)
             .expect("Unable to write to byte buffer for UDP packet");
-        wtr.write_all(&self.body)
+        wtr.write_all(&packet.body)
             .expect("Unable to write to byte buffer for UDP packet");
+
         wtr
     }
 }
@@ -674,9 +676,8 @@ fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
         if label_len & 0xC0 == 0xC0 {
             // The offset is the pointer to the previous domain name
             let offset = ((label_len as u16 & 0x3F) << 8) | data.read_u8().unwrap() as u16;
-            let mut copy = data;
-            copy.set_position(offset as u64);
-            result.push_str(&read_dns_name(&mut copy));
+            data.set_position(offset as u64);
+            result.push_str(&read_dns_name(data));
             break;
         }
         // Read the label
@@ -812,7 +813,7 @@ impl UDPPacket {
         ttl: u8,
     ) -> Vec<u8> {
         let dns_packet =
-            Self::create_a_record_request(&domain_name, tx_time, src, dst, tx_id, sport);
+            Self::create_a_record_request(domain_name, tx_time, src, dst, tx_id, sport);
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
@@ -948,9 +949,7 @@ impl UDPPacket {
                 hop_limit: 255,
                 src: src.get_v6(),
                 dst: dst.get_v6(),
-                payload: PacketPayload::UDP {
-                    value: udp_packet.into(),
-                },
+                payload: PacketPayload::UDP { value: udp_packet },
             };
             (&v6_packet).into()
         } else {
@@ -960,9 +959,7 @@ impl UDPPacket {
                 ttl: 255,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::UDP {
-                    value: udp_packet.into(),
-                },
+                payload: PacketPayload::UDP { value: udp_packet },
             };
             (&v4_packet).into()
         }
@@ -1042,30 +1039,31 @@ impl From<&[u8]> for TCPPacket {
     }
 }
 
-/// Convert TCPPacket into a vector of bytes
-impl Into<Vec<u8>> for &TCPPacket {
-    fn into(self) -> Vec<u8> {
+impl From<&TCPPacket> for Vec<u8> {
+    fn from(packet: &TCPPacket) -> Self {
         let mut wtr = vec![];
-        wtr.write_u16::<NetworkEndian>(self.sport)
+
+        wtr.write_u16::<NetworkEndian>(packet.sport)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u16::<NetworkEndian>(self.dport)
+        wtr.write_u16::<NetworkEndian>(packet.dport)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u32::<NetworkEndian>(self.seq)
+        wtr.write_u32::<NetworkEndian>(packet.seq)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u32::<NetworkEndian>(self.ack)
+        wtr.write_u32::<NetworkEndian>(packet.ack)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u8(self.offset)
+        wtr.write_u8(packet.offset)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u8(self.flags)
+        wtr.write_u8(packet.flags)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u16::<NetworkEndian>(self.window_size)
+        wtr.write_u16::<NetworkEndian>(packet.window_size)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u16::<NetworkEndian>(self.checksum)
+        wtr.write_u16::<NetworkEndian>(packet.checksum)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_u16::<NetworkEndian>(self.pointer)
+        wtr.write_u16::<NetworkEndian>(packet.pointer)
             .expect("Unable to write to byte buffer for TCP packet");
-        wtr.write_all(&self.body)
+        wtr.write_all(&packet.body)
             .expect("Unable to write to byte buffer for TCP packet");
+
         wtr
     }
 }
@@ -1114,9 +1112,7 @@ impl TCPPacket {
                 hop_limit: ttl,
                 src: src.get_v6(),
                 dst: dst.get_v6(),
-                payload: PacketPayload::TCP {
-                    value: packet.into(),
-                },
+                payload: PacketPayload::TCP { value: packet },
             };
             (&v6_packet).into()
         } else {
@@ -1126,9 +1122,7 @@ impl TCPPacket {
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::TCP {
-                    value: packet.into(),
-                },
+                payload: PacketPayload::TCP { value: packet },
             };
 
             (&v4_packet).into()
