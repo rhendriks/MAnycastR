@@ -26,12 +26,12 @@ use flate2::Compression;
 use std::io::BufWriter;
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, Address, Configuration, Empty, Origin, Reply, ScheduleMeasurement,
-    Targets, TaskResult, address::Value::V4, address::Value::V6
+    address::Value::V4, address::Value::V6, controller_client::ControllerClient, Address,
+    Configuration, Empty, Origin, Reply, ScheduleMeasurement, Targets, TaskResult,
 };
 use custom_module::Separated;
 
-use crate::{custom_module, ALL_ID, CHAOS_ID, ICMP_ID, TCP_ID, A_ID};
+use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -98,36 +98,36 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut is_divide = matches.get_flag("divide");
         let mut is_responsive = matches.get_flag("responsive");
         let mut is_latency = matches.get_flag("latency");
-        
+
         // TODO clean up if statement spam
         if is_latency && is_unicast {
             // Unicast measurements are inherently latency measurements
             is_latency = false;
         }
-        
+
         if is_latency && is_divide {
             // Latency measurements are inherently divide-and-conquer measurements
             is_divide = false;
         }
-        
+
         if is_latency && is_responsive {
             // Latency measurements are inherently responsiveness measurements
             is_responsive = false;
         }
-        
+
         // TODO enforce latency mode is only allowed when all workers are sending
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
-        
+
         if is_responsive && is_latency {
             is_responsive = false; // Latency measurements are responsive measurements by implementation
         }
-        
+
         if is_divide && is_responsive {
             is_responsive = false; // Divide-and-conquer are responsive measurements by implementation
         }
-        
+
         if is_latency && is_unicast {
             is_latency = false; // Unicast measurements are inherently latency measurements
         }
@@ -139,9 +139,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .into_inner()
             .workers
             .into_iter()
-            .map(|worker| {
-                (worker.worker_id, worker.hostname.clone())
-            })
+            .map(|worker| (worker.worker_id, worker.hostname.clone()))
             .collect();
 
         let hostname_to_id_map: HashMap<&str, u32> = worker_map
@@ -182,7 +180,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Get the workers that have to send out probes
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || {
-                println!("[CLI] Probes will be sent out from all ({}) workers", worker_map.len());
+                println!(
+                    "[CLI] Probes will be sent out from all ({}) workers",
+                    worker_map.len()
+                );
                 Vec::new()
             },
             |worker_entries_str| {
@@ -560,7 +561,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             worker_interval,
             is_responsive,
             is_latency,
-            targets: Some(Targets { dst_list: ips, is_discovery: None }),
+            targets: Some(Targets {
+                dst_list: ips,
+                is_discovery: None,
+            }),
             record: dns_record.to_string(),
             url,
             probe_interval,
@@ -657,19 +661,22 @@ impl CliClient {
         };
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> =
-            if measurement_definition.configurations.iter().any(|config| config.worker_id == u32::MAX) {
-                Vec::new() // all workers are probing
-            } else {
-                // Get list of unique worker IDs that are probing
-                measurement_definition
-                    .configurations
-                    .iter()
-                    .map(|config| config.worker_id)
-                    .collect::<HashSet<u32>>()
-                    .into_iter()
-                    .collect::<Vec<u32>>()
-            };
+        let probing_workers: Vec<u32> = if measurement_definition
+            .configurations
+            .iter()
+            .any(|config| config.worker_id == u32::MAX)
+        {
+            Vec::new() // all workers are probing
+        } else {
+            // Get list of unique worker IDs that are probing
+            measurement_definition
+                .configurations
+                .iter()
+                .map(|config| config.worker_id)
+                .collect::<HashSet<u32>>()
+                .into_iter()
+                .collect::<Vec<u32>>()
+        };
 
         let number_of_probers = if probing_workers.is_empty() {
             worker_map.len() as f32
@@ -678,8 +685,7 @@ impl CliClient {
         };
 
         let measurement_length = if is_divide || is_latency {
-            ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0)
-                / 60.0
+            ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0) / 60.0
         } else {
             (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
                 + (hitlist_length as f32 / probing_rate) // Time to probe all addresses
@@ -1106,7 +1112,13 @@ fn write_results(
             }
             let results: Vec<Reply> = task_result.result_list;
             for result in results {
-                let result = get_result(result, task_result.worker_id, measurement_type, is_symmetric, worker_map.clone());
+                let result = get_result(
+                    result,
+                    task_result.worker_id,
+                    measurement_type,
+                    is_symmetric,
+                    worker_map.clone(),
+                );
 
                 // Write to command-line
                 if is_cli {
@@ -1139,7 +1151,11 @@ fn write_results(
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 ///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
+fn get_header(
+    measurement_type: u32,
+    is_multi_origin: bool,
+    is_symmetric: bool,
+) -> Vec<&'static str> {
     // TODO replace worker_id with hostname (since we write compressed)
     let mut header = if is_symmetric {
         vec!["rx", "reply_src_addr", "ttl", "rtt"]
@@ -1150,7 +1166,6 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
         } else {
             vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx"]
         }
-
     };
 
     if measurement_type == CHAOS_ID as u32 {
@@ -1172,11 +1187,11 @@ fn get_header(measurement_type: u32, is_multi_origin: bool, is_symmetric: bool) 
 ///
 /// * `x_worker_id` - The worker ID of the receiver
 fn get_result(
-    result: Reply, 
-    rx_worker_id: u32, 
-    measurement_type: u32, 
-    is_symmetric: bool, 
-    worker_map: HashMap<u32, String>
+    result: Reply,
+    rx_worker_id: u32,
+    measurement_type: u32,
+    is_symmetric: bool,
+    worker_map: HashMap<u32, String>,
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
@@ -1184,7 +1199,8 @@ fn get_result(
     // convert the worker ID to hostname TODO
     let rx_hostname = worker_map
         .get(&rx_worker_id.parse::<u32>().unwrap())
-        .unwrap_or(&String::from("Unknown")).to_string();
+        .unwrap_or(&String::from("Unknown"))
+        .to_string();
     let rx_time = result.rx_time.to_string();
     let tx_time = result.tx_time.to_string();
     let tx_worker_id = result.tx_worker_id;
@@ -1201,15 +1217,19 @@ fn get_result(
             None => String::from("None"),
         },
     };
-    
+
     let mut row = if is_symmetric {
-        let rtt = format!("{:.2}", (result.rx_time - result.tx_time) as f64 / 1_000_000.0);
+        let rtt = format!(
+            "{:.2}",
+            (result.rx_time - result.tx_time) as f64 / 1_000_000.0
+        );
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
         let tx_hostname = worker_map
             .get(&tx_worker_id)
-            .unwrap_or(&String::from("Unknown")).to_string();
-        
+            .unwrap_or(&String::from("Unknown"))
+            .to_string();
+
         // TCP anycast does not have tx_time
         if measurement_type == TCP_ID as u32 {
             vec![rx_hostname, rx_time, reply_src, ttl, tx_hostname]

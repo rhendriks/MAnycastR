@@ -1,5 +1,6 @@
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
+use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::io;
@@ -7,7 +8,6 @@ use std::io::BufRead;
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::{CHAOS_ID, A_ID};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
     let output = Command::new("ip")
@@ -268,15 +268,7 @@ pub fn create_dns(
     let sport = origin.sport as u16;
 
     if measurement_type == A_ID {
-        UDPPacket::dns_request(
-            src,
-            dst,
-            sport,
-            qname,
-            tx_time,
-            worker_id,
-            255,
-        )
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
     } else if measurement_type == CHAOS_ID {
         UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
@@ -321,7 +313,7 @@ pub fn create_tcp(
             .unwrap()
             .as_millis() as u32
     };
-    
+
     TCPPacket::tcp_syn_ack(
         &origin.src.unwrap(),
         dst,
