@@ -6,9 +6,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 use pnet::datalink::DataLinkReceiver;
 
-use crate::custom_module::manycastr::{
-    Address, Origin, Reply, TaskResult
-};
+use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 
 /// Listen for incoming packets
@@ -311,7 +309,7 @@ fn parse_icmpv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    
+
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
         tx_worker_id -= u16::MAX as u32;
         Some(true)
@@ -368,7 +366,7 @@ fn parse_icmpv6(
     let PacketPayload::ICMP { value: icmp_packet } = payload else {
         return None;
     };
-    
+
     // Obtain the payload
     if *&icmp_packet.icmp_type != 129 {
         return None;
@@ -395,7 +393,7 @@ fn parse_icmpv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    
+
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
         tx_worker_id -= u16::MAX as u32;
         Some(true)
@@ -474,11 +472,7 @@ fn parse_dnsv4(
             return None; // spoofed reply
         }
 
-        let is_discovery = if is_discovery {
-            Some(true)
-        } else {
-            None
-        };
+        let is_discovery = if is_discovery { Some(true) } else { None };
 
         (tx_time, tx_worker_id, None, is_discovery)
     } else if measurement_type == 4 {
@@ -561,12 +555,8 @@ fn parse_dnsv6(
         if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
             return None; // spoofed reply
         }
-        
-        let is_discovery = if is_discovery {
-            Some(true)
-        } else {
-            None
-        };
+
+        let is_discovery = if is_discovery { Some(true) } else { None };
 
         (tx_time, tx_worker_id, None, is_discovery)
     } else if measurement_type == 4 {
@@ -605,7 +595,8 @@ fn parse_dnsv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> { // TODO v6 and v4 can be merged into one function
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> {
+    // TODO v6 and v4 can be merged into one function
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -634,7 +625,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
         probe_sport,
         probe_src,
         probe_dst,
-        is_discovery
+        is_discovery,
     ))
 }
 
@@ -667,7 +658,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
     let probe_dst = parts[2].parse::<u32>().ok()?;
     let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
-    
+
     let is_discovery = if tx_worker_id > u16::MAX as u32 {
         tx_worker_id -= u16::MAX as u32;
         true
@@ -681,7 +672,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
         probe_sport,
         probe_src,
         probe_dst,
-        is_discovery
+        is_discovery,
     ))
 }
 
@@ -745,12 +736,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         .unwrap()
         .as_nanos() as u64;
 
-    let origin_id = get_origin_id_v4(
-        reply_dst,
-        tcp_packet.sport,
-        tcp_packet.dport,
-        origin_map,
-    )?;
+    let origin_id = get_origin_id_v4(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
     let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
         (tcp_packet.seq - u16::MAX as u32, Some(true))
@@ -802,13 +788,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         .unwrap()
         .as_nanos() as u64;
 
-    let origin_id = get_origin_id_v6(
-        reply_dst,
-        tcp_packet.sport,
-        tcp_packet.dport,
-        origin_map,
-    )?;
-
+    let origin_id = get_origin_id_v6(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
     let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
         (tcp_packet.seq - u16::MAX as u32, Some(true))

@@ -2,8 +2,8 @@ use clap::ArgMatches;
 use gethostname::gethostname;
 use local_ip_address::{local_ip, local_ipv6};
 use std::error::Error;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
@@ -12,8 +12,8 @@ use tonic::Request;
 use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, task::Data, Address, End, Finished, Origin,
-    Task, TaskResult,
+    controller_client::ControllerClient, task::Data, Address, End, Finished, Origin, Task,
+    TaskResult,
 };
 
 use crate::custom_module;
@@ -352,7 +352,7 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
         let mut finish: Option<Arc<AtomicBool>> = None;
-        
+
         let worker = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
             worker_id: 0, // This will be set after the connection
@@ -368,7 +368,11 @@ impl Worker {
 
         let mut stream = response.into_inner();
         // Read the assigned unique worker ID
-        let id_message = stream.message().await.expect("Unable to await stream").expect("Unable to receive worker ID");
+        let id_message = stream
+            .message()
+            .await
+            .expect("Unable to await stream")
+            .expect("Unable to receive worker ID");
         let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
         println!(
             "[Worker] Successfully connected with the orchestrator with worker_id: {}",
@@ -412,7 +416,7 @@ impl Worker {
                                     .expect(
                                         "Unable to send measurement_finished to outbound thread",
                                     );
-                                
+
                                 self.outbound_tx = None;
                             }
                         } else if data.code == 1 {

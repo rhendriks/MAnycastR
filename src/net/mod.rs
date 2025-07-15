@@ -1,9 +1,9 @@
 extern crate byteorder;
 use std::io::{Cursor, Read, Write};
 
+use crate::custom_module::manycastr::Address;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
-use crate::custom_module::manycastr::Address;
 
 pub(crate) mod packet;
 
@@ -321,12 +321,7 @@ pub enum PseudoHeader {
 
 impl PseudoHeader {
     /// Creates a new PseudoHeader (V4 or V6) based on the address types.
-    pub fn new(
-        src_addr: &Address,
-        dst_addr: &Address,
-        protocol: u8,
-        packet_length: u32,
-    ) -> Self {
+    pub fn new(src_addr: &Address, dst_addr: &Address, protocol: u8, packet_length: u32) -> Self {
         if src_addr.is_v6() {
             Self::V6(PseudoHeaderV6 {
                 src: src_addr.get_v6(),
@@ -365,7 +360,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     let mut sum = 0u32;
     let mut packet: Vec<u8> = pseudo_header.into();
     packet.extend_from_slice(buffer);
-    
+
     // Sum the packet buffer
     let packet_len = packet.len();
     for chunk in packet.chunks_exact(2) {
@@ -816,14 +811,8 @@ impl UDPPacket {
         tx_id: u32,
         ttl: u8,
     ) -> Vec<u8> {
-        let dns_packet = Self::create_a_record_request(
-            &domain_name,
-            tx_time,
-            src,
-            dst,
-            tx_id,
-            sport,
-        );
+        let dns_packet =
+            Self::create_a_record_request(&domain_name, tx_time, src, dst, tx_id, sport);
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
@@ -835,7 +824,7 @@ impl UDPPacket {
         };
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
-        
+
         let pseudo_header = PseudoHeader::new(
             src,
             dst,
@@ -852,15 +841,17 @@ impl UDPPacket {
                 src: src.get_v6(),
                 dst: dst.get_v6(),
                 payload: PacketPayload::UDP { value: udp_packet },
-            }).into()
+            })
+                .into()
         } else {
             (&IPv4Packet {
                 length: 20 + udp_length,
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
-                payload: PacketPayload::UDP { value: udp_packet }
-            }).into()
+                payload: PacketPayload::UDP { value: udp_packet },
+            })
+                .into()
         }
     }
 
@@ -879,18 +870,30 @@ impl UDPPacket {
         let subdomain = if src.is_v6() {
             format!(
                 "{}.{}.{}.{}.{}.{}",
-                tx_time, src.get_v6(), dst.get_v6(), tx_id, sport, domain_name
+                tx_time,
+                src.get_v6(),
+                dst.get_v6(),
+                tx_id,
+                sport,
+                domain_name
             )
         } else {
             format!(
                 "{}.{}.{}.{}.{}.{}",
-                tx_time, src.get_v4(), dst.get_v4(), tx_id, sport, domain_name
+                tx_time,
+                src.get_v4(),
+                dst.get_v4(),
+                tx_id,
+                sport,
+                domain_name
             )
         };
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body.write_u16::<byteorder::BigEndian>(tx_id as u16).unwrap(); // Transaction ID
+        dns_body
+            .write_u16::<byteorder::BigEndian>(tx_id as u16)
+            .unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -929,16 +932,13 @@ impl UDPPacket {
         };
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
-        
+
         let pseudo_header = PseudoHeader::new(
-            src,
-            dst,
-            17, // UDP protocol
+            src, dst, 17, // UDP protocol
             udp_length,
         );
-        
-        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
+        udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
         if src.is_v6() {
             // Create the IPv6 packet
@@ -973,9 +973,7 @@ impl UDPPacket {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
-        dns_body
-            .write_u32::<byteorder::BigEndian>(tx_id)
-            .unwrap(); // Transaction ID
+        dns_body.write_u32::<byteorder::BigEndian>(tx_id).unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -1103,7 +1101,7 @@ impl TCPPacket {
         let pseudo_header = PseudoHeader::new(
             src,
             dst,
-            6, // TCP protocol
+            6,                  // TCP protocol
             bytes.len() as u32, // Length of the TCP header and data (measured in octets)
         );
         packet.checksum = calculate_checksum(&bytes, &pseudo_header);
