@@ -785,6 +785,10 @@ impl Controller for ControllerService {
                 data: Some(TaskEnd(End { code: 0 })),
             }, false)).await.expect("Failed to send end task to TaskDistributor");
 
+            // Wait till all workers are finished
+            while *is_active.lock().unwrap() {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
             // Close the TaskDistributor channel
             tx_t.send((BREAK_SIGNAL, Task {
                 worker_id: None,
