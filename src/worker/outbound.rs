@@ -65,6 +65,7 @@ pub fn outbound(
         .name("outbound".to_string())
         .spawn(move || {
             let mut sent = 0;
+            let mut sent_discovery = 0;
             let mut failed = 0;
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
@@ -102,8 +103,10 @@ pub fn outbound(
                     }
                     Targets(targets) => {
                         let worker_id = if targets.is_discovery == Some(true) {
+                            sent_discovery += 1;
                             worker_id as u32 + u16::MAX as u32
                         } else {
+                            sent += 1;
                             worker_id as u32
                         };
                         for origin in &tx_origins {
@@ -193,7 +196,7 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Worker outbound] Outbound thread finished - packets sent: {}, packets failed to send: {}", sent, failed);
+            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes)), packets failed to send: {}", sent + sent_discovery, sent_discovery, failed);
         })
         .expect("Failed to spawn outbound thread");
 }
