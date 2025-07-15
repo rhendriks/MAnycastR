@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
@@ -24,6 +25,7 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
 use crate::custom_module::manycastr::Address;
+use crate::orchestrator::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 
 /// Struct for the orchestrator service
 ///
@@ -53,6 +55,27 @@ pub struct ControllerService {
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
 const ALL_WORKERS_INTERVAL: u32 = 0;
+
+#[derive(Debug, Clone, Copy)]
+pub enum WorkerStatus {
+    Idle, // Connected but not participating in a measurement
+    Probing, // Probing for a measurement
+    Listening, // Only listening for probe replies for a measurement
+    Disconnected, // Disconnected
+}
+
+impl WorkerStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            WorkerStatus::Idle => "IDLE".to_string(),
+            WorkerStatus::Probing => "PROBING".to_string(),
+            WorkerStatus::Listening => "LISTENING".to_string(),
+            WorkerStatus::Disconnected => "DISCONNECTED".to_string(),
+        }
+    }
+}
+
+// TODO merge WorkerSender and WorkerReceiver into one struct that can send and receive messages
 
 /// Special Receiver struct that notices when the worker disconnects.
 ///
@@ -125,6 +148,8 @@ impl<T> Drop for WorkerReceiver<T> {
             }
         }
     }
+    
+    // TODO update worker list
 }
 
 /// Special Sender struct for workers that sends tasks after a delay (based on the Worker interval).
@@ -143,7 +168,7 @@ pub struct WorkerSender<T> {
     is_probing: Arc<AtomicBool>,
     worker_id: u32,
     hostname: String,
-    status: Arc<Mutex<String>>,
+    status: Arc<Mutex<WorkerStatus>>,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -167,7 +192,7 @@ impl<T> WorkerSender<T> {
     fn cleanup(&self) {
         // If the worker is disconnected, we set the status to DISCONNECTED
         let mut status = self.status.lock().unwrap();
-        *status = "DISCONNECTED".to_string();
+        *status = Disconnected;
         
         // Set the is_probing flag to false
         self.is_probing.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -179,16 +204,16 @@ impl<T> WorkerSender<T> {
     }
     
     pub fn get_status(&self) -> String {
-        self.status.lock().unwrap().clone()
+        self.status.lock().unwrap().clone().to_string()
     }
 
     /// Update is_probing flag
     pub fn update_is_probing(&self, is_probing: bool) {
         let mut status = self.status.lock().unwrap();
         if is_probing {
-            *status = "PROBING".to_string();
+            *status = Probing;
         } else {
-            *status = "LISTENING".to_string();
+            *status = Listening;
         }
         self.is_probing.store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
@@ -196,7 +221,7 @@ impl<T> WorkerSender<T> {
     /// The worker finished its measurement
     pub fn finished(&self) {
         let mut status = self.status.lock().unwrap();
-        *status = "IDLE".to_string();
+        *status = Idle;
     }
 }
 impl<T> std::fmt::Debug for WorkerSender<T> {
@@ -208,8 +233,6 @@ impl<T> std::fmt::Debug for WorkerSender<T> {
         )
     }
 }
-
-
 
 /// Special Receiver struct that notices when the CLI disconnects.
 ///
@@ -253,6 +276,18 @@ impl<T> Drop for CLIReceiver<T> {
         // Remove the current measurement TODO test
         let mut open_measurements = self.open_measurements.lock().unwrap();
         open_measurements.remove(&self.measurement_id);
+    }
+}
+
+impl PartialEq for WorkerStatus {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (WorkerStatus::Idle, WorkerStatus::Idle) => true,
+            (WorkerStatus::Probing, WorkerStatus::Probing) => true,
+            (WorkerStatus::Listening, WorkerStatus::Listening) => true,
+            (WorkerStatus::Disconnected, WorkerStatus::Disconnected) => true,
+            _ => false,
+        }
     }
 }
 
@@ -357,18 +392,17 @@ impl Controller for ControllerService {
             let workers_list = self.senders.lock().unwrap();
             for worker in workers_list.iter() {
                 if worker.hostname == hostname {
-                    println!(
-                        "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                        hostname
-                    );
                     if !worker.is_closed() {
-                        // If the worker is not disconnected, we return an error
+                        println!(
+                            "[Orchestrator] Refusing worker as the hostname already exists: {}",
+                            hostname
+                        );
+                        
                         return Err(Status::new(
                             tonic::Code::AlreadyExists,
                             "This hostname already exists",
                         ));
                     } else {
-                        // Reconnecting worker, we reuse the worker ID
                         println!("[Orchestrator] Worker {} reconnected", hostname);
                         reconnect_id = Some(worker.worker_id);
                         break;
@@ -396,13 +430,13 @@ impl Controller for ControllerService {
         }))
         .await
         .expect("Failed to send worker ID");
-
+        
         let worker_tx = WorkerSender {
             inner: tx,
             is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
             worker_id,
             hostname: hostname.clone(),
-            status: Arc::new(Mutex::new("IDLE".to_string())),
+            status: Arc::new(Mutex::new(Idle)),
         };
 
         // Remove the disconnected worker if it existed
@@ -500,7 +534,7 @@ impl Controller for ControllerService {
         let senders: Vec<WorkerSender<Result<Task, Status>>> = {
             let mut senders = self.senders.lock().unwrap();
             // Lock the senders mutex and remove closed senders
-            senders.retain(|sender| {
+            senders.retain(|sender| { // TODO should not delete workers
                 if sender.is_closed() {
                     println!(
                         "[Orchestrator] Worker {} unavailable, connection closed. Worker removed.",
@@ -530,11 +564,15 @@ impl Controller for ControllerService {
 
             // Set the is_probing bool for each worker_tx
             for sender in senders.iter_mut() {
+                if *sender.status.lock().unwrap() == Disconnected {
+                    // If the worker is disconnected, we set the is_probing flag to false
+                    sender.update_is_probing(false);
+                    continue;
+                }
                 let is_probing = scheduled_measurement
                     .configurations
                     .iter()
                     .any(|config| config.worker_id == sender.worker_id || config.worker_id == u32::MAX);
-                print!("[] setting is_probing to {} for worker {}", is_probing, sender.worker_id);
 
                 sender.update_is_probing(is_probing);
             }
@@ -728,9 +766,7 @@ impl Controller for ControllerService {
                 // Wait at specified probing rate before sending the next chunk
                 probing_rate_interval.tick().await;
             }
-
-            // All tasks are sent
-            println!("[Orchestrator] All tasks are sent");
+            
             // Wait for last probe tasks to be sent
             tokio::time::sleep(Duration::from_secs(number_of_probes as u64 * probe_interval)).await;
 
@@ -919,7 +955,6 @@ async fn task_distributor(
     inter_client_interval: u64,
     inter_probe_interval: u64, // default interval between probes
     number_of_probes: u8,
-    // TODO implement multiple probes per target 
 ) {
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
