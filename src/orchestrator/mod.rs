@@ -1003,7 +1003,7 @@ async fn task_distributor(
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
         let nprobes = if multiple || is_unicast {
-            println!("sending multiple");
+            println!("sending multiple {}", number_of_probes);
             number_of_probes
         } else {
             1
@@ -1030,6 +1030,7 @@ async fn task_distributor(
             let senders = senders.clone(); // TODO cloning overhead
             spawn(async move {
                 for _ in 0..nprobes {
+                    println!("Going nprobes {}", nprobes);
                     for sender in &senders {
                         if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                             sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
