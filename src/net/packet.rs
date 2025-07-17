@@ -1,9 +1,9 @@
-use std::fs::File;
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
+use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
@@ -29,7 +29,10 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
                 .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
                 .collect();
 
-            return Ok(format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]));
+            return Ok(format!(
+                "{}.{}.{}.{}",
+                bytes[0], bytes[1], bytes[2], bytes[3]
+            ));
         }
     }
 
