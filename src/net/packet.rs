@@ -1,39 +1,40 @@
+use std::fs::File;
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::io;
-use std::io::BufRead;
+use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
-    let output = Command::new("ip")
-        .args(["route", "show", "default"])
-        .output()
-        .map_err(|e| format!("Failed to execute 'ip route': {}", e))?;
+    let file = File::open("/proc/net/route")
+        .map_err(|e| format!("Failed to open /proc/net/route: {}", e))?;
+    let reader = BufReader::new(file);
 
-    if !output.status.success() {
-        return Err(format!(
-            "Failed to get default route: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if line.starts_with("default via ") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                return Ok(parts[2].to_string());
+    for line in reader.lines().skip(1) {
+        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() >= 3 && fields[1] == "00000000" {
+            // Gateway is in hex, little-endian
+            let hex = fields[2];
+            if hex.len() != 8 {
+                return Err(format!("Invalid gateway hex: {}", hex));
             }
+
+            let bytes: Vec<u8> = (0..4)
+                .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+                .collect();
+
+            return Ok(format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]));
         }
     }
-    Err("Could not parse default gateway IP from 'ip route' output".to_string())
-}
 
+    Err("Could not find default gateway in /proc/net/route".to_string())
+}
 fn get_default_gateway_ip_freebsd() -> Result<String, String> {
     // TODO test
     let output = Command::new("route")
