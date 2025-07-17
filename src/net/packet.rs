@@ -4,10 +4,9 @@ use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::fs::File;
-use std::io;
 use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
@@ -89,33 +88,42 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
         panic!("Unsupported OS");
     };
 
-    let mut child = if cfg!(target_os = "freebsd") {
-        // `arp -an`
-        Command::new("arp")
+    let lines: Vec<String> = if cfg!(target_os = "freebsd") {
+        let output = std::process::Command::new("arp")
             .arg("-an")
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("Failed to run arp command on FreeBSD")
+            .output()
+            .map_err(|e| format!("Failed to run arp command on FreeBSD: {}", e))
+            .unwrap();
+
+        if !output.status.success() {
+            panic!("arp command failed on FreeBSD");
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.lines().map(|s| s.to_string()).collect()
     } else {
-        // `/proc/net/arp`
-        Command::new("cat")
-            .arg("/proc/net/arp")
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("Failed to run command on Linux")
+        let file = File::open("/proc/net/arp")
+            .map_err(|e| format!("Failed to open /proc/net/arp: {}", e))
+            .unwrap();
+        let reader = BufReader::new(file);
+
+        reader
+            .lines()
+            .map(|line| line.expect("Failed to read line from /proc/net/arp"))
+            .collect()
     };
-    let output = child.stdout.as_mut().expect("Failed to capture stdout");
 
     // Get the destination MAC addresses
-    let mut mac_dst = Vec::with_capacity(6);
-    let reader = io::BufReader::new(output);
-    let mut lines = reader.lines();
-    lines.next(); // Skip the first line (header)
+    let mut mac_dst: Option<[u8; 6]> = None;
 
-    for line in lines.map_while(Result::ok) {
+    for (i, line) in lines.iter().enumerate() {
+        if cfg!(target_os = "linux") && i == 0 {
+            // Skip the header on Linux
+            continue;
+        }
         let parts: Vec<&str> = line.split_whitespace().collect();
 
-        if parts.len() > 3 {
+        if parts.len() > 5 {
             let addr = parts[0]; // IP address
 
             if addr != gateway_ip {
@@ -132,34 +140,37 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
             };
 
             // Skip local-loopback and broadcast
-            if (mac_address == "00:00:00:00:00:00") | (mac_address == "ff:ff:ff:ff:ff:ff") {
+            if (mac_address == "00:00:00:00:00:00") || (mac_address == "ff:ff:ff:ff:ff:ff") {
                 continue;
             }
 
             // If interface name matches, return the MAC address
             if parts[5] == if_name {
-                mac_dst = parts[3]
+                let mac_bytes: [u8; 6] = mac_address
                     .split(':')
                     .map(|s| u8::from_str_radix(s, 16).unwrap())
-                    .collect();
+                    .collect::<Vec<u8>>()
+                    .try_into()
+                    .expect("MAC address should have 6 bytes");
+
+                mac_dst = Some(mac_bytes);
                 break;
             }
         }
     }
 
     // panic if no MAC address was found
-    if mac_dst.is_empty() {
+    if mac_dst.is_none() {
         panic!(
             "No destination MAC address found for interface: {}",
             if_name
         );
     }
-    child.wait().expect("Failed to wait on child");
 
     // Construct the ethernet header
     let ether_type = if is_ipv6 { 0x86DDu16 } else { 0x0800u16 };
     let mut ethernet_header: Vec<u8> = Vec::with_capacity(14);
-    ethernet_header.extend_from_slice(&mac_dst);
+    ethernet_header.extend_from_slice(&mac_dst.unwrap());
     ethernet_header.extend_from_slice(&mac_src);
     ethernet_header.extend_from_slice(&ether_type.to_be_bytes());
 
