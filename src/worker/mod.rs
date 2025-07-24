@@ -247,6 +247,7 @@ impl Worker {
         };
 
         // Create a socket to send out probes and receive replies with
+        // TODO can use config to increase buffer sizes
         let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),

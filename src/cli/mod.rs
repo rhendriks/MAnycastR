@@ -669,7 +669,7 @@ impl CliClient {
                 .configurations
                 .iter()
                 .map(|config| config.worker_id)
-                .collect::<HashSet<u32>>()
+                .collect::<HashSet<u32>>() // Get unique worker IDs
                 .into_iter()
                 .collect::<Vec<u32>>()
         };
