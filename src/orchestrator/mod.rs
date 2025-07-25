@@ -1,9 +1,10 @@
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::AddAssign;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -51,6 +52,7 @@ pub struct ControllerService {
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
     task_sender: Arc<Mutex<Option<Sender<(u32, Task, bool)>>>>,
+    worker_config: Option<HashMap<String, u32>>,
 }
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
@@ -68,10 +70,10 @@ pub enum WorkerStatus {
 impl fmt::Display for WorkerStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            WorkerStatus::Idle => "IDLE",
-            WorkerStatus::Probing => "PROBING",
-            WorkerStatus::Listening => "LISTENING",
-            WorkerStatus::Disconnected => "DISCONNECTED",
+            Idle => "IDLE",
+            Probing => "PROBING",
+            Listening => "LISTENING",
+            Disconnected => "DISCONNECTED",
         };
         write!(f, "{}", s)
     }
@@ -100,6 +102,7 @@ pub struct WorkerReceiver<T> {
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
     active: Arc<Mutex<bool>>,
+    status: Arc<Mutex<WorkerStatus>>,
 }
 
 impl<T> Stream for WorkerReceiver<T> {
@@ -149,6 +152,9 @@ impl<T> Drop for WorkerReceiver<T> {
                 }
             }
         }
+
+        let mut status = self.status.lock().unwrap();
+        *status = Disconnected;
     }
 
     // TODO update worker list
@@ -229,8 +235,8 @@ impl<T> WorkerSender<T> {
         *status = Idle;
     }
 }
-impl<T> std::fmt::Debug for WorkerSender<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T> fmt::Debug for WorkerSender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
@@ -410,6 +416,7 @@ impl Controller for ControllerService {
                             "This hostname already exists",
                         ));
                     } else {
+                        // Check if it is a reconnecting worker
                         println!("[Orchestrator] Worker {} reconnected", hostname);
                         reconnect_id = Some(worker.worker_id);
                         break;
@@ -438,12 +445,14 @@ impl Controller for ControllerService {
         .await
         .expect("Failed to send worker ID");
 
+        let worker_status = Arc::new(Mutex::new(Idle));
+
         let worker_tx = WorkerSender {
             inner: tx,
             is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
             worker_id,
             hostname: hostname.clone(),
-            status: Arc::new(Mutex::new(Idle)),
+            status: worker_status.clone(),
         };
 
         // Remove the disconnected worker if it existed
@@ -462,6 +471,7 @@ impl Controller for ControllerService {
             cli_sender: self.cli_sender.clone(),
             hostname,
             active: self.is_active.clone(),
+            status: worker_status,
         };
 
         // Send the stream receiver to the worker
@@ -1099,6 +1109,95 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let port = *args.get_one::<u16>("port").unwrap();
     let addr: SocketAddr = format!("[::]:{}", port).parse().unwrap();
 
+    // Get optional configuration file
+    let (current_worker_id, worker_config) = if args.contains_id("config") {
+        let config = args.get_one::<String>("config").unwrap();
+        println!("[Orchestrator] Loading configuration file {}", config);
+
+        if !Path::new(config).exists() {
+            panic!("[Orchestrator] Configuration file {} not found!", config);
+        }
+
+        let config_content = fs::read_to_string(config)
+            .expect("[Orchestrator] Could not read the configuration file.");
+
+        let mut hosts = HashMap::new();
+        let mut used_ids = HashSet::new();
+
+        for (i, line) in config_content.lines().enumerate() {
+            let line_number = i + 1;
+
+            let trimmed_line = line.trim();
+            
+            // Skip empty lines and comments
+            if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
+                continue;
+            }
+
+            // Format: "hostname,id"
+            let parts: Vec<&str> = trimmed_line.split(',').collect();
+            if parts.len() != 2 {
+                panic!(
+                    "[Orchestrator] Error on line {}: Malformed entry. Expected 'hostname,id', found '{}'",
+                    line_number, line
+                );
+            }
+
+            let hostname = parts[0].trim().to_string();
+            let id = match parts[1].trim().parse::<u32>() {
+                Ok(val) => val,
+                Err(_) => {
+                    panic!(
+                        "[Orchestrator] Error on line {}: Invalid ID '{}'. ID must be a non-negative integer.",
+                        line_number, parts[1].trim()
+                    );
+                }
+            };
+            
+            // Check for duplicate hostname before inserting.
+            if hosts.contains_key(&hostname) {
+                panic!(
+                    "[Orchestrator] Error on line {}: Duplicate hostname '{}' found. Hostnames must be unique.",
+                    line_number, hostname
+                );
+            }
+
+            // Insert the ID (if it is not already used)
+            if !used_ids.insert(id) {
+                panic!(
+                    "[Orchestrator] Error on line {}: Duplicate ID '{}' found. IDs must be unique.",
+                    line_number, id
+                );
+            }
+
+            hosts.insert(hostname, id);
+        }
+
+        println!("\n[Orchestrator] Configuration loaded successfully. All entries are unique.");
+        println!("[Orchestrator] {} hosts loaded.", hosts.len());
+
+        // You can iterate over the verified map to use it.
+        for (hostname, id) in &hosts {
+            println!("  -> Loaded Host: {}, ID: {}", hostname, id);
+        }
+        
+        // Current worker ID is the maximum ID + 1 in the configuration file
+        let current_worker_id = hosts
+            .values()
+            .max()
+            .map_or(1, |&max_id| max_id + 1);
+        
+        //TODO parse file
+        // 1. check if it exists, if not panic
+        // 2. strip empty lines
+        // 3. for each line split on ',' (hostname, ID)
+        // 4. initialize senders
+
+        (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
+    } else {
+        (Arc::new(Mutex::new(1)), None)
+    };
+
     // Get a random measurement ID to start with
     let measurement_id = rand::rng().random_range(0..u32::MAX);
 
@@ -1107,11 +1206,12 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
-        current_worker_id: Arc::new(Mutex::new(1)),
+        current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
         is_latency: Arc::new(AtomicBool::new(false)),
         task_sender: Arc::new(Mutex::new(None)),
+        worker_config,
     };
 
     let svc = ControllerServer::new(controller)
