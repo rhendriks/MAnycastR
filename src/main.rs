@@ -274,6 +274,14 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .help("Use TLS for communication with the orchestrator (requires orchestrator.crt and orchestrator.key in ./tls/)")
                 )
+                .arg(
+                    Arg::new("config")
+                        .long("config")
+                        .short('c')
+                        .value_parser(value_parser!(String))
+                        .required(false)
+                        .help("Worker list configuration (mapping hostname to ID)")
+                )
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
