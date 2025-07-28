@@ -200,9 +200,11 @@ impl<T> WorkerSender<T> {
         self.is_probing
             .store(false, std::sync::atomic::Ordering::SeqCst);
         println!(
-            "[Orchestrator] Worker {} with ID {} dropped",
+            "[Orchestrator] Worker {} (ID: {}) dropped",
             self.hostname, self.worker_id
         );
+
+        println!("Status now: {:?}", *self.status.lock().unwrap());
     }
 
     pub fn is_probing(&self) -> bool {
@@ -556,11 +558,11 @@ impl Controller for ControllerService {
 
         // Configure and get the senders
         let senders: Vec<WorkerSender<Result<Task, Status>>> = {
-            let mut participants = self.workers.lock().unwrap();
+            let mut participants = self.workers.lock().unwrap().clone();
             // Lock the senders mutex and remove closed senders
-            participants.retain(|sender| {
-                if sender.is_closed() {
-                    println!("[Orchestrator] Worker {} unavailable.", sender.hostname);
+            participants.retain(|worker| {
+                if *worker.status.lock().unwrap() == Disconnected {
+                    println!("[Orchestrator] Worker {} unavailable.", worker.hostname);
                     false
                 } else {
                     true
@@ -585,17 +587,12 @@ impl Controller for ControllerService {
             }
 
             // Set the is_probing bool for each worker_tx
-            for sender in participants.iter_mut() {
-                if *sender.status.lock().unwrap() == Disconnected {
-                    // If the worker is disconnected, we set the is_probing flag to false
-                    sender.update_is_probing(false);
-                    continue;
-                }
+            for participant in participants.iter_mut() {
                 let is_probing = scheduled_measurement.configurations.iter().any(|config| {
-                    config.worker_id == sender.worker_id || config.worker_id == u32::MAX
+                    config.worker_id == participant.worker_id || config.worker_id == u32::MAX
                 });
 
-                sender.update_is_probing(is_probing);
+                participant.update_is_probing(is_probing);
             }
 
             participants.clone()
