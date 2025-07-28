@@ -179,7 +179,9 @@ impl Worker {
             None
         };
 
-        let tx_origins: Vec<Origin> = if is_unicast {
+        let tx_origins: Vec<Origin> = if !is_probing {
+            vec![] 
+        } else if is_unicast {
             // Use the local unicast address and CLI defined ports
             let sport = start_measurement.tx_origins[0].sport;
             let dport = start_measurement.tx_origins[0].dport;
