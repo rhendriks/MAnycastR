@@ -331,12 +331,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         src,
                         sport,
                         dport,
-                        origin_id: 0, // Only one anycast origin
+                        origin_id: 0, // Only one origin
                     }),
                 }]
-            } else if is_unicast {
-                // No configurations for unicast measurements TODO --unicast with -x fails
-                vec![]
             } else {
                 // list of worker IDs defined
                 sender_ids
@@ -347,7 +344,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src,
                             sport,
                             dport,
-                            origin_id: 0, // Only one anycast origin
+                            origin_id: 0, // Only one origin
                         }),
                     })
                     .collect()
@@ -404,17 +401,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Shuffle the hitlist, if desired
         let is_shuffle = matches.get_flag("shuffle");
         if is_shuffle {
-            let mut rng = rand::rng();
-            ips.as_mut_slice().shuffle(&mut rng);
+            ips.as_mut_slice().shuffle(&mut rand::rng());
         }
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == CHAOS_ID || measurement_type == ALL_ID {
+        let dns_record = if measurement_type == CHAOS_ID {
             // get CHAOS query
             matches
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == A_ID {
+        } else if measurement_type == A_ID || measurement_type == ALL_ID {
             matches
                 .get_one::<String>("query")
                 .map_or("example.org", |q| q.as_str())
