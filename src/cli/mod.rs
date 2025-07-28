@@ -335,7 +335,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }),
                 }]
             } else if is_unicast {
-                // No configurations for unicast measurements
+                // No configurations for unicast measurements TODO --unicast with -x fails
                 vec![]
             } else {
                 // list of worker IDs defined
