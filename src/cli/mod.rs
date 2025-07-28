@@ -115,7 +115,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             is_responsive = false;
         }
 
-        // TODO enforce latency mode is only allowed when all workers are sending
         if is_responsive && is_divide {
             panic!("Responsive mode not supported for divide-and-conquer measurements");
         }
@@ -131,9 +130,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_latency && is_unicast {
             is_latency = false; // Unicast measurements are inherently latency measurements
         }
-
-        // TODO responsive also makes no sense when; only one worker is sending and only one origin is used
-
+        
         // Map worker IDs to hostnames
         let worker_map: HashMap<u32, String> = response
             .into_inner()
@@ -1087,14 +1084,12 @@ fn write_results(
 
     // Write header
     let header = get_header(measurement_type, is_multi_origin, is_symmetric);
-    // TODO write header to CLI
     if is_cli {
         wtr_cli
             .as_mut()
             .unwrap()
             .write_record(&header)
             .expect("Failed to write header to stdout")
-        // TODO ip address instead of ip number
     };
     wtr_file
         .write_record(header)
@@ -1119,6 +1114,7 @@ fn write_results(
                 // Write to command-line
                 if is_cli {
                     if let Some(ref mut writer) = wtr_cli {
+                        // TODO write IP address instead of number
                         writer
                             .write_record(&result)
                             .expect("Failed to write payload to CLI");
@@ -1152,7 +1148,6 @@ fn get_header(
     is_multi_origin: bool,
     is_symmetric: bool,
 ) -> Vec<&'static str> {
-    // TODO replace worker_id with hostname (since we write compressed)
     let mut header = if is_symmetric {
         vec!["rx", "reply_src_addr", "ttl", "rtt"]
     } else {
@@ -1192,14 +1187,14 @@ fn get_result(
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
-    // convert the worker ID to hostname TODO
+    // convert the worker ID to hostname
     let rx_hostname = worker_map
         .get(&rx_worker_id.parse::<u32>().unwrap())
         .unwrap_or(&String::from("Unknown"))
         .to_string();
     let rx_time = result.rx_time.to_string();
     let tx_time = result.tx_time.to_string();
-    let tx_worker_id = result.tx_worker_id;
+    let tx_id = result.tx_id;
     let ttl = result.ttl.to_string();
 
     let reply_src = match result.src {
@@ -1219,7 +1214,7 @@ fn get_result(
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
         let tx_hostname = worker_map
-            .get(&tx_worker_id)
+            .get(&tx_id)
             .unwrap_or(&String::from("Unknown"))
             .to_string();
 
