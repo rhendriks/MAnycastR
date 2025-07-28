@@ -58,6 +58,7 @@ pub struct ControllerService {
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
 const ALL_WORKERS_INTERVAL: u32 = 0;
+const ANY_WORKER: u32 = u32::MAX - 2;
 
 #[derive(Debug, Clone, Copy)]
 pub enum WorkerStatus {
@@ -619,7 +620,7 @@ impl Controller for ControllerService {
 
         let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
-        
+
         let number_of_listeners = if is_unicast {
             // Only probing workers are listening
             number_of_probing_workers as u32
@@ -687,6 +688,7 @@ impl Controller for ControllerService {
         // Start the TaskDistributor
         let is_latency_c = self.is_latency.clone();
         let is_responsive_c = self.is_responsive.clone();
+        
         spawn(async move {
             task_distributor(
                 rx_t,
@@ -697,6 +699,7 @@ impl Controller for ControllerService {
                 probe_interval,
                 number_of_probes,
                 is_unicast,
+                probing_worker_ids,
             )
             .await;
         });
@@ -762,7 +765,6 @@ impl Controller for ControllerService {
         };
         // Instruct the workers to probe the targets
         spawn(async move {
-            let mut sender_cycler = probing_worker_ids.iter().cycle();
             // TODO if a sender disconnects, we should remove it from the cycler
 
             // Iterate over hitlist targets
@@ -772,41 +774,27 @@ impl Controller for ControllerService {
                     println!("[Orchestrator] Measurement no longer active");
                     break; // abort
                 }
-
-                if is_divide || is_responsive || is_latency {
-                    // Targets are divided among the workers
-                    let worker_id = sender_cycler.next().expect("No probing workers available");
-                    // Rotate among probing workers
-                    tx_t.send((
-                        *worker_id,
-                        Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_list: chunk.to_vec(),
-                                is_discovery,
-                            })),
-                        },
-                        !(is_responsive || is_latency),
-                    ))
-                    .await
-                    .expect("Failed to send task to TaskDistributor");
+                
+                let id = if is_divide || is_responsive || is_latency {
+                    ANY_WORKER
                 } else {
-                    // Targets are probed by all selected workers
-                    tx_t.send((
-                        ALL_WORKERS_INTERVAL,
-                        Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_list: chunk.to_vec(),
-                                is_discovery,
-                            })),
-                        },
-                        false,
-                    ))
+                    ALL_WORKERS_INTERVAL
+                };
+
+                tx_t.send((
+                    id,
+                    Task {
+                        worker_id: None,
+                        data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            dst_list: chunk.to_vec(),
+                            is_discovery,
+                        })),
+                    },
+                    !(is_responsive || is_latency),
+                ))
                     .await
                     .expect("Failed to send task to TaskDistributor");
-                }
-
+                
                 // Wait at specified probing rate before sending the next chunk
                 probing_rate_interval.tick().await;
             }
@@ -826,7 +814,7 @@ impl Controller for ControllerService {
             } else {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
-            
+
             // TODO wait for the stacks to be empty instead
 
             println!("[Orchestrator] Task distribution finished");
@@ -915,11 +903,9 @@ impl Controller for ControllerService {
                 .collect();
 
             if !responsive_targets.is_empty() {
-                // Remove discovery results from the result list for the CLI
-                task_result
-                    .result_list
-                    .retain(|result| !result.is_discovery);
-
+                // Sleep 1 second to avoid rate-limiting issues
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 task_sender
                     .send((
@@ -936,6 +922,11 @@ impl Controller for ControllerService {
                     .await
                     .expect("Failed to send discovery task to TaskDistributor");
 
+                // Remove discovery results from the result list for the CLI
+                task_result
+                    .result_list
+                    .retain(|result| !result.is_discovery);
+                
                 if task_result.result_list.is_empty() {
                     // If there are no regular results, we can return early
                     return Ok(Response::new(Ack {
@@ -945,7 +936,7 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-            let rx_worker_id = task_result.worker_id;
+            let rx_id = task_result.worker_id;
             for result in &task_result.result_list {
                 // Check for discovery probes where the sender is not the receiver
                 if result.is_discovery {
@@ -953,7 +944,7 @@ impl Controller for ControllerService {
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     task_sender
                         .send((
-                            rx_worker_id,
+                            rx_id,
                             Task {
                                 worker_id: None,
                                 data: Some(custom_module::manycastr::task::Data::Targets(
@@ -1020,9 +1011,11 @@ async fn task_distributor(
     inter_client_interval: u64,
     inter_probe_interval: u64, // default interval between probes
     number_of_probes: u8,
-    is_unicast: bool, // TODO handle this better
+    is_unicast: bool,
+    probing_worker_ids: Vec<u32>,
 ) {
     // TODO use a stack datastructure to store the tasks for each workers (pop based on probing rate)
+    let mut sender_cycler = probing_worker_ids.iter().cycle();
     
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
@@ -1038,7 +1031,7 @@ async fn task_distributor(
             is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
         } else if worker_id == ALL_WORKERS_DIRECT {
-            // to all direct (used for 'end measurement' only)
+            // To all direct (used for 'end measurement' only)
             for sender in &senders {
                 sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
@@ -1049,6 +1042,7 @@ async fn task_distributor(
                 sender.finished();
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
+            // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
             for sender in &senders {
                 if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                     let sender_c = sender.clone();
@@ -1062,7 +1056,7 @@ async fn task_distributor(
                                         sender_c.hostname, e
                                     );
                                 });
-                                // sleep for the inter-probe interval
+                                // Sleep for the inter-probe interval
                                 tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                             }
                         });
@@ -1072,8 +1066,21 @@ async fn task_distributor(
                     });
                 }
             }
+        } else if worker_id == ANY_WORKER {
+            // To any worker (used for --divide, --latency discovery-probes, --responsive discovery-probes)
+            let worker_id = sender_cycler.next().expect("No probing workers available");
+            // TODO for --latency mode; use the worker with fewest tasks in its stack (rather than round-robin)
+            if let Some(sender) = senders.iter().find(|s| s.worker_id == *worker_id) {
+                sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                    eprintln!(
+                        "[Orchestrator] Failed to send task to worker {}: {:?}",
+                        sender.hostname, e
+                    );
+                    // TODO remove the sender from the cycler if it disconnected
+                });
+            }
         } else {
-            // to specific worker
+            // to specific worker (used for --latency follow-up probes)
             if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
                     // probe once
