@@ -16,7 +16,6 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
 
     for line in reader.lines().skip(1) {
         let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-        println!("Processing line: {}", line);
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() >= 3 && fields[1] == "00000000" {
             // Gateway is in hex, little-endian
@@ -119,8 +118,6 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     let mut mac_dst: Option<[u8; 6]> = None;
 
     for (i, line) in lines.iter().enumerate() {
-        println!("Processing line {}: {}", i, line);
-        println!("Gateway IP: {}", gateway_ip);
         if cfg!(target_os = "linux") && i == 0 {
             // Skip the header on Linux
             continue;
