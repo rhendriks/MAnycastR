@@ -28,10 +28,11 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
             let bytes: Vec<u8> = (0..4)
                 .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
                 .collect();
-
+            
+            // Return bytes in reverse order (little-endian format)
             return Ok(format!(
                 "{}.{}.{}.{}",
-                bytes[0], bytes[1], bytes[2], bytes[3]
+                bytes[3], bytes[2], bytes[1], bytes[0]
             ));
         }
     }
