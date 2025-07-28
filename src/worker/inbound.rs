@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 use pnet::datalink::DataLinkReceiver;
-
+use crate::{A_ID, CHAOS_ID};
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 
@@ -78,7 +78,7 @@ pub fn listen(
                     } else {
                         parse_icmpv4(&packet[14..], measurement_id, &origin_map)
                     }
-                } else if measurement_type == 2 || measurement_type == 4 {
+                } else if measurement_type == A_ID || measurement_type == CHAOS_ID {
                     // DNS A
                     if is_ipv6 {
                         if packet[20] == 17 {
@@ -291,7 +291,7 @@ fn parse_icmpv4(
     }
 
     let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let mut tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
     let probe_src = u32::from_be_bytes(icmp_packet.body[16..20].try_into().unwrap());
     let probe_dst = u32::from_be_bytes(icmp_packet.body[20..24].try_into().unwrap());
 
@@ -306,8 +306,8 @@ fn parse_icmpv4(
         .unwrap()
         .as_nanos() as u64;
 
-    let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id -= u16::MAX as u32;
+    let is_discovery = if tx_id > u16::MAX as u32 {
+        tx_id -= u16::MAX as u32;
         Some(true)
     } else {
         None
@@ -316,7 +316,7 @@ fn parse_icmpv4(
     // Create a Reply for the received ping reply
     Some(Reply {
         tx_time,
-        tx_worker_id,
+        tx_id,
         src: Some(src),
         ttl,
         rx_time,
@@ -375,7 +375,7 @@ fn parse_icmpv6(
     }
 
     let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_worker_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let mut tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
     let probe_src = u128::from_be_bytes(icmp_packet.body[16..32].try_into().unwrap());
     let probe_dst = u128::from_be_bytes(icmp_packet.body[32..48].try_into().unwrap());
 
@@ -390,8 +390,8 @@ fn parse_icmpv6(
         .unwrap()
         .as_nanos() as u64;
 
-    let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id -= u16::MAX as u32;
+    let is_discovery = if tx_id > u16::MAX as u32 {
+        tx_id -= u16::MAX as u32;
         Some(true)
     } else {
         None
@@ -400,7 +400,7 @@ fn parse_icmpv6(
     // Create a Reply for the received ping reply
     Some(Reply {
         tx_time,
-        tx_worker_id,
+        tx_id,
         src: Some(address),
         ttl,
         rx_time,
@@ -447,8 +447,8 @@ fn parse_dnsv4(
 
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
     // TODO body packet length is variable based on the domain name used in the measurement
-    if ((measurement_type == 2) & (udp_packet.body.len() < 66))
-        | ((measurement_type == 4) & (udp_packet.body.len() < 10))
+    if ((measurement_type == A_ID) & (udp_packet.body.len() < 66))
+        | ((measurement_type == CHAOS_ID) & (udp_packet.body.len() < 10))
     {
         return None;
     }
@@ -460,22 +460,22 @@ fn parse_dnsv4(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let (tx_time, tx_worker_id, chaos, is_discovery) = if measurement_type == 2 {
-        let (tx_time, tx_worker_id, probe_sport, probe_src, probe_dst, is_discovery) =
+    let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
+        let dns_result =
             parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
-        if (probe_sport != reply_dport) | (probe_src != reply_dst) | (probe_dst != reply_src) {
+        if (dns_result.probe_sport != reply_dport) | (dns_result.probe_src != reply_dst) | (dns_result.probe_dst != reply_src) {
             return None; // spoofed reply
         }
 
-        let is_discovery = if is_discovery { Some(true) } else { None };
+        let is_discovery = if dns_result.is_discovery { Some(true) } else { None };
 
-        (tx_time, tx_worker_id, None, is_discovery)
-    } else if measurement_type == 4 {
+        (dns_result.tx_time, dns_result.tx_id, None, is_discovery)
+    } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for chaos
-        let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
+        let (tx_time, tx_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
 
-        (tx_time, tx_worker_id, Some(chaos), None)
+        (tx_time, tx_id, Some(chaos), None)
     } else {
         panic!("Invalid measurement type");
     };
@@ -485,7 +485,7 @@ fn parse_dnsv4(
     // Create a Reply for the received DNS reply
     Some(Reply {
         tx_time,
-        tx_worker_id,
+        tx_id,
         src: Some(src),
         ttl,
         rx_time,
@@ -531,8 +531,8 @@ fn parse_dnsv6(
 
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
     // TODO use 'get_domain_length'
-    if ((measurement_type == 2) & (udp_packet.body.len() < 66))
-        | ((measurement_type == 4) & (udp_packet.body.len() < 10))
+    if ((measurement_type == A_ID) & (udp_packet.body.len() < 66))
+        | ((measurement_type == CHAOS_ID) & (udp_packet.body.len() < 10))
     {
         return None;
     }
@@ -544,18 +544,18 @@ fn parse_dnsv6(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let (tx_time, tx_worker_id, chaos, is_discovery) = if measurement_type == 2 {
-        let (tx_time, tx_worker_id, probe_sport, probe_src, probe_dst, is_discovery) =
+    let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
+        let dns_result =
             parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
-        if (probe_sport != reply_dport) | (probe_dst != reply_src) | (probe_src != reply_dst) {
+        if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != reply_src) | (dns_result.probe_src != reply_dst) {
             return None; // spoofed reply
         }
 
-        let is_discovery = if is_discovery { Some(true) } else { None };
+        let is_discovery = if dns_result.is_discovery { Some(true) } else { None };
 
-        (tx_time, tx_worker_id, None, is_discovery)
-    } else if measurement_type == 4 {
+        (dns_result.tx_time, dns_result.tx_id, None, is_discovery)
+    } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for CHAOS
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
         (tx_time, tx_worker_id, Some(chaos), None)
@@ -568,7 +568,7 @@ fn parse_dnsv6(
     // Create a Reply for the received DNS reply
     Some(Reply {
         tx_time,
-        tx_worker_id,
+        tx_id,
         src: Some(src),
         ttl,
         rx_time,
@@ -576,6 +576,15 @@ fn parse_dnsv6(
         is_discovery,
         chaos,
     })
+}
+
+struct DnsResultV6 {
+    tx_time: u64,
+    tx_id: u32,
+    probe_sport: u16,
+    probe_src: u128,
+    probe_dst: u128,
+    is_discovery: bool,
 }
 
 /// Attempts to parse the DNS A record from a DNS payload body.
@@ -591,7 +600,7 @@ fn parse_dnsv6(
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u128, bool)> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResultV6> {
     // TODO v6 and v4 can be merged into one function
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
@@ -605,24 +614,32 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
     let tx_time = parts[0].parse::<u64>().ok()?;
     let probe_src = parts[1].parse::<u128>().ok()?;
     let probe_dst = parts[2].parse::<u128>().ok()?;
-    let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
+    let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
-    let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id -= u16::MAX as u32;
+    let is_discovery = if tx_id > u16::MAX as u32 {
+        tx_id -= u16::MAX as u32;
         true
     } else {
         false
     };
 
-    Some((
+    Some(DnsResultV6 {
         tx_time,
-        tx_worker_id,
+        tx_id,
         probe_sport,
         probe_src,
         probe_dst,
         is_discovery,
-    ))
+    })
+}
+struct DnsResultV4 {
+    tx_time: u64,
+    tx_id: u32,
+    probe_sport: u16,
+    probe_src: u32,
+    probe_dst: u32,
+    is_discovery: bool,
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
@@ -638,7 +655,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u128, u1
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32, bool)> {
+fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResultV4> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -652,24 +669,24 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<(u64, u32, u16, u32, u32
     let tx_time = parts[0].parse::<u64>().ok()?;
     let probe_src = parts[1].parse::<u32>().ok()?;
     let probe_dst = parts[2].parse::<u32>().ok()?;
-    let mut tx_worker_id = parts[3].parse::<u32>().ok()?;
+    let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
-    let is_discovery = if tx_worker_id > u16::MAX as u32 {
-        tx_worker_id -= u16::MAX as u32;
+    let is_discovery = if tx_id > u16::MAX as u32 {
+        tx_id -= u16::MAX as u32;
         true
     } else {
         false
     };
-
-    Some((
+    
+    Some(DnsResultV4 {
         tx_time,
-        tx_worker_id,
+        tx_id,
         probe_sport,
         probe_src,
         probe_dst,
         is_discovery,
-    ))
+    })
 }
 
 /// Attempts to parse the DNS Chaos record from a UDP payload body.
@@ -742,7 +759,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     Some(Reply {
         tx_time: seq as u64,
-        tx_worker_id: seq,
+        tx_id: seq,
         src: Some(src),
         ttl,
         rx_time,
@@ -794,7 +811,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     Some(Reply {
         tx_time: seq as u64, // TODO
-        tx_worker_id: seq,
+        tx_id: seq,
         src: Some(src),
         ttl,
         rx_time,

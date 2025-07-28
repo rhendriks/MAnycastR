@@ -43,7 +43,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'r_prober' - ID of worker that is probing for responsiveness
 #[derive(Debug)]
 pub struct ControllerService {
-    senders: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
+    workers: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     current_measurement_id: Arc<Mutex<u32>>,
@@ -78,8 +78,6 @@ impl fmt::Display for WorkerStatus {
         write!(f, "{}", s)
     }
 }
-
-// TODO merge WorkerSender and WorkerReceiver into one struct that can send and receive messages
 
 /// Special Receiver struct that notices when the worker disconnects.
 ///
@@ -156,8 +154,6 @@ impl<T> Drop for WorkerReceiver<T> {
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
     }
-
-    // TODO update worker list
 }
 
 /// Special Sender struct for workers that sends tasks after a delay (based on the Worker interval).
@@ -402,8 +398,8 @@ impl Controller for ControllerService {
 
         // Check if the hostname already exists
         let worker_id = {
-            let workers_list = self.senders.lock().unwrap();
-            for worker in workers_list.iter() {
+            let workers = self.workers.lock().unwrap();
+            for worker in workers.iter() {
                 if worker.hostname == hostname {
                     if !worker.is_closed() {
                         println!(
@@ -428,12 +424,25 @@ impl Controller for ControllerService {
                 // If we are reconnecting a worker, we use the existing worker ID
                 reconnect_id
             } else {
-                // Obtain unique worker id
-                let mut current_client_id = self.current_worker_id.lock().unwrap();
-                let worker_id = *current_client_id;
-                current_client_id.add_assign(1);
+                if let Some(worker_config) = self.worker_config.clone() {
+                    if let Some(worker_id) = worker_config.get(&hostname) {
+                       *worker_id
+                    } else {
+                        // Obtain current worker id
+                        let mut current_client_id = self.current_worker_id.lock().unwrap();
+                        let worker_id = *current_client_id;
+                        current_client_id.add_assign(1);
 
-                worker_id
+                        worker_id
+                    }
+                } else {
+                    // Obtain current worker id
+                    let mut current_client_id = self.current_worker_id.lock().unwrap();
+                    let worker_id = *current_client_id;
+                    current_client_id.add_assign(1);
+
+                    worker_id
+                }
             }
         };
 
@@ -457,12 +466,12 @@ impl Controller for ControllerService {
 
         // Remove the disconnected worker if it existed
         if let Some(reconnect_id) = reconnect_id {
-            let mut senders = self.senders.lock().unwrap();
+            let mut senders = self.workers.lock().unwrap();
             senders.retain(|sender| sender.worker_id != reconnect_id);
         }
 
         // Add worker_id, tx to senders
-        self.senders.lock().unwrap().push(worker_tx);
+        self.workers.lock().unwrap().push(worker_tx);
 
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
@@ -549,13 +558,12 @@ impl Controller for ControllerService {
 
         // Configure and get the senders
         let senders: Vec<WorkerSender<Result<Task, Status>>> = {
-            let mut senders = self.senders.lock().unwrap();
+            let mut participants = self.workers.lock().unwrap();
             // Lock the senders mutex and remove closed senders
-            senders.retain(|sender| {
-                // TODO should not delete workers
+            participants.retain(|sender| {
                 if sender.is_closed() {
                     println!(
-                        "[Orchestrator] Worker {} unavailable, connection closed. Worker removed.",
+                        "[Orchestrator] Worker {} unavailable.",
                         sender.hostname
                     );
                     false
@@ -566,7 +574,7 @@ impl Controller for ControllerService {
 
             // Make sure no unknown workers are in the configuration
             if scheduled_measurement.configurations.iter().any(|conf| {
-                !senders
+                !participants
                     .iter()
                     .any(|sender| sender.worker_id == conf.worker_id)
                     && conf.worker_id != u32::MAX
@@ -582,7 +590,7 @@ impl Controller for ControllerService {
             }
 
             // Set the is_probing bool for each worker_tx
-            for sender in senders.iter_mut() {
+            for sender in participants.iter_mut() {
                 if *sender.status.lock().unwrap() == Disconnected {
                     // If the worker is disconnected, we set the is_probing flag to false
                     sender.update_is_probing(false);
@@ -595,7 +603,7 @@ impl Controller for ControllerService {
                 sender.update_is_probing(is_probing);
             }
 
-            senders.clone()
+            participants.clone()
         };
 
         // If there are no connected workers that can perform this measurement
@@ -866,7 +874,7 @@ impl Controller for ControllerService {
         _request: Request<Empty>,
     ) -> Result<Response<ServerStatus>, Status> {
         // Lock the workers list and clone it to return
-        let workers_list = self.senders.lock().unwrap();
+        let workers_list = self.workers.lock().unwrap();
         let mut workers = Vec::new();
         for worker in workers_list.iter() {
             workers.push(Worker {
@@ -1109,7 +1117,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let port = *args.get_one::<u16>("port").unwrap();
     let addr: SocketAddr = format!("[::]:{}", port).parse().unwrap();
 
-    // Get optional configuration file
+    // Get optional configuration file TODO make separate function?
     let (current_worker_id, worker_config) = if args.contains_id("config") {
         let config = args.get_one::<String>("config").unwrap();
         println!("[Orchestrator] Loading configuration file {}", config);
@@ -1187,12 +1195,6 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             .max()
             .map_or(1, |&max_id| max_id + 1);
         
-        //TODO parse file
-        // 1. check if it exists, if not panic
-        // 2. strip empty lines
-        // 3. for each line split on ',' (hostname, ID)
-        // 4. initialize senders
-
         (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
     } else {
         (Arc::new(Mutex::new(1)), None)
@@ -1202,7 +1204,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let measurement_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
-        senders: Arc::new(Mutex::new(Vec::new())),
+        workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
