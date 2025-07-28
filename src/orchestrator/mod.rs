@@ -1175,7 +1175,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         }
 
         println!("[Orchestrator] {} hosts loaded.", hosts.len());
-        
+
         // Current worker ID is the maximum ID + 1 in the configuration file
         let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
 

@@ -14,7 +14,7 @@ use clap::ArgMatches;
 use csv::Writer;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::{color, format, Attr, Cell, Row, Table};
+use prettytable::{cell, color, format, row, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::codec::CompressionEncoding;
@@ -84,16 +84,20 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut connected_workers = 0;
 
         for worker in response.into_inner().workers {
-            table.add_row(prettytable::row!(
-                worker.hostname,
-                worker.worker_id,
-                worker.status,
-            ));
-
-            if worker.status != "Disconnected" {
+            // Use a different style for disconnected workers
+            if worker.status == "DISCONNECTED" {
+                table.add_row(row![
+                    cell!(worker.hostname).style_spec("Fr"),
+                    cell!(worker.worker_id).style_spec("Fr"),
+                    cell!(worker.status).style_spec("Frb")
+                ]);
+            } else {
+                table.add_row(row![worker.hostname, worker.worker_id, worker.status,]);
                 connected_workers += 1;
             }
         }
+
+        table.printstd();
 
         table.printstd();
         println!("[CLI] Total connected workers: {}", connected_workers);
