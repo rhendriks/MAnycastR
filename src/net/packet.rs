@@ -118,6 +118,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 
     for (i, line) in lines.iter().enumerate() {
         println!("Processing line {}: {}", i, line);
+        println!("Gateway IP: {}", gateway_ip);
         if cfg!(target_os = "linux") && i == 0 {
             // Skip the header on Linux
             continue;
