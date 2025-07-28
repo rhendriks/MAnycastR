@@ -117,6 +117,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     let mut mac_dst: Option<[u8; 6]> = None;
 
     for (i, line) in lines.iter().enumerate() {
+        println!("Processing line {}: {}", i, line);
         if cfg!(target_os = "linux") && i == 0 {
             // Skip the header on Linux
             continue;
