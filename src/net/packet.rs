@@ -16,6 +16,7 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
 
     for line in reader.lines().skip(1) {
         let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        println!("Processing line: {}", line);
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() >= 3 && fields[1] == "00000000" {
             // Gateway is in hex, little-endian
