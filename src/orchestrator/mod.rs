@@ -47,7 +47,7 @@ pub struct ControllerService {
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     current_measurement_id: Arc<Mutex<u32>>,
-    current_worker_id: Arc<Mutex<u32>>,
+    unique_id: Arc<Mutex<u32>>,
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
@@ -428,17 +428,17 @@ impl Controller for ControllerService {
                     *worker_id
                 } else {
                     // Obtain current worker id
-                    let mut current_client_id = self.current_worker_id.lock().unwrap();
-                    let worker_id = *current_client_id;
-                    current_client_id.add_assign(1);
+                    let mut unique_id = self.unique_id.lock().unwrap();
+                    let worker_id = *unique_id;
+                    unique_id.add_assign(1);
 
                     worker_id
                 }
             } else {
                 // Obtain current worker id
-                let mut current_client_id = self.current_worker_id.lock().unwrap();
-                let worker_id = *current_client_id;
-                current_client_id.add_assign(1);
+                let mut unique_id = self.unique_id.lock().unwrap();
+                let worker_id = *unique_id;
+                unique_id.add_assign(1);
 
                 worker_id
             }
@@ -1200,7 +1200,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
         current_measurement_id: Arc::new(Mutex::new(measurement_id)),
-        current_worker_id,
+        unique_id: current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
         is_latency: Arc::new(AtomicBool::new(false)),
