@@ -1174,14 +1174,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             hosts.insert(hostname, id);
         }
 
-        println!("\n[Orchestrator] Configuration loaded successfully. All entries are unique.");
         println!("[Orchestrator] {} hosts loaded.", hosts.len());
-
-        // You can iterate over the verified map to use it.
-        for (hostname, id) in &hosts {
-            println!("  -> Loaded Host: {}, ID: {}", hostname, id);
-        }
-
+        
         // Current worker ID is the maximum ID + 1 in the configuration file
         let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
 
