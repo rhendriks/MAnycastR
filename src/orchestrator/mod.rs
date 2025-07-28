@@ -203,8 +203,6 @@ impl<T> WorkerSender<T> {
             "[Orchestrator] Worker {} (ID: {}) dropped",
             self.hostname, self.worker_id
         );
-
-        println!("Status now: {:?}", *self.status.lock().unwrap());
     }
 
     pub fn is_probing(&self) -> bool {
