@@ -228,7 +228,10 @@ impl<T> WorkerSender<T> {
     /// The worker finished its measurement
     pub fn finished(&self) {
         let mut status = self.status.lock().unwrap();
-        *status = Idle;
+        // Set the status to Idle if it is not Disconnected
+        if *status != Disconnected {
+            *status = Idle;
+        }
     }
 }
 impl<T> fmt::Debug for WorkerSender<T> {
