@@ -1,27 +1,27 @@
 [package]
 name = "manycast"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
 chrono = "0.4.41"# get current time
-clap = "4.5.38"# parse command line arguments
+clap = "4.5.41"# parse command line arguments
 csv = "1.3.1" # write to CSV
-#futures = "0.3.31" # async runtime
 futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
-prost = "0.13.5" # define gRPC messages
-tokio = { version = "1.45.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
+prost = "0.13.5" # define gRPC messages TODO update
+tokio = { version = "1.47.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
 tonic = { version = "0.13.1", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
-rand = "0.9.1" # generate random numbers
+rand = "0.9.2" # generate random numbers
 gethostname = "1.0.2" # get hostname
 pnet = "0.35.0"# create raw socket for sending/receiving packets
 local-ip-address = "0.6.5" # get local unicast address
 mac_address = "1.1.8" # get MAC address
-indicatif = "0.17.11" # progress bar
+indicatif = "0.18.0" # progress bar
 #ratelimit_meter = "5.0.0" # rate limit
-flate2 = "1.1.1" # read .gz hitlist files
+flate2 = "1.1.2" # compression
+#rayon = "1.10.0" # parallel processing TODO evaluate usage of parallel processing
 
 [build-dependencies]
 tonic-build = "0.13.1"

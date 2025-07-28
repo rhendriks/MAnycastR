@@ -135,8 +135,8 @@ message Reply {
   fixed32 ttl = 2;
   uint64 rx_time = 3; // receive time of the reply
   uint64 tx_time = 4;
-  fixed32 tx_worker_id = 5;
+  fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  optional bool is_discovery = 7; // whether the reply is part of a discovery measurement
+  bool is_discovery = 7; // whether the reply is part of a discovery measurement
   optional string chaos = 8;
 }
