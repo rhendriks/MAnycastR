@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::{UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
@@ -106,7 +106,7 @@ pub fn listen(
                 if result.is_none() {
                     continue;
                 }
-                
+
                 // Put result in transmission queue
                 {
                     received += 1;
