@@ -47,10 +47,8 @@ pub fn listen(
     println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
-    // Exit flag for pcap listener
-    let exit_flag = Arc::new(AtomicBool::new(false));
-    let exit_flag_r = Arc::clone(&exit_flag);
-    let rq_r = rq.clone();
+    let rq_c = rq.clone();
+    let rx_f_c = rx_f.clone();
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
@@ -58,7 +56,7 @@ pub fn listen(
             let mut received: u32 = 0;
             loop {
                 // Check if we should exit
-                if exit_flag_r.load(Ordering::Relaxed) {
+                if rx_f_c.load(Ordering::Relaxed) {
                     break;
                 }
                 let packet = match socket_rx.next() {
@@ -108,13 +106,11 @@ pub fn listen(
                 if result.is_none() {
                     continue;
                 }
-
-                // TODO second transmission queue for discovery packets
-
+                
                 // Put result in transmission queue
                 {
                     received += 1;
-                    let mut rq_opt = rq_r.lock().unwrap();
+                    let mut rq_opt = rq_c.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
                     }
@@ -133,15 +129,6 @@ pub fn listen(
         .name("result_sender_thread".to_string())
         .spawn(move || {
             handle_results(&tx, rx_f, worker_id, rq);
-
-            // Close the listener
-            println!("[Worker inbound] Stopping listener");
-            // Set the exit flag to true
-            exit_flag.store(true, Ordering::SeqCst);
-
-            // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default())
-                .expect("Failed to send 'finished' signal to orchestrator");
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -170,9 +157,8 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
-        // Do not send empty results
+        // Send the result to the worker handler
         if !rq.is_empty() {
-            // Send the result to the worker handler
             tx.send(TaskResult {
                 worker_id: worker_id as u32,
                 result_list: rq,
@@ -182,7 +168,9 @@ fn handle_results(
 
         // Exit the thread if worker sends us the signal it's finished
         if rx_f.load(Ordering::SeqCst) {
-            // We are finished
+            // Send default value to let the orchestrator know we are finished
+            tx.send(TaskResult::default()) // TODO is never sent when the worker is not listening
+                .expect("Failed to send 'finished' signal to orchestrator");
             break;
         }
     }
