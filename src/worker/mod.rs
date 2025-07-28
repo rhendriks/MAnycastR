@@ -399,18 +399,11 @@ impl Worker {
                             );
                             // Close inbound threads
                             self.inbound_f.store(true, Ordering::SeqCst);
-                            // Close outbound threads
-                            if self.outbound_tx.is_some() {
-                                self.outbound_tx
-                                    .clone()
-                                    .unwrap()
-                                    .send(Data::End(End { code: 0 }))
+                            // Close outbound threads TODO better to do this with the abort_s 
+                            if let Some(tx) = self.outbound_tx.take() {
+                                tx.send(Data::End(End { code: 0 }))
                                     .await
-                                    .expect(
-                                        "Unable to send measurement_finished to outbound thread",
-                                    );
-
-                                self.outbound_tx = None;
+                                    .expect("Unable to send measurement_finished to outbound thread");
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
@@ -428,7 +421,6 @@ impl Worker {
                         }
                     }
                     Some(task) => {
-                        // TODO may receive responsiveness follow-up tasks after the measurement has finished and the outbound_tx has closed
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
