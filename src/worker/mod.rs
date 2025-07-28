@@ -201,7 +201,7 @@ impl Worker {
             // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin];
 
-            println!("[Worker] Using local unicast IP address: {:?}", unicast_ip);
+            println!("[Worker] Using local unicast IP address: {}", unicast_ip);
             // Use the local unicast address
             vec![unicast_origin]
         } else {
