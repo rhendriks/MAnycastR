@@ -4,10 +4,10 @@ use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
-use pnet::datalink::DataLinkReceiver;
-use crate::{A_ID, CHAOS_ID};
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
+use crate::{A_ID, CHAOS_ID};
+use pnet::datalink::DataLinkReceiver;
 
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
@@ -461,14 +461,21 @@ fn parse_dnsv4(
         .unwrap()
         .as_nanos() as u64;
     let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
-        let dns_result =
-            parse_dns_a_record_v4(udp_packet.body.as_slice())?;
+        let dns_result = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
-        if (dns_result.probe_sport != reply_dport) | (dns_result.probe_src != reply_dst) | (dns_result.probe_dst != reply_src) {
+        if (dns_result.probe_sport != reply_dport)
+            | (dns_result.probe_src != reply_dst)
+            | (dns_result.probe_dst != reply_src)
+        {
             return None; // spoofed reply
         }
-        
-        (dns_result.tx_time, dns_result.tx_id, None, dns_result.is_discovery)
+
+        (
+            dns_result.tx_time,
+            dns_result.tx_id,
+            None,
+            dns_result.is_discovery,
+        )
     } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for chaos
         let (tx_time, tx_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
@@ -543,14 +550,21 @@ fn parse_dnsv6(
         .unwrap()
         .as_nanos() as u64;
     let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
-        let dns_result =
-            parse_dns_a_record_v6(udp_packet.body.as_slice())?;
+        let dns_result = parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
-        if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != reply_src) | (dns_result.probe_src != reply_dst) {
+        if (dns_result.probe_sport != reply_dport)
+            | (dns_result.probe_dst != reply_src)
+            | (dns_result.probe_src != reply_dst)
+        {
             return None; // spoofed reply
         }
-        
-        (dns_result.tx_time, dns_result.tx_id, None, dns_result.is_discovery )
+
+        (
+            dns_result.tx_time,
+            dns_result.tx_id,
+            None,
+            dns_result.is_discovery,
+        )
     } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for CHAOS
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
@@ -674,7 +688,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResultV4> {
     } else {
         false
     };
-    
+
     Some(DnsResultV4 {
         tx_time,
         tx_id,

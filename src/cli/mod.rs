@@ -130,7 +130,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if is_latency && is_unicast {
             is_latency = false; // Unicast measurements are inherently latency measurements
         }
-        
+
         // Map worker IDs to hostnames
         let worker_map: HashMap<u32, String> = response
             .into_inner()
