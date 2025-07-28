@@ -766,7 +766,7 @@ impl Controller for ControllerService {
                 }
 
                 if is_divide || is_responsive || is_latency {
-                    // targets are divided among the workers
+                    // Targets are divided among the workers
                     let worker_id = sender_cycler.next().expect("No probing workers available");
                     // Rotate among probing workers
                     tx_t.send((
@@ -783,7 +783,7 @@ impl Controller for ControllerService {
                     .await
                     .expect("Failed to send task to TaskDistributor");
                 } else {
-                    // targets are probed by all selected workers
+                    // Targets are probed by all selected workers
                     tx_t.send((
                         ALL_WORKERS_INTERVAL,
                         Task {
@@ -818,6 +818,8 @@ impl Controller for ControllerService {
             } else {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
+            
+            // TODO wait for the stacks to be empty instead
 
             println!("[Orchestrator] Task distribution finished");
 
@@ -1012,6 +1014,8 @@ async fn task_distributor(
     number_of_probes: u8,
     is_unicast: bool, // TODO handle this better
 ) {
+    // TODO use a stack datastructure to store the tasks for each workers (pop based on probing rate)
+    
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
         let nprobes = if multiple || is_unicast {

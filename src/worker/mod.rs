@@ -44,7 +44,7 @@ pub struct Worker {
     is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
-    inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
+    inbound_f: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -75,7 +75,7 @@ impl Worker {
             is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
-            inbound_tx_f: None,
+            inbound_f: Arc::new(AtomicBool::new(false)),
         };
 
         worker.connect_to_server().await?;
@@ -214,14 +214,7 @@ impl Worker {
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // Channel for signalling when inbound is finished
-        let (inbound_tx_f, inbound_rx_f): (
-            tokio::sync::mpsc::Sender<()>,
-            tokio::sync::mpsc::Receiver<()>,
-        ) = tokio::sync::mpsc::channel(1000);
-        self.inbound_tx_f = Some(vec![inbound_tx_f]);
-
+        
         // Get the network interface to use
         let interfaces = datalink::interfaces();
 
@@ -261,7 +254,7 @@ impl Worker {
         if !(is_unicast && !is_probing) {
             listen(
                 tx,
-                inbound_rx_f,
+                self.inbound_f.clone(),
                 measurement_id,
                 worker_id,
                 is_ipv6,
@@ -405,12 +398,7 @@ impl Worker {
                                 "[Worker] Received measurement finished signal from orchestrator"
                             );
                             // Close inbound threads
-                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f
-                                    .send(())
-                                    .await
-                                    .expect("Unable to send finish signal to inbound thread");
-                            }
+                            self.inbound_f.store(true, Ordering::SeqCst);
                             // Close outbound threads
                             if self.outbound_tx.is_some() {
                                 self.outbound_tx
@@ -428,12 +416,7 @@ impl Worker {
                             println!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
-                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f
-                                    .send(())
-                                    .await
-                                    .expect("Unable to send finish signal to inbound thread");
-                            }
+                            self.inbound_f.store(true, Ordering::SeqCst);
                             // finish will be None if this worker is not probing
                             if let Some(finish) = &finish {
                                 // Close outbound threads
@@ -472,6 +455,7 @@ impl Worker {
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
+                self.inbound_f.store(false, Ordering::SeqCst);
 
                 if is_probing {
                     // This worker is probing

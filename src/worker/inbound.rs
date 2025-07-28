@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::{Receiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender};
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
@@ -36,7 +36,7 @@ use pnet::datalink::DataLinkReceiver;
 /// Panics if the measurement type is invalid
 pub fn listen(
     tx: UnboundedSender<TaskResult>,
-    rx_f: Receiver<()>,
+    rx_f: Arc<AtomicBool>,
     measurement_id: u32,
     worker_id: u16,
     is_ipv6: bool,
@@ -159,7 +159,7 @@ pub fn listen(
 /// * `rq_sender` - contains a vector of all received replies as Reply results
 fn handle_results(
     tx: &UnboundedSender<TaskResult>,
-    mut rx_f: Receiver<()>,
+    rx_f: Arc<AtomicBool>,
     worker_id: u16,
     rq_sender: Arc<Mutex<Option<Vec<Reply>>>>,
 ) {
@@ -181,7 +181,7 @@ fn handle_results(
         }
 
         // Exit the thread if worker sends us the signal it's finished
-        if rx_f.try_recv().is_ok() {
+        if rx_f.load(Ordering::SeqCst) {
             // We are finished
             break;
         }
