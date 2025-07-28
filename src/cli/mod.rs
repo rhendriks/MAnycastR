@@ -80,6 +80,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
+        
+        let mut connected_workers = 0;
 
         for worker in response.into_inner().workers {
             table.add_row(prettytable::row!(
@@ -87,9 +89,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 worker.worker_id,
                 worker.status,
             ));
+            
+            if worker.status != "Disconnected" {
+                connected_workers += 1;
+            }
         }
+        
         table.printstd();
-        println!("[CLI] Total workers: {}", table.len() - 1);
+        println!("[CLI] Total connected workers: {}", connected_workers);
 
         Ok(())
     } else if let Some(matches) = args.subcommand_matches("start") {
