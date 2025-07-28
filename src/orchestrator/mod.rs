@@ -558,10 +558,10 @@ impl Controller for ControllerService {
         let number_of_probes = scheduled_measurement.number_of_probes as u8;
 
         // Configure and get the senders
-        let senders: Vec<WorkerSender<Result<Task, Status>>> = {
-            let mut participants = self.workers.lock().unwrap().clone();
-            // Lock the senders mutex and remove closed senders
-            participants.retain(|worker| {
+        let workers: Vec<WorkerSender<Result<Task, Status>>> = {
+            let mut workers = self.workers.lock().unwrap().clone();
+            // Only keep connected workers
+            workers.retain(|worker| {
                 if *worker.status.lock().unwrap() == Disconnected {
                     println!("[Orchestrator] Worker {} unavailable.", worker.hostname);
                     false
@@ -572,7 +572,7 @@ impl Controller for ControllerService {
 
             // Make sure no unknown workers are in the configuration
             if scheduled_measurement.configurations.iter().any(|conf| {
-                !participants
+                !workers
                     .iter()
                     .any(|sender| sender.worker_id == conf.worker_id)
                     && conf.worker_id != u32::MAX
@@ -588,19 +588,19 @@ impl Controller for ControllerService {
             }
 
             // Set the is_probing bool for each worker_tx
-            for participant in participants.iter_mut() {
+            for worker in workers.iter_mut() {
                 let is_probing = scheduled_measurement.configurations.iter().any(|config| {
-                    config.worker_id == participant.worker_id || config.worker_id == u32::MAX
+                    config.worker_id == worker.worker_id || config.worker_id == u32::MAX
                 });
 
-                participant.update_is_probing(is_probing);
+                worker.update_is_probing(is_probing);
             }
 
-            participants.clone()
+            workers
         };
 
         // If there are no connected workers that can perform this measurement
-        if senders.is_empty() {
+        if workers.is_empty() {
             println!("[Orchestrator] No connected workers, terminating measurement.");
             *self.is_active.lock().unwrap() = false;
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
@@ -617,14 +617,22 @@ impl Controller for ControllerService {
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = scheduled_measurement.is_unicast;
 
-        let number_of_workers = senders.len() as u32;
-        let number_of_probing_workers = senders.iter().filter(|sender| sender.is_probing()).count();
+        let number_of_workers = workers.len() as u32;
+        let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
+        
+        let number_of_listeners = if is_unicast {
+            // Only probing workers are listening
+            number_of_probing_workers as u32
+        } else {
+            // All workers are listening
+            number_of_workers
+        };
 
         // Store the number of workers that will perform this measurement
         self.open_measurements
             .lock()
             .unwrap()
-            .insert(measurement_id, senders.len() as u32);
+            .insert(measurement_id, number_of_listeners);
 
         let probing_rate = scheduled_measurement.probing_rate;
         let measurement_type = scheduled_measurement.measurement_type;
@@ -660,14 +668,14 @@ impl Controller for ControllerService {
         }
 
         // Create a list of probing worker IDs
-        let probing_worker_ids = senders
+        let probing_worker_ids = workers
             .iter()
             .filter(|sender| sender.is_probing())
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
 
         // Create a list of all workers
-        let all_workers = senders
+        let all_workers = workers
             .iter()
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
@@ -682,7 +690,7 @@ impl Controller for ControllerService {
         spawn(async move {
             task_distributor(
                 rx_t,
-                senders,
+                workers,
                 is_latency_c,
                 is_responsive_c,
                 worker_interval,
