@@ -442,14 +442,20 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                let (is_probing, measurement_id) =
+                let (is_unicast, is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (!start.tx_origins.is_empty(), start.measurement_id),
+                        Data::Start(start) => (start.is_unicast, !start.tx_origins.is_empty(), start.measurement_id),
                         _ => {
                             // First task is not a start measurement task
                             continue;
                         }
                     };
+                
+                // If we are not probing for a unicast measurement, we do nothing
+                if is_unicast && !is_probing {
+                    println!("[Worker] Not probing for unicast measurement, skipping");
+                    continue;
+                }
 
                 println!("[Worker] Starting new measurement");
 
