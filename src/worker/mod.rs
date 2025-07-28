@@ -21,7 +21,6 @@ use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
-
 mod inbound;
 mod outbound;
 
@@ -399,11 +398,11 @@ impl Worker {
                             );
                             // Close inbound threads
                             self.inbound_f.store(true, Ordering::SeqCst);
-                            // Close outbound threads TODO better to do this with the abort_s 
+                            // Close outbound threads TODO better to do this with the abort_s
                             if let Some(tx) = self.outbound_tx.take() {
-                                tx.send(Data::End(End { code: 0 }))
-                                    .await
-                                    .expect("Unable to send measurement_finished to outbound thread");
+                                tx.send(Data::End(End { code: 0 })).await.expect(
+                                    "Unable to send measurement_finished to outbound thread",
+                                );
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
@@ -436,13 +435,17 @@ impl Worker {
             } else {
                 let (is_unicast, is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (start.is_unicast, !start.tx_origins.is_empty(), start.measurement_id),
+                        Data::Start(start) => (
+                            start.is_unicast,
+                            !start.tx_origins.is_empty(),
+                            start.measurement_id,
+                        ),
                         _ => {
                             // First task is not a start measurement task
                             continue;
                         }
                     };
-                
+
                 // If we are not probing for a unicast measurement, we do nothing
                 if is_unicast && !is_probing {
                     println!("[Worker] Not probing for unicast measurement, skipping");

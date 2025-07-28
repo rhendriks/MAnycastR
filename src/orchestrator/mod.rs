@@ -668,51 +668,21 @@ impl Controller for ControllerService {
             }
         }
 
-        // Create a list of probing worker IDs
-        let probing_worker_ids = workers
-            .iter()
-            .filter(|sender| sender.is_probing())
-            .map(|sender| sender.worker_id)
-            .collect::<Vec<u32>>();
-
-        // Create a list of all workers
-        let all_workers = workers
-            .iter()
-            .map(|sender| sender.worker_id)
-            .collect::<Vec<u32>>();
-
         // Create channel for TaskDistributor (client_id, task, number_of_times)
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task, bool)>(1000);
         self.task_sender.lock().unwrap().replace(tx_t.clone());
 
-        // Start the TaskDistributor
-        let is_latency_c = self.is_latency.clone();
-        let is_responsive_c = self.is_responsive.clone();
-        
-        spawn(async move {
-            task_distributor(
-                rx_t,
-                workers,
-                is_latency_c,
-                is_responsive_c,
-                worker_interval,
-                probe_interval,
-                number_of_probes,
-                is_unicast,
-                probing_worker_ids,
-            )
-            .await;
-        });
-
         // Notify all workers that a measurement is starting
-        for worker_id in all_workers.iter() {
-            let mut worker_tx_origins = vec![];
+        for worker in workers.iter() {
+            let worker_id = worker.worker_id;
+            let mut tx_origins = vec![];
+
             // Add all configuration probing origins assigned to this worker
             for configuration in &scheduled_measurement.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
-                if (configuration.worker_id == *worker_id) | (configuration.worker_id == u32::MAX) {
+                if (configuration.worker_id == worker_id) | (configuration.worker_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
-                        worker_tx_origins.push(*origin);
+                        tx_origins.push(*origin);
                     }
                 }
             }
@@ -725,7 +695,7 @@ impl Controller for ControllerService {
                     measurement_type,
                     is_unicast,
                     is_ipv6,
-                    tx_origins: worker_tx_origins,
+                    tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
@@ -733,10 +703,21 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((*worker_id, start_task, false))
+            tx_t.send((worker_id, start_task, false))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
+
+        spawn(async move {
+            task_distributor(
+                rx_t,
+                workers,
+                worker_interval,
+                probe_interval,
+                number_of_probes,
+            )
+            .await;
+        });
 
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -763,6 +744,9 @@ impl Controller for ControllerService {
         } else {
             None
         };
+
+        let is_latency_signal = self.is_latency.clone();
+        let is_responsive_signal = self.is_responsive.clone();
         // Instruct the workers to probe the targets
         spawn(async move {
             // TODO if a sender disconnects, we should remove it from the cycler
@@ -774,7 +758,7 @@ impl Controller for ControllerService {
                     println!("[Orchestrator] Measurement no longer active");
                     break; // abort
                 }
-                
+
                 let id = if is_divide || is_responsive || is_latency {
                     ANY_WORKER
                 } else {
@@ -790,11 +774,11 @@ impl Controller for ControllerService {
                             is_discovery,
                         })),
                     },
-                    !(is_responsive || is_latency),
+                    is_discovery.is_none(), // only non-discovery probes may be sent multiple times
                 ))
-                    .await
-                    .expect("Failed to send task to TaskDistributor");
-                
+                .await
+                .expect("Failed to send task to TaskDistributor");
+
                 // Wait at specified probing rate before sending the next chunk
                 probing_rate_interval.tick().await;
             }
@@ -835,6 +819,11 @@ impl Controller for ControllerService {
             while *is_active.lock().unwrap() {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
+
+            // Avoid new follow-up probes
+            is_latency_signal.store(false, std::sync::atomic::Ordering::SeqCst);
+            is_responsive_signal.store(false, std::sync::atomic::Ordering::SeqCst);
+
             // Close the TaskDistributor channel
             tx_t.send((
                 BREAK_SIGNAL,
@@ -905,7 +894,7 @@ impl Controller for ControllerService {
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                
+
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 task_sender
                     .send((
@@ -926,7 +915,7 @@ impl Controller for ControllerService {
                 task_result
                     .result_list
                     .retain(|result| !result.is_discovery);
-                
+
                 if task_result.result_list.is_empty() {
                     // If there are no regular results, we can return early
                     return Ok(Response::new(Ack {
@@ -1005,34 +994,31 @@ impl Controller for ControllerService {
 /// * 'senders' - a map of worker IDs to their corresponding senders TODO fix rustdoc
 async fn task_distributor(
     mut rx: mpsc::Receiver<(u32, Task, bool)>,
-    senders: Vec<WorkerSender<Result<Task, Status>>>,
-    is_latency: Arc<AtomicBool>,
-    is_responsive: Arc<AtomicBool>,
+    workers: Vec<WorkerSender<Result<Task, Status>>>,
     inter_client_interval: u64,
-    inter_probe_interval: u64, // default interval between probes
+    inter_probe_interval: u64,
     number_of_probes: u8,
-    is_unicast: bool,
-    probing_worker_ids: Vec<u32>,
 ) {
     // TODO use a stack datastructure to store the tasks for each workers (pop based on probing rate)
+
+    // Create a list of probing worker IDs
+    let probing_worker_ids = workers
+        .iter()
+        .filter(|sender| sender.is_probing())
+        .map(|sender| sender.worker_id)
+        .collect::<Vec<u32>>();
+
     let mut sender_cycler = probing_worker_ids.iter().cycle();
-    
+
     // Loop over the tasks in the channel
     while let Some((worker_id, task, multiple)) = rx.recv().await {
-        let nprobes = if multiple || is_unicast {
-            number_of_probes
-        } else {
-            1
-        };
+        let nprobes = if multiple { number_of_probes } else { 1 };
 
         if worker_id == BREAK_SIGNAL {
-            // Close distributor channel
-            is_latency.store(false, std::sync::atomic::Ordering::SeqCst);
-            is_responsive.store(false, std::sync::atomic::Ordering::SeqCst);
             break;
         } else if worker_id == ALL_WORKERS_DIRECT {
             // To all direct (used for 'end measurement' only)
-            for sender in &senders {
+            for sender in &workers {
                 sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
@@ -1043,7 +1029,7 @@ async fn task_distributor(
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
-            for sender in &senders {
+            for sender in &workers {
                 if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
@@ -1070,7 +1056,7 @@ async fn task_distributor(
             // To any worker (used for --divide, --latency discovery-probes, --responsive discovery-probes)
             let worker_id = sender_cycler.next().expect("No probing workers available");
             // TODO for --latency mode; use the worker with fewest tasks in its stack (rather than round-robin)
-            if let Some(sender) = senders.iter().find(|s| s.worker_id == *worker_id) {
+            if let Some(sender) = workers.iter().find(|s| s.worker_id == *worker_id) {
                 sender.send(Ok(task)).await.unwrap_or_else(|e| {
                     eprintln!(
                         "[Orchestrator] Failed to send task to worker {}: {:?}",
@@ -1081,7 +1067,7 @@ async fn task_distributor(
             }
         } else {
             // to specific worker (used for --latency follow-up probes)
-            if let Some(sender) = senders.iter().find(|s| s.worker_id == worker_id) {
+            if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
                     // probe once
                     sender.send(Ok(task)).await.unwrap_or_else(|e| {
