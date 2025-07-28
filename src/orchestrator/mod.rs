@@ -423,18 +423,9 @@ impl Controller for ControllerService {
             if let Some(reconnect_id) = reconnect_id {
                 // If we are reconnecting a worker, we use the existing worker ID
                 reconnect_id
-            } else {
-                if let Some(worker_config) = self.worker_config.clone() {
-                    if let Some(worker_id) = worker_config.get(&hostname) {
-                       *worker_id
-                    } else {
-                        // Obtain current worker id
-                        let mut current_client_id = self.current_worker_id.lock().unwrap();
-                        let worker_id = *current_client_id;
-                        current_client_id.add_assign(1);
-
-                        worker_id
-                    }
+            } else if let Some(worker_config) = self.worker_config.clone() {
+                if let Some(worker_id) = worker_config.get(&hostname) {
+                    *worker_id
                 } else {
                     // Obtain current worker id
                     let mut current_client_id = self.current_worker_id.lock().unwrap();
@@ -443,6 +434,13 @@ impl Controller for ControllerService {
 
                     worker_id
                 }
+            } else {
+                // Obtain current worker id
+                let mut current_client_id = self.current_worker_id.lock().unwrap();
+                let worker_id = *current_client_id;
+                current_client_id.add_assign(1);
+
+                worker_id
             }
         };
 
@@ -562,10 +560,7 @@ impl Controller for ControllerService {
             // Lock the senders mutex and remove closed senders
             participants.retain(|sender| {
                 if sender.is_closed() {
-                    println!(
-                        "[Orchestrator] Worker {} unavailable.",
-                        sender.hostname
-                    );
+                    println!("[Orchestrator] Worker {} unavailable.", sender.hostname);
                     false
                 } else {
                     true
@@ -1136,7 +1131,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
             let line_number = i + 1;
 
             let trimmed_line = line.trim();
-            
+
             // Skip empty lines and comments
             if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
                 continue;
@@ -1161,7 +1156,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
                     );
                 }
             };
-            
+
             // Check for duplicate hostname before inserting.
             if hosts.contains_key(&hostname) {
                 panic!(
@@ -1188,13 +1183,10 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         for (hostname, id) in &hosts {
             println!("  -> Loaded Host: {}, ID: {}", hostname, id);
         }
-        
+
         // Current worker ID is the maximum ID + 1 in the configuration file
-        let current_worker_id = hosts
-            .values()
-            .max()
-            .map_or(1, |&max_id| max_id + 1);
-        
+        let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
+
         (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
     } else {
         (Arc::new(Mutex::new(1)), None)
