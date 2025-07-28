@@ -1,0 +1,9 @@
+# example mapping file (statically configuring hostname to ID mapping)
+# format: <hostname>,<ID>
+# hostname is the hostname of the machine where a worker instance is running
+# ID is the unique identifier of the worker instance (a number)
+# IDs must be unique across all worker instances
+# duplicate hostnames are not allowed
+# example mapping
+nl-ams,1
+de-fra,2

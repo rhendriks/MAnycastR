@@ -201,7 +201,7 @@ impl Worker {
             // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin];
 
-            println!("[Worker] Using local unicast IP address: {:?}", unicast_ip);
+            println!("[Worker] Using local unicast IP address: {}", unicast_ip);
             // Use the local unicast address
             vec![unicast_origin]
         } else {
@@ -247,6 +247,7 @@ impl Worker {
         };
 
         // Create a socket to send out probes and receive replies with
+        // TODO can use config to increase buffer sizes
         let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),
