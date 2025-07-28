@@ -98,8 +98,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         table.printstd();
-
-        table.printstd();
         println!("[CLI] Total connected workers: {}", connected_workers);
 
         Ok(())
