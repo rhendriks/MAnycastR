@@ -308,9 +308,9 @@ fn parse_icmpv4(
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
-        Some(true)
+        true
     } else {
-        None
+        false
     };
 
     // Create a Reply for the received ping reply
@@ -392,9 +392,9 @@ fn parse_icmpv6(
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
-        Some(true)
+        true
     } else {
-        None
+        false
     };
 
     // Create a Reply for the received ping reply
@@ -467,15 +467,13 @@ fn parse_dnsv4(
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_src != reply_dst) | (dns_result.probe_dst != reply_src) {
             return None; // spoofed reply
         }
-
-        let is_discovery = if dns_result.is_discovery { Some(true) } else { None };
-
-        (dns_result.tx_time, dns_result.tx_id, None, is_discovery)
+        
+        (dns_result.tx_time, dns_result.tx_id, None, dns_result.is_discovery)
     } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for chaos
         let (tx_time, tx_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
 
-        (tx_time, tx_id, Some(chaos), None)
+        (tx_time, tx_id, Some(chaos), false)
     } else {
         panic!("Invalid measurement type");
     };
@@ -551,14 +549,12 @@ fn parse_dnsv6(
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != reply_src) | (dns_result.probe_src != reply_dst) {
             return None; // spoofed reply
         }
-
-        let is_discovery = if dns_result.is_discovery { Some(true) } else { None };
-
-        (dns_result.tx_time, dns_result.tx_id, None, is_discovery)
+        
+        (dns_result.tx_time, dns_result.tx_id, None, dns_result.is_discovery )
     } else if measurement_type == CHAOS_ID {
         // TODO is_discovery for CHAOS
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
-        (tx_time, tx_worker_id, Some(chaos), None)
+        (tx_time, tx_worker_id, Some(chaos), false)
     } else {
         panic!("Invalid measurement type");
     };
@@ -751,15 +747,15 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v4(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
-    let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
-        (tcp_packet.seq - u16::MAX as u32, Some(true))
+    let (tx_id, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
+        (tcp_packet.seq - u16::MAX as u32, true)
     } else {
-        (tcp_packet.seq, None)
+        (tcp_packet.seq, false)
     };
 
     Some(Reply {
-        tx_time: seq as u64,
-        tx_id: seq,
+        tx_time: tx_id as u64,
+        tx_id,
         src: Some(src),
         ttl,
         rx_time,
@@ -803,15 +799,15 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 
     let origin_id = get_origin_id_v6(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
-    let (seq, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
-        (tcp_packet.seq - u16::MAX as u32, Some(true))
+    let (tx_id, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
+        (tcp_packet.seq - u16::MAX as u32, true)
     } else {
-        (tcp_packet.seq, None)
+        (tcp_packet.seq, false)
     };
 
     Some(Reply {
-        tx_time: seq as u64, // TODO
-        tx_id: seq,
+        tx_time: tx_id as u64, // TODO
+        tx_id,
         src: Some(src),
         ttl,
         rx_time,

@@ -907,7 +907,7 @@ impl Controller for ControllerService {
             let responsive_targets: Vec<Address> = task_result
                 .result_list
                 .iter()
-                .filter(|result| result.is_discovery == Some(true))
+                .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
 
@@ -915,7 +915,7 @@ impl Controller for ControllerService {
                 // Remove discovery results from the result list for the CLI
                 task_result
                     .result_list
-                    .retain(|result| result.is_discovery != Some(true));
+                    .retain(|result| !result.is_discovery);
 
                 let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                 task_sender
@@ -945,7 +945,7 @@ impl Controller for ControllerService {
             let rx_worker_id = task_result.worker_id;
             for result in &task_result.result_list {
                 // Check for discovery probes where the sender is not the receiver
-                if result.is_discovery == Some(true) {
+                if result.is_discovery {
                     // Discovery probe; we need to probe it from the catching PoP
                     let task_sender = self.task_sender.lock().unwrap().clone().unwrap();
                     task_sender
@@ -970,7 +970,7 @@ impl Controller for ControllerService {
             // Keep non-discovery results
             task_result
                 .result_list
-                .retain(|result| result.is_discovery != Some(true));
+                .retain(|result| !result.is_discovery);
 
             if task_result.result_list.is_empty() {
                 // If there are no valid results left, we can return early
