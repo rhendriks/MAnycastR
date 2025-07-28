@@ -16,10 +16,11 @@ use custom_module::manycastr::{
     TaskResult,
 };
 
-use crate::custom_module;
 use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
+use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+
 
 mod inbound;
 mod outbound;
@@ -256,21 +257,23 @@ impl Worker {
             Err(e) => panic!("Failed to create datalink channel: {}", e),
         };
 
-        // Start listening thread
-        listen(
-            tx,
-            inbound_rx_f,
-            measurement_id,
-            worker_id,
-            is_ipv6,
-            start_measurement.measurement_type as u8,
-            socket_rx,
-            rx_origins,
-        );
+        // Start listening thread (except if it is a unicast measurement and we are not probing)
+        if !(is_unicast && !is_probing) {
+            listen(
+                tx,
+                inbound_rx_f,
+                measurement_id,
+                worker_id,
+                is_ipv6,
+                start_measurement.measurement_type as u8,
+                socket_rx,
+                rx_origins,
+            );
+        }
 
         if is_probing {
-            match start_measurement.measurement_type {
-                1 => {
+            match start_measurement.measurement_type as u8 {
+                ICMP_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
@@ -280,7 +283,7 @@ impl Worker {
                         );
                     }
                 }
-                2 | 3 | 4 | 255 => {
+                A_ID | TCP_ID | CHAOS_ID | ALL_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
