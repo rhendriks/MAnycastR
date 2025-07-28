@@ -47,7 +47,7 @@ pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
     mut outbound_channel_rx: Receiver<Data>,
-    finish_rx: Arc<AtomicBool>,
+    abort_s: Arc<AtomicBool>,
     is_ipv6: bool,
     is_latency: bool,
     measurement_id: u32,
@@ -69,7 +69,7 @@ pub fn outbound(
 
             let ethernet_header = get_ethernet_header(is_ipv6, if_name);
             'outer: loop {
-                if finish_rx.load(std::sync::atomic::Ordering::SeqCst) {
+                if abort_s.load(std::sync::atomic::Ordering::SeqCst) {
                     // If the finish_rx is set to true, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;

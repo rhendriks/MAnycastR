@@ -155,7 +155,7 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    fn init(&mut self, task: Task, worker_id: u16, finish: Option<Arc<AtomicBool>>) {
+    fn init(&mut self, task: Task, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
         } else {
@@ -181,7 +181,7 @@ impl Worker {
         };
 
         let tx_origins: Vec<Origin> = if !is_probing {
-            vec![] 
+            vec![]
         } else if is_unicast {
             // Use the local unicast address and CLI defined ports
             let sport = start_measurement.tx_origins[0].sport;
@@ -214,7 +214,7 @@ impl Worker {
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        
+
         // Get the network interface to use
         let interfaces = datalink::interfaces();
 
@@ -294,7 +294,7 @@ impl Worker {
                 worker_id,
                 tx_origins,
                 outbound_rx.unwrap(),
-                finish.unwrap(),
+                abort_s.unwrap(),
                 is_ipv6,
                 is_latency,
                 measurement_id,
@@ -349,7 +349,7 @@ impl Worker {
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
-        let mut finish: Option<Arc<AtomicBool>> = None;
+        let mut abort_s: Option<Arc<AtomicBool>> = None;
 
         let worker = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
@@ -418,9 +418,9 @@ impl Worker {
                             // Close the inbound threads
                             self.inbound_f.store(true, Ordering::SeqCst);
                             // finish will be None if this worker is not probing
-                            if let Some(finish) = &finish {
+                            if let Some(abort_s) = &abort_s {
                                 // Close outbound threads
-                                finish.store(true, Ordering::SeqCst);
+                                abort_s.store(true, Ordering::SeqCst);
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
@@ -460,12 +460,12 @@ impl Worker {
                 if is_probing {
                     // This worker is probing
                     // Initialize signal finish atomic boolean
-                    finish = Some(Arc::new(AtomicBool::new(false)));
+                    abort_s = Some(Arc::new(AtomicBool::new(false)));
 
-                    self.init(task, worker_id, finish.clone());
+                    self.init(task, worker_id, abort_s.clone());
                 } else {
                     // This worker is not probing
-                    finish = None;
+                    abort_s = None;
                     self.outbound_tx = None;
                     self.init(task, worker_id, None);
                 }
