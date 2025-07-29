@@ -105,7 +105,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             };
             
             table.add_row(row![worker.hostname, worker.worker_id, worker.status, unicast_v4, unicast_v6]);
-            connected_workers += 1;
+            if worker.status != "DISCONNECTED" {
+                connected_workers += 1;
+            }
         }
 
         table.printstd();
