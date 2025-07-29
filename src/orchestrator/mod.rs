@@ -59,7 +59,7 @@ pub struct ControllerService {
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
-const ALL_WORKERS_INTERVAL: u32 = 0;
+const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 
 #[derive(Debug, Clone, Copy)]
 pub enum WorkerStatus {
@@ -1381,6 +1381,14 @@ fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<
         if !used_ids.insert(id) {
             panic!(
                 "[Orchestrator] Error on line {}: Duplicate ID '{}' found. IDs must be unique.",
+                line_number, id
+            );
+        }
+        
+        // Avoid special worker IDs
+        if id == ALL_WORKERS_INTERVAL || id == ALL_WORKERS_DIRECT || id == BREAK_SIGNAL {
+            panic!(
+                "[Orchestrator] Error on line {}: ID '{}' is reserved for special purposes. Please use a different ID.",
                 line_number, id
             );
         }
