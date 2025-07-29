@@ -735,7 +735,7 @@ impl Controller for ControllerService {
 
                     // Get the current worker ID to send tasks to.
                     let worker_id = sender_cycler.next().expect("No probing workers available");
-                    
+
                     let f_worker_id = if is_responsive {
                         // Responsive mode checks for responsiveness and sends tasks to all workers
                         ALL_WORKERS_INTERVAL
@@ -1024,7 +1024,6 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-
             let rx_id = task_result.worker_id;
 
             // Probe from the catching PoP
@@ -1034,7 +1033,7 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
-            
+
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1047,7 +1046,7 @@ impl Controller for ControllerService {
                         .or_default()
                         .extend(responsive_targets.clone());
                 }
-                
+
                 // Keep non-discovery results
                 task_result
                     .result_list
@@ -1376,7 +1375,7 @@ fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<
                 line_number, id
             );
         }
-        
+
         // Avoid special worker IDs
         if id == ALL_WORKERS_INTERVAL || id == ALL_WORKERS_DIRECT || id == BREAK_SIGNAL {
             panic!(

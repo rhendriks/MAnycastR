@@ -13,6 +13,7 @@ use custom_module::manycastr::{task::Data, Origin};
 
 use pnet::datalink::DataLinkSender;
 
+use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
@@ -63,9 +64,9 @@ pub fn outbound(
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
-            let mut sent = 0;
+            let mut sent: u32 = 0;
             let mut sent_discovery = 0;
-            let mut failed = 0;
+            let mut failed : u32= 0;
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
 
@@ -191,7 +192,7 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent, sent_discovery, failed);
+            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent.with_separator(), sent_discovery.with_separator(), failed.with_separator());
         })
         .expect("Failed to spawn outbound thread");
 }
