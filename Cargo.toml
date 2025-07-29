@@ -22,6 +22,7 @@ indicatif = "0.18.0" # progress bar
 ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.2" # compression
 #rayon = "1.10.0" # parallel processing TODO evaluate usage of parallel processing
+bimap = "0.6.3" # bitmaps for fast lookups
 
 [build-dependencies]
 tonic-build = "0.13.1"

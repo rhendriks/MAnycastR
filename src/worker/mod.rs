@@ -441,11 +441,9 @@ impl Worker {
             } else {
                 let (is_unicast, is_probing, m_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (
-                            start.is_unicast,
-                            !start.tx_origins.is_empty(),
-                            start.m_id,
-                        ),
+                        Data::Start(start) => {
+                            (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
+                        }
                         _ => {
                             // First task is not a start measurement task
                             continue;
@@ -488,7 +486,9 @@ impl Worker {
         &mut self,
         task_result: TaskResult,
     ) -> Result<(), Box<dyn Error>> {
-        self.grpc_client.send_result(Request::new(task_result)).await?;
+        self.grpc_client
+            .send_result(Request::new(task_result))
+            .await?;
 
         Ok(())
     }
