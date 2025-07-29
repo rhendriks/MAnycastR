@@ -34,20 +34,22 @@ use tonic::{transport::Server, Request, Response, Status};
 ///
 /// # Fields
 ///
-/// * 'workers' - a WorkerList that contains all connected workers (hostname and worker ID)
-/// * 'senders' - a list of senders that connect to the workers, these senders are used to stream Tasks
-/// * 'cli_sender' - the sender that connects to the CLI, to stream TaskResults
+/// * 'workers' - a list of WorkerSender objects that are connected to this orchestrator
+/// * 'cli_sender' - the sender that connects to the CLI; used to stream TaskResults
 /// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
-/// * 'current_measurement_id' - keeps track of the last used measurement ID
-/// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
+/// * 'm_id' - keeps track of the last used measurement ID
+/// * 'unique_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'is_active' - a boolean value that is set to true when there is an active measurement
-/// * 'r_prober' - ID of worker that is probing for responsiveness TODO update rustdoc
+/// * 'is_responsive' - a boolean value that is set to true when the orchestrator is in responsive probing mode
+/// * 'is_latency' - a boolean value that is set to true when the orchestrator is in latency probing mode
+/// * 'worker_config' - optional mapping of hostname to worker IDs (to enforce static worker IDs)
+/// * 'worker_stacks' - a mapping of worker IDs to a stack of addresses that are used for follow-up probes (used for responsive and latency probing)
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
-    current_measurement_id: Arc<Mutex<u32>>,
+    m_id: Arc<Mutex<u32>>,
     unique_id: Arc<Mutex<u32>>,
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
@@ -90,17 +92,15 @@ impl fmt::Display for WorkerStatus {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the worker
-/// * 'open_measurements' - a list of the current open measurements, and the number of workers that are currently working on it
+/// * 'open_measurements' - a list of the current open measurements
 /// * 'cli_sender' - the sender that connects to the CLI
 /// * 'hostname' - the hostname of the worker
-/// * 'workers' - a WorkerList that contains all connected workers (hostname and worker ID)
-/// * 'active' - a boolean value that is set to true when there is an active measurement TODO update rustdoc
+/// * 'status' - the status of the worker, used to determine if it is connected or not
 pub struct WorkerReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
     hostname: String,
-    active: Arc<Mutex<bool>>,
     status: Arc<Mutex<WorkerStatus>>,
 }
 
@@ -116,10 +116,10 @@ impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
         println!("[Orchestrator] Worker {} lost connection", self.hostname);
 
-        // // Handle the open measurements that involve this worker
+        // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
         if !open_measurements.is_empty() {
-            for (measurement_id, remaining) in open_measurements.clone().iter() {
+            for (m_id, remaining) in open_measurements.clone().iter() {
                 // If this measurement is already finished
                 if remaining == &0 {
                     continue;
@@ -127,10 +127,9 @@ impl<T> Drop for WorkerReceiver<T> {
                 // If this is the last worker for this open measurement
                 if remaining == &1 {
                     // The orchestrator no longer has to wait for this measurement
-                    open_measurements.remove(measurement_id);
+                    open_measurements.remove(m_id);
 
                     println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
-                    *self.active.lock().unwrap() = false;
                     match self
                         .cli_sender
                         .lock()
@@ -145,9 +144,8 @@ impl<T> Drop for WorkerReceiver<T> {
                         ),
                     }
                 } else {
-                    // If there are more workers still performing this measurement
-                    // The orchestrator no longer has to wait for this worker
-                    *open_measurements.get_mut(measurement_id).unwrap() -= 1;
+                    // One less worker for this measurement
+                    *open_measurements.get_mut(m_id).unwrap() -= 1;
                 }
             }
         }
@@ -162,15 +160,14 @@ impl<T> Drop for WorkerReceiver<T> {
 /// # Fields
 ///
 /// * inner - the inner sender that connects to the worker
-///
-/// * interval - the interval in seconds to wait between a task being put in the sender and sending it
-///
-/// * is_probing - a boolean value that is set to true when the worker is probing (or only listening)
-
+/// * worker_id - the unique ID of the worker
+/// * hostname - the hostname of the worker
+/// * status - the status of the worker, used to determine if it is connected or not
+/// * unicast_v4 - the unicast IPv4 address of the worker, if available
+/// * unicast_v6 - the unicast IPv6 address of the worker, if available
 #[derive(Clone)]
 pub struct WorkerSender<T> {
     inner: Sender<T>,
-    is_probing: Arc<AtomicBool>,
     worker_id: u32,
     hostname: String,
     status: Arc<Mutex<WorkerStatus>>,
@@ -199,9 +196,6 @@ impl<T> WorkerSender<T> {
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
 
-        // Set the is_probing flag to false
-        self.is_probing
-            .store(false, std::sync::atomic::Ordering::SeqCst);
         println!(
             "[Orchestrator] Worker {} (ID: {}) dropped",
             self.hostname, self.worker_id
@@ -209,23 +203,11 @@ impl<T> WorkerSender<T> {
     }
 
     pub fn is_probing(&self) -> bool {
-        self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
+        *self.status.lock().unwrap() == Probing
     }
 
     pub fn get_status(&self) -> String {
         self.status.lock().unwrap().clone().to_string()
-    }
-
-    /// Update is_probing flag
-    pub fn update_is_probing(&self, is_probing: bool) {
-        let mut status = self.status.lock().unwrap();
-        if is_probing {
-            *status = Probing;
-        } else {
-            *status = Listening;
-        }
-        self.is_probing
-            .store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The worker finished its measurement
@@ -241,10 +223,10 @@ impl<T> fmt::Debug for WorkerSender<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
+            "WorkerSender {{ worker_id: {}, hostname: {}, status: {} }}",
             self.worker_id,
             self.hostname,
-            self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
+            self.get_status()
         )
     }
 }
@@ -259,12 +241,12 @@ impl<T> fmt::Debug for WorkerSender<T> {
 ///
 /// * 'inner' - the receiver that connects to the CLI
 /// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'open_measurements' - a list of the current open measurements, and the number of workers that are currently working on it
+/// * 'm_id' - a list of the current open measurements, and the number of workers that are currently working on it
 /// * 'measurement_id' - the ID of the measurement that this receiver is associated with
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
-    active: Arc<Mutex<bool>>,
-    measurement_id: u32,
+    m_active: Arc<Mutex<bool>>,
+    m_id: u32,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
 }
 
@@ -278,7 +260,7 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        let mut is_active = self.active.lock().unwrap();
+        let mut is_active = self.m_active.lock().unwrap();
 
         // If there is an active measurement we need to cancel it and notify the workers
         if *is_active {
@@ -290,7 +272,7 @@ impl<T> Drop for CLIReceiver<T> {
 
         // Remove the current measurement
         let mut open_measurements = self.open_measurements.lock().unwrap();
-        open_measurements.remove(&self.measurement_id);
+        open_measurements.remove(&self.m_id);
     }
 }
 
@@ -417,7 +399,6 @@ impl Controller for ControllerService {
 
         let worker_tx = WorkerSender {
             inner: tx,
-            is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
             worker_id,
             hostname: hostname.clone(),
             status: worker_status.clone(),
@@ -440,7 +421,6 @@ impl Controller for ControllerService {
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
             hostname,
-            active: self.is_active.clone(),
             status: worker_status,
         };
 
@@ -553,7 +533,11 @@ impl Controller for ControllerService {
                     config.worker_id == worker.worker_id || config.worker_id == u32::MAX
                 });
 
-                worker.update_is_probing(is_probing);
+                if is_probing {
+                    *worker.status.lock().unwrap() = Probing;
+                } else {
+                    *worker.status.lock().unwrap() = Listening;
+                }
             }
 
             workers
@@ -568,7 +552,7 @@ impl Controller for ControllerService {
 
         // Assign a unique ID the measurement and increment the measurement ID counter
         let measurement_id = {
-            let mut current_measurement_id = self.current_measurement_id.lock().unwrap();
+            let mut current_measurement_id = self.m_id.lock().unwrap();
             let id = *current_measurement_id;
             *current_measurement_id = current_measurement_id.wrapping_add(1);
             id
@@ -946,8 +930,8 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            active: self.is_active.clone(),
-            measurement_id,
+            m_active: self.is_active.clone(),
+            m_id: measurement_id,
             open_measurements: self.open_measurements.clone(),
         };
 
@@ -1103,6 +1087,13 @@ impl ControllerService {
     }
 }
 
+impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
+    fn eq(&self, other: &WorkerStatus) -> bool {
+        let status = self.lock().unwrap();
+        *status == *other
+    }
+}
+
 /// Reads from a channel containing Tasks and sends them to the workers, at specified inter-client intervals.
 /// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
 ///
@@ -1140,7 +1131,7 @@ async fn task_sender(
         } else if worker_id == ALL_WORKERS_INTERVAL {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
             for sender in &workers {
-                if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
+                if *sender.status == Probing {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
                     spawn(async move {
@@ -1225,7 +1216,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
-        current_measurement_id: Arc::new(Mutex::new(measurement_id)),
+        m_id: Arc::new(Mutex::new(measurement_id)),
         unique_id: current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
