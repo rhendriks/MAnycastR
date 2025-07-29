@@ -88,8 +88,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         ]));
 
         let mut connected_workers = 0;
+        let mut workers = response.into_inner().workers;
+        workers.sort_by(|a, b| a.worker_id.cmp(&b.worker_id));
 
-        for worker in response.into_inner().workers {
+        for worker in workers {
             let unicast_v4 = if let Some(addr) = &worker.unicast_v4 {
                 addr.to_string()
             } else {
