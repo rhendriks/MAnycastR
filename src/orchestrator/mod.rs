@@ -905,7 +905,7 @@ impl Controller for ControllerService {
 
                 // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
-                    (number_of_probing_workers as u64 * worker_interval) + 5,
+                    (number_of_probing_workers as u64 * worker_interval) + 1,
                 ))
                 .await;
 
