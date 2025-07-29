@@ -992,83 +992,41 @@ impl Controller for ControllerService {
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
-        let mut task_result = request.into_inner();
+        let task_result = request.into_inner();
+
+        let is_discovery = task_result.is_discovery;
 
         // if self.r_prober is not None and equals this task's worker_id
-        if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-            // Get the list of targets
-            let responsive_targets: Vec<Address> = task_result
-                .result_list
-                .iter()
-                .filter(|result| result.is_discovery)
-                .map(|result_f| result_f.src.unwrap())
-                .collect();
-
-            if !responsive_targets.is_empty() {
-                // Sleep 1 second to avoid rate-limiting issues
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                // TODO for each origin keep track of the responsive targets already checked
-                // TODO enforce that each responsive target gets a single follow-up task
-
-                // Insert the responsive targets into the worker stack
-                self.worker_stacks
-                    .lock()
-                    .unwrap()
-                    .entry(ALL_WORKERS_INTERVAL)
-                    .or_default()
-                    .extend(responsive_targets.clone());
-
-                // Remove discovery results from the result list for the CLI
-                task_result
-                    .result_list
-                    .retain(|result| !result.is_discovery);
-
-                if task_result.result_list.is_empty() {
-                    // If there are no regular results, we can return early
-                    return Ok(Response::new(Ack {
-                        is_success: true,
-                        error_message: "".to_string(),
-                    }));
-                }
-            }
-        } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-            let rx_id = task_result.worker_id;
+        if is_discovery && (self.is_latency.load(std::sync::atomic::Ordering::SeqCst) || self.is_responsive.load(std::sync::atomic::Ordering::SeqCst)) {
+            let rx_id = if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
+                ALL_WORKERS_INTERVAL // --responsive follow-ups are sent to all workers
+            } else {
+                task_result.worker_id // --latency follow-ups are sent to the worker that received the reply
+            };
 
             // Probe from the catching PoP
             let responsive_targets: Vec<Address> = task_result
                 .result_list
                 .iter()
-                .filter(|result| result.is_discovery)
-                .map(|result_f| result_f.src.unwrap())
+                .map(|result| result.src.unwrap())
                 .collect();
 
-            if !responsive_targets.is_empty() {
-                // Sleep 1 second to avoid rate-limiting issues
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            // Sleep 1 second to avoid rate-limiting issues
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
-                // Insert the responsive targets into the worker stack
-                {
-                    let mut worker_stacks = self.worker_stacks.lock().unwrap();
-                    worker_stacks
-                        .entry(rx_id)
-                        .or_default()
-                        .extend(responsive_targets.clone());
-                }
-
-                // Keep non-discovery results
-                task_result
-                    .result_list
-                    .retain(|result| !result.is_discovery);
-
-                if task_result.result_list.is_empty() {
-                    // If there are no valid results left, we can return early
-                    return Ok(Response::new(Ack {
-                        is_success: true,
-                        error_message: "".to_string(),
-                    }));
-                }
+            // Insert the responsive targets into the worker stack
+            {
+                let mut worker_stacks = self.worker_stacks.lock().unwrap();
+                worker_stacks
+                    .entry(rx_id)
+                    .or_default()
+                    .extend(responsive_targets);
             }
+
+            return Ok(Response::new(Ack {
+                is_success: true,
+                error_message: "".to_string(),
+            }));
         }
 
         // Forward the result to the CLI
