@@ -728,12 +728,15 @@ impl CliClient {
 
         // Spawn a separate async task to update the progress bar
         tokio::spawn(async move {
-            for _ in 0..total_steps {
-                if is_done_clone.load(Ordering::Relaxed) {
-                    break;
+            // If we are streaming to the CLI, we cannot use a progress bar
+            if !is_cli {
+                for _ in 0..total_steps {
+                    if is_done_clone.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    pb.inc(1); // Increment the progress bar by one step
+                    tokio::time::sleep(Duration::from_secs(1)).await; // Simulate time taken for each step
                 }
-                pb.inc(1); // Increment the progress bar by one step
-                tokio::time::sleep(Duration::from_secs(1)).await; // Simulate time taken for each step
             }
         });
 
@@ -767,7 +770,7 @@ impl CliClient {
             if path.unwrap().ends_with('/') {
                 // user provided a path, use default naming convention for file
                 format!(
-                    "{}{}{}{}.csv.gz", // TODO write parquet instead
+                    "{}{}{}{}.csv.gz",
                     path.unwrap(),
                     filetype,
                     type_str,
