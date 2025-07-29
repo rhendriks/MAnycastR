@@ -742,7 +742,7 @@ impl Controller for ControllerService {
                     let worker_id = sender_cycler.next().expect("No probing workers available");
 
                     // Get the addresses for this tick
-                    let mut addresses_for_this_task: Vec<Address> = Vec::new();
+                    let mut follow_ups: Vec<Address> = Vec::new();
 
                     // Attempt to get addresses from the worker stack first
                     {
@@ -751,15 +751,31 @@ impl Controller for ControllerService {
                         if let Some(queue) = stacks.get_mut(&worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
 
-                            addresses_for_this_task.extend(queue.drain(..num_to_take));
+                            follow_ups.extend(queue.drain(..num_to_take));
                         }
                     }
 
-                    // Fill up remainder using the general hitlist.
-                    let remainder_needed =
-                        (probing_rate as usize).saturating_sub(addresses_for_this_task.len());
+                    let follow_ups_len = follow_ups.len();
 
-                    if remainder_needed > 0 && !hitlist_is_empty {
+                    // Send follow-up probes to the worker if we have any
+                    if follow_ups_len > 0 {
+                        let task = Task {
+                            worker_id: None,
+                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                                dst_list: follow_ups,
+                                is_discovery,
+                            })),
+                        };
+
+                        tx_t.send((worker_id, task, is_discovery.is_none()))
+                            .await
+                            .expect("Failed to send task to TaskDistributor");
+                    }
+
+                    // Fill up remainder using the general hitlist.
+                    let remainder_needed = (probing_rate as usize).saturating_sub(follow_ups_len);
+
+                    let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
                         let addresses_from_hitlist: Vec<Address> =
                             hitlist_iter.by_ref().take(remainder_needed).collect();
@@ -769,21 +785,21 @@ impl Controller for ControllerService {
                             hitlist_is_empty = true;
                         }
 
-                        addresses_for_this_task.extend(addresses_from_hitlist);
-                    }
+                        addresses_from_hitlist
+                    } else {
+                        Vec::new()
+                    };
 
-                    if !addresses_for_this_task.is_empty() {
+                    // Send the hitlist targets to the worker
+                    if !hitlist_targets.is_empty() {
                         // Create a single task from the addresses and send it to the worker
                         let task = Task {
                             worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                                dst_list: addresses_for_this_task,
+                                dst_list: hitlist_targets,
                                 is_discovery,
                             })),
                         };
-
-                        println!("sending {:?}", task);
-
 
                         tx_t.send((worker_id, task, is_discovery.is_none()))
                             .await
@@ -791,13 +807,13 @@ impl Controller for ControllerService {
                     }
 
                     if hitlist_is_empty {
+                        // TODO wait for all stacks to be empty instead
                         if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed()
                                 >= Duration::from_secs(
                                     number_of_probing_workers as u64 * worker_interval + 5,
                                 )
                             {
-                                // TODO make sure worker_interval is 0 for --divide and --latency
                                 println!("[Orchestrator] Task distribution finished.");
                                 break;
                             }
@@ -971,7 +987,7 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
-            
+
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -983,7 +999,7 @@ impl Controller for ControllerService {
                     .entry(ALL_WORKERS_INTERVAL) // TODO must be put in a stack for ALL workers
                     .or_default()
                     .extend(responsive_targets.clone());
-                
+
                 // Remove discovery results from the result list for the CLI
                 task_result
                     .result_list
@@ -1009,7 +1025,7 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
-            
+
             println!("responsive targets: {:?}", responsive_targets);
 
             if !responsive_targets.is_empty() {
