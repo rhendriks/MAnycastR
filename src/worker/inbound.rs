@@ -317,15 +317,18 @@ fn parse_icmpv4(
     };
 
     // Create a Reply for the received ping reply
-    Some((Reply {
-        tx_time,
-        tx_id,
-        src: Some(src),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos: None,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time,
+            tx_id,
+            src: Some(src),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos: None,
+        },
+        is_discovery,
+    ))
 }
 
 /// Parse ICMPv6 packets (including v6 headers) into a Reply result.
@@ -400,15 +403,18 @@ fn parse_icmpv6(
     };
 
     // Create a Reply for the received ping reply
-    Some((Reply {
-        tx_time,
-        tx_id,
-        src: Some(address),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos: None,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time,
+            tx_id,
+            src: Some(address),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos: None,
+        },
+        is_discovery,
+    ))
 }
 
 /// Parse DNSv4 packets (including v4 headers) into a Reply result.
@@ -489,15 +495,18 @@ fn parse_dnsv4(
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received DNS reply
-    Some((Reply {
-        tx_time,
-        tx_id,
-        src: Some(src),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time,
+            tx_id,
+            src: Some(src),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos,
+        },
+        is_discovery,
+    ))
 }
 
 /// Parse DNSv6 packets (including v6 headers) into a Reply.
@@ -576,15 +585,18 @@ fn parse_dnsv6(
     let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received DNS reply
-    Some((Reply {
-        tx_time,
-        tx_id,
-        src: Some(src),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time,
+            tx_id,
+            src: Some(src),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos,
+        },
+        is_discovery,
+    ))
 }
 
 struct DnsResultV6 {
@@ -766,15 +778,18 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         (tcp_packet.seq, false)
     };
 
-    Some((Reply {
-        tx_time: tx_id as u64,
-        tx_id,
-        src: Some(src),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos: None,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time: tx_id as u64,
+            tx_id,
+            src: Some(src),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos: None,
+        },
+        is_discovery,
+    ))
 }
 
 /// Parse TCPv6 packets (including v6 headers) into a Reply result.
@@ -817,15 +832,18 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         (tcp_packet.seq, false)
     };
 
-    Some((Reply {
-        tx_time: tx_id as u64, // TODO
-        tx_id,
-        src: Some(src),
-        ttl,
-        rx_time,
-        origin_id,
-        chaos: None,
-    }, is_discovery))
+    Some((
+        Reply {
+            tx_time: tx_id as u64, // TODO
+            tx_id,
+            src: Some(src),
+            ttl,
+            rx_time,
+            origin_id,
+            chaos: None,
+        },
+        is_discovery,
+    ))
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.

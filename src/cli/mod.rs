@@ -97,14 +97,20 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             } else {
                 "N/A".to_string()
             };
-            
+
             let unicast_v6 = if let Some(addr) = &worker.unicast_v6 {
                 addr.to_string()
             } else {
                 "N/A".to_string()
             };
-            
-            table.add_row(row![worker.hostname, worker.worker_id, worker.status, unicast_v4, unicast_v6]);
+
+            table.add_row(row![
+                worker.hostname,
+                worker.worker_id,
+                worker.status,
+                unicast_v4,
+                unicast_v6
+            ]);
             if worker.status != "DISCONNECTED" {
                 connected_workers += 1;
             }

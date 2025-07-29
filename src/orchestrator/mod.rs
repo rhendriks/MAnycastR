@@ -997,7 +997,10 @@ impl Controller for ControllerService {
         let is_discovery = task_result.is_discovery;
 
         // if self.r_prober is not None and equals this task's worker_id
-        if is_discovery && (self.is_latency.load(std::sync::atomic::Ordering::SeqCst) || self.is_responsive.load(std::sync::atomic::Ordering::SeqCst)) {
+        if is_discovery
+            && (self.is_latency.load(std::sync::atomic::Ordering::SeqCst)
+                || self.is_responsive.load(std::sync::atomic::Ordering::SeqCst))
+        {
             let rx_id = if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
                 ALL_WORKERS_INTERVAL // --responsive follow-ups are sent to all workers
             } else {
