@@ -1104,11 +1104,11 @@ impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
 /// * 'rx' - the channel containing the tuple (task_ID, task, multiple_times)
 ///
 /// * 'workers' - the list of worker senders to which the tasks will be sent
-/// 
+///
 /// * 'inter_client_interval' - the interval in seconds between sending tasks to different workers
-/// 
+///
 /// * 'inter_probe_interval' - the interval in seconds between sending multiple probes to the same worker
-/// 
+///
 /// * 'number_of_probes' - the number of times to probe the same target
 async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Task, bool)>,
