@@ -212,9 +212,6 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             },
         );
 
-        // TODO test whether a measurement with both a configuration and selective client list is allowed (it should not be)
-        // TODO test whether a measurement with both a configuration and unicast probing is allowed (it should not be)
-
         // Print selected workers
         if !sender_ids.is_empty() {
             println!("[CLI] Selective probing using the following workers:");
@@ -1147,13 +1144,13 @@ fn write_results(
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
     let mut header = if is_symmetric {
-        vec!["rx", "reply_src_addr", "ttl", "rtt"]
+        vec!["rx", "addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
         if m_type == TCP_ID as u32 {
-            vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx"]
+            vec!["rx", "rx_time", "addr", "ttl", "tx"]
         } else {
-            vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx"]
+            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
         }
     };
 
