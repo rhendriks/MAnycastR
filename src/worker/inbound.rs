@@ -47,7 +47,7 @@ pub fn listen(
 ) {
     println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
-    let rq = Arc::new(Mutex::new(Some(Vec::new())));
+    let rq = Arc::new(Mutex::new(Some(Vec::new()))); // TODO can remove some?
     let rq_c = rq.clone();
     let rx_f_c = rx_f.clone();
     Builder::new()
@@ -149,7 +149,7 @@ fn handle_results(
     tx: &UnboundedSender<TaskResult>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
-    rq_sender: Arc<Mutex<Option<Vec<Reply>>>>,
+    rq_sender: Arc<Mutex<Option<Vec<(Reply, bool)>>>>,
 ) {
     loop {
         // Every second, forward the ping results to the orchestrator
@@ -158,11 +158,25 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
+        // Split on discovery and non-discovery replies
+        let (discovery_rq, follow_rq): (Vec<_>, Vec<_>) = rq.into_iter().partition(|&(_, b)| b);
+        let discovery_rq: Vec<Reply> = discovery_rq.into_iter().map(|(r, _)| r).collect();
+        let follow_rq: Vec<Reply> = follow_rq.into_iter().map(|(r, _)| r).collect();
+
         // Send the result to the worker handler
-        if !rq.is_empty() {
+        if !discovery_rq.is_empty() {
             tx.send(TaskResult {
                 worker_id: worker_id as u32,
-                result_list: rq,
+                result_list: discovery_rq,
+                is_discovery: true,
+            })
+            .expect("Failed to send TaskResult to worker handler");
+        }
+        if !follow_rq.is_empty() {
+            tx.send(TaskResult {
+                worker_id: worker_id as u32,
+                result_list: follow_rq,
+                is_discovery: false,
             })
             .expect("Failed to send TaskResult to worker handler");
         }
@@ -170,7 +184,7 @@ fn handle_results(
         // Exit the thread if worker sends us the signal it's finished
         if rx_f.load(Ordering::SeqCst) {
             // Send default value to let the orchestrator know we are finished
-            tx.send(TaskResult::default()) // TODO is never sent when the worker is not listening
+            tx.send(TaskResult::default())
                 .expect("Failed to send 'finished' signal to orchestrator");
             break;
         }
@@ -256,7 +270,7 @@ fn parse_icmpv4(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>,
-) -> Option<Reply> {
+) -> Option<(Reply, bool)> {
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (packet_bytes.len() < 52) || (packet_bytes[20] != 0) {
         return None;
@@ -303,16 +317,15 @@ fn parse_icmpv4(
     };
 
     // Create a Reply for the received ping reply
-    Some(Reply {
+    Some((Reply {
         tx_time,
         tx_id,
         src: Some(src),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos: None,
-    })
+    }, is_discovery))
 }
 
 /// Parse ICMPv6 packets (including v6 headers) into a Reply result.
@@ -340,7 +353,7 @@ fn parse_icmpv6(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>,
-) -> Option<Reply> {
+) -> Option<(Reply, bool)> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (packet_bytes.len() < 66) || (packet_bytes[40] != 129) {
         return None;
@@ -387,16 +400,15 @@ fn parse_icmpv6(
     };
 
     // Create a Reply for the received ping reply
-    Some(Reply {
+    Some((Reply {
         tx_time,
         tx_id,
         src: Some(address),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos: None,
-    })
+    }, is_discovery))
 }
 
 /// Parse DNSv4 packets (including v4 headers) into a Reply result.
@@ -422,7 +434,7 @@ fn parse_dnsv4(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
-) -> Option<Reply> {
+) -> Option<(Reply, bool)> {
     // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
@@ -477,16 +489,15 @@ fn parse_dnsv4(
     let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received DNS reply
-    Some(Reply {
+    Some((Reply {
         tx_time,
         tx_id,
         src: Some(src),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos,
-    })
+    }, is_discovery))
 }
 
 /// Parse DNSv6 packets (including v6 headers) into a Reply.
@@ -512,7 +523,7 @@ fn parse_dnsv6(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
-) -> Option<Reply> {
+) -> Option<(Reply, bool)> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
         return None;
@@ -565,16 +576,15 @@ fn parse_dnsv6(
     let origin_id = get_origin_id_v6(reply_dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received DNS reply
-    Some(Reply {
+    Some((Reply {
         tx_time,
         tx_id,
         src: Some(src),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos,
-    })
+    }, is_discovery))
 }
 
 struct DnsResultV6 {
@@ -731,7 +741,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a TCP header.
-fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
+fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, bool)> {
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
@@ -756,16 +766,15 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         (tcp_packet.seq, false)
     };
 
-    Some(Reply {
+    Some((Reply {
         tx_time: tx_id as u64,
         tx_id,
         src: Some(src),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos: None,
-    })
+    }, is_discovery))
 }
 
 /// Parse TCPv6 packets (including v6 headers) into a Reply result.
@@ -783,7 +792,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a TCP header.
-fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
+fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, bool)> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     if (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0) {
         return None;
@@ -808,16 +817,15 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
         (tcp_packet.seq, false)
     };
 
-    Some(Reply {
+    Some((Reply {
         tx_time: tx_id as u64, // TODO
         tx_id,
         src: Some(src),
         ttl,
         rx_time,
         origin_id,
-        is_discovery,
         chaos: None,
-    })
+    }, is_discovery))
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.

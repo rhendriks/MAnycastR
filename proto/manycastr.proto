@@ -129,6 +129,7 @@ message Targets {
 message TaskResult {
   uint32 worker_id = 1;
   repeated Reply result_list = 2;
+  bool is_discovery = 3; // whether the reply is part of a discovery measurement
   // TODO we should identify discovery replies here and group them separately at the worker
 }
 
@@ -140,6 +141,5 @@ message Reply {
   uint64 tx_time = 4;
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  bool is_discovery = 7; // whether the reply is part of a discovery measurement
-  optional string chaos = 8;
+  optional string chaos = 7;
 }
