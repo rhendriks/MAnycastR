@@ -40,7 +40,7 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'current_measurement_id' - keeps track of the last used measurement ID
 /// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'is_active' - a boolean value that is set to true when there is an active measurement
-/// * 'r_prober' - ID of worker that is probing for responsiveness
+/// * 'r_prober' - ID of worker that is probing for responsiveness TODO update rustdoc
 #[derive(Debug)]
 pub struct ControllerService {
     workers: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
@@ -94,7 +94,7 @@ impl fmt::Display for WorkerStatus {
 /// * 'cli_sender' - the sender that connects to the CLI
 /// * 'hostname' - the hostname of the worker
 /// * 'workers' - a WorkerList that contains all connected workers (hostname and worker ID)
-/// * 'active' - a boolean value that is set to true when there is an active measurement
+/// * 'active' - a boolean value that is set to true when there is an active measurement TODO update rustdoc
 pub struct WorkerReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
@@ -286,7 +286,7 @@ impl<T> Drop for CLIReceiver<T> {
         }
         *is_active = false; // No longer an active measurement
 
-        // Remove the current measurement TODO test
+        // Remove the current measurement
         let mut open_measurements = self.open_measurements.lock().unwrap();
         open_measurements.remove(&self.measurement_id);
     }
@@ -398,55 +398,9 @@ impl Controller for ControllerService {
         let hostname = request.into_inner().hostname;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
-        let mut reconnect_id = None;
-
-        // Check if the hostname already exists
-        let worker_id = {
-            let workers = self.workers.lock().unwrap();
-            for worker in workers.iter() {
-                if worker.hostname == hostname {
-                    if !worker.is_closed() {
-                        println!(
-                            "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                            hostname
-                        );
-
-                        return Err(Status::new(
-                            tonic::Code::AlreadyExists,
-                            "This hostname already exists",
-                        ));
-                    } else {
-                        // Check if it is a reconnecting worker
-                        println!("[Orchestrator] Worker {} reconnected", hostname);
-                        reconnect_id = Some(worker.worker_id);
-                        break;
-                    }
-                }
-            }
-
-            if let Some(reconnect_id) = reconnect_id {
-                // If we are reconnecting a worker, we use the existing worker ID
-                reconnect_id
-            } else if let Some(worker_config) = self.worker_config.clone() {
-                if let Some(worker_id) = worker_config.get(&hostname) {
-                    *worker_id
-                } else {
-                    // Obtain current worker id
-                    let mut unique_id = self.unique_id.lock().unwrap();
-                    let worker_id = *unique_id;
-                    unique_id.add_assign(1);
-
-                    worker_id
-                }
-            } else {
-                // Obtain current worker id
-                let mut unique_id = self.unique_id.lock().unwrap();
-                let worker_id = *unique_id;
-                unique_id.add_assign(1);
-
-                worker_id
-            }
-        };
+        // TODO split off the worker ID generation into a separate function
+        
+        let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
 
         // Send worker ID
         tx.send(Ok(Task {
@@ -467,12 +421,12 @@ impl Controller for ControllerService {
         };
 
         // Remove the disconnected worker if it existed
-        if let Some(reconnect_id) = reconnect_id {
+        if is_reconnect {
             let mut senders = self.workers.lock().unwrap();
-            senders.retain(|sender| sender.worker_id != reconnect_id);
+            senders.retain(|sender| sender.worker_id != worker_id);
         }
 
-        // Add worker_id, tx to senders
+        // Add the new worker sender to the list of workers
         self.workers.lock().unwrap().push(worker_tx);
 
         // Create stream receiver for the worker
@@ -985,6 +939,59 @@ impl Controller for ControllerService {
                 error_message: "CLI disconnected".to_string(),
             })),
         }
+    }
+}
+
+impl ControllerService {
+    /// Gets a unique worker ID for a new connecting worker.
+    /// Increments the unique ID counter after returning the ID (for the next worker).
+    fn get_unique_id(&self) -> u32 {
+        let mut unique_id = self.unique_id.lock().unwrap();
+        let worker_id = *unique_id;
+        unique_id.add_assign(1);
+
+        worker_id
+    }
+    
+    /// Gets a worker ID for a connecting worker based on its hostname.
+    /// If the hostname already exists, it returns the existing worker ID.
+    /// If the hostname does not exist, it checks for a statically configured ID or generates a new unique ID.
+    /// 
+    /// # Arguments
+    /// * 'hostname' - the hostname of the worker
+    /// 
+    /// # Returns
+    /// Returns the worker ID
+    /// 
+    /// # Errors
+    /// Returns an error if the hostname already exists and is used by a connected worker.
+    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Status> {
+        {
+            let workers = self.workers.lock().unwrap();
+            // Check if the hostname already exists in the workers list
+            if let Some(existing_worker) = workers.iter().find(|w| w.hostname == hostname) {
+                return if !existing_worker.is_closed() {
+                    println!("[Orchestrator] Refusing worker as the hostname already exists: {}", hostname);
+                    Err(Status::already_exists("This hostname already exists"))
+                } else {
+                    // This is a reconnection of a closed worker.
+                    println!("[Orchestrator] Worker {} reconnected", hostname);
+                    let id = existing_worker.worker_id;
+                    Ok((id, true))
+                }
+            }
+        }
+
+        // Check for a statically configured ID
+        if let Some(worker_config) = &self.worker_config {
+            if let Some(worker_id) = worker_config.get(hostname) {
+                return Ok((*worker_id, false));
+            }
+        }
+
+        // Return a new unique ID
+        let new_id = self.get_unique_id();
+        Ok((new_id, false))
     }
 }
 
