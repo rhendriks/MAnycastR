@@ -959,7 +959,6 @@ impl Controller for ControllerService {
 
         // if self.r_prober is not None and equals this task's worker_id
         if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("received {:?}", task_result);
             // Get the list of targets
             let responsive_targets: Vec<Address> = task_result
                 .result_list
@@ -994,6 +993,8 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("received {:?}", task_result);
+
             let rx_id = task_result.worker_id;
 
             // Probe from the catching PoP
