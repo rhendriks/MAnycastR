@@ -58,6 +58,8 @@ message Worker {
   fixed32 worker_id = 1;
   string hostname = 2;
   string status = 3; // IDLE, PROBING, LISTENING, DISCONNECTED
+  Address unicast_v6 = 4;
+  Address unicast_v4 = 5;
 }
 
 // Address message, can be either an IPv4 or IPv6 address

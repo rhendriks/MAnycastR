@@ -350,10 +350,16 @@ impl Worker {
         println!("[Worker] Connecting to orchestrator");
         let mut abort_s: Option<Arc<AtomicBool>> = None;
 
+        // Get the local unicast addresses
+        let unicast_v6 = local_ipv6().ok().map(Address::from);
+        let unicast_v4 = local_ip().ok().map(Address::from);
+
         let worker = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
             worker_id: 0, // This will be set after the connection
             status: "".to_string(),
+            unicast_v6,
+            unicast_v4,
         };
 
         // Connect to the orchestrator

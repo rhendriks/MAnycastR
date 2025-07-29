@@ -14,7 +14,7 @@ use clap::ArgMatches;
 use csv::Writer;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::{cell, color, format, row, Attr, Cell, Row, Table};
+use prettytable::{color, format, row, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tonic::codec::CompressionEncoding;
@@ -79,22 +79,31 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             Cell::new("Status")
                 .with_style(Attr::Bold)
                 .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Unicast IPv4")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
+            Cell::new("Unicast IPv6")
+                .with_style(Attr::Bold)
+                .with_style(Attr::ForegroundColor(color::GREEN)),
         ]));
 
         let mut connected_workers = 0;
 
         for worker in response.into_inner().workers {
-            // Use a different style for disconnected workers
-            if worker.status == "DISCONNECTED" {
-                table.add_row(row![
-                    cell!(worker.hostname).style_spec("Fr"),
-                    cell!(worker.worker_id).style_spec("Fr"),
-                    cell!(worker.status).style_spec("Frb")
-                ]);
+            let unicast_v4 = if let Some(addr) = &worker.unicast_v4 {
+                addr.to_string()
             } else {
-                table.add_row(row![worker.hostname, worker.worker_id, worker.status,]);
-                connected_workers += 1;
-            }
+                "N/A".to_string()
+            };
+            
+            let unicast_v6 = if let Some(addr) = &worker.unicast_v6 {
+                addr.to_string()
+            } else {
+                "N/A".to_string()
+            };
+            
+            table.add_row(row![worker.hostname, worker.worker_id, worker.status, unicast_v4, unicast_v6]);
+            connected_workers += 1;
         }
 
         table.printstd();
