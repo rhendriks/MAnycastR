@@ -175,6 +175,8 @@ pub struct WorkerSender<T> {
     worker_id: u32,
     hostname: String,
     status: Arc<Mutex<WorkerStatus>>,
+    unicast_v4: Option<Address>,
+    unicast_v6: Option<Address>,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -396,7 +398,10 @@ impl Controller for ControllerService {
         &self,
         request: Request<Worker>,
     ) -> Result<Response<Self::WorkerConnectStream>, Status> {
-        let hostname = request.into_inner().hostname;
+        let worker = request.into_inner();
+        let hostname = worker.hostname;
+        let unicast_v4 = worker.unicast_v4;
+        let unicast_v6 = worker.unicast_v6;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
         // TODO split off the worker ID generation into a separate function
@@ -419,6 +424,8 @@ impl Controller for ControllerService {
             worker_id,
             hostname: hostname.clone(),
             status: worker_status.clone(),
+            unicast_v4,
+            unicast_v6,
         };
 
         // Remove the disconnected worker if it existed
@@ -965,6 +972,8 @@ impl Controller for ControllerService {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
                 status: worker.get_status().clone(),
+                unicast_v4: worker.unicast_v4.clone(),
+                unicast_v6: worker.unicast_v6.clone(),
             });
         }
 
