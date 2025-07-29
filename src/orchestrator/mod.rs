@@ -737,7 +737,7 @@ impl Controller for ControllerService {
                         println!("[Orchestrator] CLI disconnected; ending measurement");
                         break;
                     }
-
+                    
                     // Get the current worker ID to send tasks to.
                     let worker_id = sender_cycler.next().expect("No probing workers available");
 
@@ -747,6 +747,7 @@ impl Controller for ControllerService {
                     // Attempt to get addresses from the worker stack first
                     {
                         let mut stacks = worker_stacks.lock().unwrap();
+                        println!("ID {}, {:?}", worker_id, stacks);
                         if let Some(queue) = stacks.get_mut(&worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
 
