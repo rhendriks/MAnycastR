@@ -734,7 +734,14 @@ impl Controller for ControllerService {
                     }
 
                     // Get the current worker ID to send tasks to.
-                    let mut worker_id = sender_cycler.next().expect("No probing workers available");
+                    let worker_id = sender_cycler.next().expect("No probing workers available");
+                    
+                    let f_worker_id = if is_responsive {
+                        // Responsive mode checks for responsiveness and sends tasks to all workers
+                        ALL_WORKERS_INTERVAL
+                    } else {
+                        worker_id
+                    };
 
                     // Get the addresses for this tick
                     let mut follow_ups: Vec<Address> = Vec::new();
@@ -743,7 +750,7 @@ impl Controller for ControllerService {
                     {
                         let mut stacks = worker_stacks.lock().unwrap();
                         println!("ID {}, {:?}", worker_id, stacks);
-                        if let Some(queue) = stacks.get_mut(&worker_id) {
+                        if let Some(queue) = stacks.get_mut(&f_worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
 
                             follow_ups.extend(queue.drain(..num_to_take));
@@ -754,11 +761,6 @@ impl Controller for ControllerService {
 
                     // Send follow-up probes to the worker if we have any
                     if follow_ups_len > 0 {
-                        // responsive follow-up probes are sent from all workers
-                        if is_responsive {
-                            worker_id = ALL_WORKERS_INTERVAL
-                        }
-                        
                         let task = Task {
                             worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
@@ -767,7 +769,7 @@ impl Controller for ControllerService {
                             })),
                         };
 
-                        tx_t.send((worker_id, task, true))
+                        tx_t.send((f_worker_id, task, true))
                             .await
                             .expect("Failed to send task to TaskDistributor");
                     }
