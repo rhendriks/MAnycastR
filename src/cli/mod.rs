@@ -421,8 +421,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let is_cli = matches.get_flag("stream");
 
-        // Get interval, rate. Default values are 1 and 1000 respectively
-        let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
+        // --latency and --divide send single probes to each address, so no worker interval is needed
+        let worker_interval = if is_latency || is_divide {
+            0
+        } else {
+            *matches.get_one::<u32>("worker_interval").unwrap()
+        };
         let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
         let probing_rate = *matches.get_one::<u32>("rate").unwrap();
         let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();

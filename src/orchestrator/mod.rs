@@ -806,7 +806,6 @@ impl Controller for ControllerService {
 
                     probing_rate_interval.tick().await;
                 }
-                
 
                 // Send end message to all workers directly to let them know the measurement is finished
                 tx_t.send((
@@ -873,12 +872,13 @@ impl Controller for ControllerService {
 
                     probing_rate_interval.tick().await;
                 }
-                
+
                 // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
                     (number_of_probing_workers as u64 * worker_interval) + 1,
-                )).await;
-                
+                ))
+                .await;
+
                 println!("[Orchestrator] Task distribution finished");
 
                 // Send end message to all workers directly to let them know the measurement is finished
@@ -897,7 +897,7 @@ impl Controller for ControllerService {
                 while *is_active.lock().unwrap() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
-                
+
                 // Close the TaskDistributor channel
                 tx_t.send((
                     BREAK_SIGNAL,
