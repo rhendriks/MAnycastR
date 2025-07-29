@@ -191,7 +191,7 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes)), packets failed to send: {}", sent, sent_discovery, failed);
+            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent, sent_discovery, failed);
         })
         .expect("Failed to spawn outbound thread");
 }

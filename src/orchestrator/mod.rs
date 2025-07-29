@@ -992,6 +992,9 @@ impl Controller for ControllerService {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
+                // TODO for each origin keep track of the responsive targets already checked
+                // TODO enforce that each responsive target gets a single follow-up task
+
                 // Insert the responsive targets into the worker stack
                 self.worker_stacks
                     .lock()
