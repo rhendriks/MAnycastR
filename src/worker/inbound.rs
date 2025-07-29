@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::{Receiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
+use crate::custom_module::Separated;
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 use crate::{A_ID, CHAOS_ID};
 use pnet::datalink::DataLinkReceiver;
@@ -36,7 +37,7 @@ use pnet::datalink::DataLinkReceiver;
 /// Panics if the measurement type is invalid
 pub fn listen(
     tx: UnboundedSender<TaskResult>,
-    rx_f: Receiver<()>,
+    rx_f: Arc<AtomicBool>,
     measurement_id: u32,
     worker_id: u16,
     is_ipv6: bool,
@@ -47,10 +48,8 @@ pub fn listen(
     println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Some(Vec::new())));
-    // Exit flag for pcap listener
-    let exit_flag = Arc::new(AtomicBool::new(false));
-    let exit_flag_r = Arc::clone(&exit_flag);
-    let rq_r = rq.clone();
+    let rq_c = rq.clone();
+    let rx_f_c = rx_f.clone();
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
@@ -58,7 +57,7 @@ pub fn listen(
             let mut received: u32 = 0;
             loop {
                 // Check if we should exit
-                if exit_flag_r.load(Ordering::Relaxed) {
+                if rx_f_c.load(Ordering::Relaxed) {
                     break;
                 }
                 let packet = match socket_rx.next() {
@@ -109,12 +108,10 @@ pub fn listen(
                     continue;
                 }
 
-                // TODO second transmission queue for discovery packets
-
                 // Put result in transmission queue
                 {
                     received += 1;
-                    let mut rq_opt = rq_r.lock().unwrap();
+                    let mut rq_opt = rq_c.lock().unwrap();
                     if let Some(ref mut x) = *rq_opt {
                         x.push(result.unwrap())
                     }
@@ -123,7 +120,7 @@ pub fn listen(
 
             println!(
                 "[Worker inbound] Stopped pnet listener (received {} packets)",
-                received
+                received.with_separator()
             );
         })
         .expect("Failed to spawn listener_thread");
@@ -133,15 +130,6 @@ pub fn listen(
         .name("result_sender_thread".to_string())
         .spawn(move || {
             handle_results(&tx, rx_f, worker_id, rq);
-
-            // Close the listener
-            println!("[Worker inbound] Stopping listener");
-            // Set the exit flag to true
-            exit_flag.store(true, Ordering::SeqCst);
-
-            // Send default value to let the rx know this is finished
-            tx.send(TaskResult::default())
-                .expect("Failed to send 'finished' signal to orchestrator");
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -159,7 +147,7 @@ pub fn listen(
 /// * `rq_sender` - contains a vector of all received replies as Reply results
 fn handle_results(
     tx: &UnboundedSender<TaskResult>,
-    mut rx_f: Receiver<()>,
+    rx_f: Arc<AtomicBool>,
     worker_id: u16,
     rq_sender: Arc<Mutex<Option<Vec<Reply>>>>,
 ) {
@@ -170,9 +158,8 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
 
-        // Do not send empty results
+        // Send the result to the worker handler
         if !rq.is_empty() {
-            // Send the result to the worker handler
             tx.send(TaskResult {
                 worker_id: worker_id as u32,
                 result_list: rq,
@@ -181,8 +168,10 @@ fn handle_results(
         }
 
         // Exit the thread if worker sends us the signal it's finished
-        if rx_f.try_recv().is_ok() {
-            // We are finished
+        if rx_f.load(Ordering::SeqCst) {
+            // Send default value to let the orchestrator know we are finished
+            tx.send(TaskResult::default()) // TODO is never sent when the worker is not listening
+                .expect("Failed to send 'finished' signal to orchestrator");
             break;
         }
     }
