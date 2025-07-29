@@ -744,6 +744,11 @@ impl Controller for ControllerService {
         } else {
             None
         };
+        
+        // TODO new approach
+        // TODO if is_responsive or is_latency (non-determinstic probing) we initialize a hashmap of (client_id, vec[])
+        // we modify this for loop to check this hashmap, preferring these tasks over the dst_addresses
+        
 
         let is_latency_signal = self.is_latency.clone();
         let is_responsive_signal = self.is_responsive.clone();
@@ -1115,79 +1120,11 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let port = *args.get_one::<u16>("port").unwrap();
     let addr: SocketAddr = format!("[::]:{}", port).parse().unwrap();
 
-    // Get optional configuration file TODO make separate function?
-    let (current_worker_id, worker_config) = if args.contains_id("config") {
-        let config = args.get_one::<String>("config").unwrap();
-        println!("[Orchestrator] Loading configuration file {}", config);
-
-        if !Path::new(config).exists() {
-            panic!("[Orchestrator] Configuration file {} not found!", config);
-        }
-
-        let config_content = fs::read_to_string(config)
-            .expect("[Orchestrator] Could not read the configuration file.");
-
-        let mut hosts = HashMap::new();
-        let mut used_ids = HashSet::new();
-
-        for (i, line) in config_content.lines().enumerate() {
-            let line_number = i + 1;
-
-            let trimmed_line = line.trim();
-
-            // Skip empty lines and comments
-            if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
-                continue;
-            }
-
-            // Format: "hostname,id"
-            let parts: Vec<&str> = trimmed_line.split(',').collect();
-            if parts.len() != 2 {
-                panic!(
-                    "[Orchestrator] Error on line {}: Malformed entry. Expected 'hostname,id', found '{}'",
-                    line_number, line
-                );
-            }
-
-            let hostname = parts[0].trim().to_string();
-            let id = match parts[1].trim().parse::<u32>() {
-                Ok(val) => val,
-                Err(_) => {
-                    panic!(
-                        "[Orchestrator] Error on line {}: Invalid ID '{}'. ID must be a non-negative integer.",
-                        line_number, parts[1].trim()
-                    );
-                }
-            };
-
-            // Check for duplicate hostname before inserting.
-            if hosts.contains_key(&hostname) {
-                panic!(
-                    "[Orchestrator] Error on line {}: Duplicate hostname '{}' found. Hostnames must be unique.",
-                    line_number, hostname
-                );
-            }
-
-            // Insert the ID (if it is not already used)
-            if !used_ids.insert(id) {
-                panic!(
-                    "[Orchestrator] Error on line {}: Duplicate ID '{}' found. IDs must be unique.",
-                    line_number, id
-                );
-            }
-
-            hosts.insert(hostname, id);
-        }
-
-        println!("[Orchestrator] {} hosts loaded.", hosts.len());
-
-        // Current worker ID is the maximum ID + 1 in the configuration file
-        let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
-
-        (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
-    } else {
-        (Arc::new(Mutex::new(1)), None)
-    };
+    // Get optional configuration file
+    let (current_worker_id, worker_config) = args
+        .get_one::<String>("config")
+        .map(|config_path| load_worker_config(config_path))
+        .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
     // Get a random measurement ID to start with
     let measurement_id = rand::rng().random_range(0..u32::MAX);
@@ -1235,6 +1172,89 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     Ok(())
+}
+
+/// Load the worker configuration from a file.
+/// This provides a static mapping of hostnames to worker IDs.
+/// Formats the file as follows:
+/// <hostname>,<id>
+/// 
+/// # Arguments
+/// * 'config_path' - the path to the configuration file
+/// 
+/// # Returns
+/// Returns a tuple containing:
+/// * An Arc<Mutex<u32>> containing the worker ID for any new hostname, which is the maximum ID + 1 in the configuration file
+/// * An Option<HashMap<String, u32>> containing the mapping of hostnames to worker IDs
+/// 
+/// # Panics
+/// Panics if the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.
+fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<String, u32>>) {
+    if !Path::new(config_path).exists() {
+        panic!("[Orchestrator] Configuration file {} not found!", config_path);
+    }
+
+    let config_content = fs::read_to_string(config_path)
+        .expect("[Orchestrator] Could not read the configuration file.");
+
+    let mut hosts = HashMap::new();
+    let mut used_ids = HashSet::new();
+
+    for (i, line) in config_content.lines().enumerate() {
+        let line_number = i + 1;
+
+        let trimmed_line = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
+            continue;
+        }
+
+        // Format: "hostname,id"
+        let parts: Vec<&str> = trimmed_line.split(',').collect();
+        if parts.len() != 2 {
+            panic!(
+                "[Orchestrator] Error on line {}: Malformed entry. Expected 'hostname,id', found '{}'",
+                line_number, line
+            );
+        }
+
+        let hostname = parts[0].trim().to_string();
+        let id = match parts[1].trim().parse::<u32>() {
+            Ok(val) => val,
+            Err(_) => {
+                panic!(
+                    "[Orchestrator] Error on line {}: Invalid ID '{}'. ID must be a non-negative integer.",
+                    line_number, parts[1].trim()
+                );
+            }
+        };
+
+        // Check for duplicate hostname before inserting.
+        if hosts.contains_key(&hostname) {
+            panic!(
+                "[Orchestrator] Error on line {}: Duplicate hostname '{}' found. Hostnames must be unique.",
+                line_number, hostname
+            );
+        }
+
+        // Insert the ID (if it is not already used)
+        if !used_ids.insert(id) {
+            panic!(
+                "[Orchestrator] Error on line {}: Duplicate ID '{}' found. IDs must be unique.",
+                line_number, id
+            );
+        }
+
+        hosts.insert(hostname, id);
+    }
+
+    println!("[Orchestrator] {} hosts loaded.", hosts.len());
+
+    // Current worker ID is the maximum ID + 1 in the configuration file
+    let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
+
+    (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
 }
 
 // 1. Generate private key:
