@@ -127,36 +127,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let mut is_responsive = matches.get_flag("responsive");
         let mut is_latency = matches.get_flag("latency");
 
-        // TODO clean up if statement spam
-        if is_latency && is_unicast {
-            // Unicast measurements are inherently latency measurements
-            is_latency = false;
-        }
-
-        if is_latency && is_divide {
-            // Latency measurements are inherently divide-and-conquer measurements
-            is_divide = false;
-        }
-
-        if is_latency && is_responsive {
-            // Latency measurements are inherently responsiveness measurements
-            is_responsive = false;
-        }
-
         if is_responsive && is_divide {
-            panic!("Responsive mode not supported for divide-and-conquer measurements");
-        }
-
-        if is_responsive && is_latency {
-            is_responsive = false; // Latency measurements are responsive measurements by implementation
-        }
-
-        if is_divide && is_responsive {
-            is_responsive = false; // Divide-and-conquer are responsive measurements by implementation
-        }
-
-        if is_latency && is_unicast {
-            is_latency = false; // Unicast measurements are inherently latency measurements
+            panic!("Incompatible flags: Responsive mode cannot be combined with divide-and-conquer measurements.");
+        } else if is_latency && (is_divide || is_responsive) {
+            panic!("Incompatible flags: Latency mode cannot be combined with divide-and-conquer or responsive measurements.");
+        } else if is_unicast && is_latency {
+            is_latency = false; // Unicast mode is latency by design
         }
 
         // Map worker IDs to hostnames

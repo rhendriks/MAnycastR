@@ -130,14 +130,13 @@ message TaskResult {
   uint32 worker_id = 1;
   repeated Reply result_list = 2;
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
-  // TODO we should identify discovery replies here and group them separately at the worker
 }
 
 // Probe reply message
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3; // receive time of the reply
+  uint64 rx_time = 3;
   uint64 tx_time = 4;
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
