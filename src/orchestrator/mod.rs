@@ -25,6 +25,7 @@ use futures_core::Stream;
 use rand::Rng;
 use tokio::spawn;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
@@ -690,7 +691,6 @@ impl Controller for ControllerService {
             .store(is_latency, std::sync::atomic::Ordering::SeqCst);
 
         let mut probing_rate_interval = if is_latency || is_divide {
-            // || is_responsive
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
             tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32)
         } else {
@@ -707,25 +707,30 @@ impl Controller for ControllerService {
             None
         };
 
-        let is_latency_signal = self.is_latency.clone();
-        let is_responsive_signal = self.is_responsive.clone();
-
         if is_divide || is_responsive || is_latency {
             println!("[Orchestrator] Starting Round-Robin Task Distributor.");
-            // Create a stack for each worker to store targets for follow-up probes (used for --responsive and --latency)
 
+            let is_latency_signal = self.is_latency.clone();
+            let is_responsive_signal = self.is_responsive.clone();
+            let mut cooldown_timer: Option<Instant> = None;
+
+            // Create a stack for each worker to store targets for follow-up probes (used for --responsive and --latency)
             let worker_stacks = self.worker_stacks.clone();
 
-            // TODO this does not work for is_responsive
             spawn(async move {
-                // This cycler gives us the next worker to assign a task to.
-                let mut sender_cycler = probing_worker_ids.iter().cycle();
+                // This cycler gives us the next worker to assign a task to
+                let mut sender_cycler = if is_responsive {
+                    // Follow-ups for --responsive probing are sent to all workers
+                    vec![ALL_WORKERS_INTERVAL].into_iter().cycle()
+                } else {
+                    probing_worker_ids.into_iter().cycle()
+                };
                 // TODO update cycler if a worker disconnects
                 // TODO update probing_rate_interval if a worker disconnects
 
                 // We create a manual iterator over the general hitlist.
                 let mut hitlist_iter = dst_addresses.into_iter();
-                let mut hitlist_is_active = true;
+                let mut hitlist_is_empty = false;
 
                 loop {
                     if !(*is_active.lock().unwrap()) {
@@ -734,7 +739,7 @@ impl Controller for ControllerService {
                     }
 
                     // Get the current worker ID to send tasks to.
-                    let worker_id = *sender_cycler.next().expect("No probing workers available");
+                    let worker_id = sender_cycler.next().expect("No probing workers available");
 
                     // Get the addresses for this tick
                     let mut addresses_for_this_task: Vec<Address> = Vec::new();
@@ -753,14 +758,14 @@ impl Controller for ControllerService {
                     let remainder_needed =
                         (probing_rate as usize).saturating_sub(addresses_for_this_task.len());
 
-                    if remainder_needed > 0 && hitlist_is_active {
+                    if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
                         let addresses_from_hitlist: Vec<Address> =
                             hitlist_iter.by_ref().take(remainder_needed).collect();
 
                         // If we are unable to fill the addresses, the hitlist is empty
                         if addresses_from_hitlist.len() < remainder_needed {
-                            hitlist_is_active = false;
+                            hitlist_is_empty = true;
                         }
 
                         addresses_for_this_task.extend(addresses_from_hitlist);
@@ -779,33 +784,29 @@ impl Controller for ControllerService {
                         .await
                         .expect("Failed to send task to TaskDistributor");
 
-                    if !hitlist_is_active {
-                        // TODO we should wait a second before breaking after the hitlist is empty
-                        break; // No more tasks to send
+                    if hitlist_is_empty {
+                        if let Some(start_time) = cooldown_timer {
+                            if start_time.elapsed()
+                                >= Duration::from_secs(
+                                    number_of_probing_workers as u64 * worker_interval + 1,
+                                )
+                            {
+                                // TODO make sure worker_interval is 0 for --divide and --latency
+                                println!("[Orchestrator] Task distribution finished.");
+                                break;
+                            }
+                        } else {
+                            println!(
+                                "[Orchestrator] Hitlist is empty. Waiting {} seconds for cooldown.",
+                                number_of_probing_workers as u64 * worker_interval + 1
+                            );
+                            cooldown_timer = Some(Instant::now());
+                        }
                     }
 
                     probing_rate_interval.tick().await;
                 }
-
-                // Wait for last probe tasks to be sent
-                tokio::time::sleep(Duration::from_secs(
-                    number_of_probes as u64 * probe_interval,
-                ))
-                .await;
-
-                // Wait for the last targets to be scanned
-                if !is_divide && !is_latency {
-                    tokio::time::sleep(Duration::from_secs(
-                        (number_of_probing_workers as u64 * worker_interval) + 1,
-                    ))
-                    .await;
-                } else {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                }
-
-                // TODO wait for the stacks to be empty instead
-
-                println!("[Orchestrator] Task distribution finished");
+                
 
                 // Send end message to all workers directly to let them know the measurement is finished
                 tx_t.send((
@@ -872,26 +873,12 @@ impl Controller for ControllerService {
 
                     probing_rate_interval.tick().await;
                 }
-                println!("[Orchestrator] All broadcast tasks distributed.");
-
-                // Wait for last probe tasks to be sent
+                
+                // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
-                    number_of_probes as u64 * probe_interval,
-                ))
-                .await;
-
-                // Wait for the last targets to be scanned
-                if !is_divide && !is_latency {
-                    tokio::time::sleep(Duration::from_secs(
-                        (number_of_probing_workers as u64 * worker_interval) + 1,
-                    ))
-                    .await;
-                } else {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                }
-
-                // TODO wait for the stacks to be empty instead
-
+                    (number_of_probing_workers as u64 * worker_interval) + 1,
+                )).await;
+                
                 println!("[Orchestrator] Task distribution finished");
 
                 // Send end message to all workers directly to let them know the measurement is finished
@@ -910,11 +897,7 @@ impl Controller for ControllerService {
                 while *is_active.lock().unwrap() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
-
-                // Avoid new follow-up probes
-                is_latency_signal.store(false, std::sync::atomic::Ordering::SeqCst);
-                is_responsive_signal.store(false, std::sync::atomic::Ordering::SeqCst);
-
+                
                 // Close the TaskDistributor channel
                 tx_t.send((
                     BREAK_SIGNAL,
