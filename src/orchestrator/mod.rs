@@ -807,7 +807,6 @@ impl Controller for ControllerService {
                     }
 
                     if hitlist_is_empty {
-                        // TODO wait for all stacks to be empty instead
                         if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed()
                                 >= Duration::from_secs(
@@ -818,11 +817,18 @@ impl Controller for ControllerService {
                                 break;
                             }
                         } else {
-                            println!(
-                                "[Orchestrator] Hitlist is empty. Waiting {} seconds for cooldown.",
-                                number_of_probing_workers as u64 * worker_interval + 5
-                            );
-                            cooldown_timer = Some(Instant::now());
+                            // Make sure all stacks are empty before we start the cooldown timer
+                            let all_stacks_empty = {
+                                let stacks_guard = worker_stacks.lock().unwrap();
+                                stacks_guard.values().all(|queue| queue.is_empty())
+                            };
+                            if all_stacks_empty {
+                                println!(
+                                    "[Orchestrator] No more tasks. Waiting {} seconds for cooldown.",
+                                    number_of_probing_workers as u64 * worker_interval + 5
+                                );
+                                cooldown_timer = Some(Instant::now());
+                            }
                         }
                     }
 
@@ -999,7 +1005,7 @@ impl Controller for ControllerService {
                 self.worker_stacks
                     .lock()
                     .unwrap()
-                    .entry(ALL_WORKERS_INTERVAL) // TODO must be put in a stack for ALL workers
+                    .entry(ALL_WORKERS_INTERVAL)
                     .or_default()
                     .extend(responsive_targets.clone());
 
