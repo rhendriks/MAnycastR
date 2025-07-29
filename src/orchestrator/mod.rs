@@ -980,7 +980,7 @@ impl Controller for ControllerService {
                 self.worker_stacks
                     .lock()
                     .unwrap()
-                    .entry(task_result.worker_id) // TODO must be put in a stack for ALL workers
+                    .entry(ALL_WORKERS_INTERVAL) // TODO must be put in a stack for ALL workers
                     .or_default()
                     .extend(responsive_targets.clone());
                 
@@ -1017,12 +1017,15 @@ impl Controller for ControllerService {
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
                 // Insert the responsive targets into the worker stack
-                self.worker_stacks
-                    .lock()
-                    .unwrap()
-                    .entry(rx_id)
-                    .or_default()
-                    .extend(responsive_targets.clone());
+                {
+                    println!("waiting for lock");
+                    let mut worker_stacks = self.worker_stacks.lock().unwrap();
+                    println!("lock acquired");
+                    worker_stacks
+                        .entry(rx_id)
+                        .or_default()
+                        .extend(responsive_targets.clone());
+                }
 
                 println!("worker stacks r: {:?}", self.worker_stacks.lock().unwrap());
 
