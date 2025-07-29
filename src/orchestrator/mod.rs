@@ -52,7 +52,6 @@ pub struct ControllerService {
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
-    // task_sender: Arc<Mutex<Option<Sender<(u32, Task, bool)>>>>,
     worker_config: Option<HashMap<String, u32>>,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Address>>>>,
 }
@@ -404,8 +403,6 @@ impl Controller for ControllerService {
         let unicast_v6 = worker.unicast_v6;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
-        // TODO split off the worker ID generation into a separate function
-
         let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
 
         // Send worker ID
@@ -632,7 +629,6 @@ impl Controller for ControllerService {
 
         // Create channel for TaskDistributor (client_id, task, number_of_times)
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task, bool)>(1000);
-        // self.task_sender.lock().unwrap().replace(tx_t.clone());
 
         // Create a cycler of active probing workers (containing their IDs)
         let probing_worker_ids = workers
@@ -1234,7 +1230,6 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
         is_latency: Arc::new(AtomicBool::new(false)),
-        // task_sender: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
     };
