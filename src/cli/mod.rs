@@ -1227,7 +1227,7 @@ fn get_result(
         }
     };
 
-    // Optional field
+    // Optional fields
     if let Some(chaos) = result.chaos {
         row.push(chaos);
     }

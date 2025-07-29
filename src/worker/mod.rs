@@ -404,7 +404,7 @@ impl Worker {
                             );
                             // Close inbound threads
                             self.inbound_f.store(true, Ordering::SeqCst);
-                            // Close outbound threads TODO better to do this with the abort_s
+                            // Close outbound threads gracefully
                             if let Some(tx) = self.outbound_tx.take() {
                                 tx.send(Data::End(End { code: 0 })).await.expect(
                                     "Unable to send measurement_finished to outbound thread",

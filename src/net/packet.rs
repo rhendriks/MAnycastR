@@ -39,7 +39,6 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
     Err("Could not find default gateway in /proc/net/route".to_string())
 }
 fn get_default_gateway_ip_freebsd() -> Result<String, String> {
-    // TODO test
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
