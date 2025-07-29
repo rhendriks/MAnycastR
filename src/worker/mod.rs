@@ -16,10 +16,10 @@ use custom_module::manycastr::{
     TaskResult,
 };
 
-use crate::custom_module;
 use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::listen;
 use crate::worker::outbound::outbound;
+use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
 mod inbound;
 mod outbound;
@@ -43,7 +43,7 @@ pub struct Worker {
     is_active: Arc<Mutex<bool>>,
     current_measurement: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
-    inbound_tx_f: Option<Vec<tokio::sync::mpsc::Sender<()>>>,
+    inbound_f: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -74,7 +74,7 @@ impl Worker {
             is_active: Arc::new(Mutex::new(false)),
             current_measurement: Arc::new(Mutex::new(0)),
             outbound_tx: None,
-            inbound_tx_f: None,
+            inbound_f: Arc::new(AtomicBool::new(false)),
         };
 
         worker.connect_to_server().await?;
@@ -154,7 +154,7 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
-    fn init(&mut self, task: Task, worker_id: u16, finish: Option<Arc<AtomicBool>>) {
+    fn init(&mut self, task: Task, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
         } else {
@@ -179,7 +179,9 @@ impl Worker {
             None
         };
 
-        let tx_origins: Vec<Origin> = if is_unicast {
+        let tx_origins: Vec<Origin> = if !is_probing {
+            vec![]
+        } else if is_unicast {
             // Use the local unicast address and CLI defined ports
             let sport = start_measurement.tx_origins[0].sport;
             let dport = start_measurement.tx_origins[0].dport;
@@ -211,13 +213,6 @@ impl Worker {
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // Channel for signalling when inbound is finished
-        let (inbound_tx_f, inbound_rx_f): (
-            tokio::sync::mpsc::Sender<()>,
-            tokio::sync::mpsc::Receiver<()>,
-        ) = tokio::sync::mpsc::channel(1000);
-        self.inbound_tx_f = Some(vec![inbound_tx_f]);
 
         // Get the network interface to use
         let interfaces = datalink::interfaces();
@@ -254,21 +249,23 @@ impl Worker {
             Err(e) => panic!("Failed to create datalink channel: {}", e),
         };
 
-        // Start listening thread
-        listen(
-            tx,
-            inbound_rx_f,
-            measurement_id,
-            worker_id,
-            is_ipv6,
-            start_measurement.measurement_type as u8,
-            socket_rx,
-            rx_origins,
-        );
+        // Start listening thread (except if it is a unicast measurement and we are not probing)
+        if !(is_unicast && !is_probing) {
+            listen(
+                tx,
+                self.inbound_f.clone(),
+                measurement_id,
+                worker_id,
+                is_ipv6,
+                start_measurement.measurement_type as u8,
+                socket_rx,
+                rx_origins,
+            );
+        }
 
         if is_probing {
-            match start_measurement.measurement_type {
-                1 => {
+            match start_measurement.measurement_type as u8 {
+                ICMP_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
@@ -278,7 +275,7 @@ impl Worker {
                         );
                     }
                 }
-                2 | 3 | 4 | 255 => {
+                A_ID | TCP_ID | CHAOS_ID | ALL_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
                         println!(
@@ -296,7 +293,7 @@ impl Worker {
                 worker_id,
                 tx_origins,
                 outbound_rx.unwrap(),
-                finish.unwrap(),
+                abort_s.unwrap(),
                 is_ipv6,
                 is_latency,
                 measurement_id,
@@ -351,7 +348,7 @@ impl Worker {
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         println!("[Worker] Connecting to orchestrator");
-        let mut finish: Option<Arc<AtomicBool>> = None;
+        let mut abort_s: Option<Arc<AtomicBool>> = None;
 
         let worker = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
@@ -400,39 +397,22 @@ impl Worker {
                                 "[Worker] Received measurement finished signal from orchestrator"
                             );
                             // Close inbound threads
-                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f
-                                    .send(())
-                                    .await
-                                    .expect("Unable to send finish signal to inbound thread");
-                            }
-                            // Close outbound threads
-                            if self.outbound_tx.is_some() {
-                                self.outbound_tx
-                                    .clone()
-                                    .unwrap()
-                                    .send(Data::End(End { code: 0 }))
-                                    .await
-                                    .expect(
-                                        "Unable to send measurement_finished to outbound thread",
-                                    );
-
-                                self.outbound_tx = None;
+                            self.inbound_f.store(true, Ordering::SeqCst);
+                            // Close outbound threads TODO better to do this with the abort_s
+                            if let Some(tx) = self.outbound_tx.take() {
+                                tx.send(Data::End(End { code: 0 })).await.expect(
+                                    "Unable to send measurement_finished to outbound thread",
+                                );
                             }
                         } else if data.code == 1 {
                             println!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
-                            for inbound_tx_f in self.inbound_tx_f.as_mut().unwrap() {
-                                inbound_tx_f
-                                    .send(())
-                                    .await
-                                    .expect("Unable to send finish signal to inbound thread");
-                            }
+                            self.inbound_f.store(true, Ordering::SeqCst);
                             // finish will be None if this worker is not probing
-                            if let Some(finish) = &finish {
+                            if let Some(abort_s) = &abort_s {
                                 // Close outbound threads
-                                finish.store(true, Ordering::SeqCst);
+                                abort_s.store(true, Ordering::SeqCst);
                             }
                         } else {
                             println!("[Worker] Received invalid code from orchestrator");
@@ -440,7 +420,6 @@ impl Worker {
                         }
                     }
                     Some(task) => {
-                        // TODO may receive responsiveness follow-up tasks after the measurement has finished and the outbound_tx has closed
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
                             // Send the task to the prober
@@ -454,29 +433,40 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                let (is_probing, measurement_id) =
+                let (is_unicast, is_probing, measurement_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (!start.tx_origins.is_empty(), start.measurement_id),
+                        Data::Start(start) => (
+                            start.is_unicast,
+                            !start.tx_origins.is_empty(),
+                            start.measurement_id,
+                        ),
                         _ => {
                             // First task is not a start measurement task
                             continue;
                         }
                     };
 
+                // If we are not probing for a unicast measurement, we do nothing
+                if is_unicast && !is_probing {
+                    println!("[Worker] Not probing for unicast measurement, skipping");
+                    continue;
+                }
+
                 println!("[Worker] Starting new measurement");
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_measurement.lock().unwrap() = measurement_id;
+                self.inbound_f.store(false, Ordering::SeqCst);
 
                 if is_probing {
                     // This worker is probing
                     // Initialize signal finish atomic boolean
-                    finish = Some(Arc::new(AtomicBool::new(false)));
+                    abort_s = Some(Arc::new(AtomicBool::new(false)));
 
-                    self.init(task, worker_id, finish.clone());
+                    self.init(task, worker_id, abort_s.clone());
                 } else {
                     // This worker is not probing
-                    finish = None;
+                    abort_s = None;
                     self.outbound_tx = None;
                     self.init(task, worker_id, None);
                 }

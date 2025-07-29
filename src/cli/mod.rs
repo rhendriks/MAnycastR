@@ -331,12 +331,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         src,
                         sport,
                         dport,
-                        origin_id: 0, // Only one anycast origin
+                        origin_id: 0, // Only one origin
                     }),
                 }]
-            } else if is_unicast {
-                // No configurations for unicast measurements
-                vec![]
             } else {
                 // list of worker IDs defined
                 sender_ids
@@ -347,7 +344,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             src,
                             sport,
                             dport,
-                            origin_id: 0, // Only one anycast origin
+                            origin_id: 0, // Only one origin
                         }),
                     })
                     .collect()
@@ -404,17 +401,16 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Shuffle the hitlist, if desired
         let is_shuffle = matches.get_flag("shuffle");
         if is_shuffle {
-            let mut rng = rand::rng();
-            ips.as_mut_slice().shuffle(&mut rng);
+            ips.as_mut_slice().shuffle(&mut rand::rng());
         }
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == CHAOS_ID || measurement_type == ALL_ID {
+        let dns_record = if measurement_type == CHAOS_ID {
             // get CHAOS query
             matches
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == A_ID {
+        } else if measurement_type == A_ID || measurement_type == ALL_ID {
             matches
                 .get_one::<String>("query")
                 .map_or("example.org", |q| q.as_str())
@@ -425,8 +421,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let is_cli = matches.get_flag("stream");
 
-        // Get interval, rate. Default values are 1 and 1000 respectively
-        let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
+        // --latency and --divide send single probes to each address, so no worker interval is needed
+        let worker_interval = if is_latency || is_divide {
+            0
+        } else {
+            *matches.get_one::<u32>("worker_interval").unwrap()
+        };
         let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
         let probing_rate = *matches.get_one::<u32>("rate").unwrap();
         let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
