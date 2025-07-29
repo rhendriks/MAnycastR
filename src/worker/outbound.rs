@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
@@ -13,6 +14,7 @@ use custom_module::manycastr::{task::Data, Origin};
 use pnet::datalink::DataLinkSender;
 
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 /// Spawns thread that sends out ICMP, DNS, or TCP probes.
 ///
@@ -56,7 +58,7 @@ pub fn outbound(
     info_url: String,
     if_name: String,
     mut socket_tx: Box<dyn DataLinkSender>,
-    _probing_rate: u32,
+    probing_rate: u32,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
@@ -65,7 +67,7 @@ pub fn outbound(
             let mut sent_discovery = 0;
             let mut failed = 0;
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
-            // let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
+            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
 
             let ethernet_header = get_ethernet_header(is_ipv6, if_name);
             'outer: loop {
@@ -117,10 +119,9 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        // TODO re-implement rate limiting that works with non-deterministic packet sending (due to discovery probing)
-                                        // while let Err(_) = limiter.check() { // Rate limit to avoid bursts
-                                        //     sleep(Duration::from_millis(1));
-                                        // }
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
 
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
@@ -142,9 +143,9 @@ pub fn outbound(
                                             measurement_type,
                                             &qname,
                                         ));
-                                        // while let Err(_) = limiter.check() { // Rate limit to avoid bursts
-                                        //     sleep(Duration::from_millis(1));
-                                        // }
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
@@ -166,9 +167,9 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        // while let Err(_) = limiter.check() { // Rate limit to avoid bursts
-                                        //     sleep(Duration::from_millis(1));
-                                        // }
+                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                            sleep(Duration::from_millis(1));
+                                        }
 
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
@@ -190,7 +191,7 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes)), packets failed to send: {}", sent + sent_discovery, sent_discovery, failed);
+            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes)), packets failed to send: {}", sent, sent_discovery, failed);
         })
         .expect("Failed to spawn outbound thread");
 }
