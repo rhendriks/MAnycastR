@@ -127,6 +127,7 @@ message Targets {
 message TaskResult {
   uint32 worker_id = 1;
   repeated Reply result_list = 2;
+  // TODO we should identify discovery replies here and group them separately at the worker
 }
 
 // Probe reply message
