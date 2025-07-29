@@ -179,7 +179,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let src = matches.get_one::<String>("address").map(Address::from);
 
         // Get the measurement type
-        let measurement_type: u8 = match matches
+        let m_type = match matches
             .get_one::<String>("type")
             .unwrap()
             .to_lowercase()
@@ -194,7 +194,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
 
         // Temporarily broken
-        if is_responsive && is_unicast && measurement_type == TCP_ID {
+        if is_responsive && is_unicast && m_type == TCP_ID {
             panic!("Responsive mode not supported for unicast TCP measurements");
         }
 
@@ -335,7 +335,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 .get_one::<u16>("destination port")
                 .map(|&port| port as u32)
                 .unwrap_or_else(|| {
-                    if measurement_type == A_ID || measurement_type == CHAOS_ID {
+                    if m_type == A_ID || m_type == CHAOS_ID {
                         53
                     } else {
                         63853
@@ -424,12 +424,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // CHAOS value to send in the DNS query
-        let dns_record = if measurement_type == CHAOS_ID {
+        let dns_record = if m_type == CHAOS_ID {
             // get CHAOS query
             matches
                 .get_one::<String>("query")
                 .map_or("hostname.bind", |q| q.as_str())
-        } else if measurement_type == A_ID || measurement_type == ALL_ID {
+        } else if m_type == A_ID || m_type == ALL_ID {
             matches
                 .get_one::<String>("query")
                 .map_or("example.org", |q| q.as_str())
@@ -449,7 +449,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
         let probing_rate = *matches.get_one::<u32>("rate").unwrap();
         let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
-        let t_type = match measurement_type {
+        let t_type = match m_type {
             ICMP_ID => "ICMP",
             A_ID => "DNS/A",
             TCP_ID => "TCP/SYN-ACK",
@@ -574,10 +574,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         // Create the measurement definition and send it to the orchestrator
-        let measurement_definition = ScheduleMeasurement {
+        let m_definition = ScheduleMeasurement {
             probing_rate,
             configurations,
-            measurement_type: measurement_type as u32,
+            m_type: m_type as u32,
             is_unicast,
             is_ipv6,
             is_divide,
@@ -595,7 +595,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         };
         cli_client
             .do_measurement_to_server(
-                measurement_definition,
+                m_definition,
                 is_cli,
                 is_shuffle,
                 hitlist_path,
@@ -634,7 +634,7 @@ impl CliClient {
     /// * 'workers' - map of worker IDs to hostnames
     async fn do_measurement_to_server(
         &mut self,
-        measurement_definition: ScheduleMeasurement,
+        m_definition: ScheduleMeasurement,
         is_cli: bool,
         is_shuffle: bool,
         hitlist: &str,
@@ -643,16 +643,16 @@ impl CliClient {
         is_config: bool,
         worker_map: HashMap<u32, String>,
     ) -> Result<(), Box<dyn Error>> {
-        let is_divide = measurement_definition.is_divide;
-        let is_ipv6 = measurement_definition.is_ipv6;
-        let probing_rate = measurement_definition.probing_rate as f32;
-        let worker_interval = measurement_definition.worker_interval;
-        let measurement_type = measurement_definition.measurement_type;
-        let is_unicast = measurement_definition.is_unicast;
-        let is_latency = measurement_definition.is_latency;
-        let is_responsive = measurement_definition.is_responsive;
+        let is_divide = m_definition.is_divide;
+        let is_ipv6 = m_definition.is_ipv6;
+        let probing_rate = m_definition.probing_rate as f32;
+        let worker_interval = m_definition.worker_interval;
+        let m_type = m_definition.m_type;
+        let is_unicast = m_definition.is_unicast;
+        let is_latency = m_definition.is_latency;
+        let is_responsive = m_definition.is_responsive;
         let origin_str = if is_unicast {
-            measurement_definition
+            m_definition
                 .configurations
                 .first()
                 .and_then(|conf| conf.origin.as_ref())
@@ -666,7 +666,7 @@ impl CliClient {
         } else if is_config {
             "Anycast configuration-based".to_string()
         } else {
-            measurement_definition
+            m_definition
                 .configurations
                 .first()
                 .and_then(|conf| conf.origin.as_ref())
@@ -682,7 +682,7 @@ impl CliClient {
         };
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> = if measurement_definition
+        let probing_workers: Vec<u32> = if m_definition
             .configurations
             .iter()
             .any(|config| config.worker_id == u32::MAX)
@@ -690,7 +690,7 @@ impl CliClient {
             Vec::new() // all workers are probing
         } else {
             // Get list of unique worker IDs that are probing
-            measurement_definition
+            m_definition
                 .configurations
                 .iter()
                 .map(|config| config.worker_id)
@@ -705,7 +705,7 @@ impl CliClient {
             probing_workers.len() as f32
         };
 
-        let measurement_length = if is_divide || is_latency {
+        let m_time = if is_divide || is_latency {
             ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0) / 60.0
         } else {
             (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
@@ -719,12 +719,12 @@ impl CliClient {
         }
         println!(
             "[CLI] This measurement will take an estimated {:.2} minutes",
-            measurement_length
+            m_time
         );
 
         let response = self
             .grpc_client
-            .do_measurement(Request::new(measurement_definition.clone()))
+            .do_measurement(Request::new(m_definition.clone()))
             .await;
         if let Err(e) = response {
             println!(
@@ -745,7 +745,7 @@ impl CliClient {
         );
 
         // Progress bar
-        let total_steps = (measurement_length * 60.0) as u64; // measurement_length in seconds
+        let total_steps = (m_time * 60.0) as u64; // measurement_length in seconds
         let pb = ProgressBar::new(total_steps);
         pb.set_style(
             ProgressStyle::with_template(
@@ -777,7 +777,7 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get measurement type
-        let type_str = match measurement_type as u8 {
+        let type_str = match m_type as u8 {
             ICMP_ID => "ICMP",
             A_ID => "DNS",
             TCP_ID => "TCP",
@@ -825,10 +825,10 @@ impl CliClient {
             probing_rate as u32,
             worker_interval,
             timestamp_start_str,
-            measurement_length,
+            m_time,
             probing_workers,
             &worker_map,
-            &measurement_definition.configurations,
+            &m_definition.configurations,
             is_config,
             is_latency,
             is_responsive,
@@ -838,7 +838,7 @@ impl CliClient {
             false
         } else {
             // Check if any configuration has origin_id that is not 0 or u32::MAX
-            measurement_definition.configurations.iter().any(|conf| {
+            m_definition.configurations.iter().any(|conf| {
                 conf.origin
                     .as_ref()
                     .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
@@ -851,7 +851,7 @@ impl CliClient {
             is_cli,
             file,
             md_file,
-            measurement_type,
+            m_type,
             is_multi_origin,
             is_unicast || is_latency,
             worker_map,
@@ -1075,17 +1075,19 @@ fn get_metadata(
 ///
 /// * 'md_file' - Metadata for the measurement, to be written to the file
 ///
-/// * 'measurement_type' - The type of measurement being performed
+/// * 'm_type' - The type of measurement being performed
 ///
 /// * is_multi_origin - A boolean that determines whether multiple origins are used
 ///
 /// * is_symmetric - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+///
+/// * 'worker_map' - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 fn write_results(
     mut rx: UnboundedReceiver<TaskResult>,
     is_cli: bool,
     file: File,
     md_file: Vec<String>,
-    measurement_type: u32,
+    m_type: u32,
     is_multi_origin: bool,
     is_symmetric: bool,
     worker_map: HashMap<u32, String>,
@@ -1111,7 +1113,7 @@ fn write_results(
     let mut wtr_file = Writer::from_writer(gz_encoder);
 
     // Write header
-    let header = get_header(measurement_type, is_multi_origin, is_symmetric);
+    let header = get_header(m_type, is_multi_origin, is_symmetric);
     if is_cli {
         wtr_cli
             .as_mut()
@@ -1134,7 +1136,7 @@ fn write_results(
                 let result = get_result(
                     result,
                     task_result.worker_id,
-                    measurement_type,
+                    m_type,
                     is_symmetric,
                     worker_map.clone(),
                 );
@@ -1172,7 +1174,7 @@ fn write_results(
 ///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 fn get_header(
-    measurement_type: u32,
+    m_type: u32,
     is_multi_origin: bool,
     is_symmetric: bool,
 ) -> Vec<&'static str> {
@@ -1180,14 +1182,14 @@ fn get_header(
         vec!["rx", "reply_src_addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
-        if measurement_type == TCP_ID as u32 {
+        if m_type == TCP_ID as u32 {
             vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx"]
         } else {
             vec!["rx", "rx_time", "reply_src_addr", "ttl", "tx_time", "tx"]
         }
     };
 
-    if measurement_type == CHAOS_ID as u32 {
+    if m_type == CHAOS_ID as u32 {
         header.push("chaos_data");
     }
 
@@ -1204,11 +1206,17 @@ fn get_header(
 ///
 /// * `result` - The Reply that is being written to this row
 ///
-/// * `x_worker_id` - The worker ID of the receiver
+/// * `rx_worker_id` - The worker ID of the receiver
+///
+/// * `m_type` - The type of measurement being performed
+///
+/// * `is_symmetric` - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+///
+/// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 fn get_result(
     result: Reply,
     rx_worker_id: u32,
-    measurement_type: u32,
+    m_type: u32,
     is_symmetric: bool,
     worker_map: HashMap<u32, String>,
 ) -> Vec<String> {
@@ -1247,7 +1255,7 @@ fn get_result(
             .to_string();
 
         // TCP anycast does not have tx_time
-        if measurement_type == TCP_ID as u32 {
+        if m_type == TCP_ID as u32 {
             vec![rx_hostname, rx_time, reply_src, ttl, tx_hostname]
         } else {
             vec![rx_hostname, rx_time, reply_src, ttl, tx_time, tx_hostname]

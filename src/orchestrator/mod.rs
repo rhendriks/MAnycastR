@@ -240,9 +240,9 @@ impl<T> fmt::Debug for WorkerSender<T> {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the CLI
-/// * 'active' - a boolean value that is set to true when there is an active measurement
+/// * 'm_active' - a boolean value that is set to true when there is an active measurement
 /// * 'm_id' - a list of the current open measurements, and the number of workers that are currently working on it
-/// * 'measurement_id' - the ID of the measurement that this receiver is associated with
+/// * 'open_measurements' - a mapping of measurement IDs to the number of workers that are currently working on it
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
     m_active: Arc<Mutex<bool>>,
@@ -308,7 +308,7 @@ impl Controller for ControllerService {
         request: Request<Finished>,
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
-        let measurement_id: u32 = finished_measurement.measurement_id;
+        let m_id: u32 = finished_measurement.m_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'measurement_finished' from all workers that executed this measurement
@@ -316,10 +316,10 @@ impl Controller for ControllerService {
             let mut open_measurements = self.open_measurements.lock().unwrap();
 
             // Number of workers that still have to finish this measurement
-            let remaining = if let Some(remaining) = open_measurements.get(&measurement_id) {
+            let remaining = if let Some(remaining) = open_measurements.get(&m_id) {
                 remaining
             } else {
-                println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &measurement_id);
+                println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &m_id);
                 return Ok(Response::new(Ack {
                     is_success: false,
                     error_message: "Measurement unknown".to_string(),
@@ -330,11 +330,11 @@ impl Controller for ControllerService {
                 // If this is the last worker we are finished
                 println!("[Orchestrator] All workers finished");
 
-                open_measurements.remove(&measurement_id);
+                open_measurements.remove(&m_id);
                 true // Finished
             } else {
                 // If this is not the last worker, decrement the amount of remaining workers
-                *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
+                *open_measurements.get_mut(&m_id).unwrap() -= 1;
 
                 false // Not finished yet
             }
@@ -489,13 +489,13 @@ impl Controller for ControllerService {
         }
 
         // The measurement that the CLI wants to perform
-        let scheduled_measurement = request.into_inner();
-        let is_responsive = scheduled_measurement.is_responsive;
-        let is_latency = scheduled_measurement.is_latency;
-        let is_divide = scheduled_measurement.is_divide;
-        let worker_interval = scheduled_measurement.worker_interval as u64;
-        let probe_interval = scheduled_measurement.probe_interval as u64;
-        let number_of_probes = scheduled_measurement.number_of_probes as u8;
+        let m_definition = request.into_inner();
+        let is_responsive = m_definition.is_responsive;
+        let is_latency = m_definition.is_latency;
+        let is_divide = m_definition.is_divide;
+        let worker_interval = m_definition.worker_interval as u64;
+        let probe_interval = m_definition.probe_interval as u64;
+        let number_of_probes = m_definition.number_of_probes as u8;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Task, Status>>> = {
@@ -511,7 +511,7 @@ impl Controller for ControllerService {
             });
 
             // Make sure no unknown workers are in the configuration
-            if scheduled_measurement.configurations.iter().any(|conf| {
+            if m_definition.configurations.iter().any(|conf| {
                 !workers
                     .iter()
                     .any(|sender| sender.worker_id == conf.worker_id)
@@ -529,7 +529,7 @@ impl Controller for ControllerService {
 
             // Set the is_probing bool for each worker_tx
             for worker in workers.iter_mut() {
-                let is_probing = scheduled_measurement.configurations.iter().any(|config| {
+                let is_probing = m_definition.configurations.iter().any(|config| {
                     config.worker_id == worker.worker_id || config.worker_id == u32::MAX
                 });
 
@@ -551,15 +551,15 @@ impl Controller for ControllerService {
         }
 
         // Assign a unique ID the measurement and increment the measurement ID counter
-        let measurement_id = {
-            let mut current_measurement_id = self.m_id.lock().unwrap();
-            let id = *current_measurement_id;
-            *current_measurement_id = current_measurement_id.wrapping_add(1);
+        let m_id = {
+            let mut uniq_m_id = self.m_id.lock().unwrap();
+            let id = *uniq_m_id;
+            *uniq_m_id = uniq_m_id.wrapping_add(1);
             id
         };
 
         // Create a measurement from the ScheduleMeasurement
-        let is_unicast = scheduled_measurement.is_unicast;
+        let is_unicast = m_definition.is_unicast;
 
         let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
@@ -576,17 +576,17 @@ impl Controller for ControllerService {
         self.open_measurements
             .lock()
             .unwrap()
-            .insert(measurement_id, number_of_listeners);
+            .insert(m_id, number_of_listeners);
 
-        let probing_rate = scheduled_measurement.probing_rate;
-        let measurement_type = scheduled_measurement.measurement_type;
-        let is_ipv6 = scheduled_measurement.is_ipv6;
-        let dst_addresses = scheduled_measurement
+        let probing_rate = m_definition.probing_rate;
+        let m_type = m_definition.m_type;
+        let is_ipv6 = m_definition.is_ipv6;
+        let dst_addresses = m_definition
             .targets
             .expect("Received measurement with no targets")
             .dst_list;
-        let dns_record = scheduled_measurement.record;
-        let info_url = scheduled_measurement.url;
+        let dns_record = m_definition.record;
+        let info_url = m_definition.url;
 
         if !is_divide {
             println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, worker_interval);
@@ -602,7 +602,7 @@ impl Controller for ControllerService {
         // Create a list of origins used by workers
         let mut rx_origins = vec![];
         // Add all configuration origins to the listen origins
-        for configuration in scheduled_measurement.configurations.iter() {
+        for configuration in m_definition.configurations.iter() {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
@@ -627,7 +627,7 @@ impl Controller for ControllerService {
             let mut tx_origins = vec![];
 
             // Add all configuration probing origins assigned to this worker
-            for configuration in &scheduled_measurement.configurations {
+            for configuration in &m_definition.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
                 if (configuration.worker_id == worker_id) | (configuration.worker_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
@@ -640,8 +640,8 @@ impl Controller for ControllerService {
                 worker_id: None,
                 data: Some(TaskStart(Start {
                     rate: probing_rate,
-                    measurement_id,
-                    measurement_type,
+                    m_id,
+                    m_type,
                     is_unicast,
                     is_ipv6,
                     tx_origins,
@@ -931,7 +931,7 @@ impl Controller for ControllerService {
         let rx = CLIReceiver {
             inner: rx,
             m_active: self.is_active.clone(),
-            m_id: measurement_id,
+            m_id,
             open_measurements: self.open_measurements.clone(),
         };
 
@@ -1210,13 +1210,13 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
     // Get a random measurement ID to start with
-    let measurement_id = rand::rng().random_range(0..u32::MAX);
+    let m_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
-        m_id: Arc::new(Mutex::new(measurement_id)),
+        m_id: Arc::new(Mutex::new(m_id)),
         unique_id: current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
