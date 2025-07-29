@@ -27,8 +27,8 @@ use flate2::Compression;
 use std::io::BufWriter;
 
 use custom_module::manycastr::{
-    address::Value::V4, address::Value::V6, controller_client::ControllerClient, Address,
-    Configuration, Empty, Origin, Reply, ScheduleMeasurement, Targets, TaskResult,
+    controller_client::ControllerClient, Address, Configuration, Empty, Origin, Reply,
+    ScheduleMeasurement, Targets, TaskResult,
 };
 use custom_module::Separated;
 
@@ -1197,15 +1197,7 @@ fn get_result(
     let tx_time = result.tx_time.to_string();
     let tx_id = result.tx_id;
     let ttl = result.ttl.to_string();
-
-    let reply_src = match result.src {
-        None => String::from("None"),
-        Some(src) => match src.value {
-            Some(V4(v4)) => v4.to_string(),
-            Some(V6(v6)) => ((v6.p1 as u128) << 64 | v6.p2 as u128).to_string(),
-            None => String::from("None"),
-        },
-    };
+    let reply_src = result.src.unwrap().to_string();
 
     let mut row = if is_symmetric {
         let rtt = format!(
