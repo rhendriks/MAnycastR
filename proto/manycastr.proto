@@ -26,7 +26,7 @@ message Ack {
 
 // Finished message, sent by a worker to the orchestrator when a measurement is finished, or as acknowledgement of a received task result
 message Finished {
-  uint32 measurement_id = 1;
+  uint32 m_id = 1;
   uint32 worker_id = 2;
 }
 
@@ -34,7 +34,7 @@ message Finished {
 message ScheduleMeasurement {
   uint32 probing_rate = 1;
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
-  uint32 measurement_type = 3;
+  uint32 m_type = 3;
   bool is_unicast = 4;
   bool is_ipv6 = 5;
   uint32 worker_interval = 6;
@@ -89,8 +89,8 @@ message Task {
 // A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  uint32 measurement_id = 2;
-  uint32 measurement_type = 3;
+  uint32 m_id = 2;
+  uint32 m_type = 3;
   repeated Origin tx_origins = 4; // origins to send with
   bool is_unicast = 5;
   bool is_ipv6 = 6;
