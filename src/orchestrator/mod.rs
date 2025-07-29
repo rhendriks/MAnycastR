@@ -763,11 +763,11 @@ impl Controller for ControllerService {
                             worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
                                 dst_list: follow_ups,
-                                is_discovery,
+                                is_discovery: None,
                             })),
                         };
 
-                        tx_t.send((worker_id, task, is_discovery.is_none()))
+                        tx_t.send((worker_id, task, true))
                             .await
                             .expect("Failed to send task to TaskDistributor");
                     }
