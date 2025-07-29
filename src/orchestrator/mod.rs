@@ -749,7 +749,6 @@ impl Controller for ControllerService {
                     // Attempt to get addresses from the worker stack first
                     {
                         let mut stacks = worker_stacks.lock().unwrap();
-                        println!("ID {}, {:?}", worker_id, stacks);
                         if let Some(queue) = stacks.get_mut(&f_worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
 
@@ -1025,7 +1024,6 @@ impl Controller for ControllerService {
                 }
             }
         } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("received {:?}", task_result);
 
             let rx_id = task_result.worker_id;
 
@@ -1036,26 +1034,20 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
-
-            println!("responsive targets: {:?}", responsive_targets);
-
+            
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
                 // Insert the responsive targets into the worker stack
                 {
-                    println!("waiting for lock");
                     let mut worker_stacks = self.worker_stacks.lock().unwrap();
-                    println!("lock acquired");
                     worker_stacks
                         .entry(rx_id)
                         .or_default()
                         .extend(responsive_targets.clone());
                 }
-
-                println!("worker stacks r: {:?}", self.worker_stacks.lock().unwrap());
-
+                
                 // Keep non-discovery results
                 task_result
                     .result_list
