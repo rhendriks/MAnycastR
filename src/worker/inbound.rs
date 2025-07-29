@@ -598,13 +598,35 @@ fn parse_dnsv6(
         is_discovery,
     ))
 }
+enum Addr {
+    V4(u32),
+    V6(u128),
+}
 
-struct DnsResultV6 {
+impl PartialEq<u32> for Addr {
+    fn eq(&self, other_u32: &u32) -> bool {
+        match self {
+            Addr::V4(addr_val) => addr_val == other_u32,
+            Addr::V6(_) => false,
+        }
+    }
+}
+
+impl PartialEq<u128> for Addr {
+    fn eq(&self, other_u128: &u128) -> bool {
+        match self {
+            Addr::V6(addr_val) => addr_val == other_u128,
+            Addr::V4(_) => false,
+        }
+    }
+}
+
+struct DnsResult {
     tx_time: u64,
     tx_id: u32,
     probe_sport: u16,
-    probe_src: u128,
-    probe_dst: u128,
+    probe_src: Addr,
+    probe_dst: Addr,
     is_discovery: bool,
 }
 
@@ -621,7 +643,7 @@ struct DnsResultV6 {
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResultV6> {
+fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResult> {
     // TODO v6 and v4 can be merged into one function
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
@@ -633,8 +655,8 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResultV6> {
     }
 
     let tx_time = parts[0].parse::<u64>().ok()?;
-    let probe_src = parts[1].parse::<u128>().ok()?;
-    let probe_dst = parts[2].parse::<u128>().ok()?;
+    let probe_src = Addr::V6(parts[1].parse::<u128>().ok()?);
+    let probe_dst = Addr::V6(parts[2].parse::<u128>().ok()?);
     let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
@@ -645,7 +667,7 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResultV6> {
         false
     };
 
-    Some(DnsResultV6 {
+    Some(DnsResult {
         tx_time,
         tx_id,
         probe_sport,
@@ -653,14 +675,6 @@ fn parse_dns_a_record_v6(packet_bytes: &[u8]) -> Option<DnsResultV6> {
         probe_dst,
         is_discovery,
     })
-}
-struct DnsResultV4 {
-    tx_time: u64,
-    tx_id: u32,
-    probe_sport: u16,
-    probe_src: u32,
-    probe_dst: u32,
-    is_discovery: bool,
 }
 
 /// Attempts to parse the DNS A record from a UDP payload body.
@@ -671,12 +685,12 @@ struct DnsResultV4 {
 ///
 /// # Returns
 ///
-/// * `Option<UdpResult, u16, u128, u128, bool>` - the UDP result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet
+/// * `Option<UdpResult, u16, u128, u128, bool>` - the UDP result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet TODO rustdoc
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResultV4> {
+fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResult> {
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.any.dnsjedi.org'
                                 // Get the information from the domain, continue to the next packet if it does not follow the format
@@ -688,8 +702,8 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResultV4> {
     }
 
     let tx_time = parts[0].parse::<u64>().ok()?;
-    let probe_src = parts[1].parse::<u32>().ok()?;
-    let probe_dst = parts[2].parse::<u32>().ok()?;
+    let probe_src = Addr::V4(parts[1].parse::<u32>().ok()?);
+    let probe_dst = Addr::V4(parts[2].parse::<u32>().ok()?);
     let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
 
@@ -700,7 +714,7 @@ fn parse_dns_a_record_v4(packet_bytes: &[u8]) -> Option<DnsResultV4> {
         false
     };
 
-    Some(DnsResultV4 {
+    Some(DnsResult {
         tx_time,
         tx_id,
         probe_sport,
@@ -834,7 +848,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 
     Some((
         Reply {
-            tx_time: tx_id as u64, // TODO
+            tx_time: tx_id as u64,
             tx_id,
             src: Some(src),
             ttl,
