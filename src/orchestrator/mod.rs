@@ -719,12 +719,7 @@ impl Controller for ControllerService {
 
             spawn(async move {
                 // This cycler gives us the next worker to assign a task to
-                let mut sender_cycler = if is_responsive {
-                    // Follow-ups for --responsive probing are sent to all workers
-                    vec![ALL_WORKERS_INTERVAL].into_iter().cycle()
-                } else {
-                    probing_worker_ids.into_iter().cycle()
-                };
+                let mut sender_cycler = probing_worker_ids.into_iter().cycle();
                 // TODO update cycler if a worker disconnects
                 // TODO update probing_rate_interval if a worker disconnects
 
@@ -739,7 +734,7 @@ impl Controller for ControllerService {
                     }
 
                     // Get the current worker ID to send tasks to.
-                    let worker_id = sender_cycler.next().expect("No probing workers available");
+                    let mut worker_id = sender_cycler.next().expect("No probing workers available");
 
                     // Get the addresses for this tick
                     let mut follow_ups: Vec<Address> = Vec::new();
@@ -759,6 +754,11 @@ impl Controller for ControllerService {
 
                     // Send follow-up probes to the worker if we have any
                     if follow_ups_len > 0 {
+                        // responsive follow-up probes are sent from all workers
+                        if is_responsive {
+                            worker_id = ALL_WORKERS_INTERVAL
+                        }
+                        
                         let task = Task {
                             worker_id: None,
                             data: Some(custom_module::manycastr::task::Data::Targets(Targets {
