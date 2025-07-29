@@ -794,7 +794,7 @@ impl Controller for ControllerService {
                         if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed()
                                 >= Duration::from_secs(
-                                    number_of_probing_workers as u64 * worker_interval + 2,
+                                    number_of_probing_workers as u64 * worker_interval + 5,
                                 )
                             {
                                 // TODO make sure worker_interval is 0 for --divide and --latency
@@ -804,7 +804,7 @@ impl Controller for ControllerService {
                         } else {
                             println!(
                                 "[Orchestrator] Hitlist is empty. Waiting {} seconds for cooldown.",
-                                number_of_probing_workers as u64 * worker_interval + 2
+                                number_of_probing_workers as u64 * worker_interval + 5
                             );
                             cooldown_timer = Some(Instant::now());
                         }
@@ -881,7 +881,7 @@ impl Controller for ControllerService {
 
                 // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
-                    (number_of_probing_workers as u64 * worker_interval) + 2,
+                    (number_of_probing_workers as u64 * worker_interval) + 5,
                 ))
                 .await;
 
