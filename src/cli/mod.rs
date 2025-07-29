@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
+use bimap::BiHashMap;
 use chrono::Local;
 use clap::ArgMatches;
 use csv::Writer;
@@ -123,8 +124,8 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Start a MAnycastR measurement
         let is_unicast = matches.get_flag("unicast");
-        let mut is_divide = matches.get_flag("divide");
-        let mut is_responsive = matches.get_flag("responsive");
+        let is_divide = matches.get_flag("divide");
+        let is_responsive = matches.get_flag("responsive");
         let mut is_latency = matches.get_flag("latency");
 
         if is_responsive && is_divide {
@@ -135,17 +136,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             is_latency = false; // Unicast mode is latency by design
         }
 
-        // Map worker IDs to hostnames
-        let worker_map: HashMap<u32, String> = response
+        // Map to convert hostnames to worker IDs and vice versa
+        let worker_map: BiHashMap<u32, String> = response
             .into_inner()
             .workers
             .into_iter()
-            .map(|worker| (worker.worker_id, worker.hostname.clone()))
-            .collect();
-
-        let hostname_to_id_map: HashMap<&str, u32> = worker_map
-            .iter()
-            .map(|(id, hostname_str)| (hostname_str.as_str(), *id))
+            .map(|worker| (worker.worker_id, worker.hostname)) // .clone() is no longer needed on hostname
             .collect();
 
         // Get optional opt-out URL
@@ -197,12 +193,12 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         }
                         // Try to parse as worker ID
                         if let Ok(id_val) = entry_str.parse::<u32>() {
-                            if worker_map.contains_key(&id_val) {
+                            if worker_map.contains_left(&id_val) {
                                 Some(id_val)
                             } else {
                                 panic!("Worker ID '{}' is not a known worker.", entry_str);
                             }
-                        } else if let Some(&found_id) = hostname_to_id_map.get(entry_str) {
+                        } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
                             // Try to find the hostname in the map
                             Some(found_id)
                         } else {
@@ -223,7 +219,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         if !sender_ids.is_empty() {
             println!("[CLI] Selective probing using the following workers:");
             sender_ids.iter().for_each(|id| {
-                let hostname = worker_map.get(id).unwrap_or_else(|| {
+                let hostname = worker_map.get_by_left(id).unwrap_or_else(|| {
                     panic!("Worker ID {} is not a connected worker!", id);
                 });
                 println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
@@ -257,11 +253,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     let worker_id = if parts[0] == "ALL" {
                         u32::MAX
                     } else if let Ok(id_val) = parts[0].parse::<u32>() {
-                        if !worker_map.contains_key(&id_val) {
+                        if !worker_map.contains_left(&id_val) {
                             panic!("Worker ID {} is not a known worker.", id_val);
                         }
                         id_val
-                    } else if let Some(&found_id) = hostname_to_id_map.get(parts[0]) {
+                    } else if let Some(&found_id) = worker_map.get_by_right(parts[0]) {
                         // Try to find the hostname in the map
                         found_id
                     } else {
@@ -470,7 +466,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         );
                     } else {
                         let worker_hostname = worker_map
-                            .get(&configuration.worker_id)
+                            .get_by_left(&configuration.worker_id)
                             .expect("Worker ID not found");
                         println!(
                             "\t* worker {} (with ID: {:<2}), source IP: {}, source port: {}, destination port: {}",
@@ -617,7 +613,7 @@ impl CliClient {
         hitlist_length: usize,
         path: Option<&String>,
         is_config: bool,
-        worker_map: HashMap<u32, String>,
+        worker_map: BiHashMap<u32, String>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = m_definition.is_divide;
         let is_ipv6 = m_definition.is_ipv6;
@@ -961,7 +957,7 @@ fn get_metadata(
     timestamp_start_str: String,
     expected_length: f32,
     active_workers: Vec<u32>,
-    all_workers: &HashMap<u32, String>,
+    all_workers: &BiHashMap<u32, String>,
     configurations: &Vec<Configuration>,
     is_config: bool,
     is_latency: bool,
@@ -1066,7 +1062,7 @@ fn write_results(
     m_type: u32,
     is_multi_origin: bool,
     is_symmetric: bool,
-    worker_map: HashMap<u32, String>,
+    worker_map: BiHashMap<u32, String>,
 ) {
     // CSV writer to command-line interface
     let mut wtr_cli = if is_cli {
@@ -1149,11 +1145,7 @@ fn write_results(
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 ///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-fn get_header(
-    m_type: u32,
-    is_multi_origin: bool,
-    is_symmetric: bool,
-) -> Vec<&'static str> {
+fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
     let mut header = if is_symmetric {
         vec!["rx", "reply_src_addr", "ttl", "rtt"]
     } else {
@@ -1194,14 +1186,14 @@ fn get_result(
     rx_worker_id: u32,
     m_type: u32,
     is_symmetric: bool,
-    worker_map: HashMap<u32, String>,
+    worker_map: BiHashMap<u32, String>,
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
     let rx_worker_id = rx_worker_id.to_string();
     // convert the worker ID to hostname
     let rx_hostname = worker_map
-        .get(&rx_worker_id.parse::<u32>().unwrap())
+        .get_by_left(&rx_worker_id.parse::<u32>().unwrap())
         .unwrap_or(&String::from("Unknown"))
         .to_string();
     let rx_time = result.rx_time.to_string();
@@ -1226,7 +1218,7 @@ fn get_result(
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
         let tx_hostname = worker_map
-            .get(&tx_id)
+            .get_by_left(&tx_id)
             .unwrap_or(&String::from("Unknown"))
             .to_string();
 
