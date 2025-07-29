@@ -737,7 +737,7 @@ impl Controller for ControllerService {
                         println!("[Orchestrator] CLI disconnected; ending measurement");
                         break;
                     }
-                    
+
                     // Get the current worker ID to send tasks to.
                     let worker_id = sender_cycler.next().expect("No probing workers available");
 
@@ -772,18 +772,23 @@ impl Controller for ControllerService {
                         addresses_for_this_task.extend(addresses_from_hitlist);
                     }
 
-                    // Create a single task from the addresses and send it to the worker
-                    let task = Task {
-                        worker_id: None,
-                        data: Some(custom_module::manycastr::task::Data::Targets(Targets {
-                            dst_list: addresses_for_this_task,
-                            is_discovery,
-                        })),
-                    };
+                    if !addresses_for_this_task.is_empty() {
+                        // Create a single task from the addresses and send it to the worker
+                        let task = Task {
+                            worker_id: None,
+                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                                dst_list: addresses_for_this_task,
+                                is_discovery,
+                            })),
+                        };
 
-                    tx_t.send((worker_id, task, is_discovery.is_none()))
-                        .await
-                        .expect("Failed to send task to TaskDistributor");
+                        println!("sending {:?}", task);
+
+
+                        tx_t.send((worker_id, task, is_discovery.is_none()))
+                            .await
+                            .expect("Failed to send task to TaskDistributor");
+                    }
 
                     if hitlist_is_empty {
                         if let Some(start_time) = cooldown_timer {
@@ -967,6 +972,8 @@ impl Controller for ControllerService {
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
 
+            println!("responsive targets: {:?}", responsive_targets);
+
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -978,6 +985,8 @@ impl Controller for ControllerService {
                     .entry(task_result.worker_id) // TODO must be put in a stack for ALL workers
                     .or_default()
                     .extend(responsive_targets.clone());
+
+                println!("worker stacks r: {:?}", self.worker_stacks.lock().unwrap());
 
                 // Remove discovery results from the result list for the CLI
                 task_result
