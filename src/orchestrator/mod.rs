@@ -971,9 +971,7 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
-
-            println!("responsive targets: {:?}", responsive_targets);
-
+            
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -985,9 +983,7 @@ impl Controller for ControllerService {
                     .entry(task_result.worker_id) // TODO must be put in a stack for ALL workers
                     .or_default()
                     .extend(responsive_targets.clone());
-
-                println!("worker stacks r: {:?}", self.worker_stacks.lock().unwrap());
-
+                
                 // Remove discovery results from the result list for the CLI
                 task_result
                     .result_list
@@ -1013,6 +1009,8 @@ impl Controller for ControllerService {
                 .filter(|result| result.is_discovery)
                 .map(|result_f| result_f.src.unwrap())
                 .collect();
+            
+            println!("responsive targets: {:?}", responsive_targets);
 
             if !responsive_targets.is_empty() {
                 // Sleep 1 second to avoid rate-limiting issues
@@ -1025,6 +1023,8 @@ impl Controller for ControllerService {
                     .entry(rx_id)
                     .or_default()
                     .extend(responsive_targets.clone());
+
+                println!("worker stacks r: {:?}", self.worker_stacks.lock().unwrap());
 
                 // Keep non-discovery results
                 task_result
