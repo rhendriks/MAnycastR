@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
+use crate::custom_module::Separated;
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 use crate::{A_ID, CHAOS_ID};
 use pnet::datalink::DataLinkReceiver;
@@ -119,7 +120,7 @@ pub fn listen(
 
             println!(
                 "[Worker inbound] Stopped pnet listener (received {} packets)",
-                received
+                received.with_separator()
             );
         })
         .expect("Failed to spawn listener_thread");
