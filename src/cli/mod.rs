@@ -524,17 +524,19 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             probe_interval,
             number_of_probes,
         };
+
+        let args = MeasurementExecutionArgs {
+            is_cli,
+            is_shuffle,
+            hitlist_path,
+            hitlist_length,
+            out_path: path,
+            is_config,
+            worker_map,
+        };
+
         cli_client
-            .do_measurement_to_server(
-                m_definition,
-                is_cli,
-                is_shuffle,
-                hitlist_path,
-                hitlist_length,
-                path,
-                is_config,
-                worker_map,
-            )
+            .do_measurement_to_server(m_definition, args)
             .await
     } else {
         panic!("Unrecognized command");
@@ -617,6 +619,30 @@ fn get_hitlist(
     (ips, is_ipv6)
 }
 
+pub struct MeasurementExecutionArgs<'a> {
+    /// Determines whether results should be streamed to the command-line interface as they arrive.
+    pub is_cli: bool,
+
+    /// Specifies whether the list of targets should be shuffled before the measurement begins.
+    pub is_shuffle: bool,
+
+    /// The path to the file containing the list of measurement targets (the "hitlist").
+    pub hitlist_path: &'a str,
+
+    /// The total number of targets in the hitlist, used for estimating measurement duration.
+    pub hitlist_length: usize,
+
+    /// An optional path to a file where the final measurement results should be saved.
+    /// If `None`, results will be written to the current directory with a default naming convention.
+    pub out_path: Option<&'a String>,
+
+    /// Indicates whether the measurement is configuration-based (using a configuration file)
+    pub is_config: bool,
+
+    /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
+    pub worker_map: BiHashMap<u32, String>,
+}
+
 impl CliClient {
     /// Perform a measurement at the orchestrator, await measurement results, and write them to a file.
     ///
@@ -640,13 +666,7 @@ impl CliClient {
     async fn do_measurement_to_server(
         &mut self,
         m_definition: ScheduleMeasurement,
-        is_cli: bool,
-        is_shuffle: bool,
-        hitlist: &str,
-        hitlist_length: usize,
-        path: Option<&String>,
-        is_config: bool,
-        worker_map: BiHashMap<u32, String>,
+        args: MeasurementExecutionArgs<'_>,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = m_definition.is_divide;
         let is_ipv6 = m_definition.is_ipv6;
@@ -668,7 +688,7 @@ impl CliClient {
                     )
                 })
                 .expect("No unicast origin found")
-        } else if is_config {
+        } else if args.is_config {
             "Anycast configuration-based".to_string()
         } else {
             m_definition
@@ -705,16 +725,16 @@ impl CliClient {
         };
 
         let number_of_probers = if probing_workers.is_empty() {
-            worker_map.len() as f32
+            args.worker_map.len() as f32
         } else {
             probing_workers.len() as f32
         };
 
         let m_time = if is_divide || is_latency {
-            ((hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0) / 60.0
+            ((args.hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0) / 60.0
         } else {
             (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
-                + (hitlist_length as f32 / probing_rate) // Time to probe all addresses
+                + (args.hitlist_length as f32 / probing_rate) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
@@ -765,7 +785,7 @@ impl CliClient {
         // Spawn a separate async task to update the progress bar
         tokio::spawn(async move {
             // If we are streaming to the CLI, we cannot use a progress bar
-            if !is_cli {
+            if !args.is_cli {
                 for _ in 0..total_steps {
                     if is_done_clone.load(Ordering::Relaxed) {
                         break;
@@ -802,19 +822,16 @@ impl CliClient {
         let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
 
         // Output file
-        let file_path = if path.is_some() {
-            if path.unwrap().ends_with('/') {
+        let file_path = if let Some(path) = args.out_path {
+            if path.ends_with('/') {
                 // user provided a path, use default naming convention for file
                 format!(
                     "{}{}{}{}.csv.gz",
-                    path.unwrap(),
-                    filetype,
-                    type_str,
-                    timestamp_start_str
+                    path, filetype, type_str, timestamp_start_str
                 )
             } else {
                 // user provided a file (with possibly a path)
-                path.unwrap().to_string()
+                path.to_string()
             }
         } else {
             // write file to current directory using default naming convention
@@ -824,25 +841,25 @@ impl CliClient {
         // Create the output file
         let file = File::create(file_path).expect("Unable to create file");
 
-        let args = MetadataArgs {
+        let metadata_args = MetadataArgs {
             is_divide,
             origin_str,
-            hitlist,
-            is_shuffle,
+            hitlist: args.hitlist_path,
+            is_shuffle: args.is_shuffle,
             m_type_str: type_str,
             probing_rate: probing_rate as u32,
             interval: worker_interval,
             m_start: timestamp_start_str,
             expected_duration: m_time,
             active_workers: probing_workers,
-            all_workers: &worker_map,
+            all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
-            is_config,
+            is_config: args.is_config,
             is_latency,
             is_responsive,
         };
 
-        let md_file = get_metadata(args);
+        let md_file = get_metadata(metadata_args);
 
         let is_multi_origin = if is_unicast {
             false
@@ -856,13 +873,13 @@ impl CliClient {
         };
 
         let config = WriteConfig {
-            print_to_cli: is_cli,
+            print_to_cli: args.is_cli,
             output_file: file,
             metadata_lines: md_file,
             m_type,
             is_multi_origin,
             is_symmetric: is_unicast || is_latency,
-            worker_map,
+            worker_map: args.worker_map,
         };
 
         // Start thread that writes results to file
