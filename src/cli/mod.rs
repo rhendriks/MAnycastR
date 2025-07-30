@@ -853,17 +853,18 @@ impl CliClient {
             })
         };
 
-        // Start thread that writes results to file
-        write_results(
-            rx_r,
-            is_cli,
-            file,
-            md_file,
+        let config = WriteConfig {
+            print_to_cli: is_cli,
+            output_file: file,
+            metadata_lines: md_file,
             m_type,
             is_multi_origin,
-            is_unicast || is_latency,
+            is_symmetric: is_unicast || is_latency,
             worker_map,
-        );
+        };
+
+        // Start thread that writes results to file
+        write_results(rx_r, config);
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -1070,6 +1071,32 @@ fn get_metadata(
 
     md_file
 }
+// TODO move all file writing functions to a separate module
+
+/// Configuration for the results writing process.
+///
+/// This struct bundles all the necessary parameters for `write_results`
+/// to determine where and how to output measurement results,
+/// including formatting options and contextual metadata.
+pub struct WriteConfig {
+    /// Determines whether the results should also be printed to the command-line interface.
+    pub print_to_cli: bool,
+    /// The file handle to which the measurement results should be written.
+    pub output_file: File,
+    /// Metadata for the measurement, to be written at the beginning of the output file.
+    pub metadata_lines: Vec<String>,
+    /// The type of measurement being performed, influencing how results are processed or formatted.
+    /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
+    pub m_type: u32,
+    /// Indicates whether the measurement involves multiple origins, which affects
+    /// how results are written.
+    pub is_multi_origin: bool,
+    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true),
+    /// to simplify certain result interpretations.
+    pub is_symmetric: bool,
+    /// A bidirectional map used to convert worker IDs (u32) to their corresponding hostnames (String).
+    pub worker_map: BiHashMap<u32, String>,
+}
 
 /// Writes the results to a file (and optionally to the command-line)
 ///
@@ -1077,41 +1104,20 @@ fn get_metadata(
 ///
 /// * 'rx' - The receiver channel that receives the results
 ///
-/// * 'is_cli' - A boolean that determines whether the results should be printed to the command-line
-///
-/// * 'file' - The file to which the results should be written
-///
-/// * 'md_file' - Metadata for the measurement, to be written to the file
-///
-/// * 'm_type' - The type of measurement being performed
-///
-/// * is_multi_origin - A boolean that determines whether multiple origins are used
-///
-/// * is_symmetric - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-///
-/// * 'worker_map' - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
-fn write_results(
-    mut rx: UnboundedReceiver<TaskResult>,
-    is_cli: bool,
-    file: File,
-    md_file: Vec<String>,
-    m_type: u32,
-    is_multi_origin: bool,
-    is_symmetric: bool,
-    worker_map: BiHashMap<u32, String>,
-) {
+/// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
+fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
     // CSV writer to command-line interface
-    let mut wtr_cli = if is_cli {
+    let mut wtr_cli = if config.print_to_cli {
         Some(Writer::from_writer(io::stdout()))
     } else {
         None
     };
 
-    let buffered_file_writer = BufWriter::new(file);
+    let buffered_file_writer = BufWriter::new(config.output_file);
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
 
     // Write metadata to file
-    for line in &md_file {
+    for line in &config.metadata_lines {
         if let Err(e) = writeln!(gz_encoder, "{}", line) {
             eprintln!("Failed to write metadata line to Gzip stream: {}", e);
         }
@@ -1121,12 +1127,9 @@ fn write_results(
     let mut wtr_file = Writer::from_writer(gz_encoder);
 
     // Write header
-    let header = get_header(m_type, is_multi_origin, is_symmetric);
-    if is_cli {
-        wtr_cli
-            .as_mut()
-            .unwrap()
-            .write_record(&header)
+    let header = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
+    if let Some(wtr) = wtr_cli.as_mut() {
+        wtr.write_record(&header)
             .expect("Failed to write header to stdout")
     };
     wtr_file
@@ -1144,20 +1147,17 @@ fn write_results(
                 let result = get_result(
                     result,
                     task_result.worker_id,
-                    m_type,
-                    is_symmetric,
-                    worker_map.clone(),
+                    config.m_type,
+                    config.is_symmetric,
+                    config.worker_map.clone(),
                 );
 
                 // Write to command-line
-                if is_cli {
-                    if let Some(ref mut writer) = wtr_cli {
-                        writer
-                            .write_record(&result)
-                            .expect("Failed to write payload to CLI");
-                        writer.flush().expect("Failed to flush stdout");
-                    }
-                };
+                if let Some(ref mut wtr) = wtr_cli {
+                    wtr.write_record(&result)
+                        .expect("Failed to write payload to CLI");
+                    wtr.flush().expect("Failed to flush stdout");
+                }
 
                 // Write to file
                 wtr_file
