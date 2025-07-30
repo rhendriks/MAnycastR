@@ -19,24 +19,45 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
-/// Configuration for the outbound worker thread.
+/// Configuration for an outbound packet sending worker.
 ///
-/// This struct contains all the necessary parameters to configure the outbound worker thread.
-/// It includes the worker ID, the origins for sending probes, the abort signal, whether to
-/// use IPv6, whether to measure latency, the measurement ID, the measurement type,
-/// the query name for DNS measurements, the info URL to encode in the payload,
-/// the network interface name, and the probing rate.
+/// This struct holds all the parameters needed to initialize and run a worker
+/// that generates and sends measurement probes (e.g., ICMP, DNS, TCP)
+/// at a specified rate.
 pub struct OutboundConfig {
+    /// The unique ID of this specific worker.
     pub worker_id: u16,
+
+    /// A list of source addresses and port values (`Origin`) to send probes from.
     pub tx_origins: Vec<Origin>,
+
+    /// A shared signal that can be used to forcefully shut down the worker.
+    ///
+    /// E.g., when the CLI has abruptly disconnected.
     pub abort_s: Arc<AtomicBool>,
+
+    /// Specifies whether to send IPv6 packets (`true`) or IPv4 packets (`false`).
     pub is_ipv6: bool,
+
+    /// Indicates if this is a latency measurement.
     pub is_latency: bool,
+
+    /// The unique ID of the measurement.
     pub m_id: u32,
+
+    /// The type of probe to send (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP).
     pub m_type: u8,
+
+    /// The domain name to query in DNS measurement probes.
     pub qname: String,
+
+    /// An informational URL to be embedded in the probe's payload (e.g., an opt-out link).
     pub info_url: String,
+
+    /// The name of the network interface to send packets from (e.g., "eth0").
     pub if_name: String,
+
+    /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
 }
 
