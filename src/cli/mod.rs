@@ -824,23 +824,25 @@ impl CliClient {
         // Create the output file
         let file = File::create(file_path).expect("Unable to create file");
 
-        let md_file = get_metadata(
+        let args = MetadataArgs {
             is_divide,
             origin_str,
             hitlist,
             is_shuffle,
-            type_str,
-            probing_rate as u32,
-            worker_interval,
-            timestamp_start_str,
-            m_time,
-            probing_workers,
-            &worker_map,
-            &m_definition.configurations,
+            m_type_str: type_str,
+            probing_rate: probing_rate as u32,
+            interval: worker_interval,
+            m_start: timestamp_start_str,
+            expected_duration: m_time,
+            active_workers: probing_workers,
+            all_workers: &worker_map,
+            configurations: &m_definition.configurations,
             is_config,
             is_latency,
             is_responsive,
-        );
+        };
+
+        let md_file = get_metadata(args);
 
         let is_multi_origin = if is_unicast {
             false
@@ -978,67 +980,88 @@ impl CliClient {
     }
 }
 
+/// Holds all the arguments required to metadata for the output file.
+pub struct MetadataArgs<'a> {
+    /// Divide-and-conquer measurement flag.
+    pub is_divide: bool,
+    /// The origins used in the measurement.
+    pub origin_str: String,
+    /// Path to the hitlist used.
+    pub hitlist: &'a str,
+    /// Whether the hitlist was shuffled.
+    pub is_shuffle: bool,
+    /// A string representation of the measurement type (e.g., "ICMP", "DNS").
+    pub m_type_str: String,
+    /// The probing rate used.
+    pub probing_rate: u32,
+    /// The interval between subsequent workers.
+    pub interval: u32,
+    /// Start of measurement.
+    pub m_start: String,
+    /// Expected duration of the measurement in seconds.
+    pub expected_duration: f32,
+    /// Workers selected to probe.
+    pub active_workers: Vec<u32>,
+    /// A bidirectional map of all possible worker IDs to their hostnames.
+    pub all_workers: &'a BiHashMap<u32, String>,
+    /// Optional configuration file used.
+    pub configurations: &'a Vec<Configuration>,
+    /// Whether this is a configuration-based measurement.
+    pub is_config: bool,
+    /// Whether this is a latency-based measurement.
+    pub is_latency: bool,
+    /// Whether this is a responsiveness-based measurement.
+    pub is_responsive: bool,
+}
+
 /// Returns a vector of lines containing the metadata of the measurement
 ///
 /// # Arguments
 ///
 /// Variables describing the measurement
-fn get_metadata(
-    is_divide: bool,
-    origin_str: String,
-    hitlist: &str,
-    is_shuffle: bool,
-    type_str: String,
-    probing_rate: u32,
-    interval: u32,
-    timestamp_start_str: String,
-    expected_length: f32,
-    active_workers: Vec<u32>,
-    all_workers: &BiHashMap<u32, String>,
-    configurations: &Vec<Configuration>,
-    is_config: bool,
-    is_latency: bool,
-    is_responsive: bool,
-) -> Vec<String> {
+fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
     let mut md_file = Vec::new();
-    if is_divide {
+    if args.is_divide {
         md_file.push("# Divide-and-conquer measurement".to_string());
     }
-    if is_latency {
+    if args.is_latency {
         md_file.push("# Latency measurement".to_string());
     }
-    if is_responsive {
+    if args.is_responsive {
         md_file.push("# Responsive measurement".to_string());
     }
-    md_file.push(format!("# Origin used: {}", origin_str));
+    md_file.push(format!("# Origin used: {}", args.origin_str));
     md_file.push(format!(
         "# Hitlist{}: {}",
-        if is_shuffle { " (shuffled)" } else { "" },
-        hitlist
+        if args.is_shuffle { " (shuffled)" } else { "" },
+        args.hitlist
     ));
-    md_file.push(format!("# Measurement type: {}", type_str));
-    md_file.push(format!("# Probing rate: {}", probing_rate.with_separator()));
-    md_file.push(format!("# Interval: {}", interval));
-    md_file.push(format!("# Start measurement: {}", timestamp_start_str));
+    md_file.push(format!("# Measurement type: {}", args.m_type_str));
     md_file.push(format!(
-        "# Expected measurement length (seconds): {:.6}",
-        expected_length
+        "# Probing rate: {}",
+        args.probing_rate.with_separator()
     ));
-    if !active_workers.is_empty() {
+    md_file.push(format!("# Interval: {}", args.interval));
+    md_file.push(format!("# Start measurement: {}", args.m_start));
+    md_file.push(format!(
+        "# Expected measurement duration (seconds): {:.6}",
+        args.expected_duration
+    ));
+    if !args.active_workers.is_empty() {
         md_file.push(format!(
             "# Selective probing using the following workers: {:?}",
-            active_workers
+            args.active_workers
         ));
     }
     md_file.push("# Connected workers:".to_string());
-    for (id, hostname) in all_workers {
+    for (id, hostname) in args.all_workers {
         md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname))
     }
 
     // Write configurations used for the measurement
-    if is_config {
+    if args.is_config {
         md_file.push("# Configurations:".to_string());
-        for configuration in configurations {
+        for configuration in args.configurations {
             let origin = configuration.origin.unwrap();
             let src = origin.src.expect("Invalid source address");
             let worker_id = if configuration.worker_id == u32::MAX {
@@ -1050,22 +1073,6 @@ fn get_metadata(
                 "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
                 worker_id, src, origin.sport, origin.dport
             ));
-        }
-
-        if configurations.len() > 1 {
-            md_file.push("# Multiple origins used".to_string());
-
-            for configuration in configurations {
-                let origin = configuration.origin.unwrap();
-                let src = origin.src.expect("Invalid source address");
-
-                let origin_id = origin.origin_id;
-
-                md_file.push(format!(
-                    "# \t * Origin ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                    origin_id, src, origin.sport, origin.dport
-                ));
-            }
         }
     }
 
