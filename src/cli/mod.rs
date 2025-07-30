@@ -349,9 +349,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // protocol and ports used are pre-configured when starting a live measurement at the CLI
 
         // Get the target IP addresses
-        let hitlist_path = matches
-            .get_one::<String>("IP_FILE")
-            .unwrap();
+        let hitlist_path = matches.get_one::<String>("IP_FILE").unwrap();
         let is_shuffle = matches.get_flag("shuffle");
 
         let (ips, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
@@ -566,9 +564,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
 ///
 /// * If the hitlist addresses are of mixed types (v4 and v6).
-fn get_hitlist(hitlist_path: &String, configurations: &Vec<Configuration>, is_unicast: bool, is_shuffle: bool) -> (Vec<Address>, bool) {
-    let file = File::open(hitlist_path)
-        .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+fn get_hitlist(
+    hitlist_path: &String,
+    configurations: &[Configuration],
+    is_unicast: bool,
+    is_shuffle: bool,
+) -> (Vec<Address>, bool) {
+    let file =
+        File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
 
     // Create reader based on file extension
     let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
@@ -589,16 +592,18 @@ fn get_hitlist(hitlist_path: &String, configurations: &Vec<Configuration>, is_un
     // Panic if the source IP is not the same type as the addresses
     if !is_unicast
         && configurations
-        .first()
-        .expect("Empty configuration list")
-        .origin
-        .expect("No origin found")
-        .src
-        .expect("No source address")
-        .is_v6()
-        != is_ipv6
+            .first()
+            .expect("Empty configuration list")
+            .origin
+            .expect("No origin found")
+            .src
+            .expect("No source address")
+            .is_v6()
+            != is_ipv6
     {
-        panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
+        panic!(
+            "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
+        );
     }
     // Panic if the ips in the hitlist are not all the same type
     if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {

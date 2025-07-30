@@ -17,6 +17,8 @@ use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
+const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
+
 /// Spawns thread that sends out ICMP, DNS, or TCP probes.
 ///
 /// # Arguments
@@ -27,7 +29,7 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 ///
 /// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
-/// * 'finish_rx' - used to exit or abort the measurement upon receiving the signal from the Orchestrator
+/// * 'abort_s' - used as signal to abort the ongoing measurement
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
@@ -49,7 +51,7 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 pub fn outbound(
     worker_id: u16,
     tx_origins: Vec<Origin>,
-    mut outbound_channel_rx: Receiver<Data>,
+    mut outbound_rx: Receiver<Data>,
     abort_s: Arc<AtomicBool>,
     is_ipv6: bool,
     is_latency: bool,
@@ -80,7 +82,7 @@ pub fn outbound(
                 let task;
                 // Receive tasks from the outbound channel
                 loop {
-                    match outbound_channel_rx.try_recv() {
+                    match outbound_rx.try_recv() {
                         Ok(t) => {
                             task = t;
                             break;
@@ -103,7 +105,7 @@ pub fn outbound(
                     Targets(targets) => {
                         let worker_id = if targets.is_discovery == Some(true) {
                             sent_discovery += targets.dst_list.len();
-                            worker_id as u32 + u16::MAX as u32
+                            worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET
                         } else {
                             worker_id as u32
                         };
@@ -120,7 +122,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                        while limiter.check().is_err() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
 
@@ -144,7 +146,7 @@ pub fn outbound(
                                             measurement_type,
                                             &qname,
                                         ));
-                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                        while limiter.check().is_err() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
                                         match socket_tx.send_to(&packet, None) {
@@ -168,7 +170,7 @@ pub fn outbound(
                                             &info_url,
                                         ));
 
-                                        while let Err(_) = limiter.check() { // Rate limit to avoid bursts
+                                        while limiter.check().is_err() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
                                         }
 
@@ -183,7 +185,7 @@ pub fn outbound(
                                     }
                                 }
                                 255 => {
-                                    // TODO all
+                                    panic!("Invalid measurement type)") // TODO all
                                 }
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
