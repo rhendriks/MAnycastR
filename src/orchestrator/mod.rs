@@ -952,8 +952,8 @@ impl Controller for ControllerService {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
                 status: worker.get_status().clone(),
-                unicast_v4: worker.unicast_v4.clone(),
-                unicast_v6: worker.unicast_v6.clone(),
+                unicast_v4: worker.unicast_v4,
+                unicast_v6: worker.unicast_v6,
             });
         }
 
@@ -1212,7 +1212,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     // Get optional configuration file
     let (current_worker_id, worker_config) = args
         .get_one::<String>("config")
-        .map(|config_path| load_worker_config(config_path))
+        .map(load_worker_config)
         .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
     // Get a random measurement ID to start with

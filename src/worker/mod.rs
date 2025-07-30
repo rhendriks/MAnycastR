@@ -250,7 +250,7 @@ impl Worker {
         };
 
         // Start listening thread (except if it is a unicast measurement and we are not probing)
-        if !(is_unicast && !is_probing) {
+        if !is_unicast || is_probing {
             listen(
                 tx,
                 self.inbound_f.clone(),
