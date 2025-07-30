@@ -238,7 +238,6 @@ fn main() {
         println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
         let _ = cli::execute(cli_matches);
-        return;
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
         println!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 

@@ -371,7 +371,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     }
 
     // If the packet length is odd, add the last byte as a half-word (padded with 0)
-    if packet_len % 2 != 0 {
+    if !packet_len.is_multiple_of(2) {
         sum += u32::from(packet[packet_len - 1]) << 8;
     }
 
@@ -1074,7 +1074,6 @@ impl TCPPacket {
         dst: &Address,
         sport: u16,
         dport: u16,
-        seq: u32,
         ack: u32,
         ttl: u8,
         info_url: &str,
@@ -1082,7 +1081,7 @@ impl TCPPacket {
         let mut packet = Self {
             sport,
             dport,
-            seq,
+            seq: 0, // Sequence number is not reflected
             ack,
             offset: 0b01010000, // Offset 5 for minimum TCP header length (0101) + 0000 for reserved
             flags: 0b00010010,  // SYN and ACK flags
