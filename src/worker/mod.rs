@@ -249,7 +249,6 @@ impl Worker {
             Err(e) => panic!("Failed to create datalink channel: {}", e),
         };
 
-
         // Start listening thread (except if it is a unicast measurement and we are not probing)
         if !is_unicast || is_probing {
             let config = InboundConfig {
@@ -261,11 +260,7 @@ impl Worker {
                 abort_s: self.abort_s.clone(),
             };
 
-            inbound(
-                config,
-                tx,
-                socket_rx,
-            );
+            inbound(config, tx, socket_rx);
         }
 
         if is_probing {
