@@ -39,7 +39,6 @@ fn get_default_gateway_ip_linux() -> Result<String, String> {
     Err("Could not find default gateway in /proc/net/route".to_string())
 }
 fn get_default_gateway_ip_freebsd() -> Result<String, String> {
-    // TODO test
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
@@ -316,7 +315,6 @@ pub fn create_tcp(
     is_latency: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let seq = 0; // information in seq gets lost
     let ack = if !is_latency || worker_id > u16::MAX as u32 {
         // catchment mapping (or discovery probe for latency measurement)
         worker_id
@@ -333,7 +331,6 @@ pub fn create_tcp(
         dst,
         origin.sport as u16,
         origin.dport as u16,
-        seq,
         ack,
         255,
         info_url,

@@ -30,29 +30,36 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
 
+type ResultMessage = Result<TaskResult, Status>;
+type CliSender = Sender<ResultMessage>;
+type CliHandle = Arc<Mutex<Option<CliSender>>>;
+
+type TaskMessage = Result<Task, Status>;
+
 /// Struct for the orchestrator service
 ///
 /// # Fields
 ///
-/// * 'workers' - a WorkerList that contains all connected workers (hostname and worker ID)
-/// * 'senders' - a list of senders that connect to the workers, these senders are used to stream Tasks
-/// * 'cli_sender' - the sender that connects to the CLI, to stream TaskResults
+/// * 'workers' - a list of WorkerSender objects that are connected to this orchestrator
+/// * 'cli_sender' - the sender that connects to the CLI; used to stream TaskResults
 /// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
-/// * 'current_measurement_id' - keeps track of the last used measurement ID
-/// * 'current_worker_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
+/// * 'm_id' - keeps track of the last used measurement ID
+/// * 'unique_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
 /// * 'is_active' - a boolean value that is set to true when there is an active measurement
-/// * 'r_prober' - ID of worker that is probing for responsiveness TODO update rustdoc
+/// * 'is_responsive' - a boolean value that is set to true when the orchestrator is in responsive probing mode
+/// * 'is_latency' - a boolean value that is set to true when the orchestrator is in latency probing mode
+/// * 'worker_config' - optional mapping of hostname to worker IDs (to enforce static worker IDs)
+/// * 'worker_stacks' - a mapping of worker IDs to a stack of addresses that are used for follow-up probes (used for responsive and latency probing)
 #[derive(Debug)]
 pub struct ControllerService {
-    workers: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
+    workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    cli_sender: CliHandle,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
-    current_measurement_id: Arc<Mutex<u32>>,
+    m_id: Arc<Mutex<u32>>,
     unique_id: Arc<Mutex<u32>>,
     is_active: Arc<Mutex<bool>>,
     is_responsive: Arc<AtomicBool>,
     is_latency: Arc<AtomicBool>,
-    // task_sender: Arc<Mutex<Option<Sender<(u32, Task, bool)>>>>,
     worker_config: Option<HashMap<String, u32>>,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Address>>>>,
 }
@@ -91,17 +98,15 @@ impl fmt::Display for WorkerStatus {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the worker
-/// * 'open_measurements' - a list of the current open measurements, and the number of workers that are currently working on it
+/// * 'open_measurements' - a list of the current open measurements
 /// * 'cli_sender' - the sender that connects to the CLI
 /// * 'hostname' - the hostname of the worker
-/// * 'workers' - a WorkerList that contains all connected workers (hostname and worker ID)
-/// * 'active' - a boolean value that is set to true when there is an active measurement TODO update rustdoc
+/// * 'status' - the status of the worker, used to determine if it is connected or not
 pub struct WorkerReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
+    cli_sender: CliHandle,
     hostname: String,
-    active: Arc<Mutex<bool>>,
     status: Arc<Mutex<WorkerStatus>>,
 }
 
@@ -117,10 +122,10 @@ impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
         println!("[Orchestrator] Worker {} lost connection", self.hostname);
 
-        // // Handle the open measurements that involve this worker
+        // Handle the open measurements that involve this worker
         let mut open_measurements = self.open_measurements.lock().unwrap();
         if !open_measurements.is_empty() {
-            for (measurement_id, remaining) in open_measurements.clone().iter() {
+            for (m_id, remaining) in open_measurements.clone().iter() {
                 // If this measurement is already finished
                 if remaining == &0 {
                     continue;
@@ -128,10 +133,9 @@ impl<T> Drop for WorkerReceiver<T> {
                 // If this is the last worker for this open measurement
                 if remaining == &1 {
                     // The orchestrator no longer has to wait for this measurement
-                    open_measurements.remove(measurement_id);
+                    open_measurements.remove(m_id);
 
                     println!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
-                    *self.active.lock().unwrap() = false;
                     match self
                         .cli_sender
                         .lock()
@@ -146,9 +150,8 @@ impl<T> Drop for WorkerReceiver<T> {
                         ),
                     }
                 } else {
-                    // If there are more workers still performing this measurement
-                    // The orchestrator no longer has to wait for this worker
-                    *open_measurements.get_mut(measurement_id).unwrap() -= 1;
+                    // One less worker for this measurement
+                    *open_measurements.get_mut(m_id).unwrap() -= 1;
                 }
             }
         }
@@ -163,18 +166,19 @@ impl<T> Drop for WorkerReceiver<T> {
 /// # Fields
 ///
 /// * inner - the inner sender that connects to the worker
-///
-/// * interval - the interval in seconds to wait between a task being put in the sender and sending it
-///
-/// * is_probing - a boolean value that is set to true when the worker is probing (or only listening)
-
+/// * worker_id - the unique ID of the worker
+/// * hostname - the hostname of the worker
+/// * status - the status of the worker, used to determine if it is connected or not
+/// * unicast_v4 - the unicast IPv4 address of the worker, if available
+/// * unicast_v6 - the unicast IPv6 address of the worker, if available
 #[derive(Clone)]
 pub struct WorkerSender<T> {
     inner: Sender<T>,
-    is_probing: Arc<AtomicBool>,
     worker_id: u32,
     hostname: String,
     status: Arc<Mutex<WorkerStatus>>,
+    unicast_v4: Option<Address>,
+    unicast_v6: Option<Address>,
 }
 impl<T> WorkerSender<T> {
     /// Checks if the sender is closed
@@ -198,9 +202,6 @@ impl<T> WorkerSender<T> {
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
 
-        // Set the is_probing flag to false
-        self.is_probing
-            .store(false, std::sync::atomic::Ordering::SeqCst);
         println!(
             "[Orchestrator] Worker {} (ID: {}) dropped",
             self.hostname, self.worker_id
@@ -208,23 +209,11 @@ impl<T> WorkerSender<T> {
     }
 
     pub fn is_probing(&self) -> bool {
-        self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
+        *self.status.lock().unwrap() == Probing
     }
 
     pub fn get_status(&self) -> String {
         self.status.lock().unwrap().clone().to_string()
-    }
-
-    /// Update is_probing flag
-    pub fn update_is_probing(&self, is_probing: bool) {
-        let mut status = self.status.lock().unwrap();
-        if is_probing {
-            *status = Probing;
-        } else {
-            *status = Listening;
-        }
-        self.is_probing
-            .store(is_probing, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The worker finished its measurement
@@ -240,10 +229,10 @@ impl<T> fmt::Debug for WorkerSender<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "WorkerSender {{ worker_id: {}, hostname: {}, is_probing: {} }}",
+            "WorkerSender {{ worker_id: {}, hostname: {}, status: {} }}",
             self.worker_id,
             self.hostname,
-            self.is_probing.load(std::sync::atomic::Ordering::SeqCst)
+            self.get_status()
         )
     }
 }
@@ -257,13 +246,13 @@ impl<T> fmt::Debug for WorkerSender<T> {
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the CLI
-/// * 'active' - a boolean value that is set to true when there is an active measurement
-/// * 'open_measurements' - a list of the current open measurements, and the number of workers that are currently working on it
-/// * 'measurement_id' - the ID of the measurement that this receiver is associated with
+/// * 'm_active' - a boolean value that is set to true when there is an active measurement
+/// * 'm_id' - a list of the current open measurements, and the number of workers that are currently working on it
+/// * 'open_measurements' - a mapping of measurement IDs to the number of workers that are currently working on it
 pub struct CLIReceiver<T> {
     inner: mpsc::Receiver<T>,
-    active: Arc<Mutex<bool>>,
-    measurement_id: u32,
+    m_active: Arc<Mutex<bool>>,
+    m_id: u32,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
 }
 
@@ -277,7 +266,7 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        let mut is_active = self.active.lock().unwrap();
+        let mut is_active = self.m_active.lock().unwrap();
 
         // If there is an active measurement we need to cancel it and notify the workers
         if *is_active {
@@ -289,7 +278,7 @@ impl<T> Drop for CLIReceiver<T> {
 
         // Remove the current measurement
         let mut open_measurements = self.open_measurements.lock().unwrap();
-        open_measurements.remove(&self.measurement_id);
+        open_measurements.remove(&self.m_id);
     }
 }
 
@@ -325,7 +314,7 @@ impl Controller for ControllerService {
         request: Request<Finished>,
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
-        let measurement_id: u32 = finished_measurement.measurement_id;
+        let m_id: u32 = finished_measurement.m_id;
         let tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
         // Wait till we have received 'measurement_finished' from all workers that executed this measurement
@@ -333,10 +322,10 @@ impl Controller for ControllerService {
             let mut open_measurements = self.open_measurements.lock().unwrap();
 
             // Number of workers that still have to finish this measurement
-            let remaining = if let Some(remaining) = open_measurements.get(&measurement_id) {
+            let remaining = if let Some(remaining) = open_measurements.get(&m_id) {
                 remaining
             } else {
-                println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &measurement_id);
+                println!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &m_id);
                 return Ok(Response::new(Ack {
                     is_success: false,
                     error_message: "Measurement unknown".to_string(),
@@ -347,11 +336,11 @@ impl Controller for ControllerService {
                 // If this is the last worker we are finished
                 println!("[Orchestrator] All workers finished");
 
-                open_measurements.remove(&measurement_id);
+                open_measurements.remove(&m_id);
                 true // Finished
             } else {
                 // If this is not the last worker, decrement the amount of remaining workers
-                *open_measurements.get_mut(&measurement_id).unwrap() -= 1;
+                *open_measurements.get_mut(&m_id).unwrap() -= 1;
 
                 false // Not finished yet
             }
@@ -396,12 +385,16 @@ impl Controller for ControllerService {
         &self,
         request: Request<Worker>,
     ) -> Result<Response<Self::WorkerConnectStream>, Status> {
-        let hostname = request.into_inner().hostname;
+        let worker = request.into_inner();
+        let hostname = worker.hostname;
+        let unicast_v4 = worker.unicast_v4;
+        let unicast_v6 = worker.unicast_v6;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
-        // TODO split off the worker ID generation into a separate function
-
-        let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
+        // Get the worker ID, and check if it is a reconnection
+        let (worker_id, is_reconnect) = self
+            .get_worker_id(&hostname)
+            .map_err(|boxed_status| *boxed_status)?;
 
         // Send worker ID
         tx.send(Ok(Task {
@@ -415,10 +408,11 @@ impl Controller for ControllerService {
 
         let worker_tx = WorkerSender {
             inner: tx,
-            is_probing: Arc::new(AtomicBool::new(false)), // default is not probing
             worker_id,
             hostname: hostname.clone(),
             status: worker_status.clone(),
+            unicast_v4,
+            unicast_v6,
         };
 
         // Remove the disconnected worker if it existed
@@ -436,7 +430,6 @@ impl Controller for ControllerService {
             open_measurements: self.open_measurements.clone(),
             cli_sender: self.cli_sender.clone(),
             hostname,
-            active: self.is_active.clone(),
             status: worker_status,
         };
 
@@ -505,13 +498,13 @@ impl Controller for ControllerService {
         }
 
         // The measurement that the CLI wants to perform
-        let scheduled_measurement = request.into_inner();
-        let is_responsive = scheduled_measurement.is_responsive;
-        let is_latency = scheduled_measurement.is_latency;
-        let is_divide = scheduled_measurement.is_divide;
-        let worker_interval = scheduled_measurement.worker_interval as u64;
-        let probe_interval = scheduled_measurement.probe_interval as u64;
-        let number_of_probes = scheduled_measurement.number_of_probes as u8;
+        let m_definition = request.into_inner();
+        let is_responsive = m_definition.is_responsive;
+        let is_latency = m_definition.is_latency;
+        let is_divide = m_definition.is_divide;
+        let worker_interval = m_definition.worker_interval as u64;
+        let probe_interval = m_definition.probe_interval as u64;
+        let number_of_probes = m_definition.number_of_probes as u8;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Task, Status>>> = {
@@ -527,7 +520,7 @@ impl Controller for ControllerService {
             });
 
             // Make sure no unknown workers are in the configuration
-            if scheduled_measurement.configurations.iter().any(|conf| {
+            if m_definition.configurations.iter().any(|conf| {
                 !workers
                     .iter()
                     .any(|sender| sender.worker_id == conf.worker_id)
@@ -545,11 +538,15 @@ impl Controller for ControllerService {
 
             // Set the is_probing bool for each worker_tx
             for worker in workers.iter_mut() {
-                let is_probing = scheduled_measurement.configurations.iter().any(|config| {
+                let is_probing = m_definition.configurations.iter().any(|config| {
                     config.worker_id == worker.worker_id || config.worker_id == u32::MAX
                 });
 
-                worker.update_is_probing(is_probing);
+                if is_probing {
+                    *worker.status.lock().unwrap() = Probing;
+                } else {
+                    *worker.status.lock().unwrap() = Listening;
+                }
             }
 
             workers
@@ -563,15 +560,15 @@ impl Controller for ControllerService {
         }
 
         // Assign a unique ID the measurement and increment the measurement ID counter
-        let measurement_id = {
-            let mut current_measurement_id = self.current_measurement_id.lock().unwrap();
-            let id = *current_measurement_id;
-            *current_measurement_id = current_measurement_id.wrapping_add(1);
+        let m_id = {
+            let mut uniq_m_id = self.m_id.lock().unwrap();
+            let id = *uniq_m_id;
+            *uniq_m_id = uniq_m_id.wrapping_add(1);
             id
         };
 
         // Create a measurement from the ScheduleMeasurement
-        let is_unicast = scheduled_measurement.is_unicast;
+        let is_unicast = m_definition.is_unicast;
 
         let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
@@ -588,17 +585,17 @@ impl Controller for ControllerService {
         self.open_measurements
             .lock()
             .unwrap()
-            .insert(measurement_id, number_of_listeners);
+            .insert(m_id, number_of_listeners);
 
-        let probing_rate = scheduled_measurement.probing_rate;
-        let measurement_type = scheduled_measurement.measurement_type;
-        let is_ipv6 = scheduled_measurement.is_ipv6;
-        let dst_addresses = scheduled_measurement
+        let probing_rate = m_definition.probing_rate;
+        let m_type = m_definition.m_type;
+        let is_ipv6 = m_definition.is_ipv6;
+        let dst_addresses = m_definition
             .targets
             .expect("Received measurement with no targets")
             .dst_list;
-        let dns_record = scheduled_measurement.record;
-        let info_url = scheduled_measurement.url;
+        let dns_record = m_definition.record;
+        let info_url = m_definition.url;
 
         if !is_divide {
             println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, worker_interval);
@@ -614,7 +611,7 @@ impl Controller for ControllerService {
         // Create a list of origins used by workers
         let mut rx_origins = vec![];
         // Add all configuration origins to the listen origins
-        for configuration in scheduled_measurement.configurations.iter() {
+        for configuration in m_definition.configurations.iter() {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
@@ -625,7 +622,6 @@ impl Controller for ControllerService {
 
         // Create channel for TaskDistributor (client_id, task, number_of_times)
         let (tx_t, rx_t) = mpsc::channel::<(u32, Task, bool)>(1000);
-        // self.task_sender.lock().unwrap().replace(tx_t.clone());
 
         // Create a cycler of active probing workers (containing their IDs)
         let probing_worker_ids = workers
@@ -640,7 +636,7 @@ impl Controller for ControllerService {
             let mut tx_origins = vec![];
 
             // Add all configuration probing origins assigned to this worker
-            for configuration in &scheduled_measurement.configurations {
+            for configuration in &m_definition.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
                 if (configuration.worker_id == worker_id) | (configuration.worker_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
@@ -653,8 +649,8 @@ impl Controller for ControllerService {
                 worker_id: None,
                 data: Some(TaskStart(Start {
                     rate: probing_rate,
-                    measurement_id,
-                    measurement_type,
+                    m_id,
+                    m_type,
                     is_unicast,
                     is_ipv6,
                     tx_origins,
@@ -943,8 +939,8 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            active: self.is_active.clone(),
-            measurement_id,
+            m_active: self.is_active.clone(),
+            m_id,
             open_measurements: self.open_measurements.clone(),
         };
 
@@ -965,6 +961,8 @@ impl Controller for ControllerService {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
                 status: worker.get_status().clone(),
+                unicast_v4: worker.unicast_v4,
+                unicast_v6: worker.unicast_v6,
             });
         }
 
@@ -983,83 +981,44 @@ impl Controller for ControllerService {
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
-        let mut task_result = request.into_inner();
+        let task_result = request.into_inner();
+
+        let is_discovery = task_result.is_discovery;
 
         // if self.r_prober is not None and equals this task's worker_id
-        if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-            // Get the list of targets
-            let responsive_targets: Vec<Address> = task_result
-                .result_list
-                .iter()
-                .filter(|result| result.is_discovery)
-                .map(|result_f| result_f.src.unwrap())
-                .collect();
-
-            if !responsive_targets.is_empty() {
-                // Sleep 1 second to avoid rate-limiting issues
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                // TODO for each origin keep track of the responsive targets already checked
-                // TODO enforce that each responsive target gets a single follow-up task
-
-                // Insert the responsive targets into the worker stack
-                self.worker_stacks
-                    .lock()
-                    .unwrap()
-                    .entry(ALL_WORKERS_INTERVAL)
-                    .or_default()
-                    .extend(responsive_targets.clone());
-
-                // Remove discovery results from the result list for the CLI
-                task_result
-                    .result_list
-                    .retain(|result| !result.is_discovery);
-
-                if task_result.result_list.is_empty() {
-                    // If there are no regular results, we can return early
-                    return Ok(Response::new(Ack {
-                        is_success: true,
-                        error_message: "".to_string(),
-                    }));
-                }
-            }
-        } else if self.is_latency.load(std::sync::atomic::Ordering::SeqCst) {
-            let rx_id = task_result.worker_id;
+        if is_discovery
+            && (self.is_latency.load(std::sync::atomic::Ordering::SeqCst)
+                || self.is_responsive.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            let rx_id = if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
+                ALL_WORKERS_INTERVAL // --responsive follow-ups are sent to all workers
+            } else {
+                task_result.worker_id // --latency follow-ups are sent to the worker that received the reply
+            };
 
             // Probe from the catching PoP
             let responsive_targets: Vec<Address> = task_result
                 .result_list
                 .iter()
-                .filter(|result| result.is_discovery)
-                .map(|result_f| result_f.src.unwrap())
+                .map(|result| result.src.unwrap())
                 .collect();
 
-            if !responsive_targets.is_empty() {
-                // Sleep 1 second to avoid rate-limiting issues
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            // Sleep 1 second to avoid rate-limiting issues
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
-                // Insert the responsive targets into the worker stack
-                {
-                    let mut worker_stacks = self.worker_stacks.lock().unwrap();
-                    worker_stacks
-                        .entry(rx_id)
-                        .or_default()
-                        .extend(responsive_targets.clone());
-                }
-
-                // Keep non-discovery results
-                task_result
-                    .result_list
-                    .retain(|result| !result.is_discovery);
-
-                if task_result.result_list.is_empty() {
-                    // If there are no valid results left, we can return early
-                    return Ok(Response::new(Ack {
-                        is_success: true,
-                        error_message: "".to_string(),
-                    }));
-                }
+            // Insert the responsive targets into the worker stack
+            {
+                let mut worker_stacks = self.worker_stacks.lock().unwrap();
+                worker_stacks
+                    .entry(rx_id)
+                    .or_default()
+                    .extend(responsive_targets);
             }
+
+            return Ok(Response::new(Ack {
+                is_success: true,
+                error_message: "".to_string(),
+            }));
         }
 
         // Forward the result to the CLI
@@ -1104,7 +1063,7 @@ impl ControllerService {
     ///
     /// # Errors
     /// Returns an error if the hostname already exists and is used by a connected worker.
-    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Status> {
+    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Box<Status>> {
         {
             let workers = self.workers.lock().unwrap();
             // Check if the hostname already exists in the workers list
@@ -1114,7 +1073,9 @@ impl ControllerService {
                         "[Orchestrator] Refusing worker as the hostname already exists: {}",
                         hostname
                     );
-                    Err(Status::already_exists("This hostname already exists"))
+                    Err(Box::new(Status::already_exists(
+                        "This hostname already exists",
+                    )))
                 } else {
                     // This is a reconnection of a closed worker.
                     println!("[Orchestrator] Worker {} reconnected", hostname);
@@ -1137,6 +1098,13 @@ impl ControllerService {
     }
 }
 
+impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
+    fn eq(&self, other: &WorkerStatus) -> bool {
+        let status = self.lock().unwrap();
+        *status == *other
+    }
+}
+
 /// Reads from a channel containing Tasks and sends them to the workers, at specified inter-client intervals.
 /// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
 ///
@@ -1146,7 +1114,13 @@ impl ControllerService {
 ///
 /// * 'rx' - the channel containing the tuple (task_ID, task, multiple_times)
 ///
-/// * 'senders' - a map of worker IDs to their corresponding senders TODO fix rustdoc
+/// * 'workers' - the list of worker senders to which the tasks will be sent
+///
+/// * 'inter_client_interval' - the interval in seconds between sending tasks to different workers
+///
+/// * 'inter_probe_interval' - the interval in seconds between sending multiple probes to the same worker
+///
+/// * 'number_of_probes' - the number of times to probe the same target
 async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Task, bool)>,
     workers: Vec<WorkerSender<Result<Task, Status>>>,
@@ -1174,7 +1148,7 @@ async fn task_sender(
         } else if worker_id == ALL_WORKERS_INTERVAL {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
             for sender in &workers {
-                if sender.is_probing.load(std::sync::atomic::Ordering::SeqCst) {
+                if *sender.status == Probing {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
                     spawn(async move {
@@ -1249,22 +1223,21 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     // Get optional configuration file
     let (current_worker_id, worker_config) = args
         .get_one::<String>("config")
-        .map(|config_path| load_worker_config(config_path))
+        .map(load_worker_config)
         .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
     // Get a random measurement ID to start with
-    let measurement_id = rand::rng().random_range(0..u32::MAX);
+    let m_id = rand::rng().random_range(0..u32::MAX);
 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
         open_measurements: Arc::new(Mutex::new(HashMap::new())),
-        current_measurement_id: Arc::new(Mutex::new(measurement_id)),
+        m_id: Arc::new(Mutex::new(m_id)),
         unique_id: current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
         is_responsive: Arc::new(AtomicBool::new(false)),
         is_latency: Arc::new(AtomicBool::new(false)),
-        // task_sender: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
     };

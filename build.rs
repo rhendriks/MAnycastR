@@ -3,8 +3,8 @@ use std::process::Command;
 // Generates the tonic/grpc code from the .proto file
 fn main() {
     // Compile Protocol Buffers definitions
-    tonic_build::compile_protos("proto/manycastr.proto")
-        .unwrap_or_else(|e| panic!("Failed to compile protos {e:?}"));
+    tonic_prost_build::compile_protos("proto/manycastr.proto")
+        .expect("Failed to compile Protobuf definitions");
 
     // Gets commit string
     let output = Command::new("git")

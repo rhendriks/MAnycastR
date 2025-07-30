@@ -26,7 +26,7 @@ message Ack {
 
 // Finished message, sent by a worker to the orchestrator when a measurement is finished, or as acknowledgement of a received task result
 message Finished {
-  uint32 measurement_id = 1;
+  uint32 m_id = 1;
   uint32 worker_id = 2;
 }
 
@@ -34,7 +34,7 @@ message Finished {
 message ScheduleMeasurement {
   uint32 probing_rate = 1;
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
-  uint32 measurement_type = 3;
+  uint32 m_type = 3;
   bool is_unicast = 4;
   bool is_ipv6 = 5;
   uint32 worker_interval = 6;
@@ -58,6 +58,8 @@ message Worker {
   fixed32 worker_id = 1;
   string hostname = 2;
   string status = 3; // IDLE, PROBING, LISTENING, DISCONNECTED
+  Address unicast_v6 = 4;
+  Address unicast_v4 = 5;
 }
 
 // Address message, can be either an IPv4 or IPv6 address
@@ -87,8 +89,8 @@ message Task {
 // A start message, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  uint32 measurement_id = 2;
-  uint32 measurement_type = 3;
+  uint32 m_id = 2;
+  uint32 m_type = 3;
   repeated Origin tx_origins = 4; // origins to send with
   bool is_unicast = 5;
   bool is_ipv6 = 6;
@@ -127,17 +129,16 @@ message Targets {
 message TaskResult {
   uint32 worker_id = 1;
   repeated Reply result_list = 2;
-  // TODO we should identify discovery replies here and group them separately at the worker
+  bool is_discovery = 3; // whether the reply is part of a discovery measurement
 }
 
 // Probe reply message
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3; // receive time of the reply
+  uint64 rx_time = 3;
   uint64 tx_time = 4;
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  bool is_discovery = 7; // whether the reply is part of a discovery measurement
-  optional string chaos = 8;
+  optional string chaos = 7;
 }

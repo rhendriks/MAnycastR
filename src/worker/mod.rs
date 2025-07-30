@@ -17,8 +17,8 @@ use custom_module::manycastr::{
 };
 
 use crate::net::packet::is_in_prefix;
-use crate::worker::inbound::listen;
-use crate::worker::outbound::outbound;
+use crate::worker::inbound::{inbound, InboundConfig};
+use crate::worker::outbound::{outbound, OutboundConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
 mod inbound;
@@ -30,20 +30,20 @@ mod outbound;
 ///
 /// # Fields
 ///
-/// * 'client' - the worker gRPC connection with the orchestrator
-/// * 'metadata' - used to store this worker's hostname and unique worker ID
+/// * 'grpc_client' - the worker gRPC connection with the orchestrator
+/// * 'hostname' - the hostname of the worker
 /// * 'is_active' - boolean value that is set to true when the worker is currently doing a measurement
-/// * 'current_measurement' - contains the ID of the current measurement
+/// * 'current_m_id' - contains the ID of the current measurement
 /// * 'outbound_tx' - contains the sender of a channel to the outbound prober that tasks are send to
-/// * 'inbound_tx_f' - contains the sender of a channel to the inbound listener that is used to signal the end of a measurement
+/// * 'inbound_f' - an atomic boolean that is used to signal the inbound thread to stop listening for packets
 #[derive(Clone)]
 pub struct Worker {
-    client: ControllerClient<Channel>,
+    grpc_client: ControllerClient<Channel>,
     hostname: String,
     is_active: Arc<Mutex<bool>>,
-    current_measurement: Arc<Mutex<u32>>,
+    current_m_id: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
-    inbound_f: Arc<AtomicBool>,
+    abort_s: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -69,12 +69,12 @@ impl Worker {
 
         // Initialize a worker instance
         let mut worker = Worker {
-            client,
+            grpc_client: client,
             hostname,
             is_active: Arc::new(Mutex::new(false)),
-            current_measurement: Arc::new(Mutex::new(0)),
+            current_m_id: Arc::new(Mutex::new(0)),
             outbound_tx: None,
-            inbound_f: Arc::new(AtomicBool::new(false)),
+            abort_s: Arc::new(AtomicBool::new(false)),
         };
 
         worker.connect_to_server().await?;
@@ -99,7 +99,7 @@ impl Worker {
         address: String,
         fqdn: Option<&String>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if fqdn.is_some() {
+        let channel = if let Some(fqdn) = fqdn {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -108,9 +108,7 @@ impl Worker {
                 .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
             // Create a TLS configuration
-            let tls = ClientTlsConfig::new()
-                .ca_certificate(ca)
-                .domain_name(fqdn.unwrap());
+            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
 
             let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
             builder
@@ -153,14 +151,14 @@ impl Worker {
     ///
     /// * 'worker_id' - the unique ID of this worker
     ///
-    /// * 'outbound_f' - a channel used to send the finish signal to the outbound prober
+    /// * 'abort_s' - an optional Arc<AtomicBool> that is used to signal the outbound thread to stop sending probes
     fn init(&mut self, task: Task, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
         } else {
             panic!("Received non-start packet for init")
         };
-        let measurement_id = start_measurement.measurement_id;
+        let m_id = start_measurement.m_id;
         let is_ipv6 = start_measurement.is_ipv6;
         let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
         let is_unicast = start_measurement.is_unicast;
@@ -250,21 +248,21 @@ impl Worker {
         };
 
         // Start listening thread (except if it is a unicast measurement and we are not probing)
-        if !(is_unicast && !is_probing) {
-            listen(
-                tx,
-                self.inbound_f.clone(),
-                measurement_id,
+        if !is_unicast || is_probing {
+            let config = InboundConfig {
+                m_id,
                 worker_id,
                 is_ipv6,
-                start_measurement.measurement_type as u8,
-                socket_rx,
-                rx_origins,
-            );
+                m_type: start_measurement.m_type as u8,
+                origin_map: rx_origins,
+                abort_s: self.abort_s.clone(),
+            };
+
+            inbound(config, tx, socket_rx);
         }
 
         if is_probing {
-            match start_measurement.measurement_type as u8 {
+            match start_measurement.m_type as u8 {
                 ICMP_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
@@ -288,22 +286,23 @@ impl Worker {
                 }
                 _ => (),
             }
-            // Start sending thread
-            outbound(
+
+            let config = OutboundConfig {
                 worker_id,
                 tx_origins,
-                outbound_rx.unwrap(),
-                abort_s.unwrap(),
+                abort_s: abort_s.unwrap(),
                 is_ipv6,
                 is_latency,
-                measurement_id,
-                start_measurement.measurement_type as u8,
+                m_id,
+                m_type: start_measurement.m_type as u8,
                 qname,
                 info_url,
-                interface.name,
-                socket_tx,
+                if_name: interface.name,
                 probing_rate,
-            );
+            };
+
+            // Start sending thread
+            outbound(config, outbound_rx.unwrap(), socket_tx);
         } else {
             println!("[Worker] Not sending probes");
         }
@@ -323,7 +322,7 @@ impl Worker {
                         if packet == TaskResult::default() {
                             self_clone
                                 .measurement_finish_to_server(Finished {
-                                    measurement_id,
+                                    m_id,
                                     worker_id: worker_id.into(),
                                 })
                                 .await
@@ -350,15 +349,21 @@ impl Worker {
         println!("[Worker] Connecting to orchestrator");
         let mut abort_s: Option<Arc<AtomicBool>> = None;
 
+        // Get the local unicast addresses
+        let unicast_v6 = local_ipv6().ok().map(Address::from);
+        let unicast_v4 = local_ip().ok().map(Address::from);
+
         let worker = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
             worker_id: 0, // This will be set after the connection
             status: "".to_string(),
+            unicast_v6,
+            unicast_v4,
         };
 
         // Connect to the orchestrator
         let response = self
-            .client
+            .grpc_client
             .worker_connect(Request::new(worker))
             .await
             .expect("Unable to connect to orchestrator");
@@ -397,8 +402,8 @@ impl Worker {
                                 "[Worker] Received measurement finished signal from orchestrator"
                             );
                             // Close inbound threads
-                            self.inbound_f.store(true, Ordering::SeqCst);
-                            // Close outbound threads TODO better to do this with the abort_s
+                            self.abort_s.store(true, Ordering::SeqCst);
+                            // Close outbound threads gracefully
                             if let Some(tx) = self.outbound_tx.take() {
                                 tx.send(Data::End(End { code: 0 })).await.expect(
                                     "Unable to send measurement_finished to outbound thread",
@@ -408,7 +413,7 @@ impl Worker {
                             println!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
-                            self.inbound_f.store(true, Ordering::SeqCst);
+                            self.abort_s.store(true, Ordering::SeqCst);
                             // finish will be None if this worker is not probing
                             if let Some(abort_s) = &abort_s {
                                 // Close outbound threads
@@ -433,13 +438,11 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                let (is_unicast, is_probing, measurement_id) =
+                let (is_unicast, is_probing, m_id) =
                     match task.clone().data.expect("None start measurement task") {
-                        Data::Start(start) => (
-                            start.is_unicast,
-                            !start.tx_origins.is_empty(),
-                            start.measurement_id,
-                        ),
+                        Data::Start(start) => {
+                            (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
+                        }
                         _ => {
                             // First task is not a start measurement task
                             continue;
@@ -455,8 +458,8 @@ impl Worker {
                 println!("[Worker] Starting new measurement");
 
                 *self.is_active.lock().unwrap() = true;
-                *self.current_measurement.lock().unwrap() = measurement_id;
-                self.inbound_f.store(false, Ordering::SeqCst);
+                *self.current_m_id.lock().unwrap() = m_id;
+                self.abort_s.store(false, Ordering::SeqCst);
 
                 if is_probing {
                     // This worker is probing
@@ -482,7 +485,9 @@ impl Worker {
         &mut self,
         task_result: TaskResult,
     ) -> Result<(), Box<dyn Error>> {
-        self.client.send_result(Request::new(task_result)).await?;
+        self.grpc_client
+            .send_result(Request::new(task_result))
+            .await?;
 
         Ok(())
     }
@@ -502,7 +507,7 @@ impl Worker {
             "[Worker] Letting the orchestrator know that this worker finished the measurement"
         );
         *self.is_active.lock().unwrap() = false;
-        self.client
+        self.grpc_client
             .measurement_finished(Request::new(finished))
             .await?;
 
