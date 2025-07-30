@@ -82,6 +82,10 @@ impl fmt::Display for WorkerStatus {
     }
 }
 
+type CliMessage = Result<TaskResult, Status>;
+type CliSender = Sender<CliMessage>;
+type CliHandle = Arc<Mutex<Option<CliSender>>>;
+
 /// Special Receiver struct that notices when the worker disconnects.
 ///
 /// When a worker drops we update the open_measurements such that the orchestrator knows this worker is not participating in any measurements.
@@ -99,7 +103,7 @@ impl fmt::Display for WorkerStatus {
 pub struct WorkerReceiver<T> {
     inner: mpsc::Receiver<T>,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
+    cli_sender: CliHandle,
     hostname: String,
     status: Arc<Mutex<WorkerStatus>>,
 }
@@ -385,7 +389,10 @@ impl Controller for ControllerService {
         let unicast_v6 = worker.unicast_v6;
         println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
-        let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
+        // Get the worker ID, and check if it is a reconnection
+        let (worker_id, is_reconnect) = self
+            .get_worker_id(&hostname)
+            .map_err(|boxed_status| *boxed_status)?;
 
         // Send worker ID
         tx.send(Ok(Task {
@@ -1054,7 +1061,7 @@ impl ControllerService {
     ///
     /// # Errors
     /// Returns an error if the hostname already exists and is used by a connected worker.
-    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Status> {
+    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Box<Status>> {
         {
             let workers = self.workers.lock().unwrap();
             // Check if the hostname already exists in the workers list
@@ -1064,7 +1071,9 @@ impl ControllerService {
                         "[Orchestrator] Refusing worker as the hostname already exists: {}",
                         hostname
                     );
-                    Err(Status::already_exists("This hostname already exists"))
+                    Err(Box::new(Status::already_exists(
+                        "This hostname already exists",
+                    )))
                 } else {
                     // This is a reconnection of a closed worker.
                     println!("[Orchestrator] Worker {} reconnected", hostname);
