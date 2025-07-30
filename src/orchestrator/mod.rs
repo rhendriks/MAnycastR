@@ -30,6 +30,12 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{transport::Server, Request, Response, Status};
 
+type ResultMessage = Result<TaskResult, Status>;
+type CliSender = Sender<ResultMessage>;
+type CliHandle = Arc<Mutex<Option<CliSender>>>;
+
+type TaskMessage = Result<Task, Status>;
+
 /// Struct for the orchestrator service
 ///
 /// # Fields
@@ -46,8 +52,8 @@ use tonic::{transport::Server, Request, Response, Status};
 /// * 'worker_stacks' - a mapping of worker IDs to a stack of addresses that are used for follow-up probes (used for responsive and latency probing)
 #[derive(Debug)]
 pub struct ControllerService {
-    workers: Arc<Mutex<Vec<WorkerSender<Result<Task, Status>>>>>,
-    cli_sender: Arc<Mutex<Option<Sender<Result<TaskResult, Status>>>>>,
+    workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    cli_sender: CliHandle,
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
     m_id: Arc<Mutex<u32>>,
     unique_id: Arc<Mutex<u32>>,
@@ -81,10 +87,6 @@ impl fmt::Display for WorkerStatus {
         write!(f, "{}", s)
     }
 }
-
-type CliMessage = Result<TaskResult, Status>;
-type CliSender = Sender<CliMessage>;
-type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
 /// Special Receiver struct that notices when the worker disconnects.
 ///
