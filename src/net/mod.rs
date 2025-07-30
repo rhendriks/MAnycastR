@@ -371,7 +371,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     }
 
     // If the packet length is odd, add the last byte as a half-word (padded with 0)
-    if packet_len % 2 != 0 {
+    if !packet_len.is_multiple_of(2) {
         sum += u32::from(packet[packet_len - 1]) << 8;
     }
 
