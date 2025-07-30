@@ -17,7 +17,7 @@ use custom_module::manycastr::{
 };
 
 use crate::net::packet::is_in_prefix;
-use crate::worker::inbound::listen;
+use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
@@ -43,7 +43,7 @@ pub struct Worker {
     is_active: Arc<Mutex<bool>>,
     current_m_id: Arc<Mutex<u32>>,
     outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
-    inbound_f: Arc<AtomicBool>,
+    abort_s: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -74,7 +74,7 @@ impl Worker {
             is_active: Arc::new(Mutex::new(false)),
             current_m_id: Arc::new(Mutex::new(0)),
             outbound_tx: None,
-            inbound_f: Arc::new(AtomicBool::new(false)),
+            abort_s: Arc::new(AtomicBool::new(false)),
         };
 
         worker.connect_to_server().await?;
@@ -249,17 +249,22 @@ impl Worker {
             Err(e) => panic!("Failed to create datalink channel: {}", e),
         };
 
+
         // Start listening thread (except if it is a unicast measurement and we are not probing)
         if !is_unicast || is_probing {
-            listen(
-                tx,
-                self.inbound_f.clone(),
+            let config = InboundConfig {
                 m_id,
                 worker_id,
                 is_ipv6,
-                start_measurement.m_type as u8,
+                m_type: start_measurement.m_type as u8,
+                origin_map: rx_origins,
+                abort_s: self.abort_s.clone(),
+            };
+
+            inbound(
+                config,
+                tx,
                 socket_rx,
-                rx_origins,
             );
         }
 
@@ -404,7 +409,7 @@ impl Worker {
                                 "[Worker] Received measurement finished signal from orchestrator"
                             );
                             // Close inbound threads
-                            self.inbound_f.store(true, Ordering::SeqCst);
+                            self.abort_s.store(true, Ordering::SeqCst);
                             // Close outbound threads gracefully
                             if let Some(tx) = self.outbound_tx.take() {
                                 tx.send(Data::End(End { code: 0 })).await.expect(
@@ -415,7 +420,7 @@ impl Worker {
                             println!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
-                            self.inbound_f.store(true, Ordering::SeqCst);
+                            self.abort_s.store(true, Ordering::SeqCst);
                             // finish will be None if this worker is not probing
                             if let Some(abort_s) = &abort_s {
                                 // Close outbound threads
@@ -461,7 +466,7 @@ impl Worker {
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_m_id.lock().unwrap() = m_id;
-                self.inbound_f.store(false, Ordering::SeqCst);
+                self.abort_s.store(false, Ordering::SeqCst);
 
                 if is_probing {
                     // This worker is probing

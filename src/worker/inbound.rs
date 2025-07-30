@@ -11,46 +11,55 @@ use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TX
 use crate::{A_ID, CHAOS_ID};
 use pnet::datalink::DataLinkReceiver;
 
+/// Configuration for an inbound packet listening worker.
+///
+/// This struct holds all the parameters needed to initialize and run a worker
+/// that listens for and processes incoming measurement packets.
+pub struct InboundConfig {
+    /// The unique ID of the measurement.
+    pub m_id: u32,
+
+    /// The unique ID of this specific worker.
+    pub worker_id: u16,
+
+    /// Specifies whether to listen for IPv6 packets (`true`) or IPv4 packets (`false`).
+    pub is_ipv6: bool,
+
+    /// The type of measurement being performed (e.g., ICMP, DNS, TCP).
+    pub m_type: u8,
+
+    /// A map of valid source addresses and port values (`Origin`) to verify incoming packets against.
+    pub origin_map: Vec<Origin>,
+
+    /// A shared signal that can be used to gracefully shut down the worker.
+    pub abort_s: Arc<AtomicBool>,
+}
+
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
 /// Makes sure that the received packets are valid and belong to the current measurement.
 ///
 /// # Arguments
 ///
+/// * 'config' - configuration for the inbound worker thread
+///
 /// * 'tx' - sender to put task results in
 ///
-/// * 'rx_f' - channel that is used to signal the end of the measurement
-///
-/// * 'measurement_id' - the ID of the current measurement
-///
-/// * 'worker_id' - the unique worker ID of this worker
-///
-/// * 'is_ipv6' - whether to parse the packets as IPv6 or IPv4
-///
-/// * 'measurement_type' - the type of measurement being performed
-///
 /// * 'socket_rx' - the socket to listen on
-///
-/// * 'origin_map' - mapping of origin to origin ID
 ///
 /// # Panics
 ///
 /// Panics if the measurement type is invalid
-pub fn listen(
+pub fn inbound(
+    config: InboundConfig,
     tx: UnboundedSender<TaskResult>,
-    rx_f: Arc<AtomicBool>,
-    measurement_id: u32,
-    worker_id: u16,
-    is_ipv6: bool,
-    measurement_type: u8,
     mut socket_rx: Box<dyn DataLinkReceiver>,
-    origin_map: Vec<Origin>,
 ) {
     println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Vec::new()));
     let rq_c = rq.clone();
-    let rx_f_c = rx_f.clone();
+    let rx_f_c = config.abort_s.clone();
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
@@ -70,35 +79,35 @@ pub fn listen(
                     }
                 };
 
-                let result = if measurement_type == 1 {
+                let result = if config.m_type == 1 {
                     // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
-                    if is_ipv6 {
-                        parse_icmpv6(&packet[14..], measurement_id, &origin_map)
+                    if config.is_ipv6 {
+                        parse_icmpv6(&packet[14..], config.m_id, &config.origin_map)
                     } else {
-                        parse_icmpv4(&packet[14..], measurement_id, &origin_map)
+                        parse_icmpv4(&packet[14..], config.m_id, &config.origin_map)
                     }
-                } else if measurement_type == A_ID || measurement_type == CHAOS_ID {
+                } else if config.m_type == A_ID || config.m_type == CHAOS_ID {
                     // DNS A
-                    if is_ipv6 {
+                    if config.is_ipv6 {
                         if packet[20] == 17 {
                             // 17 is the protocol number for UDP
-                            parse_dnsv6(&packet[14..], measurement_type, &origin_map)
+                            parse_dnsv6(&packet[14..], config.m_type, &config.origin_map)
                         } else {
                             None
                         }
                     } else if packet[23] == 17 {
                         // 17 is the protocol number for UDP
-                        parse_dnsv4(&packet[14..], measurement_type, &origin_map)
+                        parse_dnsv4(&packet[14..], config.m_type, &config.origin_map)
                     } else {
                         None
                     }
-                } else if measurement_type == 3 {
+                } else if config.m_type == 3 {
                     // TCP
-                    if is_ipv6 {
-                        parse_tcpv6(&packet[14..], &origin_map)
+                    if config.is_ipv6 {
+                        parse_tcpv6(&packet[14..], &config.origin_map)
                     } else {
-                        parse_tcpv4(&packet[14..], &origin_map)
+                        parse_tcpv4(&packet[14..], &config.origin_map)
                     }
                 } else {
                     panic!("Invalid measurement type");
@@ -128,7 +137,7 @@ pub fn listen(
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
-            handle_results(&tx, rx_f, worker_id, rq);
+            handle_results(&tx, config.abort_s, config.worker_id, rq);
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -157,7 +166,7 @@ fn handle_results(
         // Get the current result queue, and replace it with an empty one
         let rq = {
             let mut guard = rq_sender.lock().unwrap();
-            mem::replace(&mut *guard, Vec::new())
+            mem::take(&mut *guard)
         };
         // Split on discovery and non-discovery replies
         let (discovery_rq, follow_rq): (Vec<_>, Vec<_>) = rq.into_iter().partition(|&(_, b)| b);
