@@ -19,49 +19,40 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
+/// Configuration for the outbound worker thread.
+///
+/// This struct contains all the necessary parameters to configure the outbound worker thread.
+/// It includes the worker ID, the origins for sending probes, the abort signal, whether to
+/// use IPv6, whether to measure latency, the measurement ID, the measurement type,
+/// the query name for DNS measurements, the info URL to encode in the payload,
+/// the network interface name, and the probing rate.
+pub struct OutboundConfig {
+    pub worker_id: u16,
+    pub tx_origins: Vec<Origin>,
+    pub abort_s: Arc<AtomicBool>,
+    pub is_ipv6: bool,
+    pub is_latency: bool,
+    pub m_id: u32,
+    pub m_type: u8,
+    pub qname: String,
+    pub info_url: String,
+    pub if_name: String,
+    pub probing_rate: u32,
+}
+
 /// Spawns thread that sends out ICMP, DNS, or TCP probes.
 ///
 /// # Arguments
 ///
-/// * 'worker_id' - the unique worker ID of this worker
+/// * 'config' - configuration for the outbound worker thread
 ///
-/// * 'tx_origins' - the unique source addresses and port combinations we use for our probes
-///
-/// * 'outbound_channel_rx' - on this channel we receive future tasks that are part of the current measurement
-///
-/// * 'abort_s' - used as signal to abort the ongoing measurement
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
-///
-/// * 'is_latency' - whether we are measuring latency
-///
-/// * 'measurement_id' - the unique ID of the current measurement
-///
-/// * 'measurement_type' - the type of measurement being performed (1 = ICMP, 2 = DNS/A, 3 = TCP, 4 = DNS/CHAOS)
-///
-/// * 'qname' - the domain name to use for DNS measurements
-///
-/// * 'info_url' - URL to encode in payload (e.g., opt-out URL)
-///
-/// * 'if_name' - the name of the network interface to use
+/// * 'outbound_rx' - on this channel we receive future tasks that are part of the current measurement
 ///
 /// * 'socket_tx' - the sender object to send packets
-///
-/// * 'probing_rate' - the rate at which to send packets (in packets per second)
 pub fn outbound(
-    worker_id: u16,
-    tx_origins: Vec<Origin>,
+    config: OutboundConfig,
     mut outbound_rx: Receiver<Data>,
-    abort_s: Arc<AtomicBool>,
-    is_ipv6: bool,
-    is_latency: bool,
-    measurement_id: u32,
-    measurement_type: u8,
-    qname: String,
-    info_url: String,
-    if_name: String,
     mut socket_tx: Box<dyn DataLinkSender>,
-    probing_rate: u32,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
@@ -70,11 +61,11 @@ pub fn outbound(
             let mut sent_discovery = 0;
             let mut failed : u32= 0;
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
-            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(probing_rate * tx_origins.len() as u32).unwrap());
+            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(config.probing_rate * config.tx_origins.len() as u32).unwrap());
 
-            let ethernet_header = get_ethernet_header(is_ipv6, if_name);
+            let ethernet_header = get_ethernet_header(config.is_ipv6, config.if_name);
             'outer: loop {
-                if abort_s.load(std::sync::atomic::Ordering::SeqCst) {
+                if config.abort_s.load(std::sync::atomic::Ordering::SeqCst) {
                     // If the finish_rx is set to true, break the loop (abort)
                     println!("[Worker outbound] ABORTING");
                     break;
@@ -105,12 +96,12 @@ pub fn outbound(
                     Targets(targets) => {
                         let worker_id = if targets.is_discovery == Some(true) {
                             sent_discovery += targets.dst_list.len();
-                            worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET
+                            config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET
                         } else {
-                            worker_id as u32
+                            config.worker_id as u32
                         };
-                        for origin in &tx_origins {
-                            match measurement_type {
+                        for origin in &config.tx_origins {
+                            match config.m_type {
                                 1 => { // ICMP
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
@@ -118,8 +109,8 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            measurement_id,
-                                            &info_url,
+                                            config.m_id,
+                                            &config.info_url,
                                         ));
 
                                         while limiter.check().is_err() { // Rate limit to avoid bursts
@@ -143,8 +134,8 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            measurement_type,
-                                            &qname,
+                                            config.m_type,
+                                            &config.qname,
                                         ));
                                         while limiter.check().is_err() { // Rate limit to avoid bursts
                                             sleep(Duration::from_millis(1));
@@ -166,8 +157,8 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            is_latency,
-                                            &info_url,
+                                            config.is_latency,
+                                            &config.info_url,
                                         ));
 
                                         while limiter.check().is_err() { // Rate limit to avoid bursts

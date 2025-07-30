@@ -18,7 +18,7 @@ use custom_module::manycastr::{
 
 use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::listen;
-use crate::worker::outbound::outbound;
+use crate::worker::outbound::{outbound, OutboundConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
 mod inbound;
@@ -288,22 +288,23 @@ impl Worker {
                 }
                 _ => (),
             }
-            // Start sending thread
-            outbound(
+
+            let config = OutboundConfig {
                 worker_id,
                 tx_origins,
-                outbound_rx.unwrap(),
-                abort_s.unwrap(),
+                abort_s: abort_s.unwrap(),
                 is_ipv6,
                 is_latency,
                 m_id,
-                start_measurement.m_type as u8,
+                m_type: start_measurement.m_type as u8,
                 qname,
                 info_url,
-                interface.name,
-                socket_tx,
+                if_name: interface.name,
                 probing_rate,
-            );
+            };
+
+            // Start sending thread
+            outbound(config, outbound_rx.unwrap(), socket_tx);
         } else {
             println!("[Worker] Not sending probes");
         }

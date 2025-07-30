@@ -1,3 +1,4 @@
+use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
@@ -47,7 +48,7 @@ pub fn listen(
 ) {
     println!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
-    let rq = Arc::new(Mutex::new(Some(Vec::new()))); // TODO can remove some?
+    let rq = Arc::new(Mutex::new(Vec::new()));
     let rq_c = rq.clone();
     let rx_f_c = rx_f.clone();
     Builder::new()
@@ -111,10 +112,8 @@ pub fn listen(
                 // Put result in transmission queue
                 {
                     received += 1;
-                    let mut rq_opt = rq_c.lock().unwrap();
-                    if let Some(ref mut x) = *rq_opt {
-                        x.push(result.unwrap())
-                    }
+                    let mut buffer = rq_c.lock().unwrap();
+                    buffer.push(result.unwrap())
                 }
             }
 
@@ -149,15 +148,17 @@ fn handle_results(
     tx: &UnboundedSender<TaskResult>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
-    rq_sender: Arc<Mutex<Option<Vec<(Reply, bool)>>>>,
+    rq_sender: Arc<Mutex<Vec<(Reply, bool)>>>,
 ) {
     loop {
         // Every second, forward the ping results to the orchestrator
         sleep(Duration::from_secs(1));
 
         // Get the current result queue, and replace it with an empty one
-        let rq = rq_sender.lock().unwrap().replace(Vec::new()).unwrap();
-
+        let rq = {
+            let mut guard = rq_sender.lock().unwrap();
+            mem::replace(&mut *guard, Vec::new())
+        };
         // Split on discovery and non-discovery replies
         let (discovery_rq, follow_rq): (Vec<_>, Vec<_>) = rq.into_iter().partition(|&(_, b)| b);
         let discovery_rq: Vec<Reply> = discovery_rq.into_iter().map(|(r, _)| r).collect();
