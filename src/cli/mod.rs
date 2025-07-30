@@ -344,53 +344,17 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             panic!("No source address or configuration file provided!");
         }
 
+        // TODO implement feed of addresses instead of a hitlist file
+        // format: address,tx -> tx optional to specify from which site to probe
+        // protocol and ports used are pre-configured when starting a live measurement at the CLI
+
         // Get the target IP addresses
         let hitlist_path = matches
             .get_one::<String>("IP_FILE")
-            .expect("No hitlist file provided!");
-        let file = File::open(hitlist_path)
-            .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
-
-        // Create reader based on file extension
-        let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
-            let decoder = GzDecoder::new(file);
-            Box::new(BufReader::new(decoder))
-        } else {
-            Box::new(BufReader::new(file))
-        };
-
-        let mut ips: Vec<Address> = reader // Create a vector of addresses from the file
-            .lines()
-            .map_while(Result::ok) // Handle potential errors
-            .filter(|l| !l.trim().is_empty()) // Skip empty lines
-            .map(Address::from)
-            .collect();
-        let is_ipv6 = ips.first().unwrap().is_v6();
-
-        // Panic if the source IP is not the same type as the addresses
-        if !is_unicast
-            && configurations
-                .first()
-                .expect("Empty configuration list")
-                .origin
-                .expect("No origin found")
-                .src
-                .expect("No source address")
-                .is_v6()
-                != is_ipv6
-        {
-            panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
-        }
-        // Panic if the ips in the hitlist are not all the same type
-        if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
-            panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
-        }
-
-        // Shuffle the hitlist, if desired
+            .unwrap();
         let is_shuffle = matches.get_flag("shuffle");
-        if is_shuffle {
-            ips.as_mut_slice().shuffle(&mut rand::rng());
-        }
+
+        let (ips, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
 
         // CHAOS value to send in the DNS query
         let dns_record = if m_type == CHAOS_ID {
@@ -579,12 +543,81 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Get the hitlist from a file.
+///
+/// # Arguments
+///
+/// * 'hitlist_path' - path to the hitlist file
+///
+/// * 'configurations' - list of configurations to check the source address type
+///
+/// * 'is_unicast' - boolean whether the measurement is unicast or anycast
+///
+/// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
+///
+/// # Returns
+///
+/// * A tuple containing a vector of addresses and a boolean indicating whether the addresses are IPv6 or IPv4.
+///
+/// # Panics
+///
+/// * If the hitlist file cannot be opened.
+///
+/// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
+///
+/// * If the hitlist addresses are of mixed types (v4 and v6).
+fn get_hitlist(hitlist_path: &String, configurations: &Vec<Configuration>, is_unicast: bool, is_shuffle: bool) -> (Vec<Address>, bool) {
+    let file = File::open(hitlist_path)
+        .unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+
+    // Create reader based on file extension
+    let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
+        let decoder = GzDecoder::new(file);
+        Box::new(BufReader::new(decoder))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    let mut ips: Vec<Address> = reader // Create a vector of addresses from the file
+        .lines()
+        .map_while(Result::ok) // Handle potential errors
+        .filter(|l| !l.trim().is_empty()) // Skip empty lines
+        .map(Address::from)
+        .collect();
+    let is_ipv6 = ips.first().unwrap().is_v6();
+
+    // Panic if the source IP is not the same type as the addresses
+    if !is_unicast
+        && configurations
+        .first()
+        .expect("Empty configuration list")
+        .origin
+        .expect("No origin found")
+        .src
+        .expect("No source address")
+        .is_v6()
+        != is_ipv6
+    {
+        panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
+    }
+    // Panic if the ips in the hitlist are not all the same type
+    if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
+        panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
+    }
+
+    // Shuffle the hitlist, if desired
+    if is_shuffle {
+        ips.as_mut_slice().shuffle(&mut rand::rng());
+    }
+    (ips, is_ipv6)
+}
+
 impl CliClient {
     /// Perform a measurement at the orchestrator, await measurement results, and write them to a file.
     ///
     /// # Arguments
     ///
-    /// * 'measurement_definition' - measurement definition created from the command-line arguments
+    /// * 'm_definition' - measurement definition created from the command-line arguments
     ///
     /// * 'is_cli' - boolean whether the results should be streamed to the CLI or not
     ///
@@ -594,13 +627,11 @@ impl CliClient {
     ///
     /// * 'hitlist_length' - length of hitlist (i.e., number of target addresses)
     ///
-    /// * 'configurations' - specifies the source IP and ports to use for each worker
-    ///
     /// * 'path' - optional path for output file (default is current directory)
     ///
     /// * 'is_config' - boolean whether the measurement is configuration-based or not
     ///
-    /// * 'workers' - map of worker IDs to hostnames
+    /// * 'worker_map' - bidirectional map of worker IDs to hostnames
     async fn do_measurement_to_server(
         &mut self,
         m_definition: ScheduleMeasurement,
@@ -1116,7 +1147,6 @@ fn write_results(
                 // Write to command-line
                 if is_cli {
                     if let Some(ref mut writer) = wtr_cli {
-                        // TODO write IP address instead of number
                         writer
                             .write_record(&result)
                             .expect("Failed to write payload to CLI");
