@@ -99,7 +99,7 @@ impl Worker {
         address: String,
         fqdn: Option<&String>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if fqdn.is_some() {
+        let channel = if let Some(fqdn) = fqdn {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -108,9 +108,7 @@ impl Worker {
                 .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
             // Create a TLS configuration
-            let tls = ClientTlsConfig::new()
-                .ca_certificate(ca)
-                .domain_name(fqdn.unwrap());
+            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
 
             let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
             builder

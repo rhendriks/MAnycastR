@@ -266,10 +266,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         panic!("Invalid configuration format: {}", line);
                     }
                     let src = Address::from(addr_ports[0]);
-                    if is_ipv6.is_none() {
+
+                    if let Some(v6) = is_ipv6 {
+                        if v6 != src.is_v6() {
+                            panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
+                        }
+                    } else {
                         is_ipv6 = Some(src.is_v6());
-                    } else if is_ipv6.unwrap() != src.is_v6() {
-                        panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
                     }
 
                     // Parse to u16 first, must fit in header
@@ -967,7 +970,7 @@ impl CliClient {
         address: &str,
         fqdn: Option<&String>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if fqdn.is_some() {
+        let channel = if let Some(fqdn) = fqdn {
             // Secure connection
             let addr = format!("https://{}", address);
 
@@ -976,9 +979,7 @@ impl CliClient {
                 .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
             let ca = Certificate::from_pem(pem);
 
-            let tls = ClientTlsConfig::new()
-                .ca_certificate(ca)
-                .domain_name(fqdn.unwrap());
+            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
 
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
