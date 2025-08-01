@@ -292,7 +292,7 @@ pub fn get_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>)
             args.active_workers
         ));
     }
-    md_file.push("# Connected workers:".to_string());
+    md_file.push(format!("# {} connected workers:", args.all_workers.len()));
     for (_, hostname) in args.all_workers {
         md_file.push(format!("# * {}", hostname))
     }
