@@ -259,16 +259,16 @@ fn get_row(
 /// # Arguments
 ///
 /// Variables describing the measurement
-pub fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
+pub fn get_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>) -> Vec<String> {
     let mut md_file = Vec::new();
     if args.is_divide {
         md_file.push("# Divide-and-conquer measurement".to_string());
     }
     if args.is_latency {
-        md_file.push("# Latency measurement".to_string());
+        md_file.push("# Anycast latency measurement".to_string());
     }
     if args.is_responsive {
-        md_file.push("# Responsive measurement".to_string());
+        md_file.push("# Responsive probing: true".to_string());
     }
     md_file.push(format!("# Origin used: {}", args.origin_str));
     md_file.push(format!(
@@ -281,8 +281,7 @@ pub fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
         "# Probing rate: {}",
         args.probing_rate.with_separator()
     ));
-    md_file.push(format!("# Interval: {}", args.interval));
-    md_file.push(format!("# Start measurement: {}", args.m_start));
+    md_file.push(format!("# Worker interval: {}", args.interval));
     md_file.push(format!(
         "# Expected measurement duration (seconds): {:.6}",
         args.expected_duration
@@ -294,8 +293,8 @@ pub fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
         ));
     }
     md_file.push("# Connected workers:".to_string());
-    for (id, hostname) in args.all_workers {
-        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname))
+    for (_, hostname) in args.all_workers {
+        md_file.push(format!("# * {}", hostname))
     }
 
     // Write configurations used for the measurement
@@ -304,14 +303,17 @@ pub fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
         for configuration in args.configurations {
             let origin = configuration.origin.unwrap();
             let src = origin.src.expect("Invalid source address");
-            let worker_id = if configuration.worker_id == u32::MAX {
+            let hostname = if configuration.worker_id == u32::MAX {
                 "ALL".to_string()
             } else {
-                configuration.worker_id.to_string()
+                worker_map
+                    .get_by_left(&configuration.worker_id)
+                    .unwrap_or(&String::from("Unknown"))
+                    .to_string()
             };
             md_file.push(format!(
-                "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                worker_id, src, origin.sport, origin.dport
+                "# * {:<2}, source IP: {}, source port: {}, destination port: {}",
+                hostname, src, origin.sport, origin.dport
             ));
         }
     }
