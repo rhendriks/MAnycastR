@@ -377,6 +377,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to write results in Parquet format
         let is_parquet = matches.get_flag("parquet");
 
+        if is_cli && is_parquet {
+            panic!("Cannot stream results to CLI and write in Parquet format at the same time!");
+        }
+
         // --latency and --divide send single probes to each address, so no worker interval is needed
         let worker_interval = if is_latency || is_divide {
             0
