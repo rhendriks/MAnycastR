@@ -801,10 +801,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     let higher_bits_mask = !0u32 << 17;
 
     let (tx_id, is_discovery) = if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
-        println!("discovery!");
         (tcp_packet.seq - u16::MAX as u32, true)
     } else {
-        println!("follow-up!");
         (tcp_packet.seq, false)
     };
 
