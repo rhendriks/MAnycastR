@@ -161,9 +161,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 
     // panic if no MAC address was found
     if mac_dst.is_none() {
-        panic!(
-            "No destination MAC address found for interface: {if_name}"
-        );
+        panic!("No destination MAC address found for interface: {if_name}");
     }
 
     // Construct the ethernet header
