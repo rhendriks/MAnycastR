@@ -846,27 +846,32 @@ impl CliClient {
         let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
 
         // Determine the file extension based on the output format
-        let extension = if args.is_parquet {
-            ".parquet"
-        } else {
-            ".csv.gz"
-        };
+        let mut is_parquet = args.is_parquet;
+
+        let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
         // Output file
         let file_path = if let Some(path) = args.out_path {
             if path.ends_with('/') {
-                // user provided a path, use default naming convention for file
+                // User provided a path, use default naming convention for file
                 format!(
                     "{}{}{}{}{}",
                     path, filetype, type_str, timestamp_start_str, extension
                 )
             } else {
-                // user provided a file (with possibly a path)
+                // User provided a file (with possibly a path)
+
+                if path.ends_with(".parquet") {
+                    is_parquet = true; // If the file ends with .parquet, we will write in Parquet format
+                }
                 path.to_string()
             }
         } else {
-            // write file to current directory using default naming convention
-            format!("./{}{}{}{}", filetype, type_str, timestamp_start_str, extension)
+            // Write file to current directory using default naming convention
+            format!(
+                "./{}{}{}{}",
+                filetype, type_str, timestamp_start_str, extension
+            )
         };
 
         // Create the output file
@@ -910,7 +915,7 @@ impl CliClient {
         };
 
         // Start thread that writes results to file
-        if args.is_parquet {
+        if is_parquet {
             write_results_parquet(rx_r, config);
         } else {
             write_results(rx_r, config);
