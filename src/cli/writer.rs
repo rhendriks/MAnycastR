@@ -253,11 +253,30 @@ fn get_row(
 
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
-        // TCP has the 32 least significant bits of the timestamp in milliseconds as tx_time
-        let tx_time = tx_time & 0xFFFFFFFF;
-        // Convert tx_time to nanoseconds
-        let tx_time = tx_time * 1_000_000;
-        (rx_time - tx_time) as f64 / 1_000_000.0
+        // TCP has the 32 least significant bits of the UNIX timestamp in milliseconds as tx_time
+        // convert both timestamps to milliseconds for comparison
+        let rx_time_ms = rx_time / 1_000_000;
+
+        // Get the encoded bits
+        let tx_time_low_32_ms = tx_time & 0xFFFFFFFF;
+
+        // Get the high 32 bits of the rx time
+        let rx_time_high_32_ms = rx_time_ms & 0xFFFFFFFF_00000000;
+
+        // Reconstruct the rx time by combining the high bits of the rx time
+        let mut reconstructed_tx_time_ms = rx_time_high_32_ms | tx_time_low_32_ms;
+
+        // check for rollover (i.e., the most significant 32 bits rolled over)
+        if reconstructed_tx_time_ms > rx_time_ms {
+            // Subtract 2^32 milliseconds to correct this.
+            reconstructed_tx_time_ms -= 1 << 32;
+        }
+
+        // Calculate the difference
+        let rtt_ms = rx_time_ms.saturating_sub(reconstructed_tx_time_ms);
+
+        // The result of the subtraction is already in milliseconds.
+        rtt_ms as f64
     } else {
         (rx_time - tx_time) as f64 / 1_000_000.0
     }
