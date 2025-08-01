@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::custom_module::Separated;
 use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
-use crate::{A_ID, CHAOS_ID};
+use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
 
 /// Configuration for an inbound packet listening worker.
@@ -79,7 +79,7 @@ pub fn inbound(
                     }
                 };
 
-                let result = if config.m_type == 1 {
+                let result = if config.m_type == ICMP_ID {
                     // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
                     if config.is_ipv6 {
@@ -102,7 +102,7 @@ pub fn inbound(
                     } else {
                         None
                     }
-                } else if config.m_type == 3 {
+                } else if config.m_type == TCP_ID {
                     // TCP
                     if config.is_ipv6 {
                         parse_tcpv6(&packet[14..], &config.origin_map)
@@ -856,7 +856,11 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 
     let origin_id = get_origin_id_v6(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
-    let (tx_id, is_discovery) = if tcp_packet.seq > u16::MAX as u32 {
+    // Discovery probes have bit 16 set and higher bits unset
+    let bit_16_mask = 1 << 16;
+    let higher_bits_mask = !0u32 << 17;
+
+    let (tx_id, is_discovery) = if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
         (tcp_packet.seq - u16::MAX as u32, true)
     } else {
         (tcp_packet.seq, false)
