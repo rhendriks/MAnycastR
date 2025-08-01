@@ -1159,10 +1159,10 @@ async fn task_sender(
                                 tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                             }
                         });
-
-                        // Wait inter-client probing interval
-                        tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                     });
+
+                    // Wait inter-client probing interval
+                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                 }
             }
         } else {
