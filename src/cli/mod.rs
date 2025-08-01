@@ -717,7 +717,7 @@ impl CliClient {
         };
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> = if m_definition
+        let probing_workers: Vec<String> = if m_definition
             .configurations
             .iter()
             .any(|config| config.worker_id == u32::MAX)
@@ -728,10 +728,20 @@ impl CliClient {
             m_definition
                 .configurations
                 .iter()
-                .map(|config| config.worker_id)
-                .collect::<HashSet<u32>>() // Get unique worker IDs
+                .map(|config| {
+                    args.worker_map
+                        .get_by_left(&config.worker_id)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Worker ID {} is not a connected worker!",
+                                config.worker_id
+                            )
+                        })
+                        .clone()
+                })
+                .collect::<HashSet<String>>() // Use HashSet to ensure uniqueness
                 .into_iter()
-                .collect::<Vec<u32>>()
+                .collect::<Vec<String>>()
         };
 
         let number_of_probers = if probing_workers.is_empty() {
@@ -859,8 +869,6 @@ impl CliClient {
             m_type_str: type_str,
             probing_rate: probing_rate as u32,
             interval: worker_interval,
-            m_start: timestamp_start_str,
-            expected_duration: m_time,
             active_workers: probing_workers,
             all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
