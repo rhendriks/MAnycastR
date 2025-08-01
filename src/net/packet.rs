@@ -316,10 +316,10 @@ pub fn create_tcp(
     info_url: &str,
 ) -> Vec<u8> {
     let ack = if !is_latency || worker_id > u16::MAX as u32 {
-        // catchment mapping (or discovery probe for latency measurement)
+        // Catchment mapping (or discovery probe for latency measurement)
         worker_id
     } else {
-        // latency measurement
+        // Latency measurement
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
