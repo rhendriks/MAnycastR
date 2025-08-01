@@ -292,7 +292,7 @@ impl Worker {
                 tx_origins,
                 abort_s: abort_s.unwrap(),
                 is_ipv6,
-                is_latency,
+                is_symmetric: is_latency || is_unicast,
                 m_id,
                 m_type: start_measurement.m_type as u8,
                 qname,

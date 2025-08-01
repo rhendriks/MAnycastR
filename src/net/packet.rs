@@ -301,7 +301,7 @@ pub fn create_dns(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'is_latency' - whether we are measuring latency
+/// * 'is_symmetric' - whether we are measuring latency
 ///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
@@ -312,10 +312,10 @@ pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    is_latency: bool,
+    is_symmetric: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let ack = if !is_latency || worker_id > u16::MAX as u32 {
+    let ack = if !is_symmetric || worker_id > u16::MAX as u32 {
         // Catchment mapping (or discovery probe for latency measurement)
         worker_id
     } else {

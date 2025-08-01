@@ -40,7 +40,7 @@ pub struct OutboundConfig {
     pub is_ipv6: bool,
 
     /// Indicates if this is a latency measurement.
-    pub is_latency: bool,
+    pub is_symmetric: bool,
 
     /// The unique ID of the measurement.
     pub m_id: u32,
@@ -178,7 +178,7 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            config.is_latency,
+                                            config.is_symmetric,
                                             &config.info_url,
                                         ));
 
