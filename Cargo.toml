@@ -25,6 +25,7 @@ flate2 = "1.1.2" # compression
 bimap = "0.6.3"
 tonic-prost = "0.14.0"
 parquet = { version = "55.2.0", features = ["snap"]}
+serde_json = "1.0.142"
 
 [build-dependencies]
 tonic-prost-build = "0.14.0"
