@@ -260,9 +260,9 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
         let rx_time_adj = rx_time_ms & 0xFFFFFFFF_00000000;
 
         // Calculate the RTT in milliseconds
-        (tx_time - rx_time_adj) as f64
+        (rx_time_adj - tx_time) as f64
     } else {
-        (tx_time - rx_time) as f64 / 1_000_000.0
+        (rx_time - tx_time) as f64 / 1_000_000.0
     }
 }
 
