@@ -893,8 +893,8 @@ fn get_origin_id_v4(
 ) -> Option<u32> {
     for origin in origin_map {
         if origin.src.unwrap().get_v4() == reply_dst
-            && origin.sport == reply_dport.into()
-            && origin.dport == reply_sport.into()
+            && origin.sport as u16 == reply_dport
+            && origin.dport as u16 == reply_sport
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v4() == reply_dst && 0 == reply_sport && 0 == reply_dport
@@ -929,8 +929,8 @@ fn get_origin_id_v6(
 ) -> Option<u32> {
     for origin in origin_map {
         if origin.src.unwrap().get_v6() == reply_dst
-            && origin.sport == reply_dport.into()
-            && origin.dport == reply_sport.into()
+            && origin.sport as u16 == reply_dport
+            && origin.dport as u16 == reply_sport
         {
             return Some(origin.origin_id);
         } else if origin.src.unwrap().get_v6() == reply_dst && 0 == reply_sport && 0 == reply_dport

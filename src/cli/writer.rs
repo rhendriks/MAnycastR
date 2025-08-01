@@ -26,13 +26,13 @@ use crate::{custom_module, CHAOS_ID, TCP_ID};
 /// This struct bundles all the necessary parameters for `write_results`
 /// to determine where and how to output measurement results,
 /// including formatting options and contextual metadata.
-pub struct WriteConfig {
+pub struct WriteConfig<'a> {
     /// Determines whether the results should also be printed to the command-line interface.
     pub print_to_cli: bool,
     /// The file handle to which the measurement results should be written.
     pub output_file: File,
     /// Metadata for the measurement, to be written at the beginning of the output file.
-    pub metadata_lines: Vec<String>,
+    pub metadata_args: MetadataArgs<'a>,
     /// The type of measurement being performed, influencing how results are processed or formatted.
     /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
     pub m_type: u32,
@@ -95,7 +95,8 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
 
     // Write metadata to file
-    for line in &config.metadata_lines {
+    let md_lines = get_csv_metadata(config.metadata_args, &config.worker_map);
+    for line in md_lines {
         if let Err(e) = writeln!(gz_encoder, "{}", line) {
             eprintln!("Failed to write metadata line to Gzip stream: {}", e);
         }
@@ -255,16 +256,14 @@ fn get_row(
 /// # Arguments
 ///
 /// Variables describing the measurement
-pub fn get_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>) -> Vec<String> {
+pub fn get_csv_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>) -> Vec<String> {
     let mut md_file = Vec::new();
     if args.is_divide {
-        md_file.push("# Divide-and-conquer measurement".to_string());
-    }
-    if args.is_latency {
-        md_file.push("# Anycast latency measurement".to_string());
-    }
-    if args.is_responsive {
-        md_file.push("# Responsive probing: true".to_string());
+        md_file.push("# Measurement style: Divide-and-conquer".to_string());
+    } else if args.is_latency {
+        md_file.push("# Measurement style: Anycast latency".to_string());
+    } else if args.is_responsive {
+        md_file.push("# Measurement style: Responsive-mode".to_string());
     }
     md_file.push(format!("# Origin used: {}", args.origin_str));
     md_file.push(format!(
@@ -313,6 +312,66 @@ pub fn get_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>)
     md_file
 }
 
+/// Returns a vector of key-value pairs containing the metadata of the measurement.
+pub fn get_parquet_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>) -> Vec<(String, String)> {
+    let mut md = Vec::new();
+
+    if args.is_divide { md.push(("measurement_style".to_string(), "Divide-and-conquer".to_string())); }
+    if args.is_latency { md.push(("measurement_style".to_string(), "Anycast-latency".to_string())); }
+    if args.is_responsive { md.push(("measurement_style".to_string(), "Responsive-mode".to_string())); }
+
+    md.push(("origin_used".to_string(), args.origin_str));
+    md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
+    md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
+    md.push(("measurement_type".to_string(), args.m_type_str));
+    // Store numbers without separators for easier parsing later
+    md.push(("probing_rate_pps".to_string(), args.probing_rate.to_string()));
+    md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
+
+    // Store active workers as a JSON string
+    if !args.active_workers.is_empty() {
+        md.push((
+            "selective_probing_worker_ids".to_string(),
+            serde_json::to_string(&args.active_workers).unwrap_or_default(),
+        ));
+    }
+
+    let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();
+    md.push((
+        "connected_workers".to_string(),
+        serde_json::to_string(&worker_hostnames).unwrap_or_default(),
+    ));
+    md.push(("connected_workers_count".to_string(), args.all_workers.len().to_string()));
+
+    if args.is_config && !args.configurations.is_empty() {
+        let config_str = args
+            .configurations
+            .iter()
+            .map(|c| {
+                format!(
+                    "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
+                    if c.worker_id == u32::MAX { "ALL".to_string() } else {
+                        worker_map
+                            .get_by_left(&c.worker_id)
+                            .unwrap_or(&String::from("Unknown"))
+                            .to_string()
+                    },
+                    c.origin.as_ref().and_then(|o| o.src).map_or("N/A".to_string(), |s| s.to_string()),
+                    c.origin.as_ref().map_or(0, |o| o.sport),
+                    c.origin.as_ref().map_or(0, |o| o.dport)
+                )
+            })
+            .collect::<Vec<_>>();
+
+        md.push((
+            "configurations".to_string(),
+            serde_json::to_string(&config_str).unwrap_or_default(),
+        ));
+    }
+
+    md
+}
+
 const BATCH_SIZE: usize = 1024;
 
 /// Represents a row of data in the Parquet file format.
@@ -352,21 +411,22 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
     let schema = build_parquet_schema(config.m_type, config.is_multi_origin, config.is_symmetric);
 
     // Convert metadata Vec<String> to Parquet's KeyValue format
-    let metadata_lines = config.metadata_lines;
-    println!("{:#?}", metadata_lines); // TODO
-    let key_value_metadata = metadata_lines.into_iter().map(|line| {
-        let parts: Vec<&str> = line.trim_start_matches('#').trim().splitn(2, ':').collect();
-        let key = parts.get(0).unwrap_or(&"").to_string();
-        let value = parts.get(1).map(|s| s.trim().to_string());
-        parquet::format::KeyValue::new(key, value.unwrap_or_default())
-    }).collect();
+    let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
 
     // Configure writer properties, including compression and metadata
+    let key_value_metadata: Vec<parquet::file::metadata::KeyValue> = key_value_tuples
+        .into_iter()
+        .map(|(key, value)| {
+            parquet::file::metadata::KeyValue::new(key, value)
+        })
+        .collect();
+
     let props = Arc::new(
         WriterProperties::builder()
             .set_compression(ParquetCompression::SNAPPY)
-            .set_key_value_metadata(Some(key_value_metadata))
-            .build());
+            .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
+            .build(),
+    );
 
     let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props).expect("Failed to create parquet writer");
 

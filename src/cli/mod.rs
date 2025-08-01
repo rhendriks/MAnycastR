@@ -29,7 +29,7 @@ use custom_module::manycastr::{
 };
 use custom_module::Separated;
 
-use crate::cli::writer::{get_metadata, write_results_parquet};
+use crate::cli::writer::{get_csv_metadata, write_results_parquet};
 use crate::cli::writer::write_results;
 use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
@@ -724,7 +724,7 @@ impl CliClient {
         {
             Vec::new() // all workers are probing
         } else {
-            // Get list of unique worker IDs that are probing
+            // Get list of unique worker hostnames that are probing
             m_definition
                 .configurations
                 .iter()
@@ -877,8 +877,6 @@ impl CliClient {
             is_responsive,
         };
 
-        let md_file = get_metadata(metadata_args, &args.worker_map);
-
         let is_multi_origin = if is_unicast {
             false
         } else {
@@ -893,11 +891,11 @@ impl CliClient {
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
-            metadata_lines: md_file,
+            metadata_args,
             m_type,
             is_multi_origin,
             is_symmetric: is_unicast || is_latency,
-            worker_map: args.worker_map,
+            worker_map: args.worker_map.clone(),
         };
 
         // Start thread that writes results to file
