@@ -1286,9 +1286,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 /// Panics if the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.
 fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<String, u32>>) {
     if !Path::new(config_path).exists() {
-        panic!(
-            "[Orchestrator] Configuration file {config_path} not found!"
-        );
+        panic!("[Orchestrator] Configuration file {config_path} not found!");
     }
 
     let config_content = fs::read_to_string(config_path)

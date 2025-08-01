@@ -207,9 +207,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             // Try to find the hostname in the map
                             Some(found_id)
                         } else {
-                            panic!(
-                                "'{entry_str}' is not a valid worker ID or known hostname."
-                            );
+                            panic!("'{entry_str}' is not a valid worker ID or known hostname.");
                         }
                     })
                     .collect()
@@ -523,9 +521,7 @@ fn validate_path_perms(path: Option<&String>) -> Option<Result<(), Box<dyn Error
                     println!("[CLI] Lacking write permissions for file {path_str}");
                     return Some(Err("Lacking write permissions".into()));
                 } else {
-                    println!(
-                        "[CLI] Overwriting existing file {path_str} when measurement is done"
-                    );
+                    println!("[CLI] Overwriting existing file {path_str} when measurement is done");
                 }
             } else {
                 println!("[CLI] Writing results to new file {path_str}");
@@ -773,9 +769,7 @@ impl CliClient {
         if is_divide {
             println!("[CLI] Divide-and-conquer enabled");
         }
-        println!(
-            "[CLI] This measurement will take an estimated {m_time:.2} minutes"
-        );
+        println!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self
             .grpc_client
@@ -860,9 +854,7 @@ impl CliClient {
         let file_path = if let Some(path) = args.out_path {
             if path.ends_with('/') {
                 // User provided a path, use default naming convention for file
-                format!(
-                    "{path}{filetype}{type_str}{timestamp_start_str}{extension}"
-                )
+                format!("{path}{filetype}{type_str}{timestamp_start_str}{extension}")
             } else {
                 // User provided a file (with possibly a path)
 
@@ -873,9 +865,7 @@ impl CliClient {
             }
         } else {
             // Write file to current directory using default naming convention
-            format!(
-                "./{filetype}{type_str}{timestamp_start_str}{extension}"
-            )
+            format!("./{filetype}{type_str}{timestamp_start_str}{extension}")
         };
 
         // Create the output file
