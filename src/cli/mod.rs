@@ -165,6 +165,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
         };
 
+        // TODO TCP and --latency are currently broken
+        if is_latency && m_type == TCP_ID {
+            panic!("TCP measurements are not supported in latency mode!");
+        }
+
         // Temporarily broken
         if is_responsive && is_unicast && m_type == TCP_ID {
             panic!("Responsive mode not supported for unicast TCP measurements");
