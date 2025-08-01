@@ -62,12 +62,8 @@ pub struct MetadataArgs<'a> {
     pub probing_rate: u32,
     /// The interval between subsequent workers.
     pub interval: u32,
-    /// Start of measurement.
-    pub m_start: String,
-    /// Expected duration of the measurement in seconds.
-    pub expected_duration: f32,
-    /// Workers selected to probe.
-    pub active_workers: Vec<u32>,
+    /// Hostnames of the workers selected to probe.
+    pub active_workers: Vec<String>,
     /// A bidirectional map of all possible worker IDs to their hostnames.
     pub all_workers: &'a BiHashMap<u32, String>,
     /// Optional configuration file used.
@@ -282,10 +278,6 @@ pub fn get_metadata(args: MetadataArgs<'_>, worker_map: &BiHashMap<u32, String>)
         args.probing_rate.with_separator()
     ));
     md_file.push(format!("# Worker interval: {}", args.interval));
-    md_file.push(format!(
-        "# Expected measurement duration (seconds): {:.6}",
-        args.expected_duration
-    ));
     if !args.active_workers.is_empty() {
         md_file.push(format!(
             "# Selective probing using the following workers: {:?}",
