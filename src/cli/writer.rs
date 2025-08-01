@@ -453,7 +453,7 @@ struct ParquetDataRow {
 pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
     let schema = build_parquet_schema(config.m_type, config.is_multi_origin, config.is_symmetric);
 
-    // Convert metadata Vec<String> to Parquet's KeyValue format
+    // Get metadata key-value pairs for the Parquet file
     let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
 
     // Configure writer properties, including compression and metadata
@@ -472,7 +472,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
     let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props)
         .expect("Failed to create parquet writer");
 
-    // We need the headers to maintain column order during writing
+    // Get the appropriate header for the Parquet file based on the measurement type and configuration
     let headers = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
 
     tokio::spawn(async move {
