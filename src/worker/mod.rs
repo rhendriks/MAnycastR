@@ -101,7 +101,7 @@ impl Worker {
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if let Some(fqdn) = fqdn {
             // Secure connection
-            let addr = format!("https://{}", address);
+            let addr = format!("https://{address}");
 
             // Load the CA certificate used to authenticate the orchestrator
             let pem = std::fs::read_to_string("tls/orchestrator.crt")
