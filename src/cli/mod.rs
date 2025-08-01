@@ -29,8 +29,8 @@ use custom_module::manycastr::{
 };
 use custom_module::Separated;
 
-use crate::cli::writer::{get_csv_metadata, write_results_parquet};
 use crate::cli::writer::write_results;
+use crate::cli::writer::write_results_parquet;
 use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
@@ -374,6 +374,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Check for command-line option that determines whether to stream to CLI
         let is_cli = matches.get_flag("stream");
 
+        // Check for command-line option that determines whether to write results in Parquet format
+        let is_parquet = matches.get_flag("parquet");
+
         // --latency and --divide send single probes to each address, so no worker interval is needed
         let worker_interval = if is_latency || is_divide {
             0
@@ -477,6 +480,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let args = MeasurementExecutionArgs {
             is_cli,
+            is_parquet,
             is_shuffle,
             hitlist_path,
             hitlist_length,
@@ -633,6 +637,9 @@ pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
     pub is_cli: bool,
 
+    /// Indicates whether the results should be written in Parquet format (default: .csv.gz).
+    pub is_parquet: bool,
+
     /// Specifies whether the list of targets should be shuffled before the measurement begins.
     pub is_shuffle: bool,
 
@@ -732,10 +739,7 @@ impl CliClient {
                     args.worker_map
                         .get_by_left(&config.worker_id)
                         .unwrap_or_else(|| {
-                            panic!(
-                                "Worker ID {} is not a connected worker!",
-                                config.worker_id
-                            )
+                            panic!("Worker ID {} is not a connected worker!", config.worker_id)
                         })
                         .clone()
                 })
@@ -899,8 +903,11 @@ impl CliClient {
         };
 
         // Start thread that writes results to file
-        write_results_parquet(rx_r, config);
-        // write_results(rx_r, config);
+        if args.is_parquet {
+            write_results_parquet(rx_r, config);
+        } else {
+            write_results(rx_r, config);
+        }
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
