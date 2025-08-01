@@ -556,6 +556,7 @@ fn write_batch_to_parquet(
                 }
                 _ => {},
             }
+            col_writer.close()?;
         }
     }
     row_group_writer.close()?;
