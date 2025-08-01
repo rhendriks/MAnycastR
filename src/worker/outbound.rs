@@ -40,7 +40,7 @@ pub struct OutboundConfig {
     pub is_ipv6: bool,
 
     /// Indicates if this is a latency measurement.
-    pub is_latency: bool,
+    pub is_symmetric: bool,
 
     /// The unique ID of the measurement.
     pub m_id: u32,
@@ -141,7 +141,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send ICMP packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send ICMP packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
@@ -164,7 +164,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send DNS packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send DNS packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
@@ -178,7 +178,7 @@ pub fn outbound(
                                             origin,
                                             dst,
                                             worker_id,
-                                            config.is_latency,
+                                            config.is_symmetric,
                                             &config.info_url,
                                         ));
 
@@ -189,7 +189,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send TCP packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send TCP packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),

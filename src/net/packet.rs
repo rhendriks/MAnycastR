@@ -11,17 +11,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
     let file = File::open("/proc/net/route")
-        .map_err(|e| format!("Failed to open /proc/net/route: {}", e))?;
+        .map_err(|e| format!("Failed to open /proc/net/route: {e}"))?;
     let reader = BufReader::new(file);
 
     for line in reader.lines().skip(1) {
-        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        let line = line.map_err(|e| format!("Failed to read line: {e}"))?;
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() >= 3 && fields[1] == "00000000" {
             // Gateway is in hex, little-endian
             let hex = fields[2];
             if hex.len() != 8 {
-                return Err(format!("Invalid gateway hex: {}", hex));
+                return Err(format!("Invalid gateway hex: {hex}"));
             }
 
             let bytes: Vec<u8> = (0..4)
@@ -42,7 +42,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
-        .map_err(|e| format!("Failed to execute 'route -n get default': {}", e))?;
+        .map_err(|e| format!("Failed to execute 'route -n get default': {e}"))?;
 
     if !output.status.success() {
         return Err(format!(
@@ -74,7 +74,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
-        .unwrap_or_else(|_| panic!("No MAC address found for interface: {}", if_name))
+        .unwrap_or_else(|_| panic!("No MAC address found for interface: {if_name}"))
         .unwrap()
         .bytes()
         .to_vec();
@@ -92,7 +92,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
         let output = std::process::Command::new("arp")
             .arg("-an")
             .output()
-            .map_err(|e| format!("Failed to run arp command on FreeBSD: {}", e))
+            .map_err(|e| format!("Failed to run arp command on FreeBSD: {e}"))
             .unwrap();
 
         if !output.status.success() {
@@ -103,7 +103,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
         stdout.lines().map(|s| s.to_string()).collect()
     } else {
         let file = File::open("/proc/net/arp")
-            .map_err(|e| format!("Failed to open /proc/net/arp: {}", e))
+            .map_err(|e| format!("Failed to open /proc/net/arp: {e}"))
             .unwrap();
         let reader = BufReader::new(file);
 
@@ -161,10 +161,7 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 
     // panic if no MAC address was found
     if mac_dst.is_none() {
-        panic!(
-            "No destination MAC address found for interface: {}",
-            if_name
-        );
+        panic!("No destination MAC address found for interface: {if_name}");
     }
 
     // Construct the ethernet header
@@ -301,7 +298,7 @@ pub fn create_dns(
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
-/// * 'is_latency' - whether we are measuring latency
+/// * 'is_symmetric' - whether we are measuring latency
 ///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
@@ -312,14 +309,14 @@ pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    is_latency: bool,
+    is_symmetric: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let ack = if !is_latency || worker_id > u16::MAX as u32 {
-        // catchment mapping (or discovery probe for latency measurement)
+    let ack = if !is_symmetric || worker_id > u16::MAX as u32 {
+        // Catchment mapping (or discovery probe for latency measurement)
         worker_id
     } else {
-        // latency measurement
+        // Latency measurement
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
