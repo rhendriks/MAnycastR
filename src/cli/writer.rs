@@ -126,7 +126,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
                 let result = get_row(
                     result,
                     task_result.worker_id,
-                    config.m_type,
+                    config.m_type as u8,
                     config.is_symmetric,
                     config.worker_map.clone(),
                 );
@@ -202,7 +202,7 @@ pub fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec
 fn get_row(
     result: Reply,
     rx_worker_id: u32,
-    m_type: u32,
+    m_type: u8,
     is_symmetric: bool,
     worker_map: BiHashMap<u32, String>,
 ) -> Vec<String> {
@@ -223,7 +223,7 @@ fn get_row(
     let mut row = if is_symmetric {
         let rtt = format!(
             "{:.2}",
-            (result.rx_time - result.tx_time) as f64 / 1_000_000.0
+            calculate_rtt(result.rx_time, result.tx_time, m_type == TCP_ID)
         );
         vec![rx_hostname, reply_src, ttl, rtt]
     } else {
@@ -233,7 +233,7 @@ fn get_row(
             .to_string();
 
         // TCP anycast does not have tx_time
-        if m_type == TCP_ID as u32 {
+        if m_type == TCP_ID {
             vec![rx_hostname, rx_time, reply_src, ttl, tx_hostname]
         } else {
             vec![rx_hostname, rx_time, reply_src, ttl, tx_time, tx_hostname]
@@ -249,6 +249,18 @@ fn get_row(
     }
 
     row
+}
+
+pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
+    if is_tcp {
+        // TCP has the 32 least significant bits of the timestamp in milliseconds as tx_time
+        let tx_time = tx_time & 0xFFFFFFFF;
+        // Convert tx_time to nanoseconds
+        let tx_time = tx_time * 1_000_000;
+        (rx_time - tx_time) as f64 / 1_000_000.0
+    } else {
+        (rx_time - tx_time) as f64 / 1_000_000.0
+    }
 }
 
 /// Returns a vector of lines containing the metadata of the measurement
@@ -579,7 +591,11 @@ fn reply_to_parquet_row(
     };
 
     if is_symmetric {
-        row.rtt = Some((result.rx_time - result.tx_time) as f64 / 1_000_000.0);
+        row.rtt = Some(calculate_rtt(
+            result.rx_time,
+            result.tx_time,
+            m_type == TCP_ID,
+        ));
         row.rx_time = None;
         row.tx_time = None;
     } else {

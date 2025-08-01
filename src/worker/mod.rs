@@ -122,7 +122,7 @@ impl Worker {
                 .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
-            let addr = format!("http://{}", address);
+            let addr = format!("http://{address}");
 
             Channel::from_shared(addr.to_owned())
                 .expect("Unable to set address")
@@ -201,7 +201,7 @@ impl Worker {
             // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin];
 
-            println!("[Worker] Using local unicast IP address: {}", unicast_ip);
+            println!("[Worker] Using local unicast IP address: {unicast_ip}");
             // Use the local unicast address
             vec![unicast_origin]
         } else {
@@ -244,7 +244,7 @@ impl Worker {
         let (socket_tx, socket_rx) = match datalink::channel(&interface, Default::default()) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),
-            Err(e) => panic!("Failed to create datalink channel: {}", e),
+            Err(e) => panic!("Failed to create datalink channel: {e}"),
         };
 
         // Start listening thread (except if it is a unicast measurement and we are not probing)
@@ -377,8 +377,7 @@ impl Worker {
             .expect("Unable to receive worker ID");
         let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
         println!(
-            "[Worker] Successfully connected with the orchestrator with worker_id: {}",
-            worker_id
+            "[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}"
         );
 
         // Await tasks
