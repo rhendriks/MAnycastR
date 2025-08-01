@@ -800,11 +800,12 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     let bit_16_mask = 1 << 16;
     let higher_bits_mask = !0u32 << 17;
 
-    let (tx_id, is_discovery) = if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
-        (tcp_packet.seq - u16::MAX as u32, true)
-    } else {
-        (tcp_packet.seq, false)
-    };
+    let (tx_id, is_discovery) =
+        if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
+            (tcp_packet.seq - u16::MAX as u32, true)
+        } else {
+            (tcp_packet.seq, false)
+        };
 
     Some((
         Reply {
@@ -858,11 +859,12 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     let bit_16_mask = 1 << 16;
     let higher_bits_mask = !0u32 << 17;
 
-    let (tx_id, is_discovery) = if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
-        (tcp_packet.seq - u16::MAX as u32, true)
-    } else {
-        (tcp_packet.seq, false)
-    };
+    let (tx_id, is_discovery) =
+        if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
+            (tcp_packet.seq - u16::MAX as u32, true)
+        } else {
+            (tcp_packet.seq, false)
+        };
 
     Some((
         Reply {
