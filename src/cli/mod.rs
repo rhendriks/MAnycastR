@@ -1,37 +1,37 @@
+mod writer;
+
 use std::collections::HashSet;
 use std::error::Error;
+use std::fs;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::{fs, io};
 
 use bimap::BiHashMap;
 use chrono::Local;
 use clap::ArgMatches;
-use csv::Writer;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::{color, format, row, Attr, Cell, Row, Table};
 use rand::seq::SliceRandom;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::unbounded_channel;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use std::io::BufWriter;
-
 use custom_module::manycastr::{
-    controller_client::ControllerClient, Address, Configuration, Empty, Origin, Reply,
+    controller_client::ControllerClient, Address, Configuration, Empty, Origin,
     ScheduleMeasurement, Targets, TaskResult,
 };
 use custom_module::Separated;
 
+use crate::cli::writer::write_results;
+use crate::cli::writer::write_results_parquet;
+use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
@@ -50,7 +50,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let fqdn = args.get_one::<String>("tls");
 
     // Connect with orchestrator
-    println!("[CLI] Connecting to orchestrator - {}", server_address);
+    println!("[CLI] Connecting to orchestrator - {server_address}");
     let mut grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator")
@@ -118,7 +118,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         table.printstd();
-        println!("[CLI] Total connected workers: {}", connected_workers);
+        println!("[CLI] Total connected workers: {connected_workers}");
 
         Ok(())
     } else if let Some(matches) = args.subcommand_matches("start") {
@@ -165,6 +165,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
         };
 
+        // TODO TCP and --latency are currently broken
+        if is_latency && m_type == TCP_ID {
+            panic!("TCP measurements are not supported in latency mode!");
+        }
+
         // Temporarily broken
         if is_responsive && is_unicast && m_type == TCP_ID {
             panic!("Responsive mode not supported for unicast TCP measurements");
@@ -196,16 +201,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             if worker_map.contains_left(&id_val) {
                                 Some(id_val)
                             } else {
-                                panic!("Worker ID '{}' is not a known worker.", entry_str);
+                                panic!("Worker ID '{entry_str}' is not a known worker.");
                             }
                         } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
                             // Try to find the hostname in the map
                             Some(found_id)
                         } else {
-                            panic!(
-                                "'{}' is not a valid worker ID or known hostname.",
-                                entry_str
-                            );
+                            panic!("'{entry_str}' is not a valid worker ID or known hostname.");
                         }
                     })
                     .collect()
@@ -217,18 +219,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Selective probing using the following workers:");
             sender_ids.iter().for_each(|id| {
                 let hostname = worker_map.get_by_left(id).unwrap_or_else(|| {
-                    panic!("Worker ID {} is not a connected worker!", id);
+                    panic!("Worker ID {id} is not a connected worker!");
                 });
-                println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
+                println!("[CLI]\t * ID: {id}, Hostname: {hostname}");
             });
         }
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if is_config {
             let conf_file = matches.get_one::<String>("configuration").unwrap();
-            println!("[CLI] Using configuration file: {}", conf_file);
+            println!("[CLI] Using configuration file: {conf_file}");
             let file = File::open(conf_file)
-                .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
+                .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
             let buf_reader = BufReader::new(file);
             let mut origin_id = 0;
             let mut is_ipv6: Option<bool> = None;
@@ -243,7 +245,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     let parts: Vec<&str> = line.splitn(2, " - ").map(|s| s.trim()).collect();
                     if parts.len() != 2 {
-                        panic!("Invalid configuration format: {}", line);
+                        panic!("Invalid configuration format: {line}");
                     }
 
                     // Parse the worker ID
@@ -251,7 +253,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         u32::MAX
                     } else if let Ok(id_val) = parts[0].parse::<u32>() {
                         if !worker_map.contains_left(&id_val) {
-                            panic!("Worker ID {} is not a known worker.", id_val);
+                            panic!("Worker ID {id_val} is not a known worker.");
                         }
                         id_val
                     } else if let Some(&found_id) = worker_map.get_by_right(parts[0]) {
@@ -263,7 +265,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
-                        panic!("Invalid configuration format: {}", line);
+                        panic!("Invalid configuration format: {line}");
                     }
                     let src = Address::from(addr_ports[0]);
 
@@ -295,7 +297,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 })
                 .collect();
             if configurations.is_empty() {
-                panic!("No valid configurations found in file {}", conf_file);
+                panic!("No valid configurations found in file {conf_file}");
             }
 
             configurations
@@ -373,6 +375,13 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Check for command-line option that determines whether to stream to CLI
         let is_cli = matches.get_flag("stream");
+
+        // Check for command-line option that determines whether to write results in Parquet format
+        let is_parquet = matches.get_flag("parquet");
+
+        if is_cli && is_parquet {
+            panic!("Cannot stream results to CLI and write in Parquet format at the same time!");
+        }
 
         // --latency and --divide send single probes to each address, so no worker interval is needed
         let worker_interval = if is_latency || is_divide {
@@ -477,6 +486,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         let args = MeasurementExecutionArgs {
             is_cli,
+            is_parquet,
             is_shuffle,
             hitlist_path,
             hitlist_length,
@@ -508,16 +518,13 @@ fn validate_path_perms(path: Option<&String>) -> Option<Result<(), Box<dyn Error
                     .permissions()
                     .readonly()
                 {
-                    println!("[CLI] Lacking write permissions for file {}", path_str);
+                    println!("[CLI] Lacking write permissions for file {path_str}");
                     return Some(Err("Lacking write permissions".into()));
                 } else {
-                    println!(
-                        "[CLI] Overwriting existing file {} when measurement is done",
-                        path_str
-                    );
+                    println!("[CLI] Overwriting existing file {path_str} when measurement is done");
                 }
             } else {
-                println!("[CLI] Writing results to new file {}", path_str);
+                println!("[CLI] Writing results to new file {path_str}");
 
                 // File does not yet exist, create it to verify permissions
                 File::create(path)
@@ -537,13 +544,13 @@ fn validate_path_perms(path: Option<&String>) -> Option<Result<(), Box<dyn Error
                     .permissions()
                     .readonly()
                 {
-                    println!("[CLI] Lacking write permissions for directory {}", path_str);
+                    println!("[CLI] Lacking write permissions for directory {path_str}");
                     return Some(Err("Path is not writable".into()));
                 } else {
-                    println!("[CLI] Writing results to existing directory {}", path_str);
+                    println!("[CLI] Writing results to existing directory {path_str}");
                 }
             } else {
-                println!("[CLI] Writing results to new directory {}", path_str);
+                println!("[CLI] Writing results to new directory {path_str}");
 
                 // Attempt creating path to verify permissions
                 fs::create_dir_all(path).expect("Unable to create output directory");
@@ -583,7 +590,7 @@ fn get_hitlist(
     is_shuffle: bool,
 ) -> (Vec<Address>, bool) {
     let file =
-        File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+        File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {hitlist_path}"));
 
     // Create reader based on file extension
     let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
@@ -632,6 +639,9 @@ fn get_hitlist(
 pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
     pub is_cli: bool,
+
+    /// Indicates whether the results should be written in Parquet format (default: .csv.gz).
+    pub is_parquet: bool,
 
     /// Specifies whether the list of targets should be shuffled before the measurement begins.
     pub is_shuffle: bool,
@@ -717,21 +727,28 @@ impl CliClient {
         };
 
         // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<u32> = if m_definition
+        let probing_workers: Vec<String> = if m_definition
             .configurations
             .iter()
             .any(|config| config.worker_id == u32::MAX)
         {
             Vec::new() // all workers are probing
         } else {
-            // Get list of unique worker IDs that are probing
+            // Get list of unique worker hostnames that are probing
             m_definition
                 .configurations
                 .iter()
-                .map(|config| config.worker_id)
-                .collect::<HashSet<u32>>() // Get unique worker IDs
+                .map(|config| {
+                    args.worker_map
+                        .get_by_left(&config.worker_id)
+                        .unwrap_or_else(|| {
+                            panic!("Worker ID {} is not a connected worker!", config.worker_id)
+                        })
+                        .clone()
+                })
+                .collect::<HashSet<String>>() // Use HashSet to ensure uniqueness
                 .into_iter()
-                .collect::<Vec<u32>>()
+                .collect::<Vec<String>>()
         };
 
         let number_of_probers = if probing_workers.is_empty() {
@@ -752,10 +769,7 @@ impl CliClient {
         if is_divide {
             println!("[CLI] Divide-and-conquer enabled");
         }
-        println!(
-            "[CLI] This measurement will take an estimated {:.2} minutes",
-            m_time
-        );
+        println!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self
             .grpc_client
@@ -823,29 +837,35 @@ impl CliClient {
             _ => "ICMP",
         };
         let type_str = if is_ipv6 {
-            format!("{}v6", type_str)
+            format!("{type_str}v6")
         } else {
-            format!("{}v4", type_str)
+            format!("{type_str}v4")
         };
 
         // Determine the type of measurement
         let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
 
+        // Determine the file extension based on the output format
+        let mut is_parquet = args.is_parquet;
+
+        let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
+
         // Output file
         let file_path = if let Some(path) = args.out_path {
             if path.ends_with('/') {
-                // user provided a path, use default naming convention for file
-                format!(
-                    "{}{}{}{}.csv.gz",
-                    path, filetype, type_str, timestamp_start_str
-                )
+                // User provided a path, use default naming convention for file
+                format!("{path}{filetype}{type_str}{timestamp_start_str}{extension}")
             } else {
-                // user provided a file (with possibly a path)
+                // User provided a file (with possibly a path)
+
+                if path.ends_with(".parquet") {
+                    is_parquet = true; // If the file ends with .parquet, we will write in Parquet format
+                }
                 path.to_string()
             }
         } else {
-            // write file to current directory using default naming convention
-            format!("./{}{}{}.csv.gz", filetype, type_str, timestamp_start_str)
+            // Write file to current directory using default naming convention
+            format!("./{filetype}{type_str}{timestamp_start_str}{extension}")
         };
 
         // Create the output file
@@ -859,8 +879,6 @@ impl CliClient {
             m_type_str: type_str,
             probing_rate: probing_rate as u32,
             interval: worker_interval,
-            m_start: timestamp_start_str,
-            expected_duration: m_time,
             active_workers: probing_workers,
             all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
@@ -868,8 +886,6 @@ impl CliClient {
             is_latency,
             is_responsive,
         };
-
-        let md_file = get_metadata(metadata_args);
 
         let is_multi_origin = if is_unicast {
             false
@@ -885,15 +901,19 @@ impl CliClient {
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
-            metadata_lines: md_file,
+            metadata_args,
             m_type,
             is_multi_origin,
             is_symmetric: is_unicast || is_latency,
-            worker_map: args.worker_map,
+            worker_map: args.worker_map.clone(),
         };
 
         // Start thread that writes results to file
-        write_results(rx_r, config);
+        if is_parquet {
+            write_results_parquet(rx_r, config);
+        } else {
+            write_results(rx_r, config);
+        }
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {
@@ -903,7 +923,7 @@ impl CliClient {
                 break 'mloop;
             } // Stream is exhausted
             Err(e) => {
-                eprintln!("Error receiving message: {}", e);
+                eprintln!("Error receiving message: {e}");
                 break 'mloop;
             }
         } {
@@ -926,7 +946,7 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
-        println!("[CLI] Waited {:.6} seconds for results.", length);
+        println!("[CLI] Waited {length:.6} seconds for results.");
         println!(
             "[CLI] Time of end measurement {}",
             Local::now().format("%H:%M:%S")
@@ -972,7 +992,7 @@ impl CliClient {
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if let Some(fqdn) = fqdn {
             // Secure connection
-            let addr = format!("https://{}", address);
+            let addr = format!("https://{address}");
 
             // Load the CA certificate used to authenticate the orchestrator
             let pem = fs::read_to_string("tls/orchestrator.crt")
@@ -990,7 +1010,7 @@ impl CliClient {
                 .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
-            let addr = format!("http://{}", address);
+            let addr = format!("http://{address}");
 
             Channel::from_shared(addr.to_owned())
                 .expect("Unable to set address")
@@ -1003,299 +1023,4 @@ impl CliClient {
 
         Ok(client)
     }
-}
-
-/// Holds all the arguments required to metadata for the output file.
-pub struct MetadataArgs<'a> {
-    /// Divide-and-conquer measurement flag.
-    pub is_divide: bool,
-    /// The origins used in the measurement.
-    pub origin_str: String,
-    /// Path to the hitlist used.
-    pub hitlist: &'a str,
-    /// Whether the hitlist was shuffled.
-    pub is_shuffle: bool,
-    /// A string representation of the measurement type (e.g., "ICMP", "DNS").
-    pub m_type_str: String,
-    /// The probing rate used.
-    pub probing_rate: u32,
-    /// The interval between subsequent workers.
-    pub interval: u32,
-    /// Start of measurement.
-    pub m_start: String,
-    /// Expected duration of the measurement in seconds.
-    pub expected_duration: f32,
-    /// Workers selected to probe.
-    pub active_workers: Vec<u32>,
-    /// A bidirectional map of all possible worker IDs to their hostnames.
-    pub all_workers: &'a BiHashMap<u32, String>,
-    /// Optional configuration file used.
-    pub configurations: &'a Vec<Configuration>,
-    /// Whether this is a configuration-based measurement.
-    pub is_config: bool,
-    /// Whether this is a latency-based measurement.
-    pub is_latency: bool,
-    /// Whether this is a responsiveness-based measurement.
-    pub is_responsive: bool,
-}
-
-/// Returns a vector of lines containing the metadata of the measurement
-///
-/// # Arguments
-///
-/// Variables describing the measurement
-fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
-    let mut md_file = Vec::new();
-    if args.is_divide {
-        md_file.push("# Divide-and-conquer measurement".to_string());
-    }
-    if args.is_latency {
-        md_file.push("# Latency measurement".to_string());
-    }
-    if args.is_responsive {
-        md_file.push("# Responsive measurement".to_string());
-    }
-    md_file.push(format!("# Origin used: {}", args.origin_str));
-    md_file.push(format!(
-        "# Hitlist{}: {}",
-        if args.is_shuffle { " (shuffled)" } else { "" },
-        args.hitlist
-    ));
-    md_file.push(format!("# Measurement type: {}", args.m_type_str));
-    md_file.push(format!(
-        "# Probing rate: {}",
-        args.probing_rate.with_separator()
-    ));
-    md_file.push(format!("# Interval: {}", args.interval));
-    md_file.push(format!("# Start measurement: {}", args.m_start));
-    md_file.push(format!(
-        "# Expected measurement duration (seconds): {:.6}",
-        args.expected_duration
-    ));
-    if !args.active_workers.is_empty() {
-        md_file.push(format!(
-            "# Selective probing using the following workers: {:?}",
-            args.active_workers
-        ));
-    }
-    md_file.push("# Connected workers:".to_string());
-    for (id, hostname) in args.all_workers {
-        md_file.push(format!("# \t * ID: {:<2}, hostname: {}", id, hostname))
-    }
-
-    // Write configurations used for the measurement
-    if args.is_config {
-        md_file.push("# Configurations:".to_string());
-        for configuration in args.configurations {
-            let origin = configuration.origin.unwrap();
-            let src = origin.src.expect("Invalid source address");
-            let worker_id = if configuration.worker_id == u32::MAX {
-                "ALL".to_string()
-            } else {
-                configuration.worker_id.to_string()
-            };
-            md_file.push(format!(
-                "# \t * Worker ID: {:<2}, source IP: {}, source port: {}, destination port: {}",
-                worker_id, src, origin.sport, origin.dport
-            ));
-        }
-    }
-
-    md_file
-}
-// TODO move all file writing functions to a separate module
-
-/// Configuration for the results writing process.
-///
-/// This struct bundles all the necessary parameters for `write_results`
-/// to determine where and how to output measurement results,
-/// including formatting options and contextual metadata.
-pub struct WriteConfig {
-    /// Determines whether the results should also be printed to the command-line interface.
-    pub print_to_cli: bool,
-    /// The file handle to which the measurement results should be written.
-    pub output_file: File,
-    /// Metadata for the measurement, to be written at the beginning of the output file.
-    pub metadata_lines: Vec<String>,
-    /// The type of measurement being performed, influencing how results are processed or formatted.
-    /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
-    pub m_type: u32,
-    /// Indicates whether the measurement involves multiple origins, which affects
-    /// how results are written.
-    pub is_multi_origin: bool,
-    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true),
-    /// to simplify certain result interpretations.
-    pub is_symmetric: bool,
-    /// A bidirectional map used to convert worker IDs (u32) to their corresponding hostnames (String).
-    pub worker_map: BiHashMap<u32, String>,
-}
-
-/// Writes the results to a file (and optionally to the command-line)
-///
-/// # Arguments
-///
-/// * 'rx' - The receiver channel that receives the results
-///
-/// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
-fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
-    // CSV writer to command-line interface
-    let mut wtr_cli = if config.print_to_cli {
-        Some(Writer::from_writer(io::stdout()))
-    } else {
-        None
-    };
-
-    let buffered_file_writer = BufWriter::new(config.output_file);
-    let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
-
-    // Write metadata to file
-    for line in &config.metadata_lines {
-        if let Err(e) = writeln!(gz_encoder, "{}", line) {
-            eprintln!("Failed to write metadata line to Gzip stream: {}", e);
-        }
-    }
-
-    // .gz writer
-    let mut wtr_file = Writer::from_writer(gz_encoder);
-
-    // Write header
-    let header = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
-    if let Some(wtr) = wtr_cli.as_mut() {
-        wtr.write_record(&header)
-            .expect("Failed to write header to stdout")
-    };
-    wtr_file
-        .write_record(header)
-        .expect("Failed to write header to file");
-
-    tokio::spawn(async move {
-        // Receive tasks from the outbound channel
-        while let Some(task_result) = rx.recv().await {
-            if task_result == TaskResult::default() {
-                break;
-            }
-            let results: Vec<Reply> = task_result.result_list;
-            for result in results {
-                let result = get_result(
-                    result,
-                    task_result.worker_id,
-                    config.m_type,
-                    config.is_symmetric,
-                    config.worker_map.clone(),
-                );
-
-                // Write to command-line
-                if let Some(ref mut wtr) = wtr_cli {
-                    wtr.write_record(&result)
-                        .expect("Failed to write payload to CLI");
-                    wtr.flush().expect("Failed to flush stdout");
-                }
-
-                // Write to file
-                wtr_file
-                    .write_record(result)
-                    .expect("Failed to write payload to file");
-            }
-            wtr_file.flush().expect("Failed to flush file");
-        }
-        rx.close();
-        wtr_file.flush().expect("Failed to flush file");
-    });
-}
-
-/// Creates the appropriate CSV header for the results file (based on the measurement type)
-///
-/// # Arguments
-///
-/// * 'measurement_type' - The type of measurement being performed
-///
-/// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
-///
-/// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
-    let mut header = if is_symmetric {
-        vec!["rx", "addr", "ttl", "rtt"]
-    } else {
-        // TCP anycast does not have tx_time
-        if m_type == TCP_ID as u32 {
-            vec!["rx", "rx_time", "addr", "ttl", "tx"]
-        } else {
-            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
-        }
-    };
-
-    if m_type == CHAOS_ID as u32 {
-        header.push("chaos_data");
-    }
-
-    if is_multi_origin {
-        header.push("origin_id");
-    }
-
-    header
-}
-
-/// Get the result (csv row) from a Reply message
-///
-/// # Arguments
-///
-/// * `result` - The Reply that is being written to this row
-///
-/// * `rx_worker_id` - The worker ID of the receiver
-///
-/// * `m_type` - The type of measurement being performed
-///
-/// * `is_symmetric` - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-///
-/// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
-fn get_result(
-    result: Reply,
-    rx_worker_id: u32,
-    m_type: u32,
-    is_symmetric: bool,
-    worker_map: BiHashMap<u32, String>,
-) -> Vec<String> {
-    let origin_id = result.origin_id.to_string();
-    let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
-    let rx_worker_id = rx_worker_id.to_string();
-    // convert the worker ID to hostname
-    let rx_hostname = worker_map
-        .get_by_left(&rx_worker_id.parse::<u32>().unwrap())
-        .unwrap_or(&String::from("Unknown"))
-        .to_string();
-    let rx_time = result.rx_time.to_string();
-    let tx_time = result.tx_time.to_string();
-    let tx_id = result.tx_id;
-    let ttl = result.ttl.to_string();
-    let reply_src = result.src.unwrap().to_string();
-
-    let mut row = if is_symmetric {
-        let rtt = format!(
-            "{:.2}",
-            (result.rx_time - result.tx_time) as f64 / 1_000_000.0
-        );
-        vec![rx_hostname, reply_src, ttl, rtt]
-    } else {
-        let tx_hostname = worker_map
-            .get_by_left(&tx_id)
-            .unwrap_or(&String::from("Unknown"))
-            .to_string();
-
-        // TCP anycast does not have tx_time
-        if m_type == TCP_ID as u32 {
-            vec![rx_hostname, rx_time, reply_src, ttl, tx_hostname]
-        } else {
-            vec![rx_hostname, rx_time, reply_src, ttl, tx_time, tx_hostname]
-        }
-    };
-
-    // Optional fields
-    if let Some(chaos) = result.chaos {
-        row.push(chaos);
-    }
-    if is_multi_origin {
-        row.push(origin_id);
-    }
-
-    row
 }

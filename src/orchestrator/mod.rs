@@ -84,7 +84,7 @@ impl fmt::Display for WorkerStatus {
             Listening => "LISTENING",
             Disconnected => "DISCONNECTED",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -597,11 +597,7 @@ impl Controller for ControllerService {
         let dns_record = m_definition.record;
         let info_url = m_definition.url;
 
-        if !is_divide {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} workers will send out probes to the same target {} seconds after each other", number_of_workers, number_of_probing_workers, worker_interval);
-        } else {
-            println!("[Orchestrator] {} workers will listen for probe replies, {} worker will send out probes to a different chunk of the destination addresses", number_of_workers, number_of_probing_workers);
-        }
+        println!("[Orchestrator] {number_of_probing_workers} workers will probe, {number_of_workers} will listen ({worker_interval} seconds between probing workers)");
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -1070,15 +1066,14 @@ impl ControllerService {
             if let Some(existing_worker) = workers.iter().find(|w| w.hostname == hostname) {
                 return if !existing_worker.is_closed() {
                     println!(
-                        "[Orchestrator] Refusing worker as the hostname already exists: {}",
-                        hostname
+                        "[Orchestrator] Refusing worker as the hostname already exists: {hostname}"
                     );
                     Err(Box::new(Status::already_exists(
                         "This hostname already exists",
                     )))
                 } else {
                     // This is a reconnection of a closed worker.
-                    println!("[Orchestrator] Worker {} reconnected", hostname);
+                    println!("[Orchestrator] Worker {hostname} reconnected");
                     let id = existing_worker.worker_id;
                     Ok((id, true))
                 };
@@ -1164,10 +1159,10 @@ async fn task_sender(
                                 tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                             }
                         });
-
-                        // Wait inter-client probing interval
-                        tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                     });
+
+                    // Wait inter-client probing interval
+                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                 }
             }
         } else {
@@ -1201,7 +1196,7 @@ async fn task_sender(
                     });
                 }
             } else {
-                eprintln!("[Orchestrator] No sender found for worker ID {}", worker_id);
+                eprintln!("[Orchestrator] No sender found for worker ID {worker_id}");
             }
         }
     }
@@ -1218,7 +1213,7 @@ async fn task_sender(
 /// * 'args' - the parsed command-line arguments
 pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     let port = *args.get_one::<u16>("port").unwrap();
-    let addr: SocketAddr = format!("[::]:{}", port).parse().unwrap();
+    let addr: SocketAddr = format!("[::]:{port}").parse().unwrap();
 
     // Get optional configuration file
     let (current_worker_id, worker_config) = args
@@ -1291,10 +1286,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 /// Panics if the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.
 fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<String, u32>>) {
     if !Path::new(config_path).exists() {
-        panic!(
-            "[Orchestrator] Configuration file {} not found!",
-            config_path
-        );
+        panic!("[Orchestrator] Configuration file {config_path} not found!");
     }
 
     let config_content = fs::read_to_string(config_path)
@@ -1317,8 +1309,7 @@ fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<
         let parts: Vec<&str> = trimmed_line.split(',').collect();
         if parts.len() != 2 {
             panic!(
-                "[Orchestrator] Error on line {}: Malformed entry. Expected 'hostname,id', found '{}'",
-                line_number, line
+                "[Orchestrator] Error on line {line_number}: Malformed entry. Expected 'hostname,id', found '{line}'"
             );
         }
 
@@ -1336,24 +1327,21 @@ fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<
         // Check for duplicate hostname before inserting.
         if hosts.contains_key(&hostname) {
             panic!(
-                "[Orchestrator] Error on line {}: Duplicate hostname '{}' found. Hostnames must be unique.",
-                line_number, hostname
+                "[Orchestrator] Error on line {line_number}: Duplicate hostname '{hostname}' found. Hostnames must be unique."
             );
         }
 
         // Insert the ID (if it is not already used)
         if !used_ids.insert(id) {
             panic!(
-                "[Orchestrator] Error on line {}: Duplicate ID '{}' found. IDs must be unique.",
-                line_number, id
+                "[Orchestrator] Error on line {line_number}: Duplicate ID '{id}' found. IDs must be unique."
             );
         }
 
         // Avoid special worker IDs
         if id == ALL_WORKERS_INTERVAL || id == ALL_WORKERS_DIRECT || id == BREAK_SIGNAL {
             panic!(
-                "[Orchestrator] Error on line {}: ID '{}' is reserved for special purposes. Please use a different ID.",
-                line_number, id
+                "[Orchestrator] Error on line {line_number}: ID '{id}' is reserved for special purposes. Please use a different ID."
             );
         }
 

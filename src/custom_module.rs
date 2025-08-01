@@ -24,7 +24,7 @@ impl Display for Address {
             .to_string(),
             None => String::from("None"),
         };
-        write!(f, "{}", str)
+        write!(f, "{str}")
     }
 }
 
