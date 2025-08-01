@@ -869,7 +869,7 @@ impl CliClient {
             is_responsive,
         };
 
-        let md_file = get_metadata(metadata_args);
+        let md_file = get_metadata(metadata_args, &args.worker_map);
 
         let is_multi_origin = if is_unicast {
             false
