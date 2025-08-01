@@ -253,14 +253,12 @@ fn get_row(
 
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
-        // Convert rx_time from nanoseconds to milliseconds (to match tx_time)
         let rx_time_ms = rx_time / 1_000_000;
+        let rx_time_upper_bits = rx_time_ms & 0xFFFFFFFF_00000000;
+        let reconstructed_tx_time_ms = rx_time_upper_bits | tx_time;
+        let rtt_in_ms = rx_time_ms - reconstructed_tx_time_ms;
 
-        // Get the lower 32 bits of the rx_time in milliseconds
-        let rx_time_adj = rx_time_ms as u32;
-
-        // Calculate the RTT in milliseconds
-        (rx_time_adj - tx_time as u32) as f64
+        rtt_in_ms as f64
     } else {
         (rx_time - tx_time) as f64 / 1_000_000.0
     }
