@@ -141,7 +141,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send ICMP packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send ICMP packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
@@ -164,7 +164,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send DNS packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send DNS packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
@@ -189,7 +189,7 @@ pub fn outbound(
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
-                                                eprintln!("[Worker outbound] Failed to send TCP packet: {}", e);
+                                                eprintln!("[Worker outbound] Failed to send TCP packet: {e}");
                                                 failed += 1;
                                             },
                                             None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),
