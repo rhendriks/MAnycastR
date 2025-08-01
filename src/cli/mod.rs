@@ -845,13 +845,20 @@ impl CliClient {
         // Determine the type of measurement
         let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
 
+        // Determine the file extension based on the output format
+        let extension = if args.is_parquet {
+            ".parquet"
+        } else {
+            ".csv.gz"
+        };
+
         // Output file
         let file_path = if let Some(path) = args.out_path {
             if path.ends_with('/') {
                 // user provided a path, use default naming convention for file
                 format!(
-                    "{}{}{}{}.csv.gz",
-                    path, filetype, type_str, timestamp_start_str
+                    "{}{}{}{}{}",
+                    path, filetype, type_str, timestamp_start_str, extension
                 )
             } else {
                 // user provided a file (with possibly a path)
@@ -859,7 +866,7 @@ impl CliClient {
             }
         } else {
             // write file to current directory using default naming convention
-            format!("./{}{}{}.csv.gz", filetype, type_str, timestamp_start_str)
+            format!("./{}{}{}{}", filetype, type_str, timestamp_start_str, extension)
         };
 
         // Create the output file
