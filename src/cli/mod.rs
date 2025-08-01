@@ -29,7 +29,7 @@ use custom_module::manycastr::{
 };
 use custom_module::Separated;
 
-use crate::cli::writer::get_metadata;
+use crate::cli::writer::{get_metadata, write_results_parquet};
 use crate::cli::writer::write_results;
 use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
@@ -893,7 +893,8 @@ impl CliClient {
         };
 
         // Start thread that writes results to file
-        write_results(rx_r, config);
+        write_results_parquet(rx_r, config);
+        // write_results(rx_r, config);
 
         let mut replies_count = 0;
         'mloop: while let Some(task_result) = match stream.message().await {

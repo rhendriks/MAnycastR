@@ -24,6 +24,7 @@ flate2 = "1.1.2" # compression
 #rayon = "1.10.0" # parallel processing TODO evaluate usage of parallel processing
 bimap = "0.6.3"
 tonic-prost = "0.14.0"
+parquet = { version = "55.2.0", features = ["snap"]}
 
 [build-dependencies]
 tonic-prost-build = "0.14.0"

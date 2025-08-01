@@ -9,9 +9,15 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::io::BufWriter;
-
+use std::sync::Arc;
 use custom_module::manycastr::{Configuration, Reply, TaskResult};
 use custom_module::Separated;
+
+use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
+use parquet::file::properties::WriterProperties;
+use parquet::file::writer::{SerializedFileWriter};
+use parquet::schema::types::{Type as SchemaType, TypePtr};
+use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 
 use crate::{custom_module, CHAOS_ID, TCP_ID};
 
@@ -192,6 +198,10 @@ pub fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec
 /// * `is_symmetric` - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 ///
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
+///
+/// # Returns
+///
+/// A vector of strings representing the row in the CSV file
 fn get_row(
     result: Reply,
     rx_worker_id: u32,
@@ -307,4 +317,247 @@ pub fn get_metadata(args: MetadataArgs<'_>) -> Vec<String> {
     }
 
     md_file
+}
+
+const BATCH_SIZE: usize = 1024;
+
+/// Represents a row of data in the Parquet file format.
+/// Fields used depend on the measurement type and configuration.
+struct ParquetDataRow {
+    /// Hostname of the probe receiver.
+    rx: Option<String>,
+    /// UNIX timestamp in nanoseconds when the reply was received.
+    rx_time: Option<u64>,
+    /// Source address of the reply (as a string).
+    addr: Option<String>,
+    /// Time-to-live (TTL) value of the reply.
+    ttl: Option<u8>,
+    /// UNIX timestamp in nanoseconds when the request was sent.
+    tx_time: Option<u64>,
+    /// Hostname of the probe sender.
+    tx: Option<String>,
+    /// Round-trip time (RTT) in milliseconds.
+    rtt: Option<f64>,
+    /// DNS TXT CHAOS record value.
+    chaos_data: Option<String>,
+    /// Origin ID for multi-origin measurements (source address, ports).
+    origin_id: Option<u8>,
+}
+
+/// Write results to a Parquet file as they are received from the channel.
+/// This function processes the results in batches to optimize writing performance.
+///
+/// # Arguments
+///
+/// * `rx` - The receiver channel that receives the results.
+///
+/// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
+///
+/// * `metadata_args` - Arguments for generating metadata, including measurement type, origins, and configurations.
+pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+    let schema = build_parquet_schema(config.m_type, config.is_multi_origin, config.is_symmetric);
+
+    // Convert metadata Vec<String> to Parquet's KeyValue format
+    let metadata_lines = config.metadata_lines;
+    println!("{:#?}", metadata_lines); // TODO
+    let key_value_metadata = metadata_lines.into_iter().map(|line| {
+        let parts: Vec<&str> = line.trim_start_matches('#').trim().splitn(2, ':').collect();
+        let key = parts.get(0).unwrap_or(&"").to_string();
+        let value = parts.get(1).map(|s| s.trim().to_string());
+        parquet::format::KeyValue::new(key, value.unwrap_or_default())
+    }).collect();
+
+    // Configure writer properties, including compression and metadata
+    let props = Arc::new(
+        WriterProperties::builder()
+            .set_compression(ParquetCompression::SNAPPY)
+            .set_key_value_metadata(Some(key_value_metadata))
+            .build());
+
+    let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props).expect("Failed to create parquet writer");
+
+    // We need the headers to maintain column order during writing
+    let headers = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
+
+    tokio::spawn(async move {
+        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(BATCH_SIZE);
+
+        while let Some(task_result) = rx.recv().await {
+            if task_result == TaskResult::default() {
+                // TODO write incomplete buffer to file?
+                break; // End of stream
+            }
+
+            let worker_id = task_result.worker_id;
+            for reply in task_result.result_list {
+                let parquet_row = reply_to_parquet_row(
+                    reply,
+                    worker_id,
+                    config.m_type as u8,
+                    config.is_symmetric,
+                    &config.worker_map,
+                );
+                row_buffer.push(parquet_row);
+            }
+
+            // If the buffer is full, write the batch to the file
+            if row_buffer.len() >= BATCH_SIZE {
+                write_batch_to_parquet(&mut writer, &row_buffer, &headers).expect("Failed to write batch to Parquet file");
+                row_buffer.clear();
+            }
+        }
+
+        // Write any remaining rows in the buffer
+        if !row_buffer.is_empty() {
+            write_batch_to_parquet(&mut writer, &row_buffer, &headers).expect("Failed to write final batch to Parquet file");
+        }
+
+        writer.close().expect("Failed to close Parquet writer");
+        rx.close();
+    });
+}
+
+/// Creates a parquet data schema from the headers based on the measurement type and configuration.
+fn build_parquet_schema(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> TypePtr {
+    let headers = get_header(m_type, is_multi_origin, is_symmetric);
+    let mut fields = Vec::new();
+
+    for &header in &headers {
+        let field = match header {
+            "rx" | "addr" | "tx" | "chaos_data" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_logical_type(Some(parquet::basic::LogicalType::String))
+                    .build()
+                    .unwrap()
+            }
+            "rx_time" | "tx_time" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_logical_type(Some(LogicalType::Integer { bit_width: 64, is_signed: false })) // u64
+                    .build()
+                    .unwrap()
+            }
+            "ttl" | "origin_id" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_logical_type(Some(LogicalType::Integer { bit_width: 8, is_signed: false })) // u8
+                    .build()
+                    .unwrap()
+            }
+            "rtt" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::DOUBLE)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .build()
+                    .unwrap()
+            }
+            _ => panic!("Unknown header column: {}", header),
+        };
+        fields.push(Arc::new(field));
+    }
+
+    Arc::new(SchemaType::group_type_builder("schema")
+        .with_fields(fields)
+        .build()
+        .unwrap())
+}
+
+/// Converts a Reply message into a ParquetDataRow for writing to a Parquet file.
+fn reply_to_parquet_row(
+    result: Reply,
+    rx_worker_id: u32,
+    m_type: u8,
+    is_symmetric: bool,
+    worker_map: &BiHashMap<u32, String>,
+) -> ParquetDataRow {
+    let mut row = ParquetDataRow {
+        rx: worker_map.get_by_left(&rx_worker_id).cloned(),
+        rx_time: Some(result.rx_time),
+        addr: result.src.map(|s| s.to_string()),
+        ttl: Some(result.ttl as u8),
+        tx_time: Some(result.tx_time),
+        tx: None,
+        rtt: None,
+        chaos_data: result.chaos,
+        origin_id: if result.origin_id != 0 && result.origin_id != u32::MAX { Some(result.origin_id as u8) } else { None },
+    };
+
+    if is_symmetric {
+        row.rtt = Some((result.rx_time - result.tx_time) as f64 / 1_000_000.0);
+        row.rx_time = None;
+        row.tx_time = None;
+    } else {
+        row.tx = worker_map.get_by_left(&result.tx_id).cloned();
+        if m_type == TCP_ID {
+            row.tx_time = None;
+        }
+    }
+
+    row
+}
+
+/// Writes a batch of ParquetDataRow to the Parquet file using the provided writer.
+fn write_batch_to_parquet(
+    writer: &mut SerializedFileWriter<File>,
+    batch: &[ParquetDataRow],
+    headers: &[&str],
+) -> Result<(), parquet::errors::ParquetError> {
+    let mut row_group_writer = writer.next_row_group()?;
+
+    for &header in headers {
+        if let Some(mut col_writer) = row_group_writer.next_column()? {
+            match header {
+                "rx" | "addr" | "tx" | "chaos_data" => {
+                    let mut values = Vec::new();
+                    let def_levels: Vec<i16> = batch.iter().map(|row| {
+                        let opt_val = match header {
+                            "rx" => row.rx.as_ref(),
+                            "addr" => row.addr.as_ref(),
+                            "tx" => row.tx.as_ref(),
+                            "chaos_data" => row.chaos_data.as_ref(),
+                            _ => None,
+                        };
+                        if let Some(val) = opt_val {
+                            values.push(ByteArray::from(val.as_str()));
+                            1 // 1 means the value is defined (not NULL)
+                        } else {
+                            0 // 0 means the value is NULL
+                        }
+                    }).collect();
+                    col_writer.typed::<parquet::data_type::ByteArrayType>().write_batch(&values, Some(&def_levels), None)?;
+                },
+                "rx_time" | "tx_time" => {
+                    let mut values = Vec::new();
+                    let def_levels: Vec<i16> = batch.iter().map(|row| {
+                        let opt_val = match header { "rx_time" => row.rx_time, "tx_time" => row.tx_time, _ => None };
+                        if let Some(val) = opt_val { values.push(val as i64); 1 } else { 0 }
+                    }).collect();
+                    col_writer.typed::<Int64Type>().write_batch(&values, Some(&def_levels), None)?;
+                },
+                "ttl" | "origin_id" => {
+                    let mut values = Vec::new();
+                    let def_levels: Vec<i16> = batch.iter().map(|row| {
+                        let opt_val = match header { "ttl" => row.ttl, "origin_id" => row.origin_id, _ => None };
+                        if let Some(val) = opt_val { values.push(val as i32); 1 } else { 0 }
+                    }).collect();
+                    col_writer.typed::<Int32Type>().write_batch(&values, Some(&def_levels), None)?;
+                },
+                "rtt" => {
+                    let mut values = Vec::new();
+                    let def_levels: Vec<i16> = batch.iter().map(|row| {
+                        if let Some(val) = row.rtt {
+                            values.push(val);
+                            1 // 1 means the value is defined (not NULL)
+                        } else {
+                            0 // 0 means the value is NULL
+                        }
+                    }).collect();
+                    col_writer.typed::<DoubleType>().write_batch(&values, Some(&def_levels), None)?;
+                }
+                _ => {},
+            }
+        }
+    }
+    row_group_writer.close()?;
+    Ok(())
 }
