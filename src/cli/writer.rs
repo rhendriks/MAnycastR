@@ -438,7 +438,6 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
 
         while let Some(task_result) = rx.recv().await {
             if task_result == TaskResult::default() {
-                // TODO write incomplete buffer to file?
                 break; // End of stream
             }
 
