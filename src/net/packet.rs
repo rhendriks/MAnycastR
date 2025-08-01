@@ -11,17 +11,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn get_default_gateway_ip_linux() -> Result<String, String> {
     let file = File::open("/proc/net/route")
-        .map_err(|e| format!("Failed to open /proc/net/route: {}", e))?;
+        .map_err(|e| format!("Failed to open /proc/net/route: {e}"))?;
     let reader = BufReader::new(file);
 
     for line in reader.lines().skip(1) {
-        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        let line = line.map_err(|e| format!("Failed to read line: {e}"))?;
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() >= 3 && fields[1] == "00000000" {
             // Gateway is in hex, little-endian
             let hex = fields[2];
             if hex.len() != 8 {
-                return Err(format!("Invalid gateway hex: {}", hex));
+                return Err(format!("Invalid gateway hex: {hex}"));
             }
 
             let bytes: Vec<u8> = (0..4)
@@ -42,7 +42,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
     let output = Command::new("route")
         .args(["-n", "get", "default"])
         .output()
-        .map_err(|e| format!("Failed to execute 'route -n get default': {}", e))?;
+        .map_err(|e| format!("Failed to execute 'route -n get default': {e}"))?;
 
     if !output.status.success() {
         return Err(format!(

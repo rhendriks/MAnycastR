@@ -97,8 +97,8 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     // Write metadata to file
     let md_lines = get_csv_metadata(config.metadata_args, &config.worker_map);
     for line in md_lines {
-        if let Err(e) = writeln!(gz_encoder, "{}", line) {
-            eprintln!("Failed to write metadata line to Gzip stream: {}", e);
+        if let Err(e) = writeln!(gz_encoder, "{line}") {
+            eprintln!("Failed to write metadata line to Gzip stream: {e}");
         }
     }
 
@@ -299,7 +299,7 @@ pub fn get_csv_metadata(
     }
     md_file.push(format!("# {} connected workers:", args.all_workers.len()));
     for (_, hostname) in args.all_workers {
-        md_file.push(format!("# * {}", hostname))
+        md_file.push(format!("# * {hostname}"))
     }
 
     // Write configurations used for the measurement
@@ -552,7 +552,7 @@ fn build_parquet_schema(m_type: u32, is_multi_origin: bool, is_symmetric: bool) 
                 .with_repetition(Repetition::OPTIONAL)
                 .build()
                 .unwrap(),
-            _ => panic!("Unknown header column: {}", header),
+            _ => panic!("Unknown header column: {header}"),
         };
         fields.push(Arc::new(field));
     }

@@ -50,7 +50,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let fqdn = args.get_one::<String>("tls");
 
     // Connect with orchestrator
-    println!("[CLI] Connecting to orchestrator - {}", server_address);
+    println!("[CLI] Connecting to orchestrator - {server_address}");
     let mut grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator")
@@ -118,7 +118,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
 
         table.printstd();
-        println!("[CLI] Total connected workers: {}", connected_workers);
+        println!("[CLI] Total connected workers: {connected_workers}");
 
         Ok(())
     } else if let Some(matches) = args.subcommand_matches("start") {
@@ -201,15 +201,14 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             if worker_map.contains_left(&id_val) {
                                 Some(id_val)
                             } else {
-                                panic!("Worker ID '{}' is not a known worker.", entry_str);
+                                panic!("Worker ID '{entry_str}' is not a known worker.");
                             }
                         } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
                             // Try to find the hostname in the map
                             Some(found_id)
                         } else {
                             panic!(
-                                "'{}' is not a valid worker ID or known hostname.",
-                                entry_str
+                                "'{entry_str}' is not a valid worker ID or known hostname."
                             );
                         }
                     })
@@ -222,18 +221,18 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             println!("[CLI] Selective probing using the following workers:");
             sender_ids.iter().for_each(|id| {
                 let hostname = worker_map.get_by_left(id).unwrap_or_else(|| {
-                    panic!("Worker ID {} is not a connected worker!", id);
+                    panic!("Worker ID {id} is not a connected worker!");
                 });
-                println!("[CLI]\t * ID: {}, Hostname: {}", id, hostname);
+                println!("[CLI]\t * ID: {id}, Hostname: {hostname}");
             });
         }
 
         // Read the configuration file (unnecessary for unicast)
         let configurations = if is_config {
             let conf_file = matches.get_one::<String>("configuration").unwrap();
-            println!("[CLI] Using configuration file: {}", conf_file);
+            println!("[CLI] Using configuration file: {conf_file}");
             let file = File::open(conf_file)
-                .unwrap_or_else(|_| panic!("Unable to open configuration file {}", conf_file));
+                .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
             let buf_reader = BufReader::new(file);
             let mut origin_id = 0;
             let mut is_ipv6: Option<bool> = None;
@@ -248,7 +247,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     let parts: Vec<&str> = line.splitn(2, " - ").map(|s| s.trim()).collect();
                     if parts.len() != 2 {
-                        panic!("Invalid configuration format: {}", line);
+                        panic!("Invalid configuration format: {line}");
                     }
 
                     // Parse the worker ID
@@ -256,7 +255,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                         u32::MAX
                     } else if let Ok(id_val) = parts[0].parse::<u32>() {
                         if !worker_map.contains_left(&id_val) {
-                            panic!("Worker ID {} is not a known worker.", id_val);
+                            panic!("Worker ID {id_val} is not a known worker.");
                         }
                         id_val
                     } else if let Some(&found_id) = worker_map.get_by_right(parts[0]) {
@@ -268,7 +267,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
                     let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
                     if addr_ports.len() != 3 {
-                        panic!("Invalid configuration format: {}", line);
+                        panic!("Invalid configuration format: {line}");
                     }
                     let src = Address::from(addr_ports[0]);
 
@@ -300,7 +299,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
                 })
                 .collect();
             if configurations.is_empty() {
-                panic!("No valid configurations found in file {}", conf_file);
+                panic!("No valid configurations found in file {conf_file}");
             }
 
             configurations
@@ -521,16 +520,15 @@ fn validate_path_perms(path: Option<&String>) -> Option<Result<(), Box<dyn Error
                     .permissions()
                     .readonly()
                 {
-                    println!("[CLI] Lacking write permissions for file {}", path_str);
+                    println!("[CLI] Lacking write permissions for file {path_str}");
                     return Some(Err("Lacking write permissions".into()));
                 } else {
                     println!(
-                        "[CLI] Overwriting existing file {} when measurement is done",
-                        path_str
+                        "[CLI] Overwriting existing file {path_str} when measurement is done"
                     );
                 }
             } else {
-                println!("[CLI] Writing results to new file {}", path_str);
+                println!("[CLI] Writing results to new file {path_str}");
 
                 // File does not yet exist, create it to verify permissions
                 File::create(path)
@@ -550,13 +548,13 @@ fn validate_path_perms(path: Option<&String>) -> Option<Result<(), Box<dyn Error
                     .permissions()
                     .readonly()
                 {
-                    println!("[CLI] Lacking write permissions for directory {}", path_str);
+                    println!("[CLI] Lacking write permissions for directory {path_str}");
                     return Some(Err("Path is not writable".into()));
                 } else {
-                    println!("[CLI] Writing results to existing directory {}", path_str);
+                    println!("[CLI] Writing results to existing directory {path_str}");
                 }
             } else {
-                println!("[CLI] Writing results to new directory {}", path_str);
+                println!("[CLI] Writing results to new directory {path_str}");
 
                 // Attempt creating path to verify permissions
                 fs::create_dir_all(path).expect("Unable to create output directory");
@@ -596,7 +594,7 @@ fn get_hitlist(
     is_shuffle: bool,
 ) -> (Vec<Address>, bool) {
     let file =
-        File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {}", hitlist_path));
+        File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {hitlist_path}"));
 
     // Create reader based on file extension
     let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
@@ -776,8 +774,7 @@ impl CliClient {
             println!("[CLI] Divide-and-conquer enabled");
         }
         println!(
-            "[CLI] This measurement will take an estimated {:.2} minutes",
-            m_time
+            "[CLI] This measurement will take an estimated {m_time:.2} minutes"
         );
 
         let response = self
@@ -846,9 +843,9 @@ impl CliClient {
             _ => "ICMP",
         };
         let type_str = if is_ipv6 {
-            format!("{}v6", type_str)
+            format!("{type_str}v6")
         } else {
-            format!("{}v4", type_str)
+            format!("{type_str}v4")
         };
 
         // Determine the type of measurement
@@ -864,8 +861,7 @@ impl CliClient {
             if path.ends_with('/') {
                 // User provided a path, use default naming convention for file
                 format!(
-                    "{}{}{}{}{}",
-                    path, filetype, type_str, timestamp_start_str, extension
+                    "{path}{filetype}{type_str}{timestamp_start_str}{extension}"
                 )
             } else {
                 // User provided a file (with possibly a path)
@@ -878,8 +874,7 @@ impl CliClient {
         } else {
             // Write file to current directory using default naming convention
             format!(
-                "./{}{}{}{}",
-                filetype, type_str, timestamp_start_str, extension
+                "./{filetype}{type_str}{timestamp_start_str}{extension}"
             )
         };
 
@@ -938,7 +933,7 @@ impl CliClient {
                 break 'mloop;
             } // Stream is exhausted
             Err(e) => {
-                eprintln!("Error receiving message: {}", e);
+                eprintln!("Error receiving message: {e}");
                 break 'mloop;
             }
         } {
@@ -961,7 +956,7 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
-        println!("[CLI] Waited {:.6} seconds for results.", length);
+        println!("[CLI] Waited {length:.6} seconds for results.");
         println!(
             "[CLI] Time of end measurement {}",
             Local::now().format("%H:%M:%S")
@@ -1007,7 +1002,7 @@ impl CliClient {
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let channel = if let Some(fqdn) = fqdn {
             // Secure connection
-            let addr = format!("https://{}", address);
+            let addr = format!("https://{address}");
 
             // Load the CA certificate used to authenticate the orchestrator
             let pem = fs::read_to_string("tls/orchestrator.crt")
@@ -1025,7 +1020,7 @@ impl CliClient {
                 .expect("Unable to connect to orchestrator")
         } else {
             // Unsecure connection
-            let addr = format!("http://{}", address);
+            let addr = format!("http://{address}");
 
             Channel::from_shared(addr.to_owned())
                 .expect("Unable to set address")
