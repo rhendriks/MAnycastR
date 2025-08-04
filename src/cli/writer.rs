@@ -366,7 +366,7 @@ pub fn get_parquet_metadata(
     // Store active workers as a JSON string
     if !args.active_workers.is_empty() {
         md.push((
-            "selective_probing_worker_ids".to_string(),
+            "selective_probing_workers".to_string(),
             serde_json::to_string(&args.active_workers).unwrap_or_default(),
         ));
     }
