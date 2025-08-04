@@ -779,7 +779,8 @@ impl Controller for ControllerService {
                             hitlist_iter.by_ref().take(remainder_needed).collect();
 
                         // If we are unable to fill the addresses, the hitlist is empty
-                        if addresses_from_hitlist.len() < remainder_needed {
+                        if (addresses_from_hitlist.len() < remainder_needed) && !hitlist_is_empty {
+                            println!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
                             hitlist_is_empty = true;
                         }
 
