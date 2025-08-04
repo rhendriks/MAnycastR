@@ -743,6 +743,8 @@ impl Controller for ControllerService {
                     // Get the addresses for this tick
                     let mut follow_ups: Vec<Address> = Vec::new();
 
+                    println!("hitlist length is {}", hitlist_iter.len());
+
                     // Attempt to get addresses from the worker stack first
                     {
                         let mut stacks = worker_stacks.lock().unwrap();
@@ -754,8 +756,6 @@ impl Controller for ControllerService {
                             follow_ups.extend(queue.drain(..num_to_take));
                         }
                     }
-
-                    println!("hitlist length is {}", hitlist_iter.len());
 
                     let follow_ups_len = follow_ups.len();
 
@@ -774,8 +774,13 @@ impl Controller for ControllerService {
                             .expect("Failed to send task to TaskDistributor");
                     }
 
-                    // Fill up remainder using the general hitlist.
-                    let remainder_needed = (probing_rate as usize).saturating_sub(follow_ups_len);
+                    let remainder_needed = if is_responsive {
+                        // Send discovery probes
+                        probing_rate as usize
+                    } else {
+                        // Send probing_rate probes, minus the follow-ups we already sent
+                        (probing_rate as usize).saturating_sub(follow_ups_len)
+                    };
 
                     let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
