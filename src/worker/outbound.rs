@@ -81,9 +81,6 @@ pub fn outbound(
             let mut sent: u32 = 0;
             let mut sent_discovery = 0;
             let mut failed : u32= 0;
-            // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
-            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(config.probing_rate * config.tx_origins.len() as u32).unwrap());
-            println!(" using rate limiter with {} pps", config.probing_rate * config.tx_origins.len() as u32);
 
             let ethernet_header = get_ethernet_header(config.is_ipv6, config.if_name);
             'outer: loop {
@@ -135,10 +132,6 @@ pub fn outbound(
                                             &config.info_url,
                                         ));
 
-                                        while limiter.check().is_err() { // Rate limit to avoid bursts
-                                            sleep(Duration::from_millis(1));
-                                        }
-
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
@@ -159,9 +152,7 @@ pub fn outbound(
                                             config.m_type,
                                             &config.qname,
                                         ));
-                                        while limiter.check().is_err() { // Rate limit to avoid bursts
-                                            sleep(Duration::from_millis(1));
-                                        }
+
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
                                             Some(Err(e)) => {
@@ -182,10 +173,6 @@ pub fn outbound(
                                             config.is_symmetric,
                                             &config.info_url,
                                         ));
-
-                                        while limiter.check().is_err() { // Rate limit to avoid bursts
-                                            sleep(Duration::from_millis(1));
-                                        }
 
                                         match socket_tx.send_to(&packet, None) {
                                             Some(Ok(())) => sent += 1,
