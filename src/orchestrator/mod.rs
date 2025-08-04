@@ -743,15 +743,11 @@ impl Controller for ControllerService {
                     // Get the addresses for this tick
                     let mut follow_ups: Vec<Address> = Vec::new();
 
-                    println!("hitlist length is {}", hitlist_iter.len());
-
                     // Attempt to get addresses from the worker stack first
                     {
                         let mut stacks = worker_stacks.lock().unwrap();
                         if let Some(queue) = stacks.get_mut(&f_worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
-                            let length = queue.len();
-                            println!("taking {num_to_take} follow-ups from worker stack with length {length} for worker {f_worker_id}");
 
                             follow_ups.extend(queue.drain(..num_to_take));
                         }
@@ -843,7 +839,6 @@ impl Controller for ControllerService {
                     probing_rate_interval.tick().await;
                 }
 
-                println!("sending end task to all workers");
                 // Send end message to all workers directly to let them know the measurement is finished
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
@@ -856,12 +851,10 @@ impl Controller for ControllerService {
                 .await
                 .expect("Failed to send end task to TaskDistributor");
 
-                println!("awaiting finish");
                 // Wait till all workers are finished
                 while *is_active.lock().unwrap() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
-                println!("everyone finished");
 
                 // Avoid new follow-up probes
                 is_latency_signal.store(false, std::sync::atomic::Ordering::SeqCst);
