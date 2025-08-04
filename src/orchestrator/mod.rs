@@ -1159,11 +1159,16 @@ async fn task_sender(
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
+            let mut probing_index = 0;
+
             for sender in &workers {
                 if *sender.status == Probing {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
                     spawn(async move {
+                        // Wait inter-client probing interval
+                        tokio::time::sleep(Duration::from_secs(probing_index * inter_client_interval)).await;
+
                         spawn(async move {
                             for _ in 0..nprobes {
                                 sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
@@ -1177,10 +1182,8 @@ async fn task_sender(
                             }
                         });
                     });
-
-                    // Wait inter-client probing interval
-                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
                 }
+                probing_index += 1;
             }
         } else {
             // to specific worker (used for --latency follow-up probes)
