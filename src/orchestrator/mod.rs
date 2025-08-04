@@ -396,9 +396,9 @@ impl Controller for ControllerService {
             .map_err(|boxed_status| *boxed_status)?;
 
         if is_reconnect {
-            println!("[Orchestrator] Reconnecting worker: {}", hostname);
+            println!("[Orchestrator] Reconnecting worker: {hostname}");
         } else {
-            println!("[Orchestrator] New worker connected: {}", hostname);
+            println!("[Orchestrator] New worker connected: {hostname}");
         }
 
         // Send worker ID
@@ -1160,7 +1160,10 @@ async fn task_sender(
                     let task_c = task.clone();
                     spawn(async move {
                         // Wait inter-client probing interval
-                        tokio::time::sleep(Duration::from_secs(probing_index * inter_client_interval)).await;
+                        tokio::time::sleep(Duration::from_secs(
+                            probing_index * inter_client_interval,
+                        ))
+                        .await;
 
                         spawn(async move {
                             for _ in 0..nprobes {
@@ -1175,8 +1178,8 @@ async fn task_sender(
                             }
                         });
                     });
+                    probing_index += 1;
                 }
-                probing_index += 1;
             }
         } else {
             // to specific worker (used for --latency follow-up probes)
