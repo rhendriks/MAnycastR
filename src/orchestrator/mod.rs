@@ -397,6 +397,7 @@ impl Controller for ControllerService {
 
         if is_reconnect {
             println!("[Orchestrator] Reconnecting worker: {hostname}");
+            // TODO during an active measurement, we need to send the start message and allow the sender back in
         } else {
             println!("[Orchestrator] New worker connected: {hostname}");
         }
