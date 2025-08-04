@@ -771,13 +771,7 @@ impl Controller for ControllerService {
                             .expect("Failed to send task to TaskDistributor");
                     }
 
-                    let remainder_needed = if is_responsive {
-                        // Send discovery probes
-                        probing_rate as usize
-                    } else {
-                        // Send probing_rate probes, minus the follow-ups we already sent
-                        (probing_rate as usize).saturating_sub(follow_ups_len)
-                    };
+                    let remainder_needed = (probing_rate as usize).saturating_sub(follow_ups_len);
 
                     let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
