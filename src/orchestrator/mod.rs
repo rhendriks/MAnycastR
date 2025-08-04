@@ -389,12 +389,17 @@ impl Controller for ControllerService {
         let hostname = worker.hostname;
         let unicast_v4 = worker.unicast_v4;
         let unicast_v6 = worker.unicast_v6;
-        println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
         // Get the worker ID, and check if it is a reconnection
         let (worker_id, is_reconnect) = self
             .get_worker_id(&hostname)
             .map_err(|boxed_status| *boxed_status)?;
+
+        if is_reconnect {
+            println!("[Orchestrator] Reconnecting worker: {hostname}");
+        } else {
+            println!("[Orchestrator] New worker connected: {hostname}");
+        }
 
         // Send worker ID
         tx.send(Ok(Task {
@@ -765,8 +770,13 @@ impl Controller for ControllerService {
                             .expect("Failed to send task to TaskDistributor");
                     }
 
-                    // Fill up remainder using the general hitlist.
-                    let remainder_needed = (probing_rate as usize).saturating_sub(follow_ups_len);
+                    let remainder_needed = if is_responsive {
+                        // Send discovery probes
+                        probing_rate as usize
+                    } else {
+                        // Send probing_rate probes, minus the follow-ups we already sent
+                        (probing_rate as usize).saturating_sub(follow_ups_len)
+                    };
 
                     let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
@@ -774,7 +784,8 @@ impl Controller for ControllerService {
                             hitlist_iter.by_ref().take(remainder_needed).collect();
 
                         // If we are unable to fill the addresses, the hitlist is empty
-                        if addresses_from_hitlist.len() < remainder_needed {
+                        if (addresses_from_hitlist.len() < remainder_needed) && !hitlist_is_empty {
+                            println!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
                             hitlist_is_empty = true;
                         }
 
@@ -1073,7 +1084,6 @@ impl ControllerService {
                     )))
                 } else {
                     // This is a reconnection of a closed worker.
-                    println!("[Orchestrator] Worker {hostname} reconnected");
                     let id = existing_worker.worker_id;
                     Ok((id, true))
                 };
@@ -1142,11 +1152,19 @@ async fn task_sender(
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
+            let mut probing_index = 0;
+
             for sender in &workers {
                 if *sender.status == Probing {
                     let sender_c = sender.clone();
                     let task_c = task.clone();
                     spawn(async move {
+                        // Wait inter-client probing interval
+                        tokio::time::sleep(Duration::from_secs(
+                            probing_index * inter_client_interval,
+                        ))
+                        .await;
+
                         spawn(async move {
                             for _ in 0..nprobes {
                                 sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
@@ -1160,9 +1178,7 @@ async fn task_sender(
                             }
                         });
                     });
-
-                    // Wait inter-client probing interval
-                    tokio::time::sleep(Duration::from_secs(inter_client_interval)).await;
+                    probing_index += 1;
                 }
             }
         } else {
