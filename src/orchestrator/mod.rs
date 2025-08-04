@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::custom_module;
 use crate::custom_module::manycastr::Address;
+use crate::custom_module::Separated;
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use clap::ArgMatches;
@@ -773,6 +774,8 @@ impl Controller for ControllerService {
 
                     let remainder_needed = (probing_rate as usize).saturating_sub(follow_ups_len);
 
+                    println!("sending {follow_ups_len} follow-ups and {remainder_needed} discovery targets to worker {worker_id}; number of hitlist targets left: {}", hitlist_iter.len().with_separator());
+
                     let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
                         let addresses_from_hitlist: Vec<Address> =
@@ -1182,7 +1185,6 @@ async fn task_sender(
             // to specific worker (used for --latency follow-up probes)
             if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
-                    // probe once
                     sender.send(Ok(task)).await.unwrap_or_else(|e| {
                         sender.cleanup();
                         eprintln!(
@@ -1191,7 +1193,7 @@ async fn task_sender(
                         );
                     });
                 } else {
-                    // probe multiple times (in separate thread)
+                    // Probe multiple times (in separate thread)
                     let sender_clone = sender.clone();
                     spawn(async move {
                         for _ in 0..number_of_probes {
@@ -1263,18 +1265,18 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
-            .http2_keepalive_interval(Some(Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
-            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .http2_keepalive_interval(Some(Duration::from_secs(10)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
             .add_service(svc)
             .serve(addr)
             .await
             .expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
-            .http2_keepalive_interval(Some(Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
-            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .http2_keepalive_interval(Some(Duration::from_secs(10)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
             .add_service(svc)
             .serve(addr)
             .await
