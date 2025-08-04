@@ -389,12 +389,17 @@ impl Controller for ControllerService {
         let hostname = worker.hostname;
         let unicast_v4 = worker.unicast_v4;
         let unicast_v6 = worker.unicast_v6;
-        println!("[Orchestrator] New worker connected: {}", hostname);
         let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
         // Get the worker ID, and check if it is a reconnection
         let (worker_id, is_reconnect) = self
             .get_worker_id(&hostname)
             .map_err(|boxed_status| *boxed_status)?;
+
+        if is_reconnect {
+            println!("[Orchestrator] Reconnecting worker: {}", hostname);
+        } else {
+            println!("[Orchestrator] New worker connected: {}", hostname);
+        }
 
         // Send worker ID
         tx.send(Ok(Task {
@@ -1073,7 +1078,6 @@ impl ControllerService {
                     )))
                 } else {
                     // This is a reconnection of a closed worker.
-                    println!("[Orchestrator] Worker {hostname} reconnected");
                     let id = existing_worker.worker_id;
                     Ok((id, true))
                 };
