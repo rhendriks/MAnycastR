@@ -748,10 +748,14 @@ impl Controller for ControllerService {
                         let mut stacks = worker_stacks.lock().unwrap();
                         if let Some(queue) = stacks.get_mut(&f_worker_id) {
                             let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
+                            let length = queue.len();
+                            println!("taking {num_to_take} follow-ups from worker stack with length {length} for worker {f_worker_id}");
 
                             follow_ups.extend(queue.drain(..num_to_take));
                         }
                     }
+
+                    println!("hitlist length is {}", hitlist_iter.len());
 
                     let follow_ups_len = follow_ups.len();
 
