@@ -834,6 +834,7 @@ impl Controller for ControllerService {
                     probing_rate_interval.tick().await;
                 }
 
+                println!("sending end task to all workers");
                 // Send end message to all workers directly to let them know the measurement is finished
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
@@ -846,10 +847,12 @@ impl Controller for ControllerService {
                 .await
                 .expect("Failed to send end task to TaskDistributor");
 
+                println!("awaiting finish");
                 // Wait till all workers are finished
                 while *is_active.lock().unwrap() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
+                println!("everyone finished");
 
                 // Avoid new follow-up probes
                 is_latency_signal.store(false, std::sync::atomic::Ordering::SeqCst);
