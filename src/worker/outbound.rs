@@ -16,6 +16,7 @@ use pnet::datalink::DataLinkSender;
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use tokio::time::interval;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
