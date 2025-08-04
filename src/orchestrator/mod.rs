@@ -1138,6 +1138,7 @@ async fn task_sender(
             // To all direct (used for 'end measurement' only)
             for sender in &workers {
                 sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                    sender.cleanup();
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
                         sender.hostname, e
@@ -1163,6 +1164,7 @@ async fn task_sender(
                         spawn(async move {
                             for _ in 0..nprobes {
                                 sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
+                                    sender_c.cleanup();
                                     eprintln!(
                                         "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
                                         sender_c.hostname, e
@@ -1182,6 +1184,7 @@ async fn task_sender(
                 if nprobes < 2 {
                     // probe once
                     sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                        sender.cleanup();
                         eprintln!(
                             "[Orchestrator] Failed to send task to worker {}: {:?}",
                             sender.hostname, e
@@ -1196,6 +1199,7 @@ async fn task_sender(
                                 .send(Ok(task.clone()))
                                 .await
                                 .unwrap_or_else(|e| {
+                                    sender_clone.cleanup();
                                     eprintln!(
                                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                                         sender_clone.hostname, e
