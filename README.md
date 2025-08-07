@@ -142,7 +142,7 @@ Next, from the catching PoP, a follow-up probe is sent to measure the RTT.
 This results in two probes per target.
 Results are streamed to the CLI, and written to a .csv.gz file.
 Streamed output can be piped to e.g., `grep` or `awk` for further processing.
-Example, printing targets with > 100 ms to the anycast deployment: `| awk -F, 'NR==1 || $4+0 > 100'`
+Example, printing targets with > 100 ms RTT to the anycast deployment: `| awk -F, 'NR==1 || $4+0 > 100'`
 
 #### Unicast latency measurement using ICMPv6
 
