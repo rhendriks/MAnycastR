@@ -780,8 +780,6 @@ impl Controller for ControllerService {
                         (probing_rate as usize).saturating_sub(follow_ups_len)
                     };
 
-                    println!("sending {follow_ups_len} follow-ups and {remainder_needed} discovery targets to worker {worker_id}; number of hitlist targets left: {}", hitlist_iter.len().with_separator());
-
                     let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
                         // Take the exact number of remaining addresses needed from the hitlist.
                         let addresses_from_hitlist: Vec<Address> =
