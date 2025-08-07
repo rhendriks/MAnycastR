@@ -6,27 +6,27 @@ This includes:
 
 i) Measuring anycast infrastructure itself
 * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
-* [Site flipping]() (detecting network regions experiencing anycast site flipping)
 * Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
-* Optimal deployment (measuring 'best' deployment using lowest unicast latencies towards the Internet)
+* Optimal deployment (measuring 'best' deployment inferred from unicast latencies from all PoPs)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+* [Site flipping]() (detecting network regions experiencing anycast site flipping)
 
 ii) Measuring external anycast infrastructure
 * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (detecting anycast using anycast)
-* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast sites using Great-Circle-Distance latency measurements)
+* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast PoPs using Great-Circle-Distance latency measurements)
 
-Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+Both IPv4 and IPv6 are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 
 ## The components
 
 Deployment of MAnycastR consists of three components:
 * `Orchestrator` - a central controller orchestrating measurements
 * `CLI` - Command-line interface scheduling measurements at the orchestrator and collecting results
-* `Worker` - Deployed on anycast sites, performing measurements
+* `Worker` - Deployed on anycast PoPs, performing measurements
 
 ## Measurement process
 
-A measurement is started by running the CLI, which can be executed e.g., locally or on a VM.
+A measurement is started by running the CLI, which can be executed e.g., locally or automated using a cronjob on a VM.
 The CLI sends a measurement definition based on the arguments provided when running the `start` command.
 Example commands will be provided in the Usage section.
 
@@ -34,7 +34,8 @@ Upon receiving a measurement definition, the orchestrator instructs the workers 
 Workers perform measurements by sending and receiving probes.
 
 Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
-The CLI writes results to a .csv.gz file.
+For some measurements, the orchestrator creates follow-up tasks based on the 'catching' PoP for a target.
+The CLI writes results to a .csv.gz file (or .parquet).
 
 ## Measurement types
 Measurements can be;
@@ -45,11 +46,11 @@ Measurements can be;
 
 ## Measurement parameters
 
-When creating a measurement you can specify:
+When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) ()
-* **Type of measurement** - ICMP, UDP, TCP, or CHAOS
+* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Type of measurement** - ICMP, DNS, TCP, or CHAOS
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 * **Interval** - interval between separate worker's probes to the same target (default: 1s)
