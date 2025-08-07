@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use crate::custom_module;
 use crate::custom_module::manycastr::Address;
-use crate::custom_module::Separated;
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use clap::ArgMatches;
