@@ -317,7 +317,7 @@ fn parse_icmpv4(
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
@@ -403,7 +403,7 @@ fn parse_icmpv6(
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
@@ -476,7 +476,7 @@ fn parse_dnsv4(
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
     let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
         let dns_result = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
@@ -567,7 +567,7 @@ fn parse_dnsv6(
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_naas_microsnos() as u64;
     let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
         let dns_result = parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
@@ -792,7 +792,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
 
     let origin_id = get_origin_id_v4(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
@@ -851,7 +851,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
 
     let origin_id = get_origin_id_v6(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
