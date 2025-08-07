@@ -567,7 +567,7 @@ fn parse_dnsv6(
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_naas_microsnos() as u64;
+        .as_micros() as u64;
     let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
         let dns_result = parse_dns_a_record_v6(udp_packet.body.as_slice())?;
 
