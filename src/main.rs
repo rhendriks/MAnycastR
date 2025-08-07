@@ -437,7 +437,6 @@ fn parse_cmd() -> ArgMatches {
                     )
                     .arg(Arg::new("responsive")
                         .long("responsive")
-                        .short('v')
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
