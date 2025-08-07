@@ -102,13 +102,11 @@ cli -a [ORC ADDRESS] start [parameters]
 #### Verfploeter catchment mapping using ICMPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz
+cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -x [nl-ams]
 ```
 
-All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv
-
-With this measurement each target receives a probe from each worker.
-Filtering on sender == receiver allows for calculating anycast RTTs.
+Worker with hostname nl-ams will probe the targets in hitlist.txt using ICMPv4 and source address 10.0.0.0.
+All workers listen for probe replies. The CLI writes results live to results.csv.gz
 
 #### Divide-and-conquer Verfploeter catchment mapping using TCPv4
 
@@ -118,9 +116,33 @@ cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
 
 hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 
-Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe each target.
-Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
-Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
+Enabling divide-and-conquer means each target receives a single probe, whereas before one worker would probe all targets.
+Allows for faster measurements (hitlist split among workers), and spreading probing burden amongst individual PoPs' upstreams.
+
+### MAnycast2 anycast detection
+
+```
+cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -u opt-out.example.com --responsive
+```
+
+All workers will probe the targets in hitlist.txt using ICMPv4.
+Probes will have the URL opt-out.example.com encoded in the payload.
+--responsive will check if a target is responsive from a single worker before probing from all workers.
+If probe replies for a single target are received at multiple workers, then it is likely anycast.
+
+### Measure anycast latencies using TCPv6
+
+```
+cli -a [::1]:50001 start hitlistv6.txt -t tcp --latency --stream -a 2001:: -s 2222 -d 1111
+```
+
+Workers will probe the targets in hitlistv6.txt using TCPv6 with source address 2001::, source port 2222, and destination port 1111.
+For each target a discovery probe is sent, to determine the 'catching' PoP.
+Next, from the catching PoP, a follow-up probe is sent to measure the RTT.
+This results in two probes per target.
+Results are streamed to the CLI, and written to a .csv.gz file.
+Streamed output can be piped to e.g., `grep` or `awk` for further processing.
+Example, printing targets with > 100 ms to the anycast deployment: `| awk -F, 'NR==1 || $4+0 > 100'`
 
 #### Unicast latency measurement using ICMPv6
 
