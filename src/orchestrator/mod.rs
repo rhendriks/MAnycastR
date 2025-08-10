@@ -397,6 +397,7 @@ impl Controller for ControllerService {
 
         if is_reconnect {
             println!("[Orchestrator] Reconnecting worker: {hostname}");
+            // TODO during an active measurement, we need to send the start message and allow the sender back in
         } else {
             println!("[Orchestrator] New worker connected: {hostname}");
         }
@@ -770,11 +771,11 @@ impl Controller for ControllerService {
                             .expect("Failed to send task to TaskDistributor");
                     }
 
+                    // Get discovery targets
                     let remainder_needed = if is_responsive {
-                        // Send discovery probes
+                        //
                         probing_rate as usize
                     } else {
-                        // Send probing_rate probes, minus the follow-ups we already sent
                         (probing_rate as usize).saturating_sub(follow_ups_len)
                     };
 
@@ -1143,6 +1144,7 @@ async fn task_sender(
             // To all direct (used for 'end measurement' only)
             for sender in &workers {
                 sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                    sender.cleanup();
                     eprintln!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {:?}",
                         sender.hostname, e
@@ -1168,6 +1170,7 @@ async fn task_sender(
                         spawn(async move {
                             for _ in 0..nprobes {
                                 sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
+                                    sender_c.cleanup();
                                     eprintln!(
                                         "[Orchestrator] Failed to send broadcast task to probing worker {}: {:?}",
                                         sender_c.hostname, e
@@ -1185,15 +1188,15 @@ async fn task_sender(
             // to specific worker (used for --latency follow-up probes)
             if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
-                    // probe once
                     sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                        sender.cleanup();
                         eprintln!(
                             "[Orchestrator] Failed to send task to worker {}: {:?}",
                             sender.hostname, e
                         );
                     });
                 } else {
-                    // probe multiple times (in separate thread)
+                    // Probe multiple times (in separate thread)
                     let sender_clone = sender.clone();
                     spawn(async move {
                         for _ in 0..number_of_probes {
@@ -1201,6 +1204,7 @@ async fn task_sender(
                                 .send(Ok(task.clone()))
                                 .await
                                 .unwrap_or_else(|e| {
+                                    sender_clone.cleanup();
                                     eprintln!(
                                         "[Orchestrator] Failed to send task to worker {}: {:?}",
                                         sender_clone.hostname, e
@@ -1264,18 +1268,18 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(load_tls()))
             .expect("Failed to load TLS certificate")
-            .http2_keepalive_interval(Some(Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
-            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .http2_keepalive_interval(Some(Duration::from_secs(10)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
             .add_service(svc)
             .serve(addr)
             .await
             .expect("Failed to start orchestrator with TLS");
     } else {
         Server::builder()
-            .http2_keepalive_interval(Some(Duration::from_secs(60)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(10)))
-            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .http2_keepalive_interval(Some(Duration::from_secs(10)))
+            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
             .add_service(svc)
             .serve(addr)
             .await

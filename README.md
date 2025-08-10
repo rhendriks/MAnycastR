@@ -6,27 +6,27 @@ This includes:
 
 i) Measuring anycast infrastructure itself
 * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
-* [Site flipping]() (detecting network regions experiencing anycast site flipping)
 * Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
-* Optimal deployment (measuring 'best' deployment using lowest unicast latencies towards the Internet)
+* Optimal deployment (measuring 'best' deployment inferred from unicast latencies from all PoPs)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+* [Site flipping]() (detecting network regions experiencing anycast site flipping)
 
 ii) Measuring external anycast infrastructure
 * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (detecting anycast using anycast)
-* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast sites using Great-Circle-Distance latency measurements)
+* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast PoPs using Great-Circle-Distance latency measurements)
 
-Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+Both IPv4 and IPv6 are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
 
 ## The components
 
 Deployment of MAnycastR consists of three components:
 * `Orchestrator` - a central controller orchestrating measurements
 * `CLI` - Command-line interface scheduling measurements at the orchestrator and collecting results
-* `Worker` - Deployed on anycast sites, performing measurements
+* `Worker` - Deployed on anycast PoPs, performing measurements
 
 ## Measurement process
 
-A measurement is started by running the CLI, which can be executed e.g., locally or on a VM.
+A measurement is started by running the CLI, which can be executed e.g., locally or automated using a cronjob on a VM.
 The CLI sends a measurement definition based on the arguments provided when running the `start` command.
 Example commands will be provided in the Usage section.
 
@@ -34,7 +34,8 @@ Upon receiving a measurement definition, the orchestrator instructs the workers 
 Workers perform measurements by sending and receiving probes.
 
 Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
-The CLI writes results to a .csv.gz file.
+For some measurements, the orchestrator creates follow-up tasks based on the 'catching' PoP for a target.
+The CLI writes results to a .csv.gz file (or .parquet).
 
 ## Measurement types
 Measurements can be;
@@ -45,28 +46,33 @@ Measurements can be;
 
 ## Measurement parameters
 
-When creating a measurement you can specify:
+When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) ()
-* **Type of measurement** - ICMP, UDP, TCP, or CHAOS
+* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Type of measurement** - ICMP, DNS, TCP, or CHAOS
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
-* **Interval** - interval between separate worker's probes to the same target (default: 1s)
+* **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
+* **Probe-interval** - interval between probes sent by a worker to the same target (default: 1s)
+* **nprobes** - number of probes to send to each target (default: 1)
 * **Address** - source anycast address to use for the probes
-* **Source port** - source port to use for the probes (default: 62321)
-* **Destination port** - destination port to use for the probes (default: DNS: 53, TCP: 63853)
-* **Configuration** - path to a configuration file (allowing for complex configurations of source address, port values used by workers)
+* **Source port** - source port to use for probes (default: 62321)
+* **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
+* **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
 * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
-* **Responsive** - check if a target is responsive before probing from all workers (unimplemented)
 * **Out** - path to file or directory (ending with '/') to store measurement results (default: ./)
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
 ### Flags
 * **Stream** - stream results to the command-line interface (optional)
 * **Shuffle** - shuffle the hitlist
-* **Unicast** - perform measurement using the unicast address of each worker
+* **Unicast** - measure unicast latencies from all workers to the targets in the hitlist
 * **Divide** - divide-and-conquer Verfploeter catchment mapping
+* **Responsive** - check if a target is responsive before probing from all workers
+* **Latency** - measure anycast latencies
+* **Parquet** - store results in .parquet format instead of .csv.gz
+
 
 ## Usage
 
@@ -96,13 +102,11 @@ cli -a [ORC ADDRESS] start [parameters]
 #### Verfploeter catchment mapping using ICMPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv
+cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -x [nl-ams]
 ```
 
-All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv
-
-With this measurement each target receives a probe from each worker.
-Filtering on sender == receiver allows for calculating anycast RTTs.
+Worker with hostname nl-ams will probe the targets in hitlist.txt using ICMPv4 and source address 10.0.0.0.
+All workers listen for probe replies. The CLI writes results live to results.csv.gz
 
 #### Divide-and-conquer Verfploeter catchment mapping using TCPv4
 
@@ -112,20 +116,46 @@ cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
 
 hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 
-Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe each target.
-Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
-Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
+Enabling divide-and-conquer means each target receives a single probe, whereas before one worker would probe all targets.
+Allows for faster measurements (hitlist split among workers), and spreading probing burden amongst individual PoPs' upstreams.
+
+### MAnycast2 anycast detection
+
+```
+cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -u opt-out.example.com --responsive
+```
+
+All workers will probe the targets in hitlist.txt using ICMPv4.
+Probes will have the URL opt-out.example.com encoded in the payload.
+--responsive will check if a target is responsive from a single worker before probing from all workers.
+If probe replies for a single target are received at multiple workers, then it is likely anycast.
+
+### Measure anycast latencies using TCPv6
+
+```
+cli -a [::1]:50001 start hitlistv6.txt -t tcp --latency --stream -a 2001:: -s 2222 -d 1111
+```
+
+Workers will probe the targets in hitlistv6.txt using TCPv6 with source address 2001::, source port 2222, and destination port 1111.
+For each target a discovery probe is sent, to determine the 'catching' PoP.
+Next, from the catching PoP, a follow-up probe is sent to measure the RTT.
+This results in two probes per target.
+Results are streamed to the CLI, and written to a .csv.gz file.
+Streamed output can be piped to e.g., `grep` or `awk` for further processing.
+Example, printing targets with > 100 ms RTT to the anycast deployment: `| awk -F, 'NR==1 || $4+0 > 100'`
 
 #### Unicast latency measurement using ICMPv6
 
 ```
-cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast
+cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast --parquet
 ```
 
 Since the hitlist contains IPv6 addresses, the workers will probe the targets using their IPv6 unicast address.
 
 This feature gives the latency between all anycast sites and each target in the hitlist.
 Filtering on the lowest unicast RTTs indicates the best anycast site for each target.
+
+Results are stored in .parquet format.
 
 ## Requirements
 

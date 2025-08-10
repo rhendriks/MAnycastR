@@ -201,7 +201,7 @@ pub fn create_icmp(
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
     let src = origin.src.expect("None IP address");
 
     // Create the ping payload bytes
@@ -273,7 +273,7 @@ pub fn create_dns(
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
+        .as_micros() as u64;
     let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
