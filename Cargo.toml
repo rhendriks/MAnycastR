@@ -12,7 +12,7 @@ futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
 prost = "0.14.1" # define gRPC messages
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
-tonic = { version = "0.14.0", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
+tonic = { version = "0.14.1", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.9.2" # generate random numbers
 gethostname = "1.0.2" # get hostname
 pnet = "0.35.0"# create raw socket for sending/receiving packets
@@ -22,9 +22,9 @@ indicatif = "0.18.0" # progress bar
 ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.2" # compression
 bimap = "0.6.3"
-tonic-prost = "0.14.0"
+tonic-prost = "0.14.1"
 parquet = { version = "56.0.0", features = ["snap"]}
 serde_json = "1.0.142"
 
 [build-dependencies]
-tonic-prost-build = "0.14.0"
+tonic-prost-build = "0.14.1"
