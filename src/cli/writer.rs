@@ -253,12 +253,12 @@ fn get_row(
 
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
-        let rx_time_ms = rx_time / 1_000_000;
+        let rx_time_ms = rx_time / 1_000;
         let rx_time_adj = rx_time_ms as u32;
 
         (rx_time_adj - tx_time as u32) as f64
     } else {
-        (rx_time - tx_time) as f64 / 1_000_000.0
+        (rx_time - tx_time) as f64 / 1_000.0
     }
 }
 
