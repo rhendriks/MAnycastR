@@ -1292,15 +1292,15 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 /// Load the worker configuration from a file.
 /// This provides a static mapping of hostnames to worker IDs.
 /// Formats the file as follows:
-/// <hostname>,<id>
+/// hostname,id
 ///
 /// # Arguments
 /// * 'config_path' - the path to the configuration file
 ///
 /// # Returns
 /// Returns a tuple containing:
-/// * An Arc<Mutex<u32>> containing the worker ID for any new hostname, which is the maximum ID + 1 in the configuration file
-/// * An Option<HashMap<String, u32>> containing the mapping of hostnames to worker IDs
+/// * The worker ID for any new hostname, which is the maximum ID + 1 in the configuration file
+/// * A mapping of hostnames to worker IDs
 ///
 /// # Panics
 /// Panics if the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.

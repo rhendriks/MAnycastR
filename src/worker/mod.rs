@@ -151,7 +151,7 @@ impl Worker {
     ///
     /// * 'worker_id' - the unique ID of this worker
     ///
-    /// * 'abort_s' - an optional Arc<AtomicBool> that is used to signal the outbound thread to stop sending probes
+    /// * 'abort_s' - an optional boolean that is used to signal the outbound thread to stop sending probes
     fn init(&mut self, task: Task, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
         let start_measurement = if let Data::Start(start) = task.data.unwrap() {
             start
