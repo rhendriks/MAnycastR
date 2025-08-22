@@ -11,6 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo doc --no-deps
+      
       - name: Create redirect index.html
         run: |
           CRATE_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]')
