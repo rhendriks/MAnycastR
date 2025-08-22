@@ -9,7 +9,7 @@ on:
     branches: [ "master" ]
 
 env:
-  IMAGE_NAME: ghcr.io/anycastc/manycast
+  IMAGE_NAME: ghcr.io/rhendriks/manycast
 
 jobs:
   build-and-push:
