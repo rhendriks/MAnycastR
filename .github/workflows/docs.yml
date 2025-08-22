@@ -28,8 +28,9 @@ jobs:
 
       - name: Create redirect index.html
         run: |
-          CRATE_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]')
+          CRATE_NAME=$(grep '^name =' Cargo.toml | head -n1 | cut -d '"' -f2)
           echo '<meta http-equiv="refresh" content="0; url='"$CRATE_NAME"'/index.html">' > target/doc/index.html
+
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
