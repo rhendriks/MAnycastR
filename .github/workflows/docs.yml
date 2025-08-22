@@ -1,24 +1,42 @@
-name: Build and Deploy Docs
+name: Build and Deploy Rustdoc
 
 on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  docs:
+  build-docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo doc --no-deps
-      
+
+      - name: Build Rustdoc
+        run: cargo doc --no-deps --all-features
+
       - name: Create redirect index.html
         run: |
           CRATE_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]')
           echo '<meta http-equiv="refresh" content="0; url='"$CRATE_NAME"'/index.html">' > target/doc/index.html
 
-      - uses: peaceiris/actions-gh-pages@v4
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: ./target/doc
+          path: ./target/doc
+
+  deploy:
+    needs: build-docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
