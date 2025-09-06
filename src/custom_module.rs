@@ -170,7 +170,7 @@ impl From<String> for Address {
                 }
             }
         } else {
-            panic!("Invalid IP address or IP number");
+            panic!("Invalid IP address or IP number {s}");
         }
     }
 }

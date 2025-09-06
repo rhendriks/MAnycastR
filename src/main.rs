@@ -194,12 +194,10 @@
 //!
 //! # Future
 //!
-//! * Responsiveness pre-check
-//! * Anycast traceroute
+//! * Anycast traceroute / reverse traceroute
+//! * Unicast traceroute / reverse traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Support multiple packets per <worker, target> pair
 //! * Synchronous unicast and anycast measurements
-//! * Anycast latency using divide-and-conquer (probe 1; assess catching anycast site - probe 2; probe from catching site to obtain latency)
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
@@ -433,7 +431,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('q')
                         .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)")
+                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)")
                     )
                     .arg(Arg::new("responsive")
                         .long("responsive")
