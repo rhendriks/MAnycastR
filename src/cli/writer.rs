@@ -415,8 +415,8 @@ pub fn get_parquet_metadata(
     md
 }
 
-const BATCH_SIZE: usize = 1024;
-
+const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
+const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// Represents a row of data in the Parquet file format.
 /// Fields used depend on the measurement type and configuration.
 struct ParquetDataRow {
@@ -466,6 +466,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         WriterProperties::builder()
             .set_compression(ParquetCompression::SNAPPY)
             .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
+            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
             .build(),
     );
 
@@ -476,7 +477,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
     let headers = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
 
     tokio::spawn(async move {
-        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(BATCH_SIZE);
+        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
 
         while let Some(task_result) = rx.recv().await {
             if task_result == TaskResult::default() {
@@ -496,7 +497,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
             }
 
             // If the buffer is full, write the batch to the file
-            if row_buffer.len() >= BATCH_SIZE {
+            if row_buffer.len() >= ROW_BUFFER_CAPACITY {
                 write_batch_to_parquet(&mut writer, &row_buffer, &headers)
                     .expect("Failed to write batch to Parquet file");
                 row_buffer.clear();
