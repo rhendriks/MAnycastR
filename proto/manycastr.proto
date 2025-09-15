@@ -82,8 +82,7 @@ message Task {
     End end = 1; // End measurement
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
-    TraceStart trace_start = 4; // Start traceroute measurement
-    TraceTask trace_task = 5; // Traceroute task
+    TraceTask trace_task = 4; // Traceroute task
   }
   optional uint32 worker_id = 6; // Unique worker ID for the client
 }
@@ -100,15 +99,7 @@ message Start {
   string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
   string url = 9; // URL encoded in probes
   bool is_latency = 10; // whether the measurement is for latency
-}
-
-// Notify the worker to start listening for traceroute replies (ICMP Time Exceeded)
-message TraceStart {
-  uint32 trace_id = 1; // ID to encode in traceroute probes
-  repeated Origin tx_trace_origins = 2; // Origins on which to send traceroute probes
-  repeated Origin rx_trace_origins = 3; // Origins on which to listen for traceroute probes
-  string url = 4; // Optional opt-out URL to encode at the end of traceroute probes' payload
-  bool is_unicast = 5; // whether to perform traceroutes with unicast addresses
+  bool is_trace = 11; // whether the measurement is a traceroute measurement
 }
 
 // An end message, indicates the worker should stop sending out probes (also used for TraceTask)

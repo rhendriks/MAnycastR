@@ -398,10 +398,6 @@ impl Worker {
                         println!("[Worker] Received new measurement during an active measurement, skipping");
                         continue;
                     }
-                    Some(Data::TraceStart(_)) => {
-                        println!("[Worker] Received new trace measurement during an active measurement, skipping");
-                        continue;
-                    }
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
@@ -453,10 +449,6 @@ impl Worker {
                     match task.data.clone() {
                         Some(Data::Start(start)) => {
                             (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
-                        }
-                        Some(Data::TraceStart(trace_start)) => {
-                            // TODO handle trace measurements
-                            (trace_start.is_unicast, !trace_start.tx_trace_origins.is_empty(), trace_start.trace_id)
                         }
                         _ => {
                             // First task is not a start measurement task
