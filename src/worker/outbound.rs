@@ -316,7 +316,7 @@ pub fn trace_outbound (
                             match socket_tx.send_to(&packet, None) {
                                 Some(Ok(())) => sent += 1,
                                 Some(Err(e)) => {
-                                    eprintln!("[Worker outbound] Failed to send DNS packet: {e}");
+                                    eprintln!("[Worker outbound] Failed to send traceroute packet: {e}");
                                     failed += 1;
                                 },
                                 None => eprintln!("[Worker outbound] Failed to send packet: No Tx interface"),

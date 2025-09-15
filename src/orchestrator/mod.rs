@@ -660,6 +660,7 @@ impl Controller for ControllerService {
                     record: dns_record.clone(),
                     url: info_url.clone(),
                     is_latency,
+                    is_trace: false, // TODO
                 })),
             };
 
