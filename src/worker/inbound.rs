@@ -236,19 +236,18 @@ fn parse_ipv4(packet_bytes: &[u8]) -> (Address, u32, PacketPayload, u32, u32) {
 ///
 /// # Returns
 ///
-/// * 'Option<(IpResult, PacketPayload, u128, u128)>' - the IP result, the payload, and both dst and src address of the packet
+/// * '(u8, PacketPayload, dst, src' - the source TODO
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv6 header.
-fn parse_ipv6(packet_bytes: &[u8]) -> (Address, u32, PacketPayload, u128, u128) {
+fn parse_ipv6(packet_bytes: &[u8]) -> (u8, PacketPayload, u128, u128) {
     // Create IPv6Packet from the bytes in the buffer
     let packet = IPv6Packet::from(packet_bytes);
 
     // Create a Reply for the received ping reply
     (
-        Address::from(packet.src),
-        packet.hop_limit as u32,
+        packet.hop_limit,
         packet.payload,
         packet.dst,
         packet.src,
@@ -371,7 +370,7 @@ fn parse_icmpv6(
     if (packet_bytes.len() < 66) || (packet_bytes[40] != 129) {
         return None;
     }
-    let (address, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     // Parse the ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = payload else {
@@ -417,7 +416,7 @@ fn parse_icmpv6(
         Reply {
             tx_time,
             tx_id,
-            src: Some(address),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
@@ -547,7 +546,7 @@ fn parse_dnsv6(
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
         return None;
     }
-    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
 
     let PacketPayload::Udp { value: udp_packet } = payload else {
         return None;
@@ -599,7 +598,7 @@ fn parse_dnsv6(
         Reply {
             tx_time,
             tx_id,
-            src: Some(src),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
@@ -831,7 +830,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 ///
 /// # Returns
 ///
-/// * `Option<Reply>` - the received TCP reply
+/// * `Option<(Reply, bool)>` - the received TCP reply and whether it is a discovery packet
 ///
 /// # Remarks
 ///
@@ -841,7 +840,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     if (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0) {
         return None;
     }
-    let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv6(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv6(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
     let PacketPayload::Tcp { value: tcp_packet } = payload else {
@@ -870,7 +869,7 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         Reply {
             tx_time: tx_id as u64,
             tx_id,
-            src: Some(src),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
@@ -950,4 +949,163 @@ fn get_origin_id_v6(
         }
     }
     None
+}
+
+/// ICMP TTL Exceeded parser, used for traceroute.
+///
+/// # Arguments
+///
+/// * 'packet_bytes' - the bytes of the packet to parse
+///
+/// * 'is_ipv6' - whether to parse the packet as IPv6 or IPv4
+///
+/// # Returns
+///
+/// * 'Option<VerfploeterResult>' - the VerfploeterResult for the received ping reply
+///
+/// # Remarks
+///
+/// The function returns None if the packet is not an ICMP time exceeded packet or if the packet is too short to contain the necessary information.
+fn parse_icmp_ttl_exceeded(packet_bytes: &[u8], is_ipv6: bool) -> Option<Reply> {
+    // Parse IP header
+    let (ip_result, payload) = if is_ipv6 {
+        match parse_ipv6(packet_bytes) {
+            //v6
+            None => return None, // Unable to parse IPv4 header
+            Some((ip_result, payload)) => (Some(ip_result), payload),
+        }
+    } else {
+        // v4
+        match parse_ipv4(packet_bytes) {
+            None => return None, // Unable to parse IPv4 header
+            Some((ip_result, payload)) => (Some(ip_result), payload),
+        }
+    };
+
+    // 2. ICMP time exceeded header
+    if let PacketPayload::ICMP { value: icmp_packet } = payload {
+        if (!is_ipv6 & (icmp_packet.icmp_type != 11)) | (is_ipv6 & (icmp_packet.icmp_type != 3)) {
+            // Code 11 (icmpv4), or code 3 (icmpv6) => time exceeded
+            return None;
+        }
+
+        // 3. IP header of the probe that caused the time exceeded
+        let (ip_result_probe, ip_payload_probe) = if is_ipv6 {
+            // Get the ipv6 header from the probe out of the ICMP body
+            let ipv6_header = parse_ipv6(icmp_packet.body.as_slice());
+
+            // If we are unable to retrieve an IP header out of the ICMP payload
+            if ipv6_header.is_none() {
+                return None;
+            }
+
+            ipv6_header.unwrap()
+        } else {
+            // Get the ipv4 header from the probe out of the ICMP body
+            let ipv4_header = parse_ipv4(icmp_packet.body.as_slice());
+
+            // If we are unable to retrieve an IP header out of the ICMP payload
+            if ipv4_header.is_none() {
+                return None;
+            }
+            ipv4_header.unwrap()
+        };
+
+        // 4. Parse the payload of the probe that caused the time exceeded
+        return match ip_payload_probe {
+            PacketPayload::UDP { value: udp_header } => {
+                let inner_payload = udp_header.body.as_slice();
+                if inner_payload.len() < 10 {
+                    return None;
+                }
+
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_worker_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
+
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        tx_time,
+                        tx_worker_id,
+                        value: Some(trace_result::Value::Udp(UdpResult {
+                            rx_time: 0,
+                            sport: udp_header.source_port as u32,
+                            dport: udp_header.destination_port as u32,
+                            code: 16,
+                            ip_result: Some(ip_result_probe),
+                            payload: Some(UdpPayload { value: None }),
+                        })),
+                    })),
+                })
+            }
+            PacketPayload::TCP { value: tcp_header } => {
+                let inner_payload = tcp_header.body.as_slice();
+                if inner_payload.len() < 10 {
+                    return None;
+                }
+
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_worker_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
+
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        tx_time,
+                        tx_worker_id,
+                        value: Some(trace_result::Value::Tcp(TcpResult {
+                            rx_time: 0,
+                            sport: tcp_header.source_port as u32,
+                            dport: tcp_header.destination_port as u32,
+                            seq: tcp_header.seq,
+                            ip_result: Some(ip_result_probe),
+                            ack: tcp_header.ack,
+                        })),
+                    })),
+                })
+            }
+            PacketPayload::ICMP { value: icmp_header } => {
+                let inner_payload = icmp_header.body.as_slice();
+                if inner_payload.len() < 10 {
+                    return None;
+                }
+
+                let tx_time = u64::from_be_bytes(inner_payload[0..8].try_into().unwrap());
+                let tx_worker_id = u32::from(inner_payload[8]);
+                let probe_ttl = u32::from(inner_payload[9]);
+
+                Some(VerfploeterResult {
+                    value: Some(Value::Trace(TraceResult {
+                        ip_result,
+                        ttl: probe_ttl,
+                        rx_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64,
+                        tx_time,
+                        tx_worker_id,
+                        value: Some(trace_result::Value::Ping(PingResult {
+                            rx_time: 0,
+                            ip_result: Some(ip_result_probe),
+                            payload: None,
+                        })),
+                    })),
+                })
+            }
+            _ => None,
+        };
+    }
+
+    return None;
 }
