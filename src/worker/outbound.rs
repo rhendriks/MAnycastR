@@ -133,6 +133,7 @@ pub fn outbound(
                                             worker_id,
                                             config.m_id,
                                             &config.info_url,
+                                            255,
                                         ));
 
                                         while limiter.check().is_err() { // Rate limit to avoid bursts
@@ -259,7 +260,6 @@ pub fn trace_outbound (
         .name("outbound".to_string())
         .spawn(move || {
             let mut sent: u32 = 0;
-            let mut sent_discovery = 0;
             let mut failed : u32= 0;
             // Traceroute tasks are scheduled by the Orchestrator, there are no rate limits in-place
 
@@ -305,31 +305,12 @@ pub fn trace_outbound (
                                         origin,
                                         target,
                                         worker_id,
-                                        config.m_id,
+                                        config.trace_id,
                                         &config.info_url,
+                                        trace_task.ttl as u8
                                     ));
                                 }
-                                2 | 4 => { // DNS A record or CHAOS
-                                    packet.extend_from_slice(&create_dns(
-                                        origin,
-                                        target,
-                                        worker_id,
-                                        config.m_type,
-                                        &config.qname,
-                                    ));
-                                }
-                                3 => { // TCP
-                                    packet.extend_from_slice(&create_tcp(
-                                        origin,
-                                        target,
-                                        worker_id,
-                                        config.is_symmetric,
-                                        &config.info_url,
-                                    ));
-                                }
-                                255 => {
-                                    panic!("Invalid measurement type)") // TODO all
-                                }
+                                // TODO implement DNS and TCP traceroute packets
                                 _ => panic!("Invalid measurement type"), // Invalid measurement
                             }
                             match socket_tx.send_to(&packet, None) {
@@ -345,7 +326,7 @@ pub fn trace_outbound (
                     _ => continue, // Invalid measurement
                 };
             }
-            println!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent.with_separator(), sent_discovery.with_separator(), failed.with_separator());
+            println!("[Worker outbound] Outbound thread finished - packets sent : {}, packets failed to send: {}", sent.with_separator(), failed.with_separator());
         })
         .expect("Failed to spawn outbound thread");
 
