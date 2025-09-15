@@ -128,8 +128,10 @@ message Targets {
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
   uint32 worker_id = 1;
+  // TODO allow for either Reply and TraceReply in the same message
   repeated Reply result_list = 2;
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
+  repeated TraceReply trace_result_list = 4;
 }
 
 // Probe reply message
@@ -141,4 +143,16 @@ message Reply {
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
   optional string chaos = 7;
+}
+
+// Traceroute probe reply
+message TraceReply {
+  Address hop_addr = 1; // source address of the traceroute probe reply
+  Address dst = 2; // target address (i.e., destination of the traceroute probe)
+  uint32 hop_count = 3; // number of hops (TTL) of the traceroute probe that resulted in this reply
+  uint32 ttl = 4; // TTL of the traceroute reply
+  uint64 rx_time = 5; // receive time of the traceroute probe reply
+  uint64 tx_time = 6; // transmit time of the traceroute probe
+  uint32 tx_worker_id = 7; // worker ID of the worker that sent out the traceroute probe that resulted in this reply
+  fixed32 origin_id = 8; // ID of the destination origin (ip, ports) of the reply
 }
