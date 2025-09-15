@@ -209,19 +209,18 @@ fn handle_results(
 ///
 /// # Returns
 ///
-/// * 'Option<(IpResult, PacketPayload, u32, u32)>' - the IP result, the payload, and both dst and src address of the packet
+/// * '(u32, PacketPayload, dst, src)' - TTL, the payload, the destination and source addresses
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv4 header.
-fn parse_ipv4(packet_bytes: &[u8]) -> (Address, u32, PacketPayload, u32, u32) {
+fn parse_ipv4(packet_bytes: &[u8]) -> (u8, PacketPayload, u32, u32) {
     // Create IPv4Packet from the bytes in the buffer
     let packet = IPv4Packet::from(packet_bytes);
 
     // Create a Reply for the received ping reply
     (
-        Address::from(packet.src),
-        packet.ttl as u32,
+        packet.ttl,
         packet.payload,
         packet.dst,
         packet.src,
@@ -285,7 +284,7 @@ fn parse_icmpv4(
         return None;
     }
 
-    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let PacketPayload::Icmp { value: icmp_packet } = payload else {
         return None;
@@ -330,7 +329,7 @@ fn parse_icmpv4(
         Reply {
             tx_time,
             tx_id,
-            src: Some(src),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
@@ -455,7 +454,7 @@ fn parse_dnsv4(
         return None;
     }
 
-    let (src, ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
 
     let PacketPayload::Udp { value: udp_packet } = payload else {
         return None;
@@ -508,7 +507,7 @@ fn parse_dnsv4(
         Reply {
             tx_time,
             tx_id,
-            src: Some(src),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
@@ -781,7 +780,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
-    let (src, ttl, payload, reply_dst, _reply_src) = parse_ipv4(packet_bytes);
+    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
     let PacketPayload::Tcp { value: tcp_packet } = payload else {
@@ -810,7 +809,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         Reply {
             tx_time: tx_id as u64,
             tx_id,
-            src: Some(src),
+            src: Some(Address::from(reply_src)),
             ttl,
             rx_time,
             origin_id,
