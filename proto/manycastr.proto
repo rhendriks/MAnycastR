@@ -76,12 +76,13 @@ message IPv6 {
   fixed64 p2 = 2;
 }
 
-// A task for a worker, either a start or end message, or a list of targets
+// A task for a worker, either a start or end message, a list of targets, or a traceroute task
 message Task {
   oneof data {
     End end = 1; // End measurement
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
+    TraceTask trace_task = 5; // Traceroute task
   }
   optional uint32 worker_id = 4; // Unique worker ID for the client
 }
@@ -123,6 +124,14 @@ message Configuration {
 message Targets {
   repeated Address dst_list = 1;
   optional bool is_discovery = 2; // whether the targets are being probed as discovery (responsiveness, latency)
+}
+
+// A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
+message TraceTask {
+  Address dst = 1; // target address of the traceroute probe
+  uint32 ttl = 2; // TTL to use for the traceroute probe
+  Origin origin = 3; // origin to use for the traceroute probe
+  bool is_unicast = 4; // whether to use the unicast address
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
