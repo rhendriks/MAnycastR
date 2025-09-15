@@ -386,6 +386,12 @@ impl Worker {
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
+            // Check for a trace task
+            if let Some(Data::TraceTask(task)) = &task.data {
+                println!("[Worker] Received trace task");
+                // TODO perform trace task
+            }
+            
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message

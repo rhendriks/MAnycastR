@@ -101,7 +101,14 @@ message Start {
   bool is_latency = 10; // whether the measurement is for latency
 }
 
-// An end message, indicates the worker should stop sending out probes
+// Notify the worker to start listening for traceroute replies (ICMP Time Exceeded)
+message TraceStart {
+  uint32 trace_id = 1; // ID to encode in traceroute probes
+  repeated Address trace_origins = 2; // Source addresses on which to expect traceroute replies
+  string url = 3; // Optional opt-out URL to encode at the end of traceroute probes' payload
+}
+
+// An end message, indicates the worker should stop sending out probes (also used for TraceTask)
 message End {
   uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
