@@ -167,6 +167,7 @@ impl Worker {
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
         let is_latency = start_measurement.is_latency;
+        let is_trace = start_measurement.is_trace;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
@@ -253,16 +254,20 @@ impl Worker {
 
         // Start listening thread (except if it is a unicast measurement and we are not probing)
         if !is_unicast || is_probing {
-            let config = InboundConfig {
-                m_id,
-                worker_id,
-                is_ipv6,
-                m_type: start_measurement.m_type as u8,
-                origin_map: rx_origins,
-                abort_s: self.abort_s.clone(),
-            };
+            if !is_trace {
+                let config = InboundConfig {
+                    m_id,
+                    worker_id,
+                    is_ipv6,
+                    m_type: start_measurement.m_type as u8,
+                    origin_map: rx_origins,
+                    abort_s: self.abort_s.clone(),
+                };
 
-            inbound(config, tx, socket_rx);
+                inbound(config, tx, socket_rx);
+            } else {
+                // Trace listening thread TODO
+            }
         }
 
         if is_probing {
@@ -291,22 +296,26 @@ impl Worker {
                 _ => (),
             }
 
-            let config = OutboundConfig {
-                worker_id,
-                tx_origins,
-                abort_s: abort_s.unwrap(),
-                is_ipv6,
-                is_symmetric: is_latency || is_unicast,
-                m_id,
-                m_type: start_measurement.m_type as u8,
-                qname,
-                info_url,
-                if_name: interface.name.clone(),
-                probing_rate,
-            };
+            if !is_trace {
+                let config = OutboundConfig {
+                    worker_id,
+                    tx_origins,
+                    abort_s: abort_s.unwrap(),
+                    is_ipv6,
+                    is_symmetric: is_latency || is_unicast,
+                    m_id,
+                    m_type: start_measurement.m_type as u8,
+                    qname,
+                    info_url,
+                    if_name: interface.name.clone(),
+                    probing_rate,
+                };
 
-            // Start sending thread
-            outbound(config, outbound_rx.unwrap(), socket_tx);
+                // Start sending thread
+                outbound(config, outbound_rx.unwrap(), socket_tx);
+            } else {
+                // Trace sending thread TODO
+            }
         } else {
             println!("[Worker] Not sending probes");
         }

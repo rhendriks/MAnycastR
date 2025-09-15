@@ -79,6 +79,8 @@ pub fn inbound(
                     }
                 };
 
+                // TODO try to parse as traceroute reply first (if traceroute is enabled) i.e., ICMP time exceeded
+
                 let result = if config.m_type == ICMP_ID {
                     // ICMP
                     // Convert the bytes into an ICMP packet (first 13 bytes are the eth header, which we skip)
