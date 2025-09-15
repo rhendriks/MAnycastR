@@ -386,12 +386,6 @@ impl Worker {
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
-            // Check for a trace task
-            if let Some(Data::TraceTask(task)) = &task.data {
-                println!("[Worker] Received trace task");
-                // TODO perform trace task
-            }
-            
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message
@@ -402,6 +396,10 @@ impl Worker {
                     }
                     Some(Data::Start(_)) => {
                         println!("[Worker] Received new measurement during an active measurement, skipping");
+                        continue;
+                    }
+                    Some(Data::TraceStart(_)) => {
+                        println!("[Worker] Received new trace measurement during an active measurement, skipping");
                         continue;
                     }
                     Some(Data::End(data)) => {
@@ -432,6 +430,10 @@ impl Worker {
                             println!("[Worker] Received invalid code from orchestrator");
                             continue;
                         }
+                    }
+                    Some(Data::TraceTask(trace_task)) => {
+                        println!("[Worker] Received trace task");
+                        // TODO
                     }
                     Some(task) => {
                         // outbound_tx will be None if this worker is not probing
