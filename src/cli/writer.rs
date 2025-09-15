@@ -448,8 +448,6 @@ struct ParquetDataRow {
 /// * `rx` - The receiver channel that receives the results.
 ///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
-///
-/// * `metadata_args` - Arguments for generating metadata, including measurement type, origins, and configurations.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
     let schema = build_parquet_schema(config.m_type, config.is_multi_origin, config.is_symmetric);
 

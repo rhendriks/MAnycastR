@@ -210,3 +210,48 @@ pub fn outbound(
         })
         .expect("Failed to spawn outbound thread");
 }
+
+pub struct TraceConfig {
+    /// Unique worker ID
+    pub worker_id: u16,
+
+    /// A shared signal that can be used to forcefully shut down the outbound thread.
+    ///
+    /// E.g., when the CLI has abruptly disconnected.
+    pub abort_s: Arc<AtomicBool>,
+
+    /// Specifies whether to send IPv6 packets (`true`) or IPv4 packets (`false`).
+    pub is_ipv6: bool,
+
+    /// The name of the network interface to send packets from (e.g., "eth0").
+    pub if_name: String,
+
+    /// Whether to send unicast (true) or anycast (false) traceroute probes
+    pub is_unicast: bool,
+
+    /// The origins to use for sending traceroute probes
+    pub tx_origins: Vec<Origin>,
+
+    /// The traceroute measurement ID
+    pub trace_id: u32,
+
+    /// The type of traceroute probe to send (1=ICMP, 2=DNS, 3=TCP)
+    pub trace_type: u8,
+
+    /// An informational URL to be embedded in the probe's payload (e.g., an opt-out link).
+    pub info_url: String,
+}
+
+/// Spawns thread to send out traceroute probes
+pub fn trace_outbound (
+    config: TraceConfig,
+    mut outbound_rx: Receiver<Data>,
+    mut socket_tx: Box<dyn DataLinkSender>,
+) {
+
+    // TODO needs to listen for 1) ICMP TTL exceeded messages 2) general probe replies (depending on trace_type)
+
+    /// IP header and first 64 bits of the original payload are used by the source host to match the time exceeded message to the discarded datagram.
+    /// For higher-level protocols such as UDP and TCP the 64-bit payload will include the source and destination ports of the discarded packet.
+
+}
