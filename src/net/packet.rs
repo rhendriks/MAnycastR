@@ -188,6 +188,8 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
+/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
+///
 /// # Returns
 ///
 /// A ping packet (including the IP header) as a byte vector.
@@ -197,6 +199,8 @@ pub fn create_icmp(
     worker_id: u32,
     measurement_id: u32,
     info_url: &str,
+    ttl: u8,
+
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -221,7 +225,7 @@ pub fn create_icmp(
             payload_bytes,
             src.get_v6(),
             dst.get_v6(),
-            255,
+            ttl,
             info_url,
         )
     } else {
@@ -234,7 +238,7 @@ pub fn create_icmp(
             payload_bytes,
             src.get_v4(),
             dst.get_v4(),
-            255,
+            ttl,
             info_url,
         )
     }
