@@ -225,11 +225,11 @@ impl Worker {
                 "[Worker] Found interface: {}, for address {}",
                 interface.name, addr
             );
-            interface.clone() // Return the found interface
+            interface // Return the found interface
         } else {
             // Use the default interface (first non-loopback interface)
             let interface = interfaces
-                .into_iter()
+                .iter()
                 .find(|iface| !iface.is_loopback())
                 .expect("Failed to find default interface");
             println!(
@@ -245,7 +245,7 @@ impl Worker {
             read_buffer_size: 10 * 1024 * 1024,  // 10 MB
             ..Default::default()
         };
-        let (socket_tx, socket_rx) = match datalink::channel(&interface, config) {
+        let (socket_tx, socket_rx) = match datalink::channel(interface, config) {
             Ok(SocketChannel::Ethernet(socket_tx, socket_rx)) => (socket_tx, socket_rx),
             Ok(_) => panic!("Unsupported channel type"),
             Err(e) => panic!("Failed to create datalink channel: {e}"),
@@ -301,7 +301,7 @@ impl Worker {
                 m_type: start_measurement.m_type as u8,
                 qname,
                 info_url,
-                if_name: interface.name,
+                if_name: interface.name.clone(),
                 probing_rate,
             };
 
@@ -311,7 +311,7 @@ impl Worker {
             println!("[Worker] Not sending probes");
         }
 
-        let mut self_clone = self.clone();
+        let mut self_clone = self.clone(); // TODO can we avoid this clone?
         // Thread that listens for task results from inbound and forwards them to the orchestrator
         thread::Builder::new()
             .name("forwarder_thread".to_string())
