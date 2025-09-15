@@ -82,9 +82,10 @@ message Task {
     End end = 1; // End measurement
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
+    TraceStart trace_start = 4; // Start traceroute measurement
     TraceTask trace_task = 5; // Traceroute task
   }
-  optional uint32 worker_id = 4; // Unique worker ID for the client
+  optional uint32 worker_id = 6; // Unique worker ID for the client
 }
 
 // A start message, forwards the configuration to the worker
@@ -104,8 +105,10 @@ message Start {
 // Notify the worker to start listening for traceroute replies (ICMP Time Exceeded)
 message TraceStart {
   uint32 trace_id = 1; // ID to encode in traceroute probes
-  repeated Address trace_origins = 2; // Source addresses on which to expect traceroute replies
-  string url = 3; // Optional opt-out URL to encode at the end of traceroute probes' payload
+  repeated Origin tx_trace_origins = 2; // Origins on which to send traceroute probes
+  repeated Origin rx_trace_origins = 3; // Origins on which to listen for traceroute probes
+  string url = 4; // Optional opt-out URL to encode at the end of traceroute probes' payload
+  bool is_unicast = 5; // whether to perform traceroutes with unicast addresses
 }
 
 // An end message, indicates the worker should stop sending out probes (also used for TraceTask)
@@ -138,16 +141,28 @@ message TraceTask {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
   Origin origin = 3; // origin to use for the traceroute probe
-  bool is_unicast = 4; // whether to use the unicast address
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
   uint32 worker_id = 1;
-  // TODO allow for either Reply and TraceReply in the same message
-  repeated Reply result_list = 2;
+  repeated Replies result_list = 2;
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
-  repeated TraceReply trace_result_list = 4;
+}
+
+message Replies {
+  oneof reply_type {
+    ReplyList replies = 1;
+    TraceReplyList trace_replies = 2;
+  }
+}
+
+message ReplyList {
+  repeated Reply results = 1;
+}
+
+message TraceReplyList {
+  repeated TraceReply results = 1;
 }
 
 // Probe reply message

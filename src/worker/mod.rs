@@ -450,12 +450,13 @@ impl Worker {
                 // If we don't have an active measurement
             } else {
                 let (is_unicast, is_probing, m_id) =
-                    match task.data {
+                    match task.data.clone() {
                         Some(Data::Start(start)) => {
                             (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
                         }
                         Some(Data::TraceStart(trace_start)) => {
-                            (trace_start.is_unicast, !trace_start.tx_origins.is_empty(), trace_start.m_id) // TODO
+                            // TODO handle trace measurements
+                            (trace_start.is_unicast, !trace_start.tx_trace_origins.is_empty(), trace_start.trace_id)
                         }
                         _ => {
                             // First task is not a start measurement task
