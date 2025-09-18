@@ -1,6 +1,6 @@
-# ManycastR
+# MAnycastR
 
-MAnycastR (Measuring Anycast Reloaded) is a tool designed to measure anycast infrastructure.
+MAnycastR (Measure Anycast Routing) is a tool designed to measure anycast infrastructure.
 
 This includes:
 
