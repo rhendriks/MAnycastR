@@ -45,5 +45,17 @@ jobs:
     - name: Run Clippy (linting) for MUSL target
       run: cargo clippy --target ${{ env.RUST_TARGET }} --all-targets --verbose -- -D warnings
 
-    - name: Build project for MUSL target (similar to Docker build)
+    - name: Build project for MUSL target
       run: cargo build --release --target ${{ env.RUST_TARGET }} --verbose --all-targets
+
+    - name: Strip MUSL binary
+      run: strip target/${{ env.RUST_TARGET }}/release/manycastr
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: latest
+        name: Latest Release
+        files: target/${{ env.RUST_TARGET }}/release/manycastr
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
