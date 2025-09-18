@@ -33,6 +33,9 @@ pub struct InboundConfig {
 
     /// A shared signal that can be used to gracefully shut down the worker.
     pub abort_s: Arc<AtomicBool>,
+
+    /// Indicates if the measurement involves traceroute.
+    pub is_traceroute: bool,
 }
 
 /// Listen for incoming packets
@@ -80,6 +83,12 @@ pub fn inbound(
                 };
 
                 // TODO try to parse as traceroute reply first (if traceroute is enabled) i.e., ICMP time exceeded
+
+                if config.is_traceroute {
+                    // Try to parse ICMP Time Exceeded first
+                    parse_icmp_trace(&packet[14..], config.m_id, &config.origin_map, config.is_ipv6)
+
+                }
 
                 let result = if config.m_type == ICMP_ID {
                     // ICMP
@@ -211,22 +220,14 @@ fn handle_results(
 ///
 /// # Returns
 ///
-/// * '(u32, PacketPayload, dst, src)' - TTL, the payload, the destination and source addresses
+/// * IPv4Packet - the IPv4 packet containing the header and payload
 ///
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain an IPv4 header.
-fn parse_ipv4(packet_bytes: &[u8]) -> (u8, PacketPayload, u32, u32) {
+fn parse_ipv4(packet_bytes: &[u8]) -> IPv4Packet {
     // Create IPv4Packet from the bytes in the buffer
-    let packet = IPv4Packet::from(packet_bytes);
-
-    // Create a Reply for the received ping reply
-    (
-        packet.ttl,
-        packet.payload,
-        packet.dst,
-        packet.src,
-    )
+    IPv4Packet::from(packet_bytes)
 }
 
 /// Parse packet bytes into an IPv6 header, returns the IP result for this header and the payload.
@@ -255,6 +256,30 @@ fn parse_ipv6(packet_bytes: &[u8]) -> (u8, PacketPayload, u128, u128) {
     )
 }
 
+/// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
+/// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
+/// # Arguments
+/// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
+/// * `m_id` - the ID of the current measurement (to filter out packets not belonging to this measurement)
+/// * `worker_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is_ipv6: bool) {
+    // Check for ICMP Time Exceeded TODO include length check
+    if is_ipv6 {
+        if packet_bytes[40] != 3 {
+            return;
+        }
+    } else if packet_bytes[20] != 11 {
+        return;
+    }
+    // Parse IP header
+    if is_ipv6 {
+
+    }
+
+    todo!()
+}
+
 /// Parse ICMPv4 packets (including v4 headers) into a Reply result.
 ///
 /// Filters out spoofed packets and only parses ICMP echo replies valid for the current measurement.
@@ -278,7 +303,7 @@ fn parse_ipv6(packet_bytes: &[u8]) -> (u8, PacketPayload, u128, u128) {
 /// The function also discards packets that do not belong to the current measurement.
 fn parse_icmpv4(
     packet_bytes: &[u8],
-    measurement_id: u32,
+    m_id: u32,
     origin_map: &Vec<Origin>,
 ) -> Option<(Reply, bool)> {
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
@@ -286,9 +311,9 @@ fn parse_icmpv4(
         return None;
     }
 
-    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
+    let ip_header = parse_ipv4(packet_bytes);
 
-    let PacketPayload::Icmp { value: icmp_packet } = payload else {
+    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
         return None;
     };
 
@@ -298,7 +323,7 @@ fn parse_icmpv4(
 
     let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?;
     // Make sure that this packet belongs to this measurement
-    if u32::from_be_bytes(pkt_measurement_id) != measurement_id {
+    if u32::from_be_bytes(pkt_measurement_id) != m_id {
         // If not, we discard it and await the next packet
         return None;
     }
@@ -308,11 +333,11 @@ fn parse_icmpv4(
     let probe_src = u32::from_be_bytes(icmp_packet.body[16..20].try_into().unwrap());
     let probe_dst = u32::from_be_bytes(icmp_packet.body[20..24].try_into().unwrap());
 
-    if (probe_src != reply_dst) | (probe_dst != reply_src) {
+    if (probe_src != ip_header.dst) | (probe_dst != ip_header.src) {
         return None; // spoofed reply
     }
 
-    let origin_id = get_origin_id_v4(reply_dst, 0, 0, origin_map)?;
+    let origin_id = get_origin_id_v4(ip_header.dst, 0, 0, origin_map)?;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -331,8 +356,8 @@ fn parse_icmpv4(
         Reply {
             tx_time,
             tx_id,
-            src: Some(Address::from(reply_src)),
-            ttl: ttl as u32,
+            src: Some(Address::from(ip_header.src)),
+            ttl: ip_header.ttl as u32,
             rx_time,
             origin_id,
             chaos: None,
@@ -460,9 +485,9 @@ fn parse_dnsv4(
         return None;
     }
 
-    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
+    let ip_header = parse_ipv4(packet_bytes);
 
-    let PacketPayload::Udp { value: udp_packet } = payload else {
+    let PacketPayload::Udp { value: udp_packet } = ip_header.payload else {
         return None;
     };
 
@@ -485,8 +510,8 @@ fn parse_dnsv4(
         let dns_result = parse_dns_a_record_v4(udp_packet.body.as_slice())?;
 
         if (dns_result.probe_sport != reply_dport)
-            | (dns_result.probe_src != reply_dst)
-            | (dns_result.probe_dst != reply_src)
+            | (dns_result.probe_src != ip_header.dst)
+            | (dns_result.probe_dst != ip_header.src)
         {
             return None; // spoofed reply
         }
@@ -506,15 +531,15 @@ fn parse_dnsv4(
         panic!("Invalid measurement type");
     };
 
-    let origin_id = get_origin_id_v4(reply_dst, reply_sport, reply_dport, origin_map)?;
+    let origin_id = get_origin_id_v4(ip_header.dst, reply_sport, reply_dport, origin_map)?;
 
     // Create a Reply for the received DNS reply
     Some((
         Reply {
             tx_time,
             tx_id,
-            src: Some(Address::from(reply_src)),
-            ttl: ttl as u32,
+            src: Some(Address::from(ip_header.src)),
+            ttl: ip_header.ttl as u32,
             rx_time,
             origin_id,
             chaos,
@@ -790,10 +815,10 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
     }
-    let (ttl, payload, reply_dst, reply_src) = parse_ipv4(packet_bytes);
+    let ip_header = parse_ipv4(packet_bytes);
     // cannot filter out spoofed packets as the probe_dst is unknown
 
-    let PacketPayload::Tcp { value: tcp_packet } = payload else {
+    let PacketPayload::Tcp { value: tcp_packet } = ip_header.payload else {
         return None;
     };
 
@@ -802,7 +827,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         .unwrap()
         .as_micros() as u64;
 
-    let origin_id = get_origin_id_v4(reply_dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
+    let origin_id = get_origin_id_v4(ip_header.dst, tcp_packet.sport, tcp_packet.dport, origin_map)?;
 
     // Discovery probes have bit 16 set and higher bits unset
     let bit_16_mask = 1 << 16;
@@ -819,8 +844,8 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
         Reply {
             tx_time: tx_id as u64,
             tx_id,
-            src: Some(Address::from(reply_src)),
-            ttl: ttl as u32,
+            src: Some(Address::from(ip_header.src)),
+            ttl: ip_header.ttl as u32,
             rx_time,
             origin_id,
             chaos: None,

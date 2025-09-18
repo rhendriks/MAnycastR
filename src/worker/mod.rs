@@ -262,6 +262,7 @@ impl Worker {
                     m_type: start_measurement.m_type as u8,
                     origin_map: rx_origins,
                     abort_s: self.abort_s.clone(),
+                    is_traceroute: start_measurement.is_trace,
                 };
 
                 inbound(config, tx, socket_rx);
