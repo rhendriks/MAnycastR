@@ -197,27 +197,32 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 #### Optionally strip the binary (16 MB -> 8 MB)
 ```bash
-strip target/x86_64-unknown-linux-musl/release/manycast
+strip target/x86_64-unknown-linux-musl/release/manycastr
 ```
 
 Next, distribute the binary to the workers.
 
 Workers need either sudo or the CAP_NET_RAW capability to open a raw socket (for sending/receiving).
 ```bash
-sudo setcap cap_net_raw,cap_net_admin=eip manycast
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
 ```
 
 ### Docker
 
-#### Build the Docker image
+#### Fetch the Docker image
 ```bash
-docker build -t manycast .
+docker pull ghcr.io/rhendriks/manycast:latest
+```
+
+Alternatively clone the repo and build yourself.
+```bash
+docker build -t manycastr .
 ```
 
 Advise is to run the container with network host mode.
 Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
 ```bash
-docker run -it --init --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
+docker run -it --init --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycastr
 ```
 
 ## Contributions
