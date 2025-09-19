@@ -115,7 +115,7 @@ cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
 
 hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 
-Enabling divide-and-conquer means each target receives a single probe, whereas before one worker would probe all targets.
+Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe all targets.
 Allows for faster measurements (hitlist split among workers), and spreading probing burden amongst individual PoPs' upstreams.
 
 ### MAnycast2 anycast detection
