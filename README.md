@@ -12,10 +12,9 @@ i) Measuring anycast infrastructure itself
 * [Site flipping]() (detecting network regions experiencing anycast site flipping)
 
 ii) Measuring external anycast infrastructure
-* [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (detecting anycast using anycast)
-* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast PoPs using Great-Circle-Distance latency measurements)
+* [LACeS](https://arxiv.org/abs/2503.20554) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
 
-Both IPv4 and IPv6 are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+Full documenation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
 
 ## The components
 
