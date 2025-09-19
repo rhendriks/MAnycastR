@@ -311,7 +311,7 @@ fn parse_icmpv4(
     packet_bytes: &[u8],
     m_id: u32,
     origin_map: &Vec<Origin>,
-) -> Option<(Reply, bool)> {
+) -> Option<Reply> {
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (packet_bytes.len() < 52) || (packet_bytes[20] != 0) {
         return None;
@@ -399,7 +399,7 @@ fn parse_icmpv6(
     packet_bytes: &[u8],
     measurement_id: u32,
     origin_map: &Vec<Origin>,
-) -> Option<(Reply, bool)> {
+) -> Option<Reply> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (packet_bytes.len() < 66) || (packet_bytes[40] != 129) {
         return None;
@@ -431,7 +431,7 @@ fn parse_icmpv6(
         return None; // spoofed reply
     }
 
-    let origin_id = get_origin_id_v6(ip_header.dst, 0, 0, origin_map)?;
+    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, origin_map)?;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -446,7 +446,7 @@ fn parse_icmpv6(
     };
 
     // Create a Reply for the received ping reply
-    Some((
+    Some(
         Reply {
             tx_time,
             tx_id,
@@ -458,8 +458,7 @@ fn parse_icmpv6(
             trace_dst: None,
             trace_ttl: None,
         },
-        is_discovery,
-    ))
+    )
 }
 
 /// Parse DNSv4 packets (including v4 headers) into a Reply result.
@@ -485,7 +484,7 @@ fn parse_dnsv4(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
-) -> Option<(Reply, bool)> {
+) -> Option<Reply> {
     // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 28) || (packet_bytes[9] != 17) {
         return None;
@@ -579,7 +578,7 @@ fn parse_dnsv6(
     packet_bytes: &[u8],
     measurement_type: u8,
     origin_map: &Vec<Origin>,
-) -> Option<(Reply, bool)> {
+) -> Option<Reply> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (packet_bytes.len() < 48) || (packet_bytes[6] != 17) {
         return None;
@@ -816,7 +815,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a TCP header.
-fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, bool)> {
+fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (packet_bytes.len() < 40) || ((packet_bytes[33] & 0x04) == 0) {
         return None;
@@ -877,7 +876,7 @@ fn parse_tcpv4(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 /// # Remarks
 ///
 /// The function returns None if the packet is too short to contain a TCP header.
-fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, bool)> {
+fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<Reply> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     if (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0) {
         return None;
@@ -924,9 +923,9 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `reply_dst` - the destination address of the reply
 /// * `reply_sport` - the source port of the reply
 /// * `reply_dport` - the destination port of the reply
