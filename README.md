@@ -165,52 +165,64 @@ Results are stored in .parquet format.
 
 ## Installation
 
-### Cargo (static binary)
+### Cargo
 
-#### Install rustup
+---
+
+* Option 1. Download x86_64 musl binary
+
+#### Download
+```bash
+curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/download/latest/manycastr
+chmod +x manycastr
+```
+
+#### Give permissions for opening raw sockets
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
+```
+
+---
+
+* Option 2. Build locally from source
+
+#### Install Rust via rustup
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 ```
 
-### Install dependencies
+#### Install dependencies
 ```bash
 apt-get install -y protobuf-compiler gcc musl-tools
 ```
 
-### Add the musl target
+#### Clone repo
 ```bash
-rustup target add x86_64-unknown-linux-musl
+git clone https://github.com/rhendriks/MAnycastR.git
+cd MAnycastR
 ```
 
-#### Clone the repository
+#### Build  (recommendation is to build using a statically linked binary target for distribution)
 ```bash
-git clone <repo>
-cd <repo_dir>
+cargo build --release
 ```
 
-#### Compile the code (16 MB binary)
+#### Move binary and set permissions (NOTE: path may differ when built using a specific target)
 ```bash
-cargo build --release --target x86_64-unknown-linux-musl
-```
-
-#### Optionally strip the binary (16 MB -> 8 MB)
-```bash
-strip target/x86_64-unknown-linux-musl/release/manycastr
-```
-
-Next, distribute the binary to the workers.
-
-Workers need either sudo or the CAP_NET_RAW capability to open a raw socket (for sending/receiving).
-```bash
+target/release/manycastr
 sudo setcap cap_net_raw,cap_net_admin=eip manycastr
 ```
+
+---
+
+Next, distribute the binary to the workers.
 
 ### Docker
 
 #### Fetch the Docker image
 ```bash
-docker pull ghcr.io/rhendriks/manycast:latest
+docker pull ghcr.io/rhendriks/manycastr:latest
 ```
 
 Alternatively clone the repo and build yourself.
