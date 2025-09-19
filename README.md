@@ -156,13 +156,6 @@ Filtering on the lowest unicast RTTs indicates the best anycast site for each ta
 
 Results are stored in .parquet format.
 
-## Requirements
-
-* rustup
-* protobuf-compiler
-* gcc
-* musl-tools
-
 ## Installation
 
 ### Cargo
@@ -185,6 +178,12 @@ sudo setcap cap_net_raw,cap_net_admin=eip manycastr
 ---
 
 * Option 2. Build locally from source
+
+Requirements:
+* rustup
+* protobuf-compiler
+* gcc
+* musl-tools
 
 #### Install Rust via rustup
 ```bash
