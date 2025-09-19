@@ -26,6 +26,6 @@ RUN strip target/x86_64-unknown-linux-musl/release/manycastr
 
 # ---- Final Stage ----
 FROM scratch
-COPY --from=builder /manycast/target/x86_64-unknown-linux-musl/release/manycastr /manycastr
+COPY --from=builder /manycastr/target/x86_64-unknown-linux-musl/release/manycastr /manycastr
 ENTRYPOINT ["/manycastr"]
 CMD ["--help"]
