@@ -85,7 +85,7 @@ pub fn inbound(
 
                 if config.is_traceroute {
                     // Try to parse ICMP Time Exceeded first
-                    let trace_reply = parse_icmp_trace(&packet[14..], config.m_id, &config.origin_map, config.is_ipv6);
+                    let trace_reply = parse_icmp_trace(&packet[14..], config.m_id as u16, &config.origin_map, config.is_ipv6);
                     // If we got a trace reply, add it to the queue and continue to the next packet
                     if trace_reply.is_some() {
                         received += 1;
@@ -202,12 +202,13 @@ fn handle_results(
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
-/// * `m_id` - the ID of the current measurement (to filter out packets not belonging to this measurement)
+/// * `m_id` - the ID of the current measurement
 /// * `worker_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is_ipv6: bool)
+fn parse_icmp_trace(packet_bytes: &[u8], m_id: u16, worker_map: &Vec<Origin>, is_ipv6: bool)
 -> Option<Reply>{
     // Check for ICMP Time Exceeded code TODO include length check
     if is_ipv6 {
@@ -225,6 +226,12 @@ fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
+
+    // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6)
+    let pkt_measurement_id = ip_header.identifier();
+    if pkt_measurement_id != m_id {
+        return None;
+    }
     // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
     let icmp_header = match &ip_header.payload() {
         PacketPayload::Icmp { value } => value,
@@ -245,10 +252,9 @@ fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is
     };
 
     // Get sender worker ID (ICMP identifier field)
-    let tx_id = original_icmp_header.identifier as u32;
-
-    // get TTL value of the probe that caused the Time Exceeded (i.e., hop count)
-    let trace_ttl = original_ip_header.ttl() as u32;
+    let tx_id = original_icmp_header.icmp_identifier as u32;
+    // Get original probe TTL, i.e., hop count (ICMP sequence number field)
+    let trace_ttl = original_icmp_header.sequence_number as u32;
 
     // get hop address
     let hop_addr = ip_header.src();
@@ -256,8 +262,20 @@ fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is
     // get origin ID to which this probe is targeted
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
-
-    todo!()
+    Some(Reply {
+        tx_time: 0, // not available for trace replies TODO can possibly extract from payload ?
+        tx_id,
+        src: Some(hop_addr),
+        ttl: ip_header.ttl() as u32, // TTL of the ICMP Time Exceeded packet
+        rx_time: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64,
+        origin_id,
+        chaos: None,
+        trace_dst: Some(original_ip_header.dst()), // original destination address
+        trace_ttl: Some(trace_ttl), // TTL TODO
+    })
 }
 
 /// Parse ICMP packets into a Reply result.
