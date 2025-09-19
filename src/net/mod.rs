@@ -7,7 +7,6 @@ use prost::bytes::Buf;
 
 pub(crate) mod packet;
 
-
 /// Enum representing either an IPv4 or IPv6 packet.
 pub enum IPPacket {
     V4(IPv4Packet),
