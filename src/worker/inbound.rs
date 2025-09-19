@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::custom_module::Separated;
-use crate::net::{DNSAnswer, DNSRecord, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
+use crate::net::{DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
 
@@ -241,43 +241,47 @@ fn parse_icmp_trace(packet_bytes: &[u8], m_id: u32, worker_map: &Vec<Origin>, is
     } else if (packet_bytes[20] != 11) || (packet_bytes.len() < 48) {
         return None;
     }
-    
-    if is_ipv6 {
-        // Parse IP header
-        let ip_header = IPv6Packet::from(packet_bytes);
-        // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv6 header)
-        let icmp_header = match &ip_header.payload {
-            PacketPayload::Icmp { value } => value,
-            _ => return None,
-        };
 
-        // Parse IP header that caused the Time Exceeded (first 40 bytes of the ICMP body)
-        let original_ip_header = IPv6Packet::from(&icmp_header.body[0..40]);
-
-        // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
-        let original_icmp_header = match &original_ip_header.payload {
-            PacketPayload::Icmp { value } => value,
-            _ => return None,
-        };
+    let ip_header = if is_ipv6 {
+        IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
-        // Parse IP header
-        let ip_header = IPv4Packet::from(packet_bytes);
+        IPPacket::V4(IPv4Packet::from(packet_bytes))
+    };
+    // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
+    let icmp_header = match &ip_header.payload() {
+        PacketPayload::Icmp { value } => value,
+        _ => return None,
+    };
 
-        // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
-        let icmp_header = match &ip_header.payload {
-            PacketPayload::Icmp { value } => value,
-            _ => return None,
-        };
+    // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
+    let original_ip_header = if is_ipv6 {
+        IPPacket::V6(IPv6Packet::from(&icmp_header.body[0..20]))
+    } else {
+        IPPacket::V4(IPv4Packet::from(&icmp_header.body[0..20]))
+    };
 
-        // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
-        let original_ip_header = IPv4Packet::from(&icmp_header.body[0..20]);
+    // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
+    let original_icmp_header = match &original_ip_header.payload() {
+        PacketPayload::Icmp { value } => value,
+        _ => return None,
+    };
 
-        // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
-        let original_icmp_header = match &original_ip_header.payload {
-            PacketPayload::Icmp { value } => value,
-            _ => return None,
-        };
-    }
+    // Get sender worker ID (ICMP identifier field)
+    let tx_id = original_icmp_header.identifier as u32;
+
+    // get TTL value of the probe that caused the Time Exceeded (i.e., hop count)
+    let trace_ttl = original_ip_header.ttl() as u32;
+
+    // get hop address
+    let hop_addr = ip_header.source();
+
+    // get origin ID
+    let origin_id = if is_ipv6 {
+        get_origin_id_v6(ip_header.dst(), 0, 0, worker_map)?
+    } else {
+        get_origin_id_v4(hop_addr.dst(), 0, 0, worker_map)?
+    };
+
 
     todo!()
 }
@@ -920,70 +924,28 @@ fn parse_tcpv6(packet_bytes: &[u8], origin_map: &Vec<Origin>) -> Option<(Reply, 
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.
-///
+/// 
 /// # Arguments
-///
+/// 
 /// * `reply_dst` - the destination address of the reply
-///
 /// * `reply_sport` - the source port of the reply
-///
 /// * `reply_dport` - the destination port of the reply
-///
 /// * `origin_map` - the origin map to search in
-///
 /// # Returns
-///
 /// * `Option<u32>` - the origin ID if found, None otherwise
-fn get_origin_id_v4(
-    reply_dst: u32,
+pub fn get_origin_id(
+    reply_dst: Address,
     reply_sport: u16,
     reply_dport: u16,
     origin_map: &Vec<Origin>,
 ) -> Option<u32> {
     for origin in origin_map {
-        if origin.src.unwrap().get_v4() == reply_dst
+        if origin.src == Some(reply_dst)
             && origin.sport as u16 == reply_dport
             && origin.dport as u16 == reply_sport
         {
             return Some(origin.origin_id);
-        } else if origin.src.unwrap().get_v4() == reply_dst && 0 == reply_sport && 0 == reply_dport
-        {
-            // ICMP replies have no port numbers
-            return Some(origin.origin_id);
-        }
-    }
-    None
-}
-
-/// Get the origin ID from the origin map based on the reply destination address and ports.
-///
-/// # Arguments
-///
-/// * `reply_dst` - the destination address of the reply
-///
-/// * `reply_sport` - the source port of the reply
-///
-/// * `reply_dport` - the destination port of the reply
-///
-/// * `origin_map` - the origin map to search in
-///
-/// # Returns
-///
-/// * `Option<u32>` - the origin ID if found, None otherwise
-fn get_origin_id_v6(
-    reply_dst: u128,
-    reply_sport: u16,
-    reply_dport: u16,
-    origin_map: &Vec<Origin>,
-) -> Option<u32> {
-    for origin in origin_map {
-        if origin.src.unwrap().get_v6() == reply_dst
-            && origin.sport as u16 == reply_dport
-            && origin.dport as u16 == reply_sport
-        {
-            return Some(origin.origin_id);
-        } else if origin.src.unwrap().get_v6() == reply_dst && 0 == reply_sport && 0 == reply_dport
-        {
+        } else if origin.src == Some(reply_dst) && 0 == reply_sport && 0 == reply_dport {
             // ICMP replies have no port numbers
             return Some(origin.origin_id);
         }
