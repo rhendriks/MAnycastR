@@ -251,7 +251,7 @@ fn parse_icmp_trace(packet_bytes: &[u8], m_id: u16, worker_map: &Vec<Origin>, is
         _ => return None,
     };
 
-    // Get sender worker ID (ICMP identifier field)
+    // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
     // Get original probe TTL, i.e., hop count (ICMP sequence number field)
     let trace_ttl = original_icmp_header.sequence_number as u32;
