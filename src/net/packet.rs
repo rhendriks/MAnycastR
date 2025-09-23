@@ -214,12 +214,13 @@ pub fn create_icmp(
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
     payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
+    
+    // Add addresses to payload (used for spoofing detection)
+    payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
+    payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
     // add the source address
     if src.is_v6() {
-        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 16 - 33
-        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 34 - 51
-
         ICMPPacket::echo_request_v6( // TODO combine v6 and v4 functions into one
             identifier,
             sequence_number,
@@ -230,9 +231,6 @@ pub fn create_icmp(
             info_url,
         )
     } else {
-        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 16 - 19
-        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 20 - 23
-
         ICMPPacket::echo_request(
             identifier,
             sequence_number,
