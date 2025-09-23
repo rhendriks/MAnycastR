@@ -1,12 +1,10 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::str::FromStr;
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use crate::cli::client::CliClient;
 use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement, Targets};
 use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
-use crate::cli::{get_hitlist, validate_path_perms};
+use crate::cli::{validate_path_perms};
+use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::custom_module::Separated;
 
 pub struct MeasurementExecutionArgs<'a> {
@@ -143,79 +141,7 @@ pub async fn handle(
     // Read the configuration file (unnecessary for unicast)
     let configurations = if is_config {
         let conf_file = matches.get_one::<String>("configuration").unwrap();
-        println!("[CLI] Using configuration file: {conf_file}");
-        let file = File::open(conf_file)
-            .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
-        let buf_reader = BufReader::new(file);
-        let mut origin_id = 0;
-        let mut is_ipv6: Option<bool> = None;
-        let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
-            .lines()
-            .filter_map(|line| {
-                let line = line.expect("Unable to read configuration line");
-                let line = line.trim();
-                if line.is_empty() || line.starts_with("#") {
-                    return None;
-                } // Skip comments and empty lines
-
-                let parts: Vec<&str> = line.splitn(2, " - ").map(|s| s.trim()).collect();
-                if parts.len() != 2 {
-                    panic!("Invalid configuration format: {line}");
-                }
-
-                // Parse the worker ID
-                let worker_id = if parts[0] == "ALL" {
-                    u32::MAX
-                } else if let Ok(id_val) = parts[0].parse::<u32>() {
-                    if !worker_map.contains_left(&id_val) {
-                        panic!("Worker ID {id_val} is not a known worker.");
-                    }
-                    id_val
-                } else if let Some(&found_id) = worker_map.get_by_right(parts[0]) {
-                    // Try to find the hostname in the map
-                    found_id
-                } else {
-                    panic!("'{}' is not a valid worker ID or known hostname.", parts[0]);
-                };
-
-                let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                if addr_ports.len() != 3 {
-                    panic!("Invalid configuration format: {line}");
-                }
-                let src = Address::from(addr_ports[0]);
-
-                if let Some(v6) = is_ipv6 {
-                    if v6 != src.is_v6() {
-                        panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
-                    }
-                } else {
-                    is_ipv6 = Some(src.is_v6());
-                }
-
-                // Parse to u16 first, must fit in header
-                let sport =
-                    u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
-                let dport = u16::from_str(addr_ports[2])
-                    .expect("Unable to parse destination port")
-                    as u32;
-                origin_id += 1;
-
-                Some(Configuration {
-                    worker_id,
-                    origin: Some(Origin {
-                        src: Some(src),
-                        sport,
-                        dport,
-                        origin_id,
-                    }),
-                })
-            })
-            .collect();
-        if configurations.is_empty() {
-            panic!("No valid configurations found in file {conf_file}");
-        }
-
-        configurations
+        parse_configurations(conf_file, &worker_map)
     } else {
         // Obtain port values (read as u16 as is the port header size)
         let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
@@ -263,10 +189,6 @@ pub async fn handle(
     if src.is_none() && !is_config && !is_unicast {
         panic!("No source address or configuration file provided!");
     }
-
-    // TODO implement feed of addresses instead of a hitlist file
-    // format: address,tx -> tx optional to specify from which site to probe
-    // protocol and ports used are pre-configured when starting a live measurement at the CLI
 
     // Get the target IP addresses
     let hitlist_path = matches.get_one::<String>("IP_FILE").unwrap();
