@@ -46,6 +46,7 @@ message ScheduleMeasurement {
   string url = 12; // URL to encode in probes (e.g., opt-out link)
   uint32 probe_interval = 13; // interval between probes from/to the same origin,dst pair
   uint32 number_of_probes = 14; // number of probes to send per origin,dst pair
+  bool is_traceroute = 15; // whether the measurement is a traceroute measurement
 }
 
 // A list of workers
@@ -99,7 +100,7 @@ message Start {
   string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
   string url = 9; // URL encoded in probes
   bool is_latency = 10; // whether the measurement is for latency
-  bool is_trace = 11; // whether the measurement is a traceroute measurement
+  bool is_traceroute = 11; // whether the measurement is a traceroute measurement
 }
 
 // An end message, indicates the worker should stop sending out probes (also used for TraceTask)

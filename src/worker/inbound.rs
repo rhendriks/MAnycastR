@@ -1,4 +1,3 @@
-use std::cmp::PartialEq;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

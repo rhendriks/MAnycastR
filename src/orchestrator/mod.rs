@@ -511,6 +511,7 @@ impl Controller for ControllerService {
         let worker_interval = m_definition.worker_interval as u64;
         let probe_interval = m_definition.probe_interval as u64;
         let number_of_probes = m_definition.number_of_probes as u8;
+        let is_traceroute = m_definition.is_traceroute;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Task, Status>>> = {
@@ -660,7 +661,7 @@ impl Controller for ControllerService {
                     record: dns_record.clone(),
                     url: info_url.clone(),
                     is_latency,
-                    is_trace: false, // TODO
+                    is_traceroute,
                 })),
             };
 

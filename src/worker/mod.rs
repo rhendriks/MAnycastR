@@ -167,7 +167,7 @@ impl Worker {
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
         let is_latency = start_measurement.is_latency;
-        let is_trace = start_measurement.is_trace;
+        let is_trace = start_measurement.is_traceroute;
 
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {

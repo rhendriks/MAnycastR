@@ -127,6 +127,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         let is_divide = matches.get_flag("divide");
         let is_responsive = matches.get_flag("responsive");
         let mut is_latency = matches.get_flag("latency");
+        let is_traceroute = matches.get_flag("traceroute");
 
         if is_responsive && is_divide {
             panic!("Incompatible flags: Responsive mode cannot be combined with divide-and-conquer measurements.");
@@ -482,6 +483,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             url,
             probe_interval,
             number_of_probes,
+            is_traceroute,
         };
 
         let args = MeasurementExecutionArgs {
@@ -493,6 +495,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             out_path: path,
             is_config,
             worker_map,
+            is_traceroute,
         };
 
         cli_client
@@ -661,6 +664,9 @@ pub struct MeasurementExecutionArgs<'a> {
 
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
+
+    /// Indicates whether the measurement is a traceroute
+    pub is_traceroute: bool,
 }
 
 impl CliClient {
@@ -690,7 +696,7 @@ impl CliClient {
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = m_definition.is_divide;
         let is_ipv6 = m_definition.is_ipv6;
-        let probing_rate = m_definition.probing_rate as f32;
+        let probing_rate = m_definition.probing_rate;
         let worker_interval = m_definition.worker_interval;
         let m_type = m_definition.m_type;
         let is_unicast = m_definition.is_unicast;
@@ -758,10 +764,10 @@ impl CliClient {
         };
 
         let m_time = if is_divide || is_latency {
-            ((args.hitlist_length as f32 / (probing_rate * number_of_probers)) + 1.0) / 60.0
+            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers)) + 1.0) / 60.0
         } else {
             (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
-                + (args.hitlist_length as f32 / probing_rate) // Time to probe all addresses
+                + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
         };
@@ -848,6 +854,14 @@ impl CliClient {
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
 
+        // Determine traceroute
+        let is_traceroute = args.is_traceroute; // TODO change filename for traceroute measurements
+
+        // traceroute only supported for ICMP
+        if is_traceroute && m_type as u8 != ICMP_ID {
+            panic!("Traceroute measurements are only supported for ICMP!");
+        }
+
         let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
         // Output file
@@ -877,7 +891,7 @@ impl CliClient {
             hitlist: args.hitlist_path,
             is_shuffle: args.is_shuffle,
             m_type_str: type_str,
-            probing_rate: probing_rate as u32,
+            probing_rate,
             interval: worker_interval,
             active_workers: probing_workers,
             all_workers: &args.worker_map,
