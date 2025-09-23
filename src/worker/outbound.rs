@@ -16,6 +16,7 @@ use pnet::datalink::DataLinkSender;
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use log::trace;
 use crate::custom_module::manycastr::task::Data::TraceTask;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
@@ -128,8 +129,10 @@ pub fn outbound(
                                     for dst in &targets.dst_list {
                                         let mut packet = ethernet_header.clone();
                                         packet.extend_from_slice(&create_icmp(
-                                            origin,
+                                            &origin.src.unwrap(),
                                             dst,
+                                            origin.dport as u16, // ICMP identifier
+                                            2, // ICMP sequence number
                                             worker_id,
                                             config.m_id,
                                             &config.info_url,
@@ -247,12 +250,6 @@ pub fn trace_outbound (
     mut outbound_rx: Receiver<Data>,
     mut socket_tx: Box<dyn DataLinkSender>,
 ) {
-
-    // TODO needs to listen for 1) ICMP TTL exceeded messages 2) general probe replies (depending on trace_type)
-
-    /// IP header and first 64 bits of the original payload are used by the source host to match the time exceeded message to the discarded datagram.
-    /// For higher-level protocols such as UDP and TCP the 64-bit payload will include the source and destination ports of the discarded packet.
-    ///
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
@@ -293,14 +290,16 @@ pub fn trace_outbound (
                     TraceTask(trace_task) => {
                         let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
                         let worker_id = config.worker_id as u32;
-                        let origin = &trace_task.origin.unwrap(); // Traceroute tasks require origin-granularity as different origins may have different paths (and path lengths)
+                        let src = &trace_task.origin.unwrap().src.unwrap();
                         let mut packet = ethernet_header.clone();
                         // Create the appropriate traceroute packet based on the trace_type
                         match config.trace_type {
                             1 => { // ICMP
                                 packet.extend_from_slice(&create_icmp(
-                                    origin,
+                                    src,
                                     target,
+                                    trace_task.ttl as u16, // encoding TTL in ICMP identifier
+                                    worker_id as u16, // encoding worker ID in ICMP sequence number
                                     worker_id,
                                     config.trace_id,
                                     &config.info_url,

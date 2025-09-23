@@ -182,11 +182,11 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// * 'dst' - the destination address for the ping packet
 ///
-/// * 'worker_id' - the unique worker ID of this worker
+/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
 ///
-/// * 'measurement_id' - the unique ID of the current measurement
+/// * 'measurement_id' - the unique ID of the current measurement (encoded in payload)
 ///
-/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
 ///
 /// * 'ttl' - the time-to-live (TTL) value to set in the IP header
 ///
@@ -194,8 +194,10 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_icmp(
-    origin: &Origin,
+    src: &Address,
     dst: &Address,
+    identifier: u16,
+    sequence_number: u16,
     worker_id: u32,
     measurement_id: u32,
     info_url: &str,
@@ -206,7 +208,6 @@ pub fn create_icmp(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-    let src = origin.src.expect("None IP address");
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
@@ -219,9 +220,9 @@ pub fn create_icmp(
         payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 16 - 33
         payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 34 - 51
 
-        ICMPPacket::echo_request_v6(
-            origin.dport as u16,
-            2,
+        ICMPPacket::echo_request_v6( // TODO combine v6 and v4 functions into one
+            identifier,
+            sequence_number,
             payload_bytes,
             src.get_v6(),
             dst.get_v6(),
@@ -233,8 +234,8 @@ pub fn create_icmp(
         payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 20 - 23
 
         ICMPPacket::echo_request(
-            origin.dport as u16,
-            2,
+            identifier,
+            sequence_number,
             payload_bytes,
             src.get_v4(),
             dst.get_v4(),
