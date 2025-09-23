@@ -262,7 +262,7 @@ impl Worker {
                     m_type: start_measurement.m_type as u8,
                     origin_map: rx_origins,
                     abort_s: self.abort_s.clone(),
-                    is_traceroute: start_measurement.is_trace,
+                    is_traceroute: start_measurement.is_traceroute,
                 };
 
                 inbound(config, tx, socket_rx);
@@ -437,7 +437,7 @@ impl Worker {
                             continue;
                         }
                     }
-                    Some(Data::TraceTask(trace_task)) => {
+                    Some(Data::TraceTask(_trace_task)) => {
                         println!("[Worker] Received trace task");
                         // TODO
                     }
