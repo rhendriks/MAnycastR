@@ -438,7 +438,7 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     !(sum as u16)
 }
 
-/// An ICMP4Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
+/// An ICMP Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
 #[derive(Debug)]
 pub struct ICMPPacket {
     pub icmp_type: u8,
@@ -449,7 +449,7 @@ pub struct ICMPPacket {
     pub body: Vec<u8>,
 }
 
-/// Parsing from bytes to ICMP4Packet
+/// Parsing from bytes to ICMPPacket
 impl From<&[u8]> for ICMPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -464,7 +464,7 @@ impl From<&[u8]> for ICMPPacket {
     }
 }
 
-/// Convert ICMp4Packet into a vector of bytes
+/// Convert ICMP Packet into a vector of bytes
 impl From<&ICMPPacket> for Vec<u8> {
     fn from(packet: &ICMPPacket) -> Self {
         let mut wtr = vec![];
