@@ -215,7 +215,7 @@ pub fn outbound(
         .expect("Failed to spawn outbound thread");
 }
 
-pub struct TraceConfig {
+pub struct _TraceConfig {
     /// Unique worker ID
     pub worker_id: u16,
 
@@ -244,8 +244,8 @@ pub struct TraceConfig {
 }
 
 /// Spawns thread to send out traceroute probes
-pub fn trace_outbound (
-    config: TraceConfig,
+pub fn _trace_outbound (
+    config: _TraceConfig,
     mut outbound_rx: Receiver<Data>,
     mut socket_tx: Box<dyn DataLinkSender>,
 ) {
