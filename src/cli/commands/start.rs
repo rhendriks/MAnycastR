@@ -3,8 +3,8 @@ use clap::ArgMatches;
 use crate::cli::client::CliClient;
 use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement, Targets};
 use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
-use crate::cli::{validate_path_perms};
 use crate::cli::config::{get_hitlist, parse_configurations};
+use crate::cli::utils::validate_path_perms;
 use crate::custom_module::Separated;
 
 pub struct MeasurementExecutionArgs<'a> {
