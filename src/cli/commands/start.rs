@@ -1,8 +1,10 @@
 use bimap::BiHashMap;
 use clap::ArgMatches;
+use log::{info, warn};
+use prettytable::{format, row, Table};
 use crate::cli::client::CliClient;
 use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement, Targets};
-use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::Separated;
@@ -90,17 +92,17 @@ pub async fn handle(
 
     let is_config = matches.contains_id("configuration");
 
-    // Get the workers that have to send out probes
+    // Get the workers that have to send out probes TODO convert this into configurations and move up
     let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
         || {
-            println!(
+            info!(
                 "[CLI] Probes will be sent out from all ({}) workers",
                 worker_map.len()
             );
             Vec::new()
         },
         |worker_entries_str| {
-            println!("[CLI] Selective probing using specified workers...");
+            info!("[CLI] Selective probing using specified workers...");
             worker_entries_str
                 .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
@@ -112,31 +114,25 @@ pub async fn handle(
                     // Try to parse as worker ID
                     if let Ok(id_val) = entry_str.parse::<u32>() {
                         if worker_map.contains_left(&id_val) {
+                            let hostname = worker_map.get_by_left(&id_val).unwrap();
+                            info!("[CLI]\t * ID: {id_val}, Hostname: {hostname}");
                             Some(id_val)
                         } else {
-                            panic!("Worker ID '{entry_str}' is not a known worker.");
+                            warn!("Worker ID '{entry_str}' is not a known worker.");
+                            None
                         }
                     } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
-                        // Try to find the hostname in the map
+                        let hostname = worker_map.get_by_left(&found_id).unwrap();
+                        info!("[CLI]\t * ID: {found_id}, Hostname: {hostname}");
                         Some(found_id)
                     } else {
-                        panic!("'{entry_str}' is not a valid worker ID or known hostname.");
+                        warn!("'{entry_str}' is not a valid worker ID or known hostname.");
+                        None
                     }
                 })
                 .collect()
         },
     );
-
-    // Print selected workers
-    if !sender_ids.is_empty() {
-        println!("[CLI] Selective probing using the following workers:");
-        sender_ids.iter().for_each(|id| {
-            let hostname = worker_map.get_by_left(id).unwrap_or_else(|| {
-                panic!("Worker ID {id} is not a connected worker!");
-            });
-            println!("[CLI]\t * ID: {id}, Hostname: {hostname}");
-        });
-    }
 
     // Read the configuration file (unnecessary for unicast)
     let configurations = if is_config {
@@ -239,54 +235,52 @@ pub async fn handle(
     };
     let hitlist_length = ips.len();
 
-    println!("[CLI] Performing {} measurement targeting {} addresses, with a rate of {}, and an interval of {}",
-             t_type,
+    info!("[CLI] Performing {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
-             worker_interval
     );
 
     if is_responsive {
-        println!("[CLI] Responsive mode enabled");
+        info!("[CLI] Responsive mode enabled");
     }
 
     if is_latency {
-        println!("[CLI] Latency mode enabled");
+        info!("[CLI] Latency mode enabled");
     }
 
-    // Print the origins used
+    // Print the origins used TODO always put origins in the configurations to simplify code
     if is_unicast {
         let unicast_origin = configurations.first().unwrap().origin.unwrap();
-        println!(
+        info!(
             "[CLI] Unicast probing with src port {} and dst port {}",
             unicast_origin.sport, unicast_origin.dport
         );
     } else if is_config {
-        println!("[CLI] Workers send probes using the following configurations:");
-        for configuration in configurations.iter() {
-            if let Some(origin) = &configuration.origin {
-                if configuration.worker_id == u32::MAX {
-                    println!(
-                        "\t* All workers, source IP: {}, source port: {}, destination port: {}",
-                        origin.src.unwrap(),
-                        origin.sport,
-                        origin.dport
-                    );
+        info!("[CLI] Workers send probes using the following configurations:");
+        let mut table = Table::new();
+        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        table.set_titles(row![b->"Worker", b->"ID", b->"Source IP", b->"Source Port", b->"Dest Port"]);
+
+        for config in &configurations {
+            if let Some(origin) = &config.origin {
+                let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
+                    ("All Workers".to_string(), "N/A".to_string())
                 } else {
-                    let worker_hostname = worker_map
-                        .get_by_left(&configuration.worker_id)
-                        .expect("Worker ID not found");
-                    println!(
-                        "\t* worker {} (with ID: {:<2}), source IP: {}, source port: {}, destination port: {}",
-                        worker_hostname, configuration.worker_id, origin.src.unwrap(), origin.sport, origin.dport
-                    );
-                }
+                    (
+                        worker_map.get_by_left(&config.worker_id).cloned().unwrap_or_else(|| "Unknown".to_string()),
+                        config.worker_id.to_string(),
+                    )
+                };
+                let source_ip = origin.src.map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
+
+                table.add_row(row![worker_name, worker_id_str, source_ip, origin.sport, origin.dport]);
             }
         }
+        table.printstd();
     } else {
         let anycast_origin = configurations.first().unwrap().origin.unwrap();
 
-        println!(
+        info!(
             "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
             anycast_origin.src.unwrap(),
             anycast_origin.sport,

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
 chrono = "0.4.42"# get current time
-clap = "4.5.47"# parse command line arguments
+clap = "4.5.48"# parse command line arguments
 csv = "1.3.1" # write to CSV
 futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
@@ -25,7 +25,8 @@ bimap = "0.6.3"
 tonic-prost = "0.14.2"
 parquet = { version = "56.1.0", features = ["snap"]}
 serde_json = "1.0.145"
-log = "0.4.22"
+log = "0.4.28"
+pretty_env_logger = "0.5.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"

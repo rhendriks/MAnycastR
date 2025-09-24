@@ -200,6 +200,7 @@
 //! * Synchronous unicast and anycast measurements
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use log::info;
 
 mod cli;
 mod custom_module;
@@ -213,16 +214,18 @@ pub const A_ID: u8 = 2; // UDP DNS A Record
 pub const TCP_ID: u8 = 3; // TCP SYN/ACK
 pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
 pub const ALL_ID: u8 = 255; // All measurement types
+pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
+    pretty_env_logger::init();
     // Parse the command-line arguments
     let matches = parse_cmd();
 
     if let Some(worker_matches) = matches.subcommand_matches("worker") {
-        println!("[Main] Executing worker version {}", env!("GIT_HASH"));
+        info!("[Main] Executing worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -233,11 +236,11 @@ fn main() {
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
-        println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
+        info!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
         let _ = cli::execute(cli_matches);
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
-        println!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
+        info!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
