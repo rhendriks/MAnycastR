@@ -9,6 +9,7 @@ use crate::cli::client::CliClient;
 
 pub(crate) mod start;
 mod worker_list;
+mod live;
 
 /// Execute the command-line arguments and send the desired commands to the orchestrator.
 ///
@@ -51,7 +52,9 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             &mut cli_client,
             worker_map,
         ).await?)
-    } else {
+    } else if let Some(matches) = args.subcommand_matches("live") {
+        Ok(live::handle(matches, &mut cli_client).await?)
+    }  else {
         panic!("Unrecognized command");
     }
 }
