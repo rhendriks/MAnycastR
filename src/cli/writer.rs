@@ -12,7 +12,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::io::BufWriter;
 use std::sync::Arc;
-
+use log::error;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
@@ -98,7 +98,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     let md_lines = get_csv_metadata(config.metadata_args, &config.worker_map);
     for line in md_lines {
         if let Err(e) = writeln!(gz_encoder, "{line}") {
-            eprintln!("Failed to write metadata line to Gzip stream: {e}");
+            error!("Failed to write metadata line to Gzip stream: {e}");
         }
     }
 

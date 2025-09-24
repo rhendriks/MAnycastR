@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
+use log::info;
 use rand::prelude::SliceRandom;
 use crate::custom_module::manycastr::{Address, Configuration, Origin};
 
@@ -87,7 +88,7 @@ pub fn get_hitlist(
 // protocol and ports used are pre-configured when starting a live measurement at the CLI
 
 pub fn parse_configurations(conf_file: &str, worker_map: &BiHashMap<u32, String>) -> Vec<Configuration> {
-    println!("[CLI] Using configuration file: {conf_file}");
+    info!("[CLI] Using configuration file: {conf_file}");
     let file = File::open(conf_file)
         .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
     let buf_reader = BufReader::new(file);
