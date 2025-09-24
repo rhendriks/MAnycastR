@@ -12,7 +12,8 @@ use crate::custom_module;
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage};
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::{ControllerService, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
+use crate::orchestrator::{ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
+use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler};
 use crate::orchestrator::task_distributor::task_sender;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
@@ -374,7 +375,7 @@ impl Controller for ControllerService {
 
             let start_task = Task {
                 worker_id: None,
-                data: Some(crate::custom_module::manycastr::task::Data::Start(Start {
+                data: Some(custom_module::manycastr::task::Data::Start(Start {
                     rate: probing_rate,
                     m_id,
                     m_type,
@@ -407,10 +408,15 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        self.is_responsive
-            .store(is_responsive, std::sync::atomic::Ordering::SeqCst);
-        self.is_latency
-            .store(is_latency, std::sync::atomic::Ordering::SeqCst);
+        if is_responsive {
+            self.m_type.lock().unwrap().replace(MeasurementType::Responsive);
+        } else if is_latency {
+            self.m_type.lock().unwrap().replace(MeasurementType::Latency);
+        } else if is_traceroute {
+            self.m_type.lock().unwrap().replace(MeasurementType::Traceroute);
+        } else {
+            self.m_type.lock().unwrap().take(); // Set to None
+        }
 
         let mut probing_rate_interval = if is_latency || is_divide {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
@@ -429,11 +435,8 @@ impl Controller for ControllerService {
             None
         };
 
-        if is_divide || is_responsive || is_latency {
+        if is_divide || is_responsive || is_latency || is_traceroute {
             info!("[Orchestrator] Starting Round-Robin Task Distributor.");
-
-            let is_latency_signal = self.is_latency.clone();
-            let is_responsive_signal = self.is_responsive.clone();
             let mut cooldown_timer: Option<Instant> = None;
 
             // Create a stack for each worker to store targets for follow-up probes (used for --responsive and --latency)
@@ -581,10 +584,6 @@ impl Controller for ControllerService {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
-                // Avoid new follow-up probes
-                is_latency_signal.store(false, std::sync::atomic::Ordering::SeqCst);
-                is_responsive_signal.store(false, std::sync::atomic::Ordering::SeqCst);
-
                 // Empty the stacks
                 {
                     let mut stacks_guard = worker_stacks.lock().unwrap();
@@ -643,7 +642,7 @@ impl Controller for ControllerService {
                     ALL_WORKERS_DIRECT,
                     Task {
                         worker_id: None,
-                        data: Some(crate::custom_module::manycastr::task::Data::End(End { code: 0 })),
+                        data: Some(custom_module::manycastr::task::Data::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -684,7 +683,7 @@ impl Controller for ControllerService {
     async fn list_workers(
         &self,
         _request: Request<Empty>,
-    ) -> Result<Response<crate::custom_module::manycastr::Status>, Status> {
+    ) -> Result<Response<custom_module::manycastr::Status>, Status> {
         // Lock the workers list and clone it to return
         let workers_list = self.workers.lock().unwrap();
         let mut workers = Vec::new();
@@ -714,46 +713,27 @@ impl Controller for ControllerService {
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
-
         let is_discovery = task_result.is_discovery;
 
         // if self.r_prober is not None and equals this task's worker_id
-        if is_discovery
-            && (self.is_latency.load(std::sync::atomic::Ordering::SeqCst)
-            || self.is_responsive.load(std::sync::atomic::Ordering::SeqCst))
-        {
-            let rx_id = if self.is_responsive.load(std::sync::atomic::Ordering::SeqCst) {
-                ALL_WORKERS_INTERVAL // --responsive follow-ups are sent to all workers
-            } else {
-                task_result.worker_id // --latency follow-ups are sent to the worker that received the reply
-            };
-
-            // Probe from the catching PoP
-            let responsive_targets: Vec<Address> = task_result
-                .result_list
-                .iter()
-                .map(|result| result.src.unwrap())
-                .collect();
-
+        if is_discovery {
             // Sleep 1 second to avoid rate-limiting issues
             tokio::time::sleep(Duration::from_secs(1)).await;
-
-            // Insert the responsive targets into the worker stack
-            {
-                let mut worker_stacks = self.worker_stacks.lock().unwrap();
-                worker_stacks
-                    .entry(rx_id)
-                    .or_default()
-                    .extend(responsive_targets);
+            if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
+                return responsive_handler(
+                    task_result,
+                    &mut self.worker_stacks.lock().unwrap(),
+                );
+            } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
+                return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
+            } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
+                // trace_discovery_handler // TODO
+            } else {
+                warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
-
-            return Ok(Response::new(Ack {
-                is_success: true,
-                error_message: "".to_string(),
-            }));
         }
 
-        // Forward the result to the CLI
+        // Default case: just forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
             sender.clone().unwrap()

@@ -289,33 +289,37 @@ pub fn _trace_outbound (
                     TraceTask(trace_task) => {
                         let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
                         let worker_id = config.worker_id as u32;
-                        let src = &trace_task.origin.unwrap().src.unwrap();
-                        let mut packet = ethernet_header.clone();
-                        // Create the appropriate traceroute packet based on the trace_type
-                        match config.trace_type {
-                            1 => { // ICMP
-                                packet.extend_from_slice(&create_icmp(
-                                    src,
-                                    target,
-                                    trace_task.ttl as u16, // encoding TTL in ICMP identifier
-                                    worker_id as u16, // encoding worker ID in ICMP sequence number
-                                    worker_id,
-                                    config.trace_id,
-                                    &config.info_url,
-                                    trace_task.ttl as u8
-                                ));
-                            }
-                            // TODO implement DNS and TCP traceroute packets
-                            _ => panic!("Invalid measurement type"), // Invalid measurement
-                        }
-                        match socket_tx.send_to(&packet, None) {
-                            Some(Ok(())) => sent += 1,
-                            Some(Err(e)) => {
-                                warn!("[Worker outbound] Failed to send traceroute packet: {e}");
-                                failed += 1;
-                            },
-                            None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
-                        }
+                        let origin_id = trace_task.origin_id;
+                        // Get Origin mapped to this origin_id TODO
+                        todo!();
+
+                        // let src = &trace_task.origin.unwrap().src.unwrap();
+                        // let mut packet = ethernet_header.clone();
+                        // // Create the appropriate traceroute packet based on the trace_type
+                        // match config.trace_type {
+                        //     1 => { // ICMP
+                        //         packet.extend_from_slice(&create_icmp(
+                        //             src,
+                        //             target,
+                        //             trace_task.ttl as u16, // encoding TTL in ICMP identifier
+                        //             worker_id as u16, // encoding worker ID in ICMP sequence number
+                        //             worker_id,
+                        //             config.trace_id,
+                        //             &config.info_url,
+                        //             trace_task.ttl as u8
+                        //         ));
+                        //     }
+                        //     // TODO implement DNS and TCP traceroute packets
+                        //     _ => panic!("Invalid measurement type"), // Invalid measurement
+                        // }
+                        // match socket_tx.send_to(&packet, None) {
+                        //     Some(Ok(())) => sent += 1,
+                        //     Some(Err(e)) => {
+                        //         warn!("[Worker outbound] Failed to send traceroute packet: {e}");
+                        //         failed += 1;
+                        //     },
+                        //     None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
+                        // }
                     }
                     _ => continue, // Invalid measurement
                 };
