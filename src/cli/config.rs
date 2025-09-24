@@ -67,9 +67,7 @@ pub fn get_hitlist(
         .is_v6()
         != is_ipv6
     {
-        panic!(
-            "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
-        );
+        panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
     }
     // Panic if the ips in the hitlist are not all the same type
     if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
@@ -87,6 +85,27 @@ pub fn get_hitlist(
 // format: address,tx -> tx optional to specify from which site to probe
 // protocol and ports used are pre-configured when starting a live measurement at the CLI
 
+/// Parse the worker configurations from a file.
+///
+/// # Arguments
+///
+/// * 'conf_file' - path to the configuration file
+///
+/// * 'worker_map' - a BiHashMap mapping worker IDs to hostnames
+///
+/// # Returns
+///
+/// * A vector of Configuration objects parsed from the file
+///
+/// # Panics
+///
+/// * If the configuration file cannot be opened.
+///
+/// * If the configuration file contains invalid formats.
+///
+/// * If the configuration file contains mixed IPv4 and IPv6 addresses.
+///
+/// * If no valid configurations are found in the file.
 pub fn parse_configurations(conf_file: &str, worker_map: &BiHashMap<u32, String>) -> Vec<Configuration> {
     info!("[CLI] Using configuration file: {conf_file}");
     let file = File::open(conf_file)
