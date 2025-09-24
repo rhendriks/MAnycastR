@@ -1,3 +1,4 @@
+use log::info;
 use prettytable::{color, format, row, Attr, Cell, Row, Table};
 use tonic::Response;
 use crate::custom_module::manycastr::Status;
@@ -11,7 +12,7 @@ pub async fn handle(
     response: Response<Status>
 ) {
     // Perform the worker-list command
-    println!("[CLI] Requesting workers list from orchestrator");
+    info!("[CLI] Requesting workers list from orchestrator");
     // Pretty print to command-line
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
@@ -63,5 +64,5 @@ pub async fn handle(
     }
 
     table.printstd();
-    println!("[CLI] Total connected workers: {connected_workers}");
+    info!("[CLI] Total number of connected workers: {connected_workers}");
 }

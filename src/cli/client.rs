@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
+use log::{error, info, warn};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
@@ -126,16 +127,16 @@ impl CliClient {
         };
 
         if is_divide {
-            println!("[CLI] Divide-and-conquer enabled");
+            info!("[CLI] Divide-and-conquer enabled");
         }
-        println!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
+        info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self
             .grpc_client
             .do_measurement(Request::new(m_definition.clone()))
             .await;
         if let Err(e) = response {
-            println!(
+            error!(
                 "[CLI] Orchestrator did not perform the measurement for reason: '{}'",
                 e.message()
             );
@@ -147,7 +148,7 @@ impl CliClient {
             .as_nanos() as u64;
         let timestamp_start = Local::now();
         let timestamp_start_str = timestamp_start.format("%Y-%m-%dT%H_%M_%S").to_string();
-        println!(
+        info!(
             "[CLI] Measurement started at {}",
             timestamp_start.format("%H:%M:%S")
         );
@@ -286,11 +287,11 @@ impl CliClient {
         'mloop: while let Some(task_result) = match stream.message().await {
             Ok(Some(result)) => Some(result),
             Ok(None) => {
-                eprintln!("Stream closed by orchestrator");
+                error!("[CLI] Stream closed by orchestrator");
                 break 'mloop;
             } // Stream is exhausted
             Err(e) => {
-                eprintln!("Error receiving message: {e}");
+                error!("[CLI] Error receiving message: {e}");
                 break 'mloop;
             }
         } {
@@ -313,20 +314,12 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
-        println!("[CLI] Waited {length:.6} seconds for results.");
-        println!(
-            "[CLI] Time of end measurement {}",
-            Local::now().format("%H:%M:%S")
-        );
-        println!(
-            "[CLI] Number of replies captured: {}",
-            replies_count.with_separator()
-        );
+        info!("[CLI] Waited {length:.6} seconds for results. Captured {} replies", replies_count.with_separator());
 
         // If the stream closed during a measurement
         if !graceful {
             tx_r.send(TaskResult::default()).unwrap(); // Let the results channel know that we are done
-            println!("[CLI] Measurement ended prematurely!");
+            warn!("[CLI] Measurement ended prematurely!");
         }
 
         tx_r.closed().await; // Wait for all results to be written to file
