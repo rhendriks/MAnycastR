@@ -37,31 +37,28 @@ const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
 const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 
-/// Struct for the orchestrator service
-///
-/// # Fields
-///
-/// * 'workers' - a list of WorkerSender objects that are connected to this orchestrator
-/// * 'cli_sender' - the sender that connects to the CLI; used to stream TaskResults
-/// * 'open_measurements' - a list of the current open measurements, and the number of clients that are currently working on it
-/// * 'm_id' - keeps track of the last used measurement ID
-/// * 'unique_id' - keeps track of the last used worker ID and is used to assign a unique worker ID to a new connecting worker
-/// * 'is_active' - a boolean value that is set to true when there is an active measurement
-/// * 'is_responsive' - a boolean value that is set to true when the orchestrator is in responsive probing mode
-/// * 'is_latency' - a boolean value that is set to true when the orchestrator is in latency probing mode
-/// * 'worker_config' - optional mapping of hostname to worker IDs (to enforce static worker IDs)
-/// * 'worker_stacks' - a mapping of worker IDs to a stack of addresses that are used for follow-up probes (used for responsive and latency probing)
+/// The main orchestrator service struct.
 #[derive(Debug)]
 pub struct ControllerService {
+    /// List of connected workers
     workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
+    /// Open measurements and their active worker counts
     open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
+    /// Last used measurement ID
     m_id: Arc<Mutex<u32>>,
+    /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
+    /// Indicates if a measurement is currently active
     is_active: Arc<Mutex<bool>>,
+    /// Indicates if the orchestrator is in responsive probing mode
     is_responsive: Arc<AtomicBool>,
+    /// Indicates if the orchestrator is in latency probing mode
     is_latency: Arc<AtomicBool>,
+    /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
+    /// Stacks of addresses for each worker, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Address>>>>,
 }
 
