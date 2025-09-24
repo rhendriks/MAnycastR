@@ -3,6 +3,7 @@ mod cli;
 mod service;
 mod config;
 mod task_distributor;
+mod result_handler;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -37,6 +38,17 @@ const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
 const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 
+/// The measurement types that result in different result handling behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeasurementType { // TODO replace is_responsive and is_latency with this enum
+    /// Targets are probed for responsiveness from one worker, follow-up probes are sent from all workers.
+    Responsive,
+    /// Targets are probed to determine the catching worker, follow-up probes are sent from the catching worker.
+    Latency,
+    /// Targets are probed to determine the catching worker, follow-up probes are sent from all workers. TODO will not work with unresponsive targets, and sends an unnecessary discovery probe for unicast traceroute
+    Traceroute,
+}
+
 /// The main orchestrator service struct.
 #[derive(Debug)]
 pub struct ControllerService {
@@ -52,10 +64,8 @@ pub struct ControllerService {
     unique_id: Arc<Mutex<u32>>,
     /// Indicates if a measurement is currently active
     is_active: Arc<Mutex<bool>>,
-    /// Indicates if the orchestrator is in responsive probing mode
-    is_responsive: Arc<AtomicBool>,
-    /// Indicates if the orchestrator is in latency probing mode
-    is_latency: Arc<AtomicBool>,
+    /// Indicates the type of measurement currently active
+    m_type: Arc<Mutex<Option<MeasurementType>>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
     /// Stacks of addresses for each worker, used for follow-up probes
@@ -81,7 +91,7 @@ impl ControllerService {
     /// * 'hostname' - the hostname of the worker
     ///
     /// # Returns
-    /// Returns a tuple containing: the worker ID and a boolean indicating if this is a reconnection of a closed worker.
+    /// A tuple containing: the worker ID and a boolean indicating if this is a reconnection of a closed worker.
     ///
     /// # Errors
     /// Returns an error if the hostname already exists and is used by a connected worker.
@@ -143,8 +153,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         m_id: Arc::new(Mutex::new(m_id)),
         unique_id: current_worker_id,
         is_active: Arc::new(Mutex::new(false)),
-        is_responsive: Arc::new(AtomicBool::new(false)),
-        is_latency: Arc::new(AtomicBool::new(false)),
+        m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
     };

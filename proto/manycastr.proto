@@ -158,7 +158,7 @@ message Targets {
 message TraceTask {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  Origin origin = 3; // origin to use for the traceroute probe
+  fixed32 origin_id = 3; // ID of origin to use for the traceroute probe
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
