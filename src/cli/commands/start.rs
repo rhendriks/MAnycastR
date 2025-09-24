@@ -40,9 +40,9 @@ pub struct MeasurementExecutionArgs<'a> {
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `matches` - The parsed command-line arguments specific to the start command.
 /// * `cli_client` - A mutable reference to the GRPC client used to communicate with the orchestrator.
 /// * `worker_map` - A bidirectional map of worker IDs to hostnames for selective probing.
@@ -101,7 +101,7 @@ pub async fn handle(
 
     let is_config = matches.contains_id("configuration");
 
-    // Get the workers that have to send out probes TODO convert this into configurations and move up
+    // Get the workers that have to send out probes TODO convert this into configurations
     let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
         || {
             info!(
