@@ -200,7 +200,7 @@
 //! * Synchronous unicast and anycast measurements
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use log::info;
+use log::{error, info};
 
 mod cli;
 mod custom_module;
@@ -248,6 +248,9 @@ fn main() {
             .unwrap();
 
         rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
+    } else {
+        // No valid subcommand was provided, provide help message
+        error!("[Main] No valid subcommand provided, use --help for more information");
     }
 }
 
