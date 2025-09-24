@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use log::info;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
@@ -58,7 +59,7 @@ pub fn inbound(
     tx: UnboundedSender<TaskResult>,
     mut socket_rx: Box<dyn DataLinkReceiver>,
 ) {
-    println!("[Worker inbound] Started listener");
+    info!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Vec::new()));
     let rq_c = rq.clone();
@@ -118,7 +119,7 @@ pub fn inbound(
                 }
             }
 
-            println!(
+            info!(
                 "[Worker inbound] Stopped pnet listener (received {} packets)",
                 received.with_separator()
             );

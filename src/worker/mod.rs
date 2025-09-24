@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use log::{info, warn};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
@@ -202,7 +203,7 @@ impl Worker {
             // We only listen to our own unicast address (each worker has its own unicast address)
             rx_origins = vec![unicast_origin];
 
-            println!("[Worker] Using local unicast IP address: {unicast_ip}");
+            info!("[Worker] Using local unicast IP address: {unicast_ip}");
             // Use the local unicast address
             vec![unicast_origin]
         } else {
@@ -222,9 +223,9 @@ impl Worker {
             .iter()
             .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(&addr, ip)))
         {
-            println!(
-                "[Worker] Found interface: {}, for address {}",
-                interface.name, addr
+            info!(
+                "[Worker] Found interface: {}, for address {addr}",
+                interface.name
             );
             interface // Return the found interface
         } else {
@@ -233,9 +234,9 @@ impl Worker {
                 .iter()
                 .find(|iface| !iface.is_loopback())
                 .expect("Failed to find default interface");
-            println!(
-                "[Worker] No interface found for address: {}, using default interface {}",
-                addr, interface.name
+            warn!(
+                "[Worker] No interface found for address: {addr}, using default interface {}",
+                interface.name
             );
             interface
         };
@@ -276,7 +277,7 @@ impl Worker {
                 ICMP_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
-                        println!(
+                        info!(
                             "[Worker] Sending on address: {} using ICMP identifier {}",
                             origin.src.unwrap(),
                             origin.dport
@@ -286,7 +287,7 @@ impl Worker {
                 A_ID | TCP_ID | CHAOS_ID | ALL_ID => {
                     // Print all probe origin addresses
                     for origin in tx_origins.iter() {
-                        println!(
+                        info!(
                             "[Worker] Sending on address: {}, from src port {}, to dst port {}",
                             origin.src.unwrap(),
                             origin.sport,
@@ -318,7 +319,7 @@ impl Worker {
                 // Trace sending thread TODO
             }
         } else {
-            println!("[Worker] Not sending probes");
+            info!("[Worker] Not sending probes");
         }
 
         let mut self_clone = self.clone(); // TODO can we avoid this clone?
@@ -360,7 +361,7 @@ impl Worker {
     ///
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("[Worker] Connecting to orchestrator");
+        info!("[Worker] Connecting to orchestrator");
         let mut abort_s: Option<Arc<AtomicBool>> = None;
 
         // Get the local unicast addresses
@@ -390,9 +391,7 @@ impl Worker {
             .expect("Unable to await stream")
             .expect("Unable to receive worker ID");
         let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
-        println!(
-            "[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}"
-        );
+        info!("[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}");
 
         // Await tasks
         while let Some(task) = stream.message().await.expect("Unable to receive task") {
@@ -401,19 +400,17 @@ impl Worker {
                 // If the CLI disconnected we will receive this message
                 match task.data {
                     None => {
-                        println!("[Worker] Received empty task, skipping");
+                        warn!("[Worker] Received empty task, skipping");
                         continue;
                     }
                     Some(Data::Start(_)) => {
-                        println!("[Worker] Received new measurement during an active measurement, skipping");
+                        warn!("[Worker] Received new measurement during an active measurement, skipping");
                         continue;
                     }
                     Some(Data::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
-                            println!(
-                                "[Worker] Received measurement finished signal from orchestrator"
-                            );
+                            info!("[Worker] Received measurement finished signal from orchestrator");
                             // Close inbound threads
                             self.abort_s.store(true, Ordering::SeqCst);
                             // Close outbound threads gracefully
@@ -423,7 +420,7 @@ impl Worker {
                                 );
                             }
                         } else if data.code == 1 {
-                            println!("[Worker] CLI disconnected, aborting measurement");
+                            info!("[Worker] CLI disconnected, aborting measurement");
 
                             // Close the inbound threads
                             self.abort_s.store(true, Ordering::SeqCst);
@@ -433,12 +430,12 @@ impl Worker {
                                 abort_s.store(true, Ordering::SeqCst);
                             }
                         } else {
-                            println!("[Worker] Received invalid code from orchestrator");
+                            warn!("[Worker] Received invalid code from orchestrator");
                             continue;
                         }
                     }
                     Some(Data::TraceTask(_trace_task)) => {
-                        println!("[Worker] Received trace task");
+                        info!("[Worker] Received trace task");
                         // TODO
                     }
                     Some(task) => {
@@ -468,11 +465,11 @@ impl Worker {
 
                 // If we are not probing for a unicast measurement, we do nothing
                 if is_unicast && !is_probing {
-                    println!("[Worker] Not probing for unicast measurement, skipping");
+                    info!("[Worker] Not probing for unicast measurement, skipping");
                     continue;
                 }
 
-                println!("[Worker] Starting new measurement");
+                info!("[Worker] Starting new measurement");
 
                 *self.is_active.lock().unwrap() = true;
                 *self.current_m_id.lock().unwrap() = m_id;
@@ -492,7 +489,7 @@ impl Worker {
                 }
             }
         }
-        println!("[Worker] Stopped awaiting tasks");
+        info!("[Worker] Stopped awaiting tasks");
 
         Ok(())
     }
@@ -520,9 +517,7 @@ impl Worker {
         &mut self,
         finished: Finished,
     ) -> Result<(), Box<dyn Error>> {
-        println!(
-            "[Worker] Letting the orchestrator know that this worker finished the measurement"
-        );
+        info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
         *self.is_active.lock().unwrap() = false;
         self.grpc_client
             .measurement_finished(Request::new(finished))
