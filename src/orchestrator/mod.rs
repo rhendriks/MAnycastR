@@ -84,7 +84,7 @@ impl ControllerService {
     /// * 'hostname' - the hostname of the worker
     ///
     /// # Returns
-    /// Returns the worker ID
+    /// Returns a tuple containing: the worker ID and a boolean indicating if this is a reconnection of a closed worker.
     ///
     /// # Errors
     /// Returns an error if the hostname already exists and is used by a connected worker.
@@ -121,8 +121,6 @@ impl ControllerService {
     }
 }
 
-/// Start the orchestrator.
-///
 /// Starts the orchestrator on the specified port.
 ///
 /// # Arguments
