@@ -4,6 +4,7 @@ use tonic::codec::CompressionEncoding;
 use tonic::Request;
 use crate::custom_module::manycastr::Empty;
 use clap::ArgMatches;
+use log::info;
 use crate::cli::client::CliClient;
 
 pub(crate) mod start;
@@ -20,7 +21,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let fqdn = args.get_one::<String>("tls");
 
     // Connect with orchestrator
-    println!("[CLI] Connecting to orchestrator - {server_address}");
+    info!("[CLI] Connecting to orchestrator - {server_address}");
     let mut grpc_client = CliClient::connect(server_address, fqdn)
         .await
         .expect("Unable to connect to orchestrator")
