@@ -39,9 +39,18 @@ pub struct MeasurementExecutionArgs<'a> {
     pub is_traceroute: bool,
 }
 
+/// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
+/// 
+/// # Arguments
+/// 
+/// * `matches` - The parsed command-line arguments specific to the start command.
+/// * `cli_client` - A mutable reference to the GRPC client used to communicate with the orchestrator.
+/// * `worker_map` - A bidirectional map of worker IDs to hostnames for selective probing.
+/// # Returns
+/// * `Result<(), Box<dyn std::error::Error>>` - Ok(()) if the measurement was successfully started, or an error if something went wrong.
 pub async fn handle(
     matches: &ArgMatches,
-    cli_client: &mut CliClient,
+    grpc_client: &mut CliClient,
     worker_map: BiHashMap<u32, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Start a MAnycastR measurement
@@ -328,7 +337,7 @@ pub async fn handle(
         is_traceroute,
     };
 
-    cli_client
+    grpc_client
         .do_measurement_to_server(m_definition, args)
         .await
 }
