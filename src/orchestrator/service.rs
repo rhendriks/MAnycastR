@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use futures_core::Stream;
 use log::{error, info, warn};
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker};
+use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::{ControllerService, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::task_distributor::task_sender;
@@ -19,6 +21,9 @@ use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, P
 /// Handles communication with the workers and the CLI
 #[tonic::async_trait]
 impl Controller for ControllerService {
+    // Live measurement stream type
+    type LiveMeasurementStream = Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
+
     /// Called by the worker when it has finished its current measurement.
     ///
     /// When all connected workers have finished this measurement, it will notify the CLI that the measurement is finished.
@@ -764,5 +769,12 @@ impl Controller for ControllerService {
                 error_message: "CLI disconnected".to_string(),
             })),
         }
+    }
+
+    async fn live_measurement(
+        &self,
+        request: Request<Streaming<LiveMeasurementMessage>>,
+    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
+        Err(Status::unimplemented("Not implemented"))
     }
 }
