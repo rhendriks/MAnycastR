@@ -249,7 +249,6 @@ fn main() {
 
         rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
     } else {
-        // No valid subcommand was provided, provide help message
         error!("[Main] No valid subcommand provided, use --help for more information");
     }
 }
