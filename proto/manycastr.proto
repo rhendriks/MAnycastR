@@ -9,10 +9,36 @@ service Controller {
   rpc WorkerConnect(Worker) returns (stream Task) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
+  // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
+  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream TaskResult) {}
   // CLI asks orchestrator its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
+}
+
+// Metadata for the measurement session (sent once at the start)
+message LiveMeasurementMetadata {
+  string url = 1; // URL to encode in probes
+}
+
+// Per-task information (streamed for each task)
+message LiveTask {
+  uint32 worker_id = 1;       // Worker from which to send the probe (0 for any worker)
+  Origin origin = 2;           // Origin to send the probe from TODO define unicast origin
+  Address dst = 3;             // Destination to send the probe to
+  uint32 m_type = 4;           // Measurement type (ICMP, UDP, TCP, DNS)
+  bool is_ipv6 = 5;            // Whether to use IPv6
+  optional string record = 6;  // Record to use for DNS queries (TXT/A/AAAA)
+  bool is_latency = 7;         // Whether the measurement is for latency
+}
+
+// Wrapper message for streaming tasks or sending metadata
+message LiveMeasurementMessage {
+  oneof msg {
+    LiveMeasurementMetadata metadata = 1; // Sent once
+    LiveTask task = 2;                    // Sent multiple times
+  }
 }
 
 // Empty message
