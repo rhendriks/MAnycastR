@@ -4,11 +4,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use futures_core::Stream;
 use log::{error, info, warn};
+use rand::Rng;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
-use crate::custom_module;
+use crate::{custom_module, ALL_WORKERS};
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init};
 use crate::orchestrator::cli::CLIReceiver;
@@ -42,60 +43,39 @@ impl Controller for ControllerService {
     ) -> Result<Response<Ack>, Status> {
         let finished_measurement = request.into_inner();
         let m_id: u32 = finished_measurement.m_id;
-        let tx = self.cli_sender.lock().unwrap().clone().unwrap();
+        let cli_tx = self.cli_sender.lock().unwrap().clone().unwrap();
 
-        // Wait till we have received 'measurement_finished' from all workers that executed this measurement
-        let is_finished = {
-            let mut open_measurements = self.open_measurements.lock().unwrap();
+        // Decrement the number of active workers
+        let mut should_notify = false;
+        {
+            let mut active_workers = self.active_workers.lock().unwrap();
 
-            // Number of workers that still have to finish this measurement
-            let remaining = if let Some(remaining) = open_measurements.get(&m_id) {
-                remaining
+            if let Some(remaining) = active_workers.as_mut() {
+                if *remaining == 1 {
+                    info!("[Orchestrator] All workers finished.. Notifying CLI");
+                    active_workers.take(); // reset to None
+                    should_notify = true;
+                } else {
+                    *remaining -= 1;
+                }
             } else {
-                warn!("[Orchestrator] Received measurement finished signal for non-existent measurement {}", &m_id);
-                return Ok(Response::new(Ack {
-                    is_success: false,
-                    error_message: "Measurement unknown".to_string(),
-                }));
-            };
-
-            if remaining == &(1u32) {
-                // If this is the last worker we are finished
-                info!("[Orchestrator] All workers finished");
-
-                open_measurements.remove(&m_id);
-                true // Finished
-            } else {
-                // If this is not the last worker, decrement the amount of remaining workers
-                *open_measurements.get_mut(&m_id).unwrap() -= 1;
-
-                false // Not finished yet
+                warn!("[Orchestrator] Received measurement finished signal for non-existent measurement {m_id}"
+            );
             }
-        };
-        if is_finished {
-            info!("[Orchestrator] Notifying CLI that the measurement is finished");
-            // There is no longer an active measurement
-            *self.is_active.lock().unwrap() = false;
-
-            // Send an ack to the worker that it has finished
-            return match tx.send(Ok(TaskResult::default())).await {
-                Ok(_) => Ok(Response::new(Ack {
-                    is_success: true,
-                    error_message: "".to_string(),
-                })),
-                Err(_) => Ok(Response::new(Ack {
-                    is_success: false,
-                    error_message: "CLI disconnected".to_string(),
-                })),
-            };
-        } else {
-            // Send an ack to the worker that it has finished
-            Ok(Response::new(Ack {
-                is_success: true,
-                error_message: "".to_string(),
-            }))
         }
+
+        // Notify the CLI if this was the last worker
+        if should_notify {
+            cli_tx.send(Ok(TaskResult::default())).await.expect("Unable to send task result");
+        }
+
+        // Acknowledge the worker
+        Ok(Response::new(Ack {
+            is_success: true,
+            error_message: "".to_string(),
+        }))
     }
+
 
     type WorkerConnectStream = WorkerReceiver<Result<Task, Status>>;
 
@@ -159,7 +139,7 @@ impl Controller for ControllerService {
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
             inner: rx,
-            open_measurements: self.open_measurements.clone(),
+            active_workers: self.active_workers.clone(),
             cli_sender: self.cli_sender.clone(),
             hostname,
             status: worker_status,
@@ -197,11 +177,10 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         info!("[Orchestrator] Received CLI measurement request for measurement");
 
-        // If there already is an active measurement, we skip
         {
-            // If the orchestrator is already working on another measurement
-            let mut active = self.is_active.lock().unwrap();
-            if *active {
+            let mut active_workers = self.active_workers.lock().unwrap();
+            // If there already is an active measurement, we skip
+            if active_workers.is_some() {
                 error!("[Orchestrator] There is already an active measurement, returning");
                 return Err(Status::new(
                     tonic::Code::Cancelled,
@@ -209,24 +188,8 @@ impl Controller for ControllerService {
                 ));
             }
 
-            // For every open measurement
-            for (_, open) in self
-                .open_measurements
-                .lock()
-                .expect("No open measurements map")
-                .iter()
-            {
-                // If there are still workers who are working on a different measurement
-                if open > &0 {
-                    error!("[Orchestrator] There is already an active measurement, returning");
-                    return Err(Status::new(
-                        tonic::Code::Cancelled,
-                        "There are still workers working on an active measurement",
-                    ));
-                }
-            }
-
-            *active = true;
+            // Set to Some(0) to indicate that a measurement is starting
+            active_workers.replace(0);
         }
 
         // The measurement that the CLI wants to perform
@@ -257,13 +220,11 @@ impl Controller for ControllerService {
                 !workers
                     .iter()
                     .any(|sender| sender.worker_id == conf.worker_id)
-                    && conf.worker_id != u32::MAX
+                    && conf.worker_id != ALL_WORKERS
             }) {
                 error!("[Orchestrator] Unknown worker in configuration list, terminating measurement.");
-                *self.is_active.lock().unwrap() = false;
-                return Err(Status::new(
-                    tonic::Code::Cancelled,
-                    "Unknown worker in configuration",
+                self.active_workers.lock().unwrap().take(); // Set to None
+                return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration",
                 ));
             }
 
@@ -286,17 +247,12 @@ impl Controller for ControllerService {
         // If there are no connected workers that can perform this measurement
         if workers.is_empty() {
             error!("[Orchestrator] No connected workers, terminating measurement.");
-            *self.is_active.lock().unwrap() = false;
+            self.active_workers.lock().unwrap().take(); // Set to None
             return Err(Status::new(tonic::Code::Cancelled, "No connected workers"));
         }
 
-        // Assign a unique ID the measurement and increment the measurement ID counter
-        let m_id = {
-            let mut uniq_m_id = self.m_id.lock().unwrap();
-            let id = *uniq_m_id;
-            *uniq_m_id = uniq_m_id.wrapping_add(1);
-            id
-        };
+        // Get a random measurement ID
+        let m_id = rand::rng().random_range(0..u32::MAX);
 
         // Create a measurement from the ScheduleMeasurement
         let is_unicast = m_definition.is_unicast;
@@ -304,7 +260,7 @@ impl Controller for ControllerService {
         let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
 
-        let number_of_listeners = if is_unicast {
+        let number_of_active_workers = if is_unicast {
             // Only probing workers are listening
             number_of_probing_workers as u32
         } else {
@@ -313,10 +269,7 @@ impl Controller for ControllerService {
         };
 
         // Store the number of workers that will perform this measurement
-        self.open_measurements
-            .lock()
-            .unwrap()
-            .insert(m_id, number_of_listeners);
+        self.active_workers.lock().unwrap().replace(number_of_active_workers);
 
         let probing_rate = m_definition.probing_rate;
         let m_type = m_definition.m_type;
@@ -424,7 +377,7 @@ impl Controller for ControllerService {
             tokio::time::interval(Duration::from_secs(1))
         };
 
-        let is_active = self.is_active.clone();
+        let is_active = self.active_workers.clone();
 
         let is_discovery = if is_responsive || is_latency {
             // If we are in responsive or latency mode, we want to discover the targets
@@ -451,7 +404,7 @@ impl Controller for ControllerService {
                 let mut hitlist_is_empty = false;
 
                 loop {
-                    if !(*is_active.lock().unwrap()) {
+                    if is_active.lock().unwrap().is_none() {
                         warn!("[Orchestrator] CLI disconnected; ending measurement");
                         break;
                     }
@@ -575,7 +528,7 @@ impl Controller for ControllerService {
                     .expect("Failed to send end task to TaskDistributor");
 
                 // Wait till all workers are finished
-                while *is_active.lock().unwrap() {
+                while is_active.lock().unwrap().is_some() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
@@ -601,7 +554,7 @@ impl Controller for ControllerService {
             spawn(async move {
                 // Iterate over the hitlist in chunks of the specified probing rate.
                 for chunk in dst_addresses.chunks(probing_rate as usize) {
-                    if !(*is_active.lock().unwrap()) {
+                    if is_active.lock().unwrap().is_none() {
                         warn!("[Orchestrator] Measurement no longer active");
                         break;
                     }
@@ -642,7 +595,7 @@ impl Controller for ControllerService {
                     .expect("Failed to send end task to TaskDistributor");
 
                 // Wait till all workers are finished
-                while *is_active.lock().unwrap() {
+                while is_active.lock().unwrap().is_some() {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
@@ -661,9 +614,7 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            m_active: self.is_active.clone(),
-            m_id,
-            open_measurements: self.open_measurements.clone(),
+            active_workers: self.active_workers.clone(),
         };
 
         Ok(Response::new(rx))

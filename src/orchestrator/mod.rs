@@ -56,14 +56,14 @@ pub struct ControllerService {
     workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
     /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
-    /// Open measurements and their active worker counts
-    open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
-    /// Last used measurement ID
-    m_id: Arc<Mutex<u32>>,
+    /// Number of workers participating in the current measurement (None if no measurement is active)
+    active_workers: Arc<Mutex<Option<u32>>>,
+    /// Last used measurement ID TODO remove and always generate random IDs
+    // m_id: Arc<Mutex<u32>>,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
     /// Indicates if a measurement is currently active
-    is_active: Arc<Mutex<bool>>,
+    // is_active: Arc<Mutex<bool>>,
     /// Indicates the type of measurement currently active
     m_type: Arc<Mutex<Option<MeasurementType>>>,
     /// Optional static mapping of hostnames to worker IDs
@@ -145,16 +145,14 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         .map(load_worker_config)
         .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
-    // Get a random measurement ID to start with
-    let m_id = rand::rng().random_range(0..u32::MAX);
-
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
-        open_measurements: Arc::new(Mutex::new(HashMap::new())),
-        m_id: Arc::new(Mutex::new(m_id)),
+        // open_measurements: Arc::new(Mutex::new(HashMap::new())),
+        // m_id: Arc::new(Mutex::new(m_id)),
+        active_workers: Arc::new(Mutex::new(None)),
         unique_id: current_worker_id,
-        is_active: Arc::new(Mutex::new(false)),
+        // is_active: Arc::new(Mutex::new(false)),
         m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
