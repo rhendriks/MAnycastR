@@ -634,7 +634,7 @@ impl Controller for ControllerService {
     type LiveMeasurementStream = Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
     async fn live_measurement(
         &self,
-        request: Request<Streaming<LiveMeasurementMessage>>,
+        _request: Request<Streaming<LiveMeasurementMessage>>,
     ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
         Err(Status::unimplemented("Not implemented"))
     }
