@@ -14,7 +14,7 @@ use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
     controller_client::ControllerClient, task::Data, Address, End, Finished, Origin, Task,
-    TaskResult,
+    TaskResult, task::Data::Init,
 };
 
 use crate::net::packet::is_in_prefix;
@@ -390,7 +390,11 @@ impl Worker {
             .await
             .expect("Unable to await stream")
             .expect("Unable to receive worker ID");
-        let worker_id = id_message.worker_id.expect("No initial worker ID set") as u16;
+        let worker_id = if let Some(Init(init)) = id_message.data {
+            init.worker_id as u16
+        } else {
+            panic!("Did not receive Init message from orchestrator");
+        };
         info!("[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}");
 
         // Await tasks

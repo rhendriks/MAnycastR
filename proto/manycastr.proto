@@ -110,8 +110,13 @@ message Task {
     Start start = 2; // Start measurement
     Targets targets = 3; // Targets to measure
     TraceTask trace_task = 4; // Traceroute task
+    Init init = 5; // Initial message to worker (contains worker ID)
   }
-  optional uint32 worker_id = 6; // Unique worker ID for the client
+}
+
+// Initial message to worker, contains the worker ID assigned by the orchestrator
+message Init {
+  uint32 worker_id = 1;
 }
 
 // A start message, forwards the configuration to the worker

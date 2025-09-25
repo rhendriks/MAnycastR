@@ -10,7 +10,7 @@ use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage};
+use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::{ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler};
@@ -131,11 +131,10 @@ impl Controller for ControllerService {
 
         // Send worker ID
         tx.send(Ok(Task {
-            worker_id: Some(worker_id),
-            data: None,
-        }))
-            .await
-            .expect("Failed to send worker ID");
+            data: Some(task::Data::Init(Init {
+                worker_id,
+            })),
+        })).await.expect("Unable to send task");
 
         let worker_status = Arc::new(Mutex::new(Idle));
 
@@ -374,8 +373,7 @@ impl Controller for ControllerService {
             }
 
             let start_task = Task {
-                worker_id: None,
-                data: Some(custom_module::manycastr::task::Data::Start(Start {
+                data: Some(task::Data::Start(Start {
                     rate: probing_rate,
                     m_id,
                     m_type,
@@ -486,8 +484,7 @@ impl Controller for ControllerService {
                     // Send follow-up probes to the worker if we have any
                     if follow_ups_len > 0 {
                         let task = Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            data: Some(task::Data::Targets(Targets {
                                 dst_list: follow_ups,
                                 is_discovery: None,
                             })),
@@ -526,8 +523,7 @@ impl Controller for ControllerService {
                     if !hitlist_targets.is_empty() {
                         // Create a single task from the addresses and send it to the worker
                         let task = Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            data: Some(task::Data::Targets(Targets {
                                 dst_list: hitlist_targets,
                                 is_discovery,
                             })),
@@ -571,8 +567,7 @@ impl Controller for ControllerService {
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
                     Task {
-                        worker_id: None,
-                        data: Some(crate::custom_module::manycastr::task::Data::End(End { code: 0 })),
+                        data: Some(task::Data::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -594,7 +589,6 @@ impl Controller for ControllerService {
                 tx_t.send((
                     BREAK_SIGNAL,
                     Task {
-                        worker_id: None,
                         data: None,
                     },
                     false,
@@ -615,8 +609,7 @@ impl Controller for ControllerService {
                     tx_t.send((
                         ALL_WORKERS_INTERVAL,
                         Task {
-                            worker_id: None,
-                            data: Some(custom_module::manycastr::task::Data::Targets(Targets {
+                            data: Some(task::Data::Targets(Targets {
                                 dst_list: chunk.to_vec(),
                                 is_discovery,
                             })),
@@ -641,8 +634,7 @@ impl Controller for ControllerService {
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
                     Task {
-                        worker_id: None,
-                        data: Some(custom_module::manycastr::task::Data::End(End { code: 0 })),
+                        data: Some(task::Data::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -658,7 +650,6 @@ impl Controller for ControllerService {
                 tx_t.send((
                     BREAK_SIGNAL,
                     Task {
-                        worker_id: None,
                         data: None,
                     },
                     false,
@@ -727,7 +718,7 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                // trace_discovery_handler // TODO
+                return trace_discovery_handler(task_result, &mut self.trace_stacks.lock().unwrap());
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
