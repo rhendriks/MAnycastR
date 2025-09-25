@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use tonic::{Response, Status};
-use crate::custom_module::manycastr::{Ack, Address, TaskResult, TraceTask};
+use crate::custom_module::manycastr::{Ack, Address, TaskResult};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 
 /// Takes a TaskResult from a worker containing discovery results and inserts it into the

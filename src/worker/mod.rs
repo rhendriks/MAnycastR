@@ -13,8 +13,8 @@ use tonic::Request;
 use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, task::Data, Address, End, Finished, Origin, Task,
-    TaskResult, task::Data::Init,
+    controller_client::ControllerClient, Address, End, Finished, Origin, Task,
+    TaskResult,
 };
 
 use crate::net::packet::is_in_prefix;

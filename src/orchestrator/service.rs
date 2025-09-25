@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
 use crate::{custom_module, ALL_WORKERS};
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Targets, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init};
+use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init, Instruction, instruction, Probe, Tasks};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::{ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler};
@@ -23,9 +23,6 @@ use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, P
 /// Handles communication with the workers and the CLI
 #[tonic::async_trait]
 impl Controller for ControllerService {
-    // Live measurement stream type
-    type LiveMeasurementStream = Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
-
     /// Called by the worker when it has finished its current measurement.
     ///
     /// When all connected workers have finished this measurement, it will notify the CLI that the measurement is finished.
@@ -76,8 +73,8 @@ impl Controller for ControllerService {
         }))
     }
 
-
     type WorkerConnectStream = WorkerReceiver<Result<Task, Status>>;
+
 
     /// Handles a worker connecting to this orchestrator formally.
     ///
@@ -110,8 +107,8 @@ impl Controller for ControllerService {
         }
 
         // Send worker ID
-        tx.send(Ok(Task {
-            data: Some(task::Data::Init(Init {
+        tx.send(Ok(Instruction {
+            instruction: Some(instruction::Instruction::Init(Init {
                 worker_id,
             })),
         })).await.expect("Unable to send task");
@@ -148,8 +145,8 @@ impl Controller for ControllerService {
         // Send the stream receiver to the worker
         Ok(Response::new(worker_rx))
     }
-    type DoMeasurementStream = CLIReceiver<Result<TaskResult, Status>>;
 
+    type DoMeasurementStream = CLIReceiver<Result<TaskResult, Status>>;
     /// Handles the do_measurement command from the CLI.
     ///
     /// Instructs all workers to perform the measurement and returns the receiver side of a stream in which TaskResults will be streamed.
@@ -301,7 +298,7 @@ impl Controller for ControllerService {
         }
 
         // Create channel for TaskDistributor (client_id, task, number_of_times)
-        let (tx_t, rx_t) = mpsc::channel::<(u32, Task, bool)>(1000);
+        let (tx_t, rx_t) = mpsc::channel::<(u32, Instruction, bool)>(1000);
 
         // Create a cycler of active probing workers (containing their IDs)
         let probing_worker_ids = workers
@@ -325,8 +322,8 @@ impl Controller for ControllerService {
                 }
             }
 
-            let start_task = Task {
-                data: Some(task::Data::Start(Start {
+            let start_instruction = Instruction {
+                instruction: Some(instruction::Instruction::Start(Start {
                     rate: probing_rate,
                     m_id,
                     m_type,
@@ -341,7 +338,7 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((worker_id, start_task, false))
+            tx_t.send((worker_id, start_instruction, false))
                 .await
                 .expect("Failed to send task to TaskDistributor");
         }
@@ -412,6 +409,7 @@ impl Controller for ControllerService {
                     // Get the current worker ID to send tasks to.
                     let worker_id = sender_cycler.next().expect("No probing workers available");
 
+                    // Worker to send follow-up tasks to
                     let f_worker_id = if is_responsive {
                         // Responsive mode checks for responsiveness and sends tasks to all workers
                         ALL_WORKERS_INTERVAL
@@ -419,74 +417,83 @@ impl Controller for ControllerService {
                         worker_id
                     };
 
-                    // Get the addresses for this tick
-                    let mut follow_ups: Vec<Address> = Vec::new();
-
-                    // Attempt to get addresses from the worker stack first
-                    {
+                    // Check for follow-up tasks
+                    let follow_up_tasks: Vec<Task> = {
                         let mut stacks = worker_stacks.lock().unwrap();
-                        if let Some(queue) = stacks.get_mut(&f_worker_id) {
-                            let num_to_take = std::cmp::min(probing_rate as usize, queue.len());
+                        // Fill up till the probing rate for 'f_worker_id'
+                        if let Some(follow_up_tasks) = stacks.get_mut(&f_worker_id) {
+                            let num_to_take = std::cmp::min(probing_rate as usize, follow_up_tasks.len());
 
-                            follow_ups.extend(queue.drain(..num_to_take));
+                            follow_up_tasks.drain(..num_to_take).collect::<Vec<Task>>()
+                        } else {
+                            Vec::new() // No follow-up tasks for this worker
                         }
-                    }
+                    };
 
-                    let follow_ups_len = follow_ups.len();
+                    let follow_up_count = follow_up_tasks.len();
 
-                    // Send follow-up probes to the worker if we have any
-                    if follow_ups_len > 0 {
-                        let task = Task {
-                            data: Some(task::Data::Targets(Targets {
-                                dst_list: follow_ups,
-                                is_discovery: None,
-                            })),
+                    // Send follow-up tasks to 'f_worker_id'
+                    if !follow_up_tasks.is_empty() {
+                        let instruction = Instruction {
+                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                                tasks: follow_up_tasks,
+                            }
+                            ))
                         };
 
-                        tx_t.send((f_worker_id, task, true))
+                        // Send the instruction to the follow-up worker
+                        tx_t.send((f_worker_id, instruction, false))
                             .await
                             .expect("Failed to send task to TaskDistributor");
                     }
 
                     // Get discovery targets
                     let remainder_needed = if is_responsive {
-                        //
+                        // In responsive mode, we always send a full batch of discovery probes
                         probing_rate as usize
                     } else {
-                        (probing_rate as usize).saturating_sub(follow_ups_len)
+                        // In non-responsive modes, we limit the batch size to the remaining slots
+                        (probing_rate as usize).saturating_sub(follow_up_count)
                     };
 
-                    let hitlist_targets = if remainder_needed > 0 && !hitlist_is_empty {
-                        // Take the exact number of remaining addresses needed from the hitlist.
-                        let addresses_from_hitlist: Vec<Address> =
-                            hitlist_iter.by_ref().take(remainder_needed).collect();
+                    let discovery_tasks = if remainder_needed > 0 && !hitlist_is_empty {
+                        // Fill up the remainder with new discovery probes from the hitlist
+                        let discovery_tasks: Vec<Task> = hitlist_iter
+                            .by_ref()
+                            .take(remainder_needed)
+                            .map(|addr| Task {
+                                task: Some(task::Task::Discovery(Probe { dst: addr })),
+                            })
+                            .collect();
 
-                        // If we are unable to fill the addresses, the hitlist is empty
-                        if (addresses_from_hitlist.len() < remainder_needed) && !hitlist_is_empty {
+                        // If we could not fill up the entire batch, we mark the hitlist as empty (only once)
+                        if discovery_tasks.len() < remainder_needed {
                             info!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
                             hitlist_is_empty = true;
                         }
 
-                        addresses_from_hitlist
+                        discovery_tasks
                     } else {
-                        Vec::new()
+                        Vec::new() // No discovery tasks needed
                     };
 
-                    // Send the hitlist targets to the worker
-                    if !hitlist_targets.is_empty() {
-                        // Create a single task from the addresses and send it to the worker
-                        let task = Task {
-                            data: Some(task::Data::Targets(Targets {
-                                dst_list: hitlist_targets,
-                                is_discovery,
-                            })),
+                    // Send discovery tasks only to the current worker
+                    if !discovery_tasks.is_empty() {
+                        // Send the Tasks to the worker
+                        let instruction = Instruction {
+                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                                tasks: discovery_tasks,
+                            }
+                            ))
                         };
 
-                        tx_t.send((worker_id, task, is_discovery.is_none()))
+                        // Send the instruction to the current round-robin worker
+                        tx_t.send((worker_id, instruction, is_discovery.is_none()))
                             .await
                             .expect("Failed to send task to TaskDistributor");
                     }
 
+                    // Check if we finished sending all discovery probes and all stacks are empty
                     if hitlist_is_empty {
                         if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed()
@@ -514,13 +521,13 @@ impl Controller for ControllerService {
                     }
 
                     probing_rate_interval.tick().await;
-                }
+                } // end of round-robin loop
 
                 // Send end message to all workers directly to let them know the measurement is finished
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
-                    Task {
-                        data: Some(task::Data::End(End { code: 0 })),
+                    Instruction {
+                        instruction: Some(instruction::Instruction::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -559,12 +566,19 @@ impl Controller for ControllerService {
                         break;
                     }
 
+                    // Convert Addresses to a Tasks message
+                    let tasks = chunk
+                        .iter()
+                        .map(|addr| Task {
+                            task: Some(task::Task::Probe(Probe { dst: *addr })),
+                        })
+                        .collect::<Vec<Task>>();
+
                     tx_t.send((
                         ALL_WORKERS_INTERVAL,
-                        Task {
-                            data: Some(task::Data::Targets(Targets {
-                                dst_list: chunk.to_vec(),
-                                is_discovery,
+                        Instruction {
+                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                                tasks,
                             })),
                         },
                         is_discovery.is_none(),
@@ -578,16 +592,15 @@ impl Controller for ControllerService {
                 // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
                     (number_of_probing_workers as u64 * worker_interval) + 1,
-                ))
-                    .await;
+                )).await;
 
                 info!("[Orchestrator] Task distribution finished");
 
-                // Send end message to all workers directly to let them know the measurement is finished
+                // Send end instruction to all workers directly to let them know the measurement is finished
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
-                    Task {
-                        data: Some(task::Data::End(End { code: 0 })),
+                    Instruction {
+                        instruction: Some(instruction::Instruction::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -602,8 +615,8 @@ impl Controller for ControllerService {
                 // Close the TaskDistributor channel
                 tx_t.send((
                     BREAK_SIGNAL,
-                    Task {
-                        data: None,
+                    Instruction {
+                        instruction: None,
                     },
                     false,
                 ))
@@ -619,6 +632,16 @@ impl Controller for ControllerService {
 
         Ok(Response::new(rx))
     }
+
+    // Live measurement stream type
+    type LiveMeasurementStream = Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
+    async fn live_measurement(
+        &self,
+        request: Request<Streaming<LiveMeasurementMessage>>,
+    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
+        Err(Status::unimplemented("Not implemented"))
+    }
+
     /// Handle the list_clients command from the CLI.
     ///
     /// Returns the connected clients.
@@ -691,12 +714,5 @@ impl Controller for ControllerService {
                 error_message: "CLI disconnected".to_string(),
             })),
         }
-    }
-
-    async fn live_measurement(
-        &self,
-        request: Request<Streaming<LiveMeasurementMessage>>,
-    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
-        Err(Status::unimplemented("Not implemented"))
     }
 }
