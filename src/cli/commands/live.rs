@@ -7,8 +7,8 @@ use crate::cli::client::CliClient;
 /// * 'matches' - the user-defined command-line arguments
 /// * 'grpc_client' - the gRPC client connected to the orchestrator
 pub async fn handle(
-    matches: &ArgMatches,
-    grpc_client: &mut CliClient,
+    _matches: &ArgMatches,
+    _grpc_client: &mut CliClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // TODO
     todo!()

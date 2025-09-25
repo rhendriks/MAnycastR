@@ -15,7 +15,7 @@ use pnet::datalink::DataLinkSender;
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-use crate::custom_module::manycastr::{Address, Task};
+use crate::custom_module::manycastr::{Address};
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 
@@ -153,7 +153,7 @@ pub fn outbound(
                                     sent_discovery += s;
                                     failed += f;
                                 },
-                                Some(TaskType::Trace(trace)) => {
+                                Some(TaskType::Trace(_trace)) => {
                                     // TODO implement send_traceroute_probe function
                                     warn!("[Worker outbound] Received a Trace task in the outbound worker, which is unexpected. Skipping.");
                                     continue;
@@ -260,7 +260,7 @@ pub fn send_probes(
     (sent, failed)
 }
 
-pub fn send_trace ( ){
+pub fn _send_trace ( ){
     todo!();
     // let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
     // let worker_id = config.worker_id as u32;
