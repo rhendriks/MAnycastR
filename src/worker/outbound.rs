@@ -8,15 +8,13 @@ use log::{error, info, warn};
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
-use custom_module::manycastr::task::Data::{End, Targets};
-use custom_module::manycastr::{task::Data, Origin};
+use custom_module::manycastr::Origin;
 
 use pnet::datalink::DataLinkSender;
 
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-use crate::custom_module::manycastr::task::Data::TraceTask;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 

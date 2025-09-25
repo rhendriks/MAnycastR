@@ -3,7 +3,7 @@ use clap::ArgMatches;
 use log::{info, warn};
 use prettytable::{format, row, Table};
 use crate::cli::client::CliClient;
-use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement, Targets};
+use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement};
 use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
@@ -199,7 +199,7 @@ pub async fn handle(
     let hitlist_path = matches.get_one::<String>("IP_FILE").unwrap();
     let is_shuffle = matches.get_flag("shuffle");
 
-    let (ips, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
+    let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
 
     // CHAOS value to send in the DNS query
     let dns_record = if m_type == CHAOS_ID {
@@ -242,7 +242,7 @@ pub async fn handle(
         ALL_ID => "All (ICMP,DNS/A,TCP)",
         _ => "Unknown",
     };
-    let hitlist_length = ips.len();
+    let hitlist_length = targets.len();
 
     info!("[CLI] Performing {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
@@ -314,10 +314,7 @@ pub async fn handle(
         worker_interval,
         is_responsive,
         is_latency,
-        targets: Some(Targets {
-            dst_list: ips,
-            is_discovery: None,
-        }),
+        targets,
         record: dns_record.to_string(),
         url,
         probe_interval,

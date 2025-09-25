@@ -3,7 +3,7 @@ use log::{info, warn};
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::Status;
-use crate::custom_module::manycastr::Task;
+use crate::custom_module::manycastr::{Instruction, Task};
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
@@ -25,7 +25,7 @@ use crate::orchestrator::worker::WorkerStatus::Probing;
 ///
 /// * 'number_of_probes' - the number of times to probe the same target
 pub async fn task_sender(
-    mut rx: mpsc::Receiver<(u32, Task, bool)>,
+    mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
     workers: Vec<WorkerSender<Result<Task, Status>>>,
     inter_client_interval: u64,
     inter_probe_interval: u64,

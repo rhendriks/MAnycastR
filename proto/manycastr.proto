@@ -5,8 +5,8 @@ package manycastr;
 service Controller {
   // Worker lets the orchestrator know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
-  // Worker announces itself, and starts its connection with the orchestrator. The orchestrator sends a stream of tasks
-  rpc WorkerConnect(Worker) returns (stream Task) {}
+  // Worker announces itself, and starts its connection with the orchestrator. The orchestrator sends a stream of instructions
+  rpc WorkerConnect(Worker) returns (stream Instruction) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
   // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
@@ -67,7 +67,7 @@ message ScheduleMeasurement {
   bool is_responsive = 7;
   bool is_latency = 8;
   bool is_divide = 9;
-  Targets targets = 10;
+  repeated Address targets = 10;
   string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
   string url = 12; // URL to encode in probes (e.g., opt-out link)
   uint32 probe_interval = 13; // interval between probes from/to the same origin,dst pair
@@ -103,14 +103,28 @@ message IPv6 {
   fixed64 p2 = 2;
 }
 
+
 // A task for a worker, either a start or end message, a list of targets, or a traceroute task
+message Instruction {
+  oneof instruction {
+    End end = 1; // End measurement [control]
+    Start start = 2; // Start measurement [control]
+    Init init = 3; // Initial message to worker (contains worker ID) [control]
+    Tasks tasks = 4; // List of tasks (probes/traceroutes) to perform [measurement]
+  }
+}
+
+// A list of tasks (i.e., measurements) for a worker to perform
+message Tasks {
+  repeated Task tasks = 1;
+}
+
+// A task (i.e., measurement) for a worker to perform, either a probe, traceroute, or discovery task
 message Task {
-  oneof data {
-    End end = 1; // End measurement
-    Start start = 2; // Start measurement
-    Targets targets = 3; // Targets to measure
-    TraceTask trace_task = 4; // Traceroute task
-    Init init = 5; // Initial message to worker (contains worker ID)
+  oneof task {
+    Probe probe = 1; // A probe task (e.g., regular ping)
+    Trace trace = 2; // A traceroute task (to a specific TTL)
+    Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
   }
 }
 
@@ -119,7 +133,7 @@ message Init {
   uint32 worker_id = 1;
 }
 
-// A start message, forwards the configuration to the worker
+// A start control instruction, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
@@ -153,14 +167,13 @@ message Configuration {
   uint32 worker_id = 2;
 }
 
-// A list of target addresses
-message Targets {
-  repeated Address dst_list = 1;
-  optional bool is_discovery = 2; // whether the targets are being probed as discovery (responsiveness, latency)
+// A probing task, containing the target address to probe
+message Probe {
+  Address dst = 1; // target address of the probe
 }
 
 // A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
-message TraceTask {
+message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
   fixed32 origin_id = 3; // ID of origin to use for the traceroute probe

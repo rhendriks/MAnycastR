@@ -58,8 +58,6 @@ pub struct ControllerService {
     cli_sender: CliHandle,
     /// Number of workers participating in the current measurement (None if no measurement is active)
     active_workers: Arc<Mutex<Option<u32>>>,
-    /// Last used measurement ID TODO remove and always generate random IDs
-    // m_id: Arc<Mutex<u32>>,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
     /// Indicates if a measurement is currently active
@@ -68,10 +66,8 @@ pub struct ControllerService {
     m_type: Arc<Mutex<Option<MeasurementType>>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
-    /// Stacks of addresses for each worker, used for follow-up probes
-    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Address>>>>,
-    /// Stacks of TraceTasks for each worker, used for follow-up traceroute probes
-    trace_stacks: Arc<Mutex<HashMap<u32, VecDeque<custom_module::manycastr::TraceTask>>>>,
+    /// Stacks of tasks coupled to workers, used for follow-up probes
+    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
 }
 
 impl ControllerService {
@@ -148,15 +144,11 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let controller = ControllerService {
         workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
-        // open_measurements: Arc::new(Mutex::new(HashMap::new())),
-        // m_id: Arc::new(Mutex::new(m_id)),
         active_workers: Arc::new(Mutex::new(None)),
         unique_id: current_worker_id,
-        // is_active: Arc::new(Mutex::new(false)),
         m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
-        trace_stacks: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let svc = ControllerServer::new(controller)
