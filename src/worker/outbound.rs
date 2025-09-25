@@ -247,7 +247,7 @@ pub struct _TraceConfig {
 pub fn _trace_outbound (
     config: _TraceConfig,
     mut outbound_rx: Receiver<Data>,
-    mut socket_tx: Box<dyn DataLinkSender>,
+    mut _socket_tx: Box<dyn DataLinkSender>,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())

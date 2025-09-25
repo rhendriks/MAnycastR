@@ -52,23 +52,18 @@ impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
 
 /// Special Receiver struct that notices when the worker disconnects.
 ///
-/// When a worker drops we update the open_measurements such that the orchestrator knows this worker is not participating in any measurements.
+/// When a worker drops we update the active worker counter such that the orchestrator knows this worker is not participating in any measurements.
 /// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this worker is finished.
-///
-/// Finally, remove this worker from the worker list.
-///
-/// # Fields
-///
-/// * 'inner' - the receiver that connects to the worker
-/// * 'open_measurements' - a list of the current open measurements
-/// * 'cli_sender' - the sender that connects to the CLI
-/// * 'hostname' - the hostname of the worker
-/// * 'status' - the status of the worker, used to determine if it is connected or not
 pub struct WorkerReceiver<T> {
+    /// The inner receiver that connects to the worker
     pub(crate) inner: mpsc::Receiver<T>,
-    pub(crate) open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
+    /// Shared counter of the number of active workers in the current measurement (None if no measurement is active)
+    pub(crate) active_workers: Arc<Mutex<Option<u32>>>,
+    /// Sender that connects to the CLI
     pub(crate) cli_sender: CliHandle,
+    /// The hostname of the worker
     pub(crate) hostname: String,
+    /// The status of the worker, used to determine if it is connected or not
     pub(crate) status: Arc<Mutex<WorkerStatus>>,
 }
 
@@ -84,40 +79,32 @@ impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
         warn!("[Orchestrator] Worker {} lost connection", self.hostname);
 
-        // Handle the open measurements that involve this worker
-        let mut open_measurements = self.open_measurements.lock().unwrap();
-        if !open_measurements.is_empty() {
-            for (m_id, remaining) in open_measurements.clone().iter() {
-                // If this measurement is already finished
-                if remaining == &0 {
-                    continue;
-                }
-                // If this is the last worker for this open measurement
-                if remaining == &1 {
-                    // The orchestrator no longer has to wait for this measurement
-                    open_measurements.remove(m_id);
+        // If this worker is participating, update the active_workers counter
+        if (*self.status.lock().unwrap() == Probing || *self.status.lock().unwrap() == Listening) && self.active_workers.lock().unwrap().is_some() {
+            let mut active_workers = self.active_workers.lock().unwrap();
+            let count = active_workers.unwrap();
+            if count == 1 {
+                // Measurement is over, no more active workers
+                info!("[Orchestrator] Last active worker dropped, measurement is over... Notifying CLI");
+                *active_workers = None;
 
-                    warn!("[Orchestrator] The last worker for a measurement dropped, sending measurement finished signal to CLI");
-                    match self
-                        .cli_sender
-                        .lock()
-                        .unwrap()
-                        .clone()
-                        .unwrap()
-                        .try_send(Ok(TaskResult::default()))
-                    {
-                        Ok(_) => (),
-                        Err(_) => warn!(
-                            "[Orchestrator] Failed to send measurement finished signal to CLI"
-                        ),
-                    }
-                } else {
-                    // One less worker for this measurement
-                    *open_measurements.get_mut(m_id).unwrap() -= 1;
+                match self
+                    .cli_sender
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap()
+                    .try_send(Ok(TaskResult::default()))
+                {
+                    Ok(_) => (),
+                    Err(_) => warn!("[Orchestrator] Failed to send measurement finished signal to CLI"),
                 }
+            } else {
+                *active_workers = Some(count - 1);
             }
         }
 
+        // Set the status to Disconnected
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
     }

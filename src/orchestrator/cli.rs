@@ -15,14 +15,11 @@ use tokio::sync::mpsc;
 /// # Fields
 ///
 /// * 'inner' - the receiver that connects to the CLI
-/// * 'm_active' - a boolean value that is set to true when there is an active measurement
+/// * 'active_workers' - a shared counter of the number of active workers in the current measurement (None if no measurement is active)
 /// * 'm_id' - a list of the current open measurements, and the number of workers that are currently working on it
-/// * 'open_measurements' - a mapping of measurement IDs to the number of workers that are currently working on it
 pub struct CLIReceiver<T> {
     pub(crate) inner: mpsc::Receiver<T>,
-    pub(crate) m_active: Arc<Mutex<bool>>,
-    pub(crate) m_id: u32,
-    pub(crate) open_measurements: Arc<Mutex<HashMap<u32, u32>>>,
+    pub(crate) active_workers: Arc<Mutex<Option<u32>>>,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -35,16 +32,12 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        let mut is_active = self.m_active.lock().unwrap();
+        let mut active_workers = self.active_workers.lock().unwrap();
 
         // If there is an active measurement we need to cancel it and notify the workers
-        if *is_active {
+        if active_workers.is_some() {
             warn!("[Orchestrator] CLI dropped during an active measurement, terminating measurement");
+            *active_workers = None; // No longer an active measurement
         }
-        *is_active = false; // No longer an active measurement
-
-        // Remove the current measurement
-        let mut open_measurements = self.open_measurements.lock().unwrap();
-        open_measurements.remove(&self.m_id);
     }
 }
