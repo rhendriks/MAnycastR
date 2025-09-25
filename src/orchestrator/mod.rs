@@ -8,19 +8,16 @@ mod result_handler;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::ops::AddAssign;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::custom_module;
-use crate::custom_module::manycastr::Address;
 use crate::orchestrator::mpsc::Sender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
-    controller_server::ControllerServer, Task, TaskResult,
+    controller_server::ControllerServer, Task, TaskResult, Instruction
 };
 use log::{info, warn};
-use rand::Rng;
 use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
@@ -32,7 +29,7 @@ type ResultMessage = Result<TaskResult, Status>;
 type CliSender = Sender<ResultMessage>;
 type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
-type TaskMessage = Result<Task, Status>;
+type TaskMessage = Result<Instruction, Status>;
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
