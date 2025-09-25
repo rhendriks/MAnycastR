@@ -40,7 +40,7 @@ const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 
 /// The measurement types that result in different result handling behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MeasurementType { // TODO replace is_responsive and is_latency with this enum
+pub enum MeasurementType {
     /// Targets are probed for responsiveness from one worker, follow-up probes are sent from all workers.
     Responsive,
     /// Targets are probed to determine the catching worker, follow-up probes are sent from the catching worker.
@@ -70,6 +70,8 @@ pub struct ControllerService {
     worker_config: Option<HashMap<String, u32>>,
     /// Stacks of addresses for each worker, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Address>>>>,
+    /// Stacks of TraceTasks for each worker, used for follow-up traceroute probes
+    trace_stacks: Arc<Mutex<HashMap<u32, VecDeque<custom_module::manycastr::TraceTask>>>>,
 }
 
 impl ControllerService {
@@ -156,6 +158,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
+        trace_stacks: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let svc = ControllerServer::new(controller)
