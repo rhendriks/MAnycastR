@@ -38,8 +38,7 @@ impl Worker {
         let mut worker = Worker {
             grpc_client: client,
             hostname,
-            is_active: Arc::new(Mutex::new(false)),
-            current_m_id: Arc::new(Mutex::new(0)),
+            current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
             abort_s: Arc::new(AtomicBool::new(false)),
         };

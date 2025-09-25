@@ -13,10 +13,8 @@ pub struct Worker {
     pub(crate) grpc_client: ControllerClient<Channel>,
     /// Hostname of the worker
     pub(crate) hostname: String,
-    /// Indicates if the worker is currently active in a measurement
-    pub(crate) is_active: Arc<Mutex<bool>>,
-    /// ID of the current measurement TODO combine with is_active?
-    pub(crate) current_m_id: Arc<Mutex<u32>>,
+    /// ID of the current measurement (None indicates no active measurement ongoing)
+    pub(crate) current_m_id: Arc<Mutex<Option<u32>>>,
     /// Instructions sender to the outbound probing thread
     pub(crate) outbound_tx: Option<tokio::sync::mpsc::Sender<InstructionType>>,
     /// Atomic boolean to signal the inbound thread to immediately stop listening for packets

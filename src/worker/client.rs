@@ -113,7 +113,7 @@ impl Worker {
         // Await tasks
         while let Some(instruction) = stream.message().await.expect("Unable to receive task") {
             // If we already have an active measurement
-            if *self.is_active.lock().unwrap() {
+            if self.current_m_id.lock().unwrap().is_some() {
                 // If the CLI disconnected we will receive this message
                 match instruction.instruction_type {
                     None => {
@@ -183,9 +183,7 @@ impl Worker {
                 }
 
                 info!("[Worker] Starting new measurement");
-
-                *self.is_active.lock().unwrap() = true;
-                *self.current_m_id.lock().unwrap() = m_id;
+                *self.current_m_id.lock().unwrap() = Some(m_id);
                 self.abort_s.store(false, Ordering::SeqCst);
 
                 if is_probing {
@@ -231,7 +229,7 @@ impl Worker {
         finished: Finished,
     ) -> Result<(), Box<dyn Error>> {
         info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
-        *self.is_active.lock().unwrap() = false;
+        self.current_m_id.lock().unwrap().take(); // Set current measurement ID to None
         self.grpc_client
             .measurement_finished(Request::new(finished))
             .await?;
