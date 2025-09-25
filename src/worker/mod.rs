@@ -13,14 +13,14 @@ use tonic::Request;
 use pnet::datalink::{self, Channel as SocketChannel};
 
 use custom_module::manycastr::{
-    controller_client::ControllerClient, Address, End, Finished, Origin, Task,
-    TaskResult,
+    controller_client::ControllerClient, Address, End, Finished, Origin, TaskResult,
 };
 
 use crate::net::packet::is_in_prefix;
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
 use crate::{custom_module, ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::custom_module::manycastr::{Instruction, instruction::InstructionType};
 
 mod inbound;
 mod outbound;
@@ -43,7 +43,7 @@ pub struct Worker {
     hostname: String,
     is_active: Arc<Mutex<bool>>,
     current_m_id: Arc<Mutex<u32>>,
-    outbound_tx: Option<tokio::sync::mpsc::Sender<Data>>,
+    outbound_tx: Option<tokio::sync::mpsc::Sender<InstructionType>>,
     abort_s: Arc<AtomicBool>,
 }
 
@@ -153,8 +153,8 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'abort_s' - an optional boolean that is used to signal the outbound thread to stop sending probes
-    fn init(&mut self, task: Task, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
-        let start_measurement = if let Data::Start(start) = task.data.unwrap() {
+    fn init(&mut self, start_instruction: Instruction, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
+        let start_measurement = if let InstructionType::Start(start) = start_instruction.instruction_type.unwrap() {
             start
         } else {
             panic!("Received non-start packet for init")
@@ -390,7 +390,7 @@ impl Worker {
             .await
             .expect("Unable to await stream")
             .expect("Unable to receive worker ID");
-        let worker_id = if let Some(Init(init)) = id_message.data {
+        let worker_id = if let Some(InstructionType::Init(init)) = id_message.instruction_type {
             init.worker_id as u16
         } else {
             panic!("Did not receive Init message from orchestrator");
@@ -398,20 +398,20 @@ impl Worker {
         info!("[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}");
 
         // Await tasks
-        while let Some(task) = stream.message().await.expect("Unable to receive task") {
+        while let Some(instruction) = stream.message().await.expect("Unable to receive task") {
             // If we already have an active measurement
             if *self.is_active.lock().unwrap() {
                 // If the CLI disconnected we will receive this message
-                match task.data {
+                match instruction.instruction_type {
                     None => {
                         warn!("[Worker] Received empty task, skipping");
                         continue;
                     }
-                    Some(Data::Start(_)) => {
+                    Some(InstructionType::Start(_)) => {
                         warn!("[Worker] Received new measurement during an active measurement, skipping");
                         continue;
                     }
-                    Some(Data::End(data)) => {
+                    Some(InstructionType::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
                             info!("[Worker] Received measurement finished signal from orchestrator");
@@ -419,7 +419,7 @@ impl Worker {
                             self.abort_s.store(true, Ordering::SeqCst);
                             // Close outbound threads gracefully
                             if let Some(tx) = self.outbound_tx.take() {
-                                tx.send(Data::End(End { code: 0 })).await.expect(
+                                tx.send(InstructionType::End(End { code: 0 })).await.expect(
                                     "Unable to send measurement_finished to outbound thread",
                                 );
                             }
@@ -438,10 +438,6 @@ impl Worker {
                             continue;
                         }
                     }
-                    Some(Data::TraceTask(_trace_task)) => {
-                        info!("[Worker] Received trace task");
-                        // TODO
-                    }
                     Some(task) => {
                         // outbound_tx will be None if this worker is not probing
                         if let Some(outbound_tx) = &self.outbound_tx {
@@ -457,8 +453,8 @@ impl Worker {
                 // If we don't have an active measurement
             } else {
                 let (is_unicast, is_probing, m_id) =
-                    match task.data.clone() {
-                        Some(Data::Start(start)) => {
+                    match instruction.instruction_type.clone() {
+                        Some(InstructionType::Start(start)) => {
                             (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
                         }
                         _ => {
@@ -484,12 +480,12 @@ impl Worker {
                     // Initialize signal finish atomic boolean
                     abort_s = Some(Arc::new(AtomicBool::new(false)));
 
-                    self.init(task, worker_id, abort_s.clone());
+                    self.init(instruction, worker_id, abort_s.clone());
                 } else {
                     // This worker is not probing
                     abort_s = None;
                     self.outbound_tx = None;
-                    self.init(task, worker_id, None);
+                    self.init(instruction, worker_id, None);
                 }
             }
         }

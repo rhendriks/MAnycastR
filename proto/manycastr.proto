@@ -106,7 +106,7 @@ message IPv6 {
 
 // A task for a worker, either a start or end message, a list of targets, or a traceroute task
 message Instruction {
-  oneof instruction {
+  oneof instruction_type {
     End end = 1; // End measurement [control]
     Start start = 2; // Start measurement [control]
     Init init = 3; // Initial message to worker (contains worker ID) [control]
@@ -121,7 +121,7 @@ message Tasks {
 
 // A task (i.e., measurement) for a worker to perform, either a probe, traceroute, or discovery task
 message Task {
-  oneof task {
+  oneof task_type {
     Probe probe = 1; // A probe task (e.g., regular ping)
     Trace trace = 2; // A traceroute task (to a specific TTL)
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)

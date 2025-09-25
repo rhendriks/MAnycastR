@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};

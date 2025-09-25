@@ -3,7 +3,7 @@ use log::{info, warn};
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::Status;
-use crate::custom_module::manycastr::{Instruction, Task};
+use crate::custom_module::manycastr::{Instruction};
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
@@ -26,13 +26,13 @@ use crate::orchestrator::worker::WorkerStatus::Probing;
 /// * 'number_of_probes' - the number of times to probe the same target
 pub async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
-    workers: Vec<WorkerSender<Result<Task, Status>>>,
+    workers: Vec<WorkerSender<Result<Instruction, Status>>>,
     inter_client_interval: u64,
     inter_probe_interval: u64,
     number_of_probes: u8,
 ) {
     // Loop over the tasks in the channel
-    while let Some((worker_id, task, multiple)) = rx.recv().await {
+    while let Some((worker_id, instruction, multiple)) = rx.recv().await {
         let nprobes = if multiple { number_of_probes } else { 1 };
 
         if worker_id == BREAK_SIGNAL {
@@ -40,7 +40,7 @@ pub async fn task_sender(
         } else if worker_id == ALL_WORKERS_DIRECT {
             // To all direct (used for 'end measurement' only)
             for sender in &workers {
-                sender.send(Ok(task.clone())).await.unwrap_or_else(|e| {
+                sender.send(Ok(instruction.clone())).await.unwrap_or_else(|e| {
                     sender.cleanup();
                     warn!(
                         "[Orchestrator] Failed to send broadcast task to worker {}: {e:?}",
@@ -56,7 +56,7 @@ pub async fn task_sender(
             for sender in &workers {
                 if *sender.status == Probing {
                     let sender_c = sender.clone();
-                    let task_c = task.clone();
+                    let task_c = instruction.clone();
                     spawn(async move {
                         // Wait inter-client probing interval
                         tokio::time::sleep(Duration::from_secs(
@@ -85,7 +85,7 @@ pub async fn task_sender(
             // to specific worker (used for --latency follow-up probes)
             if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
                 if nprobes < 2 {
-                    sender.send(Ok(task)).await.unwrap_or_else(|e| {
+                    sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
                         sender.cleanup();
                         warn!(
                             "[Orchestrator] Failed to send task to worker {}: {e:?}",
@@ -98,7 +98,7 @@ pub async fn task_sender(
                     spawn(async move {
                         for _ in 0..number_of_probes {
                             sender_clone
-                                .send(Ok(task.clone()))
+                                .send(Ok(instruction.clone()))
                                 .await
                                 .unwrap_or_else(|e| {
                                     sender_clone.cleanup();

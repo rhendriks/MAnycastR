@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
 use crate::{custom_module, ALL_WORKERS};
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{Ack, Address, Empty, End, Finished, ScheduleMeasurement, Start, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init, Instruction, instruction, Probe, Tasks};
+use crate::custom_module::manycastr::{Ack, Empty, End, Finished, ScheduleMeasurement, Start, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init, Instruction, instruction, Probe, Tasks};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::{ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler};
@@ -73,7 +73,7 @@ impl Controller for ControllerService {
         }))
     }
 
-    type WorkerConnectStream = WorkerReceiver<Result<Task, Status>>;
+    type WorkerConnectStream = WorkerReceiver<Result<Instruction, Status>>;
 
 
     /// Handles a worker connecting to this orchestrator formally.
@@ -93,7 +93,7 @@ impl Controller for ControllerService {
         let hostname = worker.hostname;
         let unicast_v4 = worker.unicast_v4;
         let unicast_v6 = worker.unicast_v6;
-        let (tx, rx) = mpsc::channel::<Result<Task, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<Instruction, Status>>(1000);
         // Get the worker ID, and check if it is a reconnection
         let (worker_id, is_reconnect) = self
             .get_worker_id(&hostname)
@@ -108,7 +108,7 @@ impl Controller for ControllerService {
 
         // Send worker ID
         tx.send(Ok(Instruction {
-            instruction: Some(instruction::Instruction::Init(Init {
+            instruction_type: Some(instruction::InstructionType::Init(Init {
                 worker_id,
             })),
         })).await.expect("Unable to send task");
@@ -200,7 +200,7 @@ impl Controller for ControllerService {
         let is_traceroute = m_definition.is_traceroute;
 
         // Configure and get the senders
-        let workers: Vec<WorkerSender<Result<Task, Status>>> = {
+        let workers: Vec<WorkerSender<Result<Instruction, Status>>> = {
             let mut workers = self.workers.lock().unwrap().clone();
             // Only keep connected workers
             workers.retain(|worker| {
@@ -271,10 +271,7 @@ impl Controller for ControllerService {
         let probing_rate = m_definition.probing_rate;
         let m_type = m_definition.m_type;
         let is_ipv6 = m_definition.is_ipv6;
-        let dst_addresses = m_definition
-            .targets
-            .expect("Received measurement with no targets")
-            .dst_list;
+        let dst_addresses = m_definition.targets;
         let dns_record = m_definition.record;
         let info_url = m_definition.url;
 
@@ -323,7 +320,7 @@ impl Controller for ControllerService {
             }
 
             let start_instruction = Instruction {
-                instruction: Some(instruction::Instruction::Start(Start {
+                instruction_type: Some(instruction::InstructionType::Start(Start {
                     rate: probing_rate,
                     m_id,
                     m_type,
@@ -435,7 +432,7 @@ impl Controller for ControllerService {
                     // Send follow-up tasks to 'f_worker_id'
                     if !follow_up_tasks.is_empty() {
                         let instruction = Instruction {
-                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                                 tasks: follow_up_tasks,
                             }
                             ))
@@ -462,7 +459,7 @@ impl Controller for ControllerService {
                             .by_ref()
                             .take(remainder_needed)
                             .map(|addr| Task {
-                                task: Some(task::Task::Discovery(Probe { dst: addr })),
+                                task_type: Some(task::TaskType::Discovery(Probe { dst: Some(addr) })),
                             })
                             .collect();
 
@@ -481,7 +478,7 @@ impl Controller for ControllerService {
                     if !discovery_tasks.is_empty() {
                         // Send the Tasks to the worker
                         let instruction = Instruction {
-                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                                 tasks: discovery_tasks,
                             }
                             ))
@@ -527,7 +524,7 @@ impl Controller for ControllerService {
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
                     Instruction {
-                        instruction: Some(instruction::Instruction::End(End { code: 0 })),
+                        instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -548,8 +545,8 @@ impl Controller for ControllerService {
                 // Close the TaskDistributor channel
                 tx_t.send((
                     BREAK_SIGNAL,
-                    Task {
-                        data: None,
+                    Instruction {
+                        instruction_type: None,
                     },
                     false,
                 ))
@@ -570,14 +567,14 @@ impl Controller for ControllerService {
                     let tasks = chunk
                         .iter()
                         .map(|addr| Task {
-                            task: Some(task::Task::Probe(Probe { dst: *addr })),
+                            task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
                         })
                         .collect::<Vec<Task>>();
 
                     tx_t.send((
                         ALL_WORKERS_INTERVAL,
                         Instruction {
-                            instruction: Some(instruction::Instruction::Tasks(Tasks {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                                 tasks,
                             })),
                         },
@@ -600,7 +597,7 @@ impl Controller for ControllerService {
                 tx_t.send((
                     ALL_WORKERS_DIRECT,
                     Instruction {
-                        instruction: Some(instruction::Instruction::End(End { code: 0 })),
+                        instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
                     },
                     false,
                 ))
@@ -616,7 +613,7 @@ impl Controller for ControllerService {
                 tx_t.send((
                     BREAK_SIGNAL,
                     Instruction {
-                        instruction: None,
+                        instruction_type: None,
                     },
                     false,
                 ))
@@ -692,7 +689,7 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                return trace_discovery_handler(task_result, &mut self.trace_stacks.lock().unwrap());
+                return trace_discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
