@@ -127,7 +127,7 @@ impl CliClient {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let timestamp_start_str = Local::now().format("%Y-%m-%dT%H_%M_%S").to_string();
+        let timestamp_start_str = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
         // Progress bar
         let total_steps = (m_time * 60.0) as u64; // measurement_length in seconds
@@ -166,11 +166,11 @@ impl CliClient {
 
         // Get measurement type
         let type_str = match m_type as u8 {
-            ICMP_ID => "ICMP",
-            A_ID => "DNS",
-            TCP_ID => "TCP",
-            CHAOS_ID => "CHAOS",
-            _ => "ICMP",
+            ICMP_ID => "icmp",
+            A_ID => "dns",
+            TCP_ID => "tcp",
+            CHAOS_ID => "chaos",
+            _ => "icmp",
         };
         let type_str = if is_ipv6 {
             format!("{type_str}v6")
@@ -179,7 +179,7 @@ impl CliClient {
         };
 
         // Determine the type of measurement
-        let filetype = if is_unicast { "LB_" } else { "AB_" }; // TODO filetype for both unicast and anycast
+        let filetype = if is_unicast { "lb" } else { "ab" }; // TODO filetype for both unicast and anycast
                                                                // TODO filetype for traceroute measurements
 
         // Determine the file extension based on the output format
@@ -195,22 +195,17 @@ impl CliClient {
 
         let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
+        let path = args.out_path;
         // Output file
-        let file_path = if let Some(path) = args.out_path {
-            if path.ends_with('/') {
-                // User provided a path, use default naming convention for file
-                format!("{path}{filetype}{type_str}{timestamp_start_str}{extension}")
-            } else {
-                // User provided a file (with possibly a path)
-
-                if path.ends_with(".parquet") {
-                    is_parquet = true; // If the file ends with .parquet, we will write in Parquet format
-                }
-                path.to_string()
-            }
+        let file_path = if path.ends_with('/') {
+            // User provided a path, use default naming convention for file
+            format!("{path}{filetype}-{type_str}-{timestamp_start_str}{extension}")
         } else {
-            // Write file to current directory using default naming convention
-            format!("./{filetype}{type_str}{timestamp_start_str}{extension}")
+            // User provided a file (with possibly a path)
+            if path.ends_with(".parquet") {
+                is_parquet = true; // If the file ends with .parquet, we will write in Parquet format
+            }
+            path
         };
 
         // Create the output file

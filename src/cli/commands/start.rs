@@ -26,9 +26,8 @@ pub struct MeasurementExecutionArgs<'a> {
     /// The total number of targets in the hitlist, used for estimating measurement duration.
     pub hitlist_length: usize,
 
-    /// An optional path to a file where the final measurement results should be saved.
-    /// If `None`, results will be written to the current directory with a default naming convention.
-    pub out_path: Option<&'a String>,
+    /// Path to write results to (may include filename and extension).
+    pub out_path: String,
 
     /// Indicates whether the measurement is configuration-based (using a configuration file)
     pub is_config: bool,

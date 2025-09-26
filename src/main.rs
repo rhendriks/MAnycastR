@@ -490,6 +490,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('o')
                         .value_parser(value_parser!(String))
                         .required(false)
+                        .default_value("./")
                         .help("Optional path and/or filename to store the results of the measurement (default ./)")
                     )
                     .arg(Arg::new("url")
