@@ -45,7 +45,7 @@ impl Worker {
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
         let is_latency = start_measurement.is_latency;
-        let is_trace = start_measurement.is_traceroute;
+        let is_traceroute = start_measurement.is_traceroute;
         let tx_origins: Vec<Origin> = start_measurement.tx_origins;
         let is_ipv6 = start_measurement.is_ipv6;
         // Channel for forwarding tasks to outbound
@@ -105,7 +105,7 @@ impl Worker {
             m_type: start_measurement.m_type as u8,
             origin_map: rx_origins.clone(),
             abort_s: self.abort_s.clone(),
-            is_traceroute: start_measurement.is_traceroute,
+            is_traceroute,
             is_ipv6,
         };
 
@@ -137,27 +137,23 @@ impl Worker {
                 _ => (),
             }
 
-            if !is_trace {
-                let config = OutboundConfig {
-                    worker_id,
-                    tx_origins,
-                    abort_s: abort_s.unwrap(),
-                    is_latency,
-                    m_id,
-                    m_type: start_measurement.m_type as u8,
-                    qname,
-                    info_url,
-                    if_name: interface.name.clone(),
-                    probing_rate,
-                    origin_map: Some(rx_origins),
-                    is_ipv6,
-                };
+            let config = OutboundConfig {
+                worker_id,
+                tx_origins,
+                abort_s: abort_s.unwrap(),
+                is_latency,
+                m_id,
+                m_type: start_measurement.m_type as u8,
+                qname,
+                info_url,
+                if_name: interface.name.clone(),
+                probing_rate,
+                origin_map: Some(rx_origins),
+                is_ipv6,
+            };
 
-                // Start sending thread
-                outbound(config, outbound_rx, socket_tx);
-            } else {
-                // Trace sending thread TODO
-            }
+            // Start sending thread
+            outbound(config, outbound_rx, socket_tx);
         } else {
             info!("[Worker] Not sending probes");
         }
