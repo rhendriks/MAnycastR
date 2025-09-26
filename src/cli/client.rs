@@ -148,8 +148,8 @@ impl CliClient {
         let is_traceroute = args.is_traceroute;
         // Determine the type of measurement
         let filetype = match (is_unicast, is_traceroute) {
-            (true, false) => "um",  // unicast probing
-            (false, false) => "am", // anycast probing
+            (true, false) => "up",  // unicast probing
+            (false, false) => "ap", // anycast probing
             (true, true) => "ut",   // unicast traceroute
             (false, true) => "at",  // anycast traceroute
         };
