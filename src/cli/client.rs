@@ -286,9 +286,9 @@ impl CliClient {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let length = (end - start) / 60; // Measurement length in minutes
+        let length = (end - start) as f32 / 60.0; // Measurement length in minutes
         info!(
-            "[CLI] Waited {length:.6} minutes for results. Captured {} replies",
+            "[CLI] Waited {length:.2} minutes for results. Captured {} replies",
             replies_count.with_separator()
         );
 
