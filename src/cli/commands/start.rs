@@ -271,10 +271,8 @@ pub async fn handle(
     table.printstd();
 
     // get optional path to write results to
-    let path = matches.get_one::<String>("out");
-    if let Some(value) = validate_path_perms(path) {
-        return value;
-    }
+    let path = matches.get_one::<String>("out").unwrap().to_string();
+    validate_path_perms(&path)?;
 
     // Create the measurement definition and send it to the orchestrator
     let m_definition = ScheduleMeasurement {
