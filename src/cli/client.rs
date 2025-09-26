@@ -3,7 +3,7 @@ use crate::cli::writer::{write_results, write_results_parquet, MetadataArgs, Wri
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
 use crate::custom_module::Separated;
-use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::{ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
@@ -48,60 +48,26 @@ impl CliClient {
         let m_type = m_definition.m_type;
         let is_latency = m_definition.is_latency;
         let is_responsive = m_definition.is_responsive;
-        let origin_str = if args.is_config {
-            // TODO encode configs into configurations
-            "Anycast configuration-based".to_string()
-        } else {
-            m_definition
-                .configurations
-                .first()
-                .and_then(|conf| conf.origin.as_ref())
-                .map(|origin| {
-                    format!(
-                        "Anycast (source IP: {}, source port: {}, destination port: {})",
-                        origin.src.unwrap(),
-                        origin.sport,
-                        origin.dport
-                    )
-                })
-                .expect("No anycast origin found")
-        };
 
-        // List of Worker IDs that are sending out probes (empty means all)
-        let probing_workers: Vec<String> = if m_definition
-            .configurations
-            .iter()
-            .any(|config| config.worker_id == u32::MAX)
-        {
-            Vec::new() // all workers are probing
-        } else {
-            // Get list of unique worker hostnames that are probing
-            m_definition
+        // Get number of probers
+        let number_of_probers = {
+            let worker_ids: HashSet<_> = m_definition
                 .configurations
                 .iter()
-                .map(|config| {
-                    args.worker_map
-                        .get_by_left(&config.worker_id)
-                        .unwrap_or_else(|| {
-                            panic!("Worker ID {} is not a connected worker!", config.worker_id)
-                        })
-                        .clone()
-                })
-                .collect::<HashSet<String>>() // Use HashSet to ensure uniqueness
-                .into_iter()
-                .collect::<Vec<String>>()
-        };
+                .map(|conf| conf.worker_id)
+                .collect();
 
-        let number_of_probers = if probing_workers.is_empty() {
-            args.worker_map.len() as f32
-        } else {
-            probing_workers.len() as f32
+            if worker_ids.contains(&ALL_WORKERS) {
+                args.worker_map.len()
+            } else {
+                worker_ids.len()
+            }
         };
 
         let m_time = if is_divide || is_latency {
-            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers)) + 1.0) / 60.0
+            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 1.0) / 60.0
         } else {
-            (((number_of_probers - 1.0) * worker_interval as f32) // Last worker starts probing
+            (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
                 + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
                 + 1.0) // Time to wait for last replies
                 / 60.0 // Convert to minutes
@@ -157,7 +123,7 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-                                  // Obtain the Stream from the orchestrator and read from it
+        // Obtain the Stream from the orchestrator and read from it
         let mut stream = response
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
@@ -215,13 +181,11 @@ impl CliClient {
 
         let metadata_args = MetadataArgs {
             is_divide,
-            origin_str,
             hitlist: args.hitlist_path,
             is_shuffle: args.is_shuffle,
             m_type_str: type_str,
             probing_rate,
             interval: worker_interval,
-            active_workers: probing_workers,
             all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
             is_config: args.is_config,
