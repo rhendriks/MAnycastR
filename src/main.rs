@@ -224,6 +224,7 @@ pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 fn main() {
     // Initialize logging with timestamps
     formatted_builder()
+        .parse_env(pretty_env_logger::env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
             writeln!(
                 buf,
