@@ -1,23 +1,30 @@
+use crate::custom_module::manycastr::controller_server::Controller;
+use crate::custom_module::manycastr::{
+    instruction, task, Ack, Empty, End, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
+    ScheduleMeasurement, Start, Task, TaskResult, Tasks, Worker,
+};
+use crate::orchestrator::cli::CLIReceiver;
+use crate::orchestrator::result_handler::{
+    responsive_handler, symmetric_handler, trace_discovery_handler,
+};
+use crate::orchestrator::task_distributor::task_sender;
+use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
+use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
+use crate::orchestrator::{
+    ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL,
+};
+use crate::{custom_module, ALL_WORKERS};
+use futures_core::Stream;
+use log::{error, info, warn};
+use rand::Rng;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use futures_core::Stream;
-use log::{error, info, warn};
-use rand::Rng;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
-use crate::{custom_module, ALL_WORKERS};
-use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{Ack, Empty, End, Finished, ScheduleMeasurement, Start, Task, TaskResult, Worker, LiveMeasurementMessage, task, Init, Instruction, instruction, Probe, Tasks};
-use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::{ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
-use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler};
-use crate::orchestrator::task_distributor::task_sender;
-use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -63,7 +70,10 @@ impl Controller for ControllerService {
 
         // Notify the CLI if this was the last worker
         if should_notify {
-            cli_tx.send(Ok(TaskResult::default())).await.expect("Unable to send task result");
+            cli_tx
+                .send(Ok(TaskResult::default()))
+                .await
+                .expect("Unable to send task result");
         }
 
         // Acknowledge the worker
@@ -74,7 +84,6 @@ impl Controller for ControllerService {
     }
 
     type WorkerConnectStream = WorkerReceiver<Result<Instruction, Status>>;
-
 
     /// Handles a worker connecting to this orchestrator formally.
     ///
@@ -108,10 +117,10 @@ impl Controller for ControllerService {
 
         // Send worker ID
         tx.send(Ok(Instruction {
-            instruction_type: Some(instruction::InstructionType::Init(Init {
-                worker_id,
-            })),
-        })).await.expect("Unable to send task");
+            instruction_type: Some(instruction::InstructionType::Init(Init { worker_id })),
+        }))
+        .await
+        .expect("Unable to send task");
 
         let worker_status = Arc::new(Mutex::new(Idle));
 
@@ -219,9 +228,13 @@ impl Controller for ControllerService {
                     .any(|sender| sender.worker_id == conf.worker_id)
                     && conf.worker_id != ALL_WORKERS
             }) {
-                error!("[Orchestrator] Unknown worker in configuration list, terminating measurement.");
+                error!(
+                    "[Orchestrator] Unknown worker in configuration list, terminating measurement."
+                );
                 self.active_workers.lock().unwrap().take(); // Set to None
-                return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration",
+                return Err(Status::new(
+                    tonic::Code::Cancelled,
+                    "Unknown worker in configuration",
                 ));
             }
 
@@ -236,9 +249,10 @@ impl Controller for ControllerService {
                     *worker.status.lock().unwrap() = Probing;
                 } else {
                     // Listening if any worker is probing with anycast
-                    let is_listening = m_definition.configurations.iter().any(|config| {
-                        !config.origin.unwrap().src.unwrap().is_unicast()
-                    });
+                    let is_listening = m_definition
+                        .configurations
+                        .iter()
+                        .any(|config| !config.origin.unwrap().src.unwrap().is_unicast());
                     if is_listening {
                         *worker.status.lock().unwrap() = Listening;
                     } else {
@@ -261,10 +275,16 @@ impl Controller for ControllerService {
         let m_id = rand::rng().random_range(0..u32::MAX);
 
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
-        let number_of_active_workers = workers.iter().filter(|sender| sender.is_participating()).count() as u32;
+        let number_of_active_workers = workers
+            .iter()
+            .filter(|sender| sender.is_participating())
+            .count() as u32;
 
         // Store the number of workers that will perform this measurement
-        self.active_workers.lock().unwrap().replace(number_of_active_workers);
+        self.active_workers
+            .lock()
+            .unwrap()
+            .replace(number_of_active_workers);
 
         let probing_rate = m_definition.probing_rate;
         let m_type = m_definition.m_type;
@@ -346,18 +366,28 @@ impl Controller for ControllerService {
                 worker_interval,
                 probe_interval,
                 number_of_probes,
-            ).await;
+            )
+            .await;
         });
 
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         if is_responsive {
-            self.m_type.lock().unwrap().replace(MeasurementType::Responsive);
+            self.m_type
+                .lock()
+                .unwrap()
+                .replace(MeasurementType::Responsive);
         } else if is_latency {
-            self.m_type.lock().unwrap().replace(MeasurementType::Latency);
+            self.m_type
+                .lock()
+                .unwrap()
+                .replace(MeasurementType::Latency);
         } else if is_traceroute {
-            self.m_type.lock().unwrap().replace(MeasurementType::Traceroute);
+            self.m_type
+                .lock()
+                .unwrap()
+                .replace(MeasurementType::Traceroute);
         } else {
             self.m_type.lock().unwrap().take(); // Set to None
         }
@@ -418,7 +448,8 @@ impl Controller for ControllerService {
                         let mut stacks = worker_stacks.lock().unwrap();
                         // Fill up till the probing rate for 'f_worker_id'
                         if let Some(follow_up_tasks) = stacks.get_mut(&f_worker_id) {
-                            let num_to_take = std::cmp::min(probing_rate as usize, follow_up_tasks.len());
+                            let num_to_take =
+                                std::cmp::min(probing_rate as usize, follow_up_tasks.len());
 
                             follow_up_tasks.drain(..num_to_take).collect::<Vec<Task>>()
                         } else {
@@ -433,8 +464,7 @@ impl Controller for ControllerService {
                         let instruction = Instruction {
                             instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                                 tasks: follow_up_tasks,
-                            }
-                            ))
+                            })),
                         };
 
                         // Send the instruction to the follow-up worker
@@ -458,7 +488,9 @@ impl Controller for ControllerService {
                             .by_ref()
                             .take(remainder_needed)
                             .map(|addr| Task {
-                                task_type: Some(task::TaskType::Discovery(Probe { dst: Some(addr) })),
+                                task_type: Some(task::TaskType::Discovery(Probe {
+                                    dst: Some(addr),
+                                })),
                             })
                             .collect();
 
@@ -479,8 +511,7 @@ impl Controller for ControllerService {
                         let instruction = Instruction {
                             instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                                 tasks: discovery_tasks,
-                            }
-                            ))
+                            })),
                         };
 
                         // Send the instruction to the current round-robin worker
@@ -494,8 +525,8 @@ impl Controller for ControllerService {
                         if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed()
                                 >= Duration::from_secs(
-                                number_of_probing_workers as u64 * worker_interval + 5,
-                            )
+                                    number_of_probing_workers as u64 * worker_interval + 5,
+                                )
                             {
                                 info!("[Orchestrator] Task distribution finished.");
                                 break;
@@ -527,8 +558,8 @@ impl Controller for ControllerService {
                     },
                     false,
                 ))
-                    .await
-                    .expect("Failed to send end task to TaskDistributor");
+                .await
+                .expect("Failed to send end task to TaskDistributor");
 
                 // Wait till all workers are finished
                 while is_active.lock().unwrap().is_some() {
@@ -549,8 +580,8 @@ impl Controller for ControllerService {
                     },
                     false,
                 ))
-                    .await
-                    .expect("Failed to send end task to TaskDistributor");
+                .await
+                .expect("Failed to send end task to TaskDistributor");
             });
         } else {
             info!("[Orchestrator] Starting Broadcast Task Distributor.");
@@ -579,8 +610,8 @@ impl Controller for ControllerService {
                         },
                         is_discovery.is_none(),
                     ))
-                        .await
-                        .expect("Failed to send task to TaskDistributor");
+                    .await
+                    .expect("Failed to send task to TaskDistributor");
 
                     probing_rate_interval.tick().await;
                 }
@@ -588,7 +619,8 @@ impl Controller for ControllerService {
                 // Wait for the workers to finish their tasks
                 tokio::time::sleep(Duration::from_secs(
                     (number_of_probing_workers as u64 * worker_interval) + 1,
-                )).await;
+                ))
+                .await;
 
                 info!("[Orchestrator] Task distribution finished");
 
@@ -600,8 +632,8 @@ impl Controller for ControllerService {
                     },
                     false,
                 ))
-                    .await
-                    .expect("Failed to send end task to TaskDistributor");
+                .await
+                .expect("Failed to send end task to TaskDistributor");
 
                 // Wait till all workers are finished
                 while is_active.lock().unwrap().is_some() {
@@ -616,8 +648,8 @@ impl Controller for ControllerService {
                     },
                     false,
                 ))
-                    .await
-                    .expect("Failed to send end task to TaskDistributor");
+                .await
+                .expect("Failed to send end task to TaskDistributor");
             });
         }
 
@@ -630,7 +662,8 @@ impl Controller for ControllerService {
     }
 
     // Live measurement stream type
-    type LiveMeasurementStream = Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
+    type LiveMeasurementStream =
+        Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
     async fn live_measurement(
         &self,
         _request: Request<Streaming<LiveMeasurementMessage>>,
@@ -681,14 +714,14 @@ impl Controller for ControllerService {
             // Sleep 1 second to avoid rate-limiting issues
             tokio::time::sleep(Duration::from_secs(1)).await;
             if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
-                return responsive_handler(
-                    task_result,
-                    &mut self.worker_stacks.lock().unwrap(),
-                );
+                return responsive_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                return trace_discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap());
+                return trace_discovery_handler(
+                    task_result,
+                    &mut self.worker_stacks.lock().unwrap(),
+                );
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }

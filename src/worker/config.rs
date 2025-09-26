@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
-use local_ip_address::{local_ip, local_ipv6};
-use tonic::transport::Channel;
-use crate::custom_module::manycastr::{Address, Origin};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
+use crate::custom_module::manycastr::{Address, Origin};
+use local_ip_address::{local_ip, local_ipv6};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+use tonic::transport::Channel;
 
 /// The worker that is run at the anycast sites and performs measurements as instructed by the orchestrator.
 ///
@@ -55,16 +55,13 @@ pub fn get_origin_id(
 
 /// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,
 /// and returns the modified list of origins.
-/// 
+///
 /// # Arguments
 /// * `origins` - A vector of Origin structs to be modified.
 /// * `is_ipv6` - A boolean indicating whether to use the local IPv6 address (true) or IPv4 address (false).
 /// # Returns
 /// * A vector of Origin structs with unspecified unicast addresses replaced by local addresses.
-pub fn set_unicast_origins(
-    origins: Vec<Origin>,
-    is_ipv6: bool,
-) -> Vec<Origin> {
+pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
     let src_addr = if is_ipv6 {
         local_ipv6().ok().map(Address::from)
     } else {

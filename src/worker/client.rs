@@ -1,16 +1,16 @@
-use std::error::Error;
-use std::sync::{Arc};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use crate::custom_module;
+use crate::custom_module::manycastr::controller_client::ControllerClient;
+use crate::custom_module::manycastr::instruction::InstructionType;
+use crate::custom_module::manycastr::{Address, End, Finished, TaskResult};
+use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
-use tonic::Request;
+use std::error::Error;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
-use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{Address, End, Finished, TaskResult};
-use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::{custom_module};
-use crate::worker::config::Worker;
+use tonic::Request;
 
 impl Worker {
     /// Connect to the orchestrator.
@@ -127,7 +127,9 @@ impl Worker {
                     Some(InstructionType::End(data)) => {
                         // Received finish signal
                         if data.code == 0 {
-                            info!("[Worker] Received measurement finished signal from orchestrator");
+                            info!(
+                                "[Worker] Received measurement finished signal from orchestrator"
+                            );
                             // Close inbound threads
                             self.abort_s.store(true, Ordering::SeqCst);
                             // Close outbound threads gracefully
@@ -165,16 +167,15 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                let (is_probing, m_id) =
-                    match instruction.instruction_type.clone() {
-                        Some(InstructionType::Start(start)) => {
-                            (!start.tx_origins.is_empty(), start.m_id)
-                        }
-                        _ => {
-                            // First task is not a start measurement task
-                            continue;
-                        }
-                    };
+                let (is_probing, m_id) = match instruction.instruction_type.clone() {
+                    Some(InstructionType::Start(start)) => {
+                        (!start.tx_origins.is_empty(), start.m_id)
+                    }
+                    _ => {
+                        // First task is not a start measurement task
+                        continue;
+                    }
+                };
 
                 info!("[Worker] Starting new measurement");
                 *self.current_m_id.lock().unwrap() = Some(m_id);

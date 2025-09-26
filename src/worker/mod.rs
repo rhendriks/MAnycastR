@@ -1,17 +1,17 @@
 use clap::ArgMatches;
 use gethostname::gethostname;
 use std::error::Error;
-use std::sync::atomic::{AtomicBool};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use pnet::datalink::{Channel as SocketChannel};
 pub(crate) use crate::worker::config::Worker;
+use pnet::datalink::Channel as SocketChannel;
 
-mod inbound;
-mod outbound;
-mod config;
 mod client;
+mod config;
+mod inbound;
 mod measurement;
+mod outbound;
 
 impl Worker {
     /// Create a worker instance, which includes establishing a connection with the orchestrator.

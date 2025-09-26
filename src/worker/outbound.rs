@@ -1,10 +1,10 @@
+use log::{error, info, warn};
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
-use log::{error, info, warn};
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
@@ -12,12 +12,12 @@ use custom_module::manycastr::Origin;
 
 use pnet::datalink::DataLinkSender;
 
+use crate::custom_module::manycastr::instruction::InstructionType;
+use crate::custom_module::manycastr::task::TaskType;
+use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-use crate::custom_module::manycastr::{Address, Trace};
-use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::task::TaskType;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
@@ -204,35 +204,32 @@ pub fn send_probes(
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     m_type: u8,
     is_symmetric: bool, // Only used for TCP
-    qname: &str, // Only used for DNS
+    qname: &str,        // Only used for DNS
 ) -> (u32, u32) {
     let mut sent = 0;
     let mut failed = 0;
     for origin in origins {
         let mut packet = ethernet_header.clone();
         match m_type {
-            1 => { // ICMP
+            1 => {
+                // ICMP
                 packet.extend_from_slice(&create_icmp(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2, // ICMP sequence number
+                    2,                   // ICMP sequence number
                     worker_id,
                     m_id,
                     info_url,
                     255,
                 ));
             }
-            2 | 4 => { // DNS A record or CHAOS
-                packet.extend_from_slice(&create_dns(
-                    origin,
-                    dst,
-                    worker_id,
-                    m_type,
-                    qname,
-                ));
+            2 | 4 => {
+                // DNS A record or CHAOS
+                packet.extend_from_slice(&create_dns(origin, dst, worker_id, m_type, qname));
             }
-            3 => { // TCP
+            3 => {
+                // TCP
                 packet.extend_from_slice(&create_tcp(
                     origin,
                     dst,
@@ -247,7 +244,8 @@ pub fn send_probes(
             _ => panic!("Invalid measurement type"), // Invalid measurement
         }
 
-        while limiter.check().is_err() { // Rate limit to avoid bursts
+        while limiter.check().is_err() {
+            // Rate limit to avoid bursts
             sleep(Duration::from_millis(1));
         }
 
@@ -256,7 +254,7 @@ pub fn send_probes(
             Some(Err(e)) => {
                 warn!("[Worker outbound] Failed to send ICMP packet: {e}");
                 failed += 1;
-            },
+            }
             None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
         }
     }
@@ -288,7 +286,10 @@ pub fn send_trace(
     // Get the matching origin for this trace task
     let tx_origin = origins.iter().find(|o| o.origin_id == origin_id);
     if tx_origin.is_none() {
-        warn!("[Worker outbound] No matching origin found for trace task with origin ID {}", origin_id);
+        warn!(
+            "[Worker outbound] No matching origin found for trace task with origin ID {}",
+            origin_id
+        );
         return (0, 1);
     }
     let tx_origin = tx_origin.unwrap();
@@ -299,17 +300,17 @@ pub fn send_trace(
         tx_origin.src.as_ref().unwrap(),
         target,
         trace_task.ttl as u16, // encoding TTL in ICMP identifier
-        worker_id as u16, // encoding worker ID in ICMP sequence number
+        worker_id as u16,      // encoding worker ID in ICMP sequence number
         worker_id,
-        m_id, // TODO payload is lost?
+        m_id,     // TODO payload is lost?
         info_url, // TODO payload is lost?
-        trace_task.ttl as u8
+        trace_task.ttl as u8,
     ));
     match socket_tx.send_to(&packet, None) {
         Some(Ok(())) => return (1, 0),
         Some(Err(e)) => {
             warn!("[Worker outbound] Failed to send traceroute packet: {e}");
-        },
+        }
         None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
     }
     (0, 1)

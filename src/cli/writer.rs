@@ -10,14 +10,14 @@ use custom_module::manycastr::{Configuration, Reply, TaskResult};
 use custom_module::Separated;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use std::io::BufWriter;
-use std::sync::Arc;
 use log::error;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
+use std::io::BufWriter;
+use std::sync::Arc;
 
 use crate::{custom_module, CHAOS_ID, TCP_ID};
 

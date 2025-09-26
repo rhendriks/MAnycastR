@@ -190,7 +190,7 @@ impl From<&IPv4Packet> for Vec<u8> {
 pub struct IPv6Packet {
     // pub version: u8,                 // 4-bit Version
     // pub traffic_class: u8,           // 8-bit Traffic Class
-    pub flow_label: u32,             // 20-bit Flow Label
+    pub flow_label: u32,        // 20-bit Flow Label
     pub payload_length: u16,    // 16-bit Payload Length
     pub next_header: u8,        // 8-bit Next Header
     pub hop_limit: u8,          // 8-bit Hop Limit
@@ -600,7 +600,7 @@ impl ICMPPacket {
         let v6_packet = IPv6Packet {
             payload_length: 8 + body_len + info_url.len() as u16, // ICMP header (8 bytes) + body length
             flow_label: 15037,
-            next_header: 58,                                      // ICMPv6
+            next_header: 58, // ICMPv6
             hop_limit,
             src,
             dst,

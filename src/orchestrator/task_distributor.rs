@@ -1,12 +1,12 @@
-use std::time::Duration;
+use crate::custom_module::manycastr::Instruction;
+use crate::orchestrator::worker::WorkerSender;
+use crate::orchestrator::worker::WorkerStatus::Probing;
+use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use log::{info, warn};
+use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::Status;
-use crate::custom_module::manycastr::{Instruction};
-use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
-use crate::orchestrator::worker::WorkerSender;
-use crate::orchestrator::worker::WorkerStatus::Probing;
 
 /// Reads from a channel containing Tasks and sends them to the workers, at specified inter-client intervals.
 /// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
@@ -40,13 +40,16 @@ pub async fn task_sender(
         } else if worker_id == ALL_WORKERS_DIRECT {
             // To all direct (used for 'end measurement' only)
             for sender in &workers {
-                sender.send(Ok(instruction.clone())).await.unwrap_or_else(|e| {
-                    sender.cleanup();
-                    warn!(
-                        "[Orchestrator] Failed to send broadcast task to worker {}: {e:?}",
-                        sender.hostname
-                    );
-                });
+                sender
+                    .send(Ok(instruction.clone()))
+                    .await
+                    .unwrap_or_else(|e| {
+                        sender.cleanup();
+                        warn!(
+                            "[Orchestrator] Failed to send broadcast task to worker {}: {e:?}",
+                            sender.hostname
+                        );
+                    });
                 sender.finished();
             }
         } else if worker_id == ALL_WORKERS_INTERVAL {
@@ -62,7 +65,7 @@ pub async fn task_sender(
                         tokio::time::sleep(Duration::from_secs(
                             probing_index * inter_client_interval,
                         ))
-                            .await;
+                        .await;
 
                         spawn(async move {
                             for _ in 0..nprobes {
