@@ -1,8 +1,8 @@
+use futures_core::Stream;
+use log::warn;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use futures_core::Stream;
-use log::warn;
 use tokio::sync::mpsc;
 
 /// Special Receiver struct that notices when the CLI disconnects.
@@ -35,7 +35,9 @@ impl<T> Drop for CLIReceiver<T> {
 
         // If there is an active measurement we need to cancel it and notify the workers
         if active_workers.is_some() {
-            warn!("[Orchestrator] CLI dropped during an active measurement, terminating measurement");
+            warn!(
+                "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
+            );
             *active_workers = None; // No longer an active measurement
         }
     }

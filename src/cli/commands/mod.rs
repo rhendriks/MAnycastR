@@ -1,15 +1,15 @@
-use std::error::Error;
-use bimap::BiHashMap;
-use tonic::codec::CompressionEncoding;
-use tonic::Request;
+use crate::cli::client::CliClient;
 use crate::custom_module::manycastr::Empty;
+use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::info;
-use crate::cli::client::CliClient;
+use std::error::Error;
+use tonic::codec::CompressionEncoding;
+use tonic::Request;
 
+mod live;
 pub(crate) mod start;
 mod worker_list;
-mod live;
 
 /// Execute the command-line arguments and send the desired commands to the orchestrator.
 ///
@@ -47,14 +47,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .map(|worker| (worker.worker_id, worker.hostname)) // .clone() is no longer needed on hostname
             .collect();
 
-        Ok(start::handle(
-            matches,
-            &mut cli_client,
-            worker_map,
-        ).await?)
+        Ok(start::handle(matches, &mut cli_client, worker_map).await?)
     } else if let Some(matches) = args.subcommand_matches("live") {
         Ok(live::handle(matches, &mut cli_client).await?)
-    }  else {
+    } else {
         panic!("Unrecognized command");
     }
 }

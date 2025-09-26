@@ -1,14 +1,14 @@
+use crate::custom_module::manycastr::{Address, TaskResult};
+use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
+use crate::orchestrator::CliHandle;
+use futures_core::Stream;
+use log::{info, warn};
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use futures_core::Stream;
-use log::{info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use crate::custom_module::manycastr::{Address, TaskResult};
-use crate::orchestrator::CliHandle;
-use crate::orchestrator::worker::WorkerStatus::{Idle, Probing, Listening, Disconnected};
 
 #[derive(Debug, Clone, Copy)]
 pub enum WorkerStatus {
@@ -79,7 +79,9 @@ impl<T> Drop for WorkerReceiver<T> {
         warn!("[Orchestrator] Worker {} lost connection", self.hostname);
 
         // If this worker is participating, update the active_workers counter
-        if (*self.status.lock().unwrap() == Probing || *self.status.lock().unwrap() == Listening) && self.active_workers.lock().unwrap().is_some() {
+        if (*self.status.lock().unwrap() == Probing || *self.status.lock().unwrap() == Listening)
+            && self.active_workers.lock().unwrap().is_some()
+        {
             let mut active_workers = self.active_workers.lock().unwrap();
             let count = active_workers.unwrap();
             if count == 1 {
@@ -96,7 +98,9 @@ impl<T> Drop for WorkerReceiver<T> {
                     .try_send(Ok(TaskResult::default()))
                 {
                     Ok(_) => (),
-                    Err(_) => warn!("[Orchestrator] Failed to send measurement finished signal to CLI"),
+                    Err(_) => {
+                        warn!("[Orchestrator] Failed to send measurement finished signal to CLI")
+                    }
                 }
             } else {
                 *active_workers = Some(count - 1);
@@ -150,10 +154,7 @@ impl<T> WorkerSender<T> {
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
 
-        info!(
-            "[Orchestrator] Worker {} dropped",
-            self.hostname
-        );
+        info!("[Orchestrator] Worker {} dropped", self.hostname);
     }
 
     pub fn is_probing(&self) -> bool {

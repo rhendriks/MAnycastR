@@ -1,8 +1,8 @@
+use log::{error, info, warn};
 use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
-use log::{error, info, warn};
 
 /// Validate the provided path for writing permissions.
 /// # Arguments

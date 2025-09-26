@@ -202,7 +202,6 @@ pub fn create_icmp(
     measurement_id: u32,
     info_url: &str,
     ttl: u8,
-
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -214,14 +213,15 @@ pub fn create_icmp(
     payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
     payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
-    
+
     // Add addresses to payload (used for spoofing detection)
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
     // add the source address
     if src.is_v6() {
-        ICMPPacket::echo_request_v6( // TODO combine v6 and v4 functions into one
+        ICMPPacket::echo_request_v6(
+            // TODO combine v6 and v4 functions into one
             identifier,
             sequence_number,
             payload_bytes,

@@ -1,16 +1,16 @@
-use crate::worker::SocketChannel;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::thread;
-use log::{info, warn};
-use pnet::datalink;
-use crate::custom_module::manycastr::{Finished, Instruction, Origin, TaskResult};
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::custom_module::manycastr::{Finished, Instruction, Origin, TaskResult};
 use crate::net::packet::is_in_prefix;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
+use crate::worker::SocketChannel;
+use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use log::{info, warn};
+use pnet::datalink;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::thread;
 
 impl Worker {
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
@@ -26,12 +26,18 @@ impl Worker {
     /// * 'worker_id' - the unique ID of this worker
     ///
     /// * 'abort_s' - an optional boolean that is used to signal the outbound thread to stop sending probes
-    pub(crate) fn init(&mut self, start_instruction: Instruction, worker_id: u16, abort_s: Option<Arc<AtomicBool>>) {
-        let start_measurement = if let InstructionType::Start(start) = start_instruction.instruction_type.unwrap() {
-            start
-        } else {
-            panic!("Received non-start packet for init")
-        };
+    pub(crate) fn init(
+        &mut self,
+        start_instruction: Instruction,
+        worker_id: u16,
+        abort_s: Option<Arc<AtomicBool>>,
+    ) {
+        let start_measurement =
+            if let InstructionType::Start(start) = start_instruction.instruction_type.unwrap() {
+                start
+            } else {
+                panic!("Received non-start packet for init")
+            };
         let m_id = start_measurement.m_id;
         let rx_origins: Vec<Origin> = start_measurement.rx_origins;
         let is_probing = !start_measurement.tx_origins.is_empty();
@@ -162,7 +168,7 @@ impl Worker {
         }
 
         let mut self_clone = self.clone(); // TODO can we avoid this clone?
-        // Thread that listens for task results from inbound and forwards them to the orchestrator
+                                           // Thread that listens for task results from inbound and forwards them to the orchestrator
         thread::Builder::new()
             .name("forwarder_thread".to_string())
             .spawn(move || {

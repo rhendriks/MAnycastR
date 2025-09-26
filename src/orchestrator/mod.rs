@@ -1,9 +1,9 @@
-mod worker;
 mod cli;
-mod service;
 mod config;
-mod task_distributor;
 mod result_handler;
+mod service;
+mod task_distributor;
+mod worker;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -12,18 +12,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::custom_module;
+use crate::orchestrator::config::{load_tls, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
+use crate::orchestrator::worker::WorkerSender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
-    controller_server::ControllerServer, Task, TaskResult, Instruction
+    controller_server::ControllerServer, Instruction, Task, TaskResult,
 };
 use log::{info, warn};
 use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
 use tonic::{transport::Server, Status};
-use crate::orchestrator::config::{load_tls, load_worker_config};
-use crate::orchestrator::worker::WorkerSender;
 
 type ResultMessage = Result<TaskResult, Status>;
 type CliSender = Sender<ResultMessage>;

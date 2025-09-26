@@ -1,11 +1,11 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::str::FromStr;
+use crate::custom_module::manycastr::{Address, Configuration, Origin};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
 use rand::prelude::SliceRandom;
-use crate::custom_module::manycastr::{Address, Configuration, Origin};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::str::FromStr;
 
 /// Get the hitlist from a file.
 ///
@@ -58,16 +58,18 @@ pub fn get_hitlist(
     // Panic if the source IP is not the same type as the addresses
     if !is_unicast
         && configurations
-        .first()
-        .expect("Empty configuration list")
-        .origin
-        .expect("No origin found")
-        .src
-        .expect("No source address")
-        .is_v6()
-        != is_ipv6
+            .first()
+            .expect("Empty configuration list")
+            .origin
+            .expect("No origin found")
+            .src
+            .expect("No source address")
+            .is_v6()
+            != is_ipv6
     {
-        panic!("Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)");
+        panic!(
+            "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
+        );
     }
     // Panic if the ips in the hitlist are not all the same type
     if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
@@ -106,7 +108,10 @@ pub fn get_hitlist(
 /// * If the configuration file contains mixed IPv4 and IPv6 addresses.
 ///
 /// * If no valid configurations are found in the file.
-pub fn parse_configurations(conf_file: &str, worker_map: &BiHashMap<u32, String>) -> Vec<Configuration> {
+pub fn parse_configurations(
+    conf_file: &str,
+    worker_map: &BiHashMap<u32, String>,
+) -> Vec<Configuration> {
     info!("[CLI] Using configuration file: {conf_file}");
     let file = File::open(conf_file)
         .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
@@ -158,11 +163,9 @@ pub fn parse_configurations(conf_file: &str, worker_map: &BiHashMap<u32, String>
             }
 
             // Parse to u16 first, must fit in header
-            let sport =
-                u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
-            let dport = u16::from_str(addr_ports[2])
-                .expect("Unable to parse destination port")
-                as u32;
+            let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
+            let dport =
+                u16::from_str(addr_ports[2]).expect("Unable to parse destination port") as u32;
             origin_id += 1;
 
             Some(Configuration {

@@ -1,22 +1,22 @@
+use crate::cli::commands::start::MeasurementExecutionArgs;
+use crate::cli::writer::{write_results, write_results_parquet, MetadataArgs, WriteConfig};
+use crate::custom_module::manycastr::controller_client::ControllerClient;
+use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
+use crate::custom_module::Separated;
+use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use chrono::Local;
+use indicatif::{ProgressBar, ProgressStyle};
+use log::{error, info, warn};
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use chrono::Local;
-use indicatif::{ProgressBar, ProgressStyle};
-use log::{error, info, warn};
 use tokio::sync::mpsc::unbounded_channel;
-use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
-use crate::cli::commands::start::MeasurementExecutionArgs;
-use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
-use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
-use crate::cli::writer::{write_results, write_results_parquet, MetadataArgs, WriteConfig};
-use crate::custom_module::Separated;
+use tonic::Request;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -48,7 +48,8 @@ impl CliClient {
         let m_type = m_definition.m_type;
         let is_latency = m_definition.is_latency;
         let is_responsive = m_definition.is_responsive;
-        let origin_str =  if args.is_config { // TODO encode configs into configurations
+        let origin_str = if args.is_config {
+            // TODO encode configs into configurations
             "Anycast configuration-based".to_string()
         } else {
             m_definition
@@ -140,8 +141,8 @@ impl CliClient {
             ProgressStyle::with_template(
                 "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
             )
-                .unwrap()
-                .progress_chars("#>-"),
+            .unwrap()
+            .progress_chars("#>-"),
         );
         let is_done = Arc::new(AtomicBool::new(false));
         let is_done_clone = is_done.clone();
@@ -161,7 +162,7 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the orchestrator and read from it
+                                  // Obtain the Stream from the orchestrator and read from it
         let mut stream = response
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
@@ -184,7 +185,7 @@ impl CliClient {
 
         // Determine the type of measurement
         let filetype = if is_unicast { "LB_" } else { "AB_" }; // TODO filetype for both unicast and anycast
-        // TODO filetype for traceroute measurements
+                                                               // TODO filetype for traceroute measurements
 
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
@@ -295,7 +296,10 @@ impl CliClient {
             .unwrap()
             .as_nanos() as u64;
         let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
-        info!("[CLI] Waited {length:.6} seconds for results. Captured {} replies", replies_count.with_separator());
+        info!(
+            "[CLI] Waited {length:.6} seconds for results. Captured {} replies",
+            replies_count.with_separator()
+        );
 
         // If the stream closed during a measurement
         if !graceful {

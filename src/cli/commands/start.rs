@@ -1,14 +1,14 @@
+use crate::cli::client::CliClient;
+use crate::cli::config::{get_hitlist, parse_configurations};
+use crate::cli::utils::validate_path_perms;
+use crate::custom_module::manycastr::address::Value::Unicast;
+use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement};
+use crate::custom_module::Separated;
+use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{info, warn};
 use prettytable::{format, row, Table};
-use crate::cli::client::CliClient;
-use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement};
-use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
-use crate::cli::config::{get_hitlist, parse_configurations};
-use crate::cli::utils::validate_path_perms;
-use crate::custom_module::Separated;
-use crate::custom_module::manycastr::address::Value::Unicast;
 
 pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
@@ -110,9 +110,7 @@ pub async fn handle(
 
     // Get the workers that have to send out probes
     let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
-        || {
-            Vec::new()
-        },
+        || Vec::new(),
         |worker_entries_str| {
             worker_entries_str
                 .trim_matches(|c| c == '[' || c == ']')
@@ -267,17 +265,27 @@ pub async fn handle(
                 ("All Workers".to_string(), "N/A".to_string())
             } else {
                 (
-                    worker_map.get_by_left(&config.worker_id).cloned().unwrap_or_else(|| "Unknown".to_string()),
+                    worker_map
+                        .get_by_left(&config.worker_id)
+                        .cloned()
+                        .unwrap_or_else(|| "Unknown".to_string()),
                     config.worker_id.to_string(),
                 )
             };
-            let source_ip = origin.src.map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
+            let source_ip = origin
+                .src
+                .map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
 
-            table.add_row(row![worker_name, worker_id_str, source_ip, origin.sport, origin.dport]);
+            table.add_row(row![
+                worker_name,
+                worker_id_str,
+                source_ip,
+                origin.sport,
+                origin.dport
+            ]);
         }
     }
     table.printstd();
-
 
     // get optional path to write results to
     let path = matches.get_one::<String>("out");

@@ -1,5 +1,5 @@
-use clap::ArgMatches;
 use crate::cli::client::CliClient;
+use clap::ArgMatches;
 
 /// Perform a live measurement that reads tasks from a pipe, sends them to the orchestrator,
 /// and prints the results to stdout.

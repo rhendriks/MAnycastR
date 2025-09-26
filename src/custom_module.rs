@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6, address::Value::Unicast};
+use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
@@ -80,12 +80,8 @@ impl Address {
     /// Convert Address to bytes (big-endian)
     pub fn to_be_bytes(&self) -> Vec<u8> {
         match &self.value {
-            Some(V4(_)) => {
-                self.get_v4().to_be_bytes().to_vec()
-            }
-            Some(V6(_)) => {
-                self.get_v6().to_be_bytes().to_vec()
-            }
+            Some(V4(_)) => self.get_v4().to_be_bytes().to_vec(),
+            Some(V6(_)) => self.get_v6().to_be_bytes().to_vec(),
             _ => vec![],
         }
     }
