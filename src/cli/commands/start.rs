@@ -192,7 +192,7 @@ pub async fn handle(
     }
 
     // Get the target IP addresses
-    let hitlist_path = matches.get_one::<String>("IP_FILE").unwrap();
+    let hitlist_path = matches.get_one::<String>("hitlist").unwrap();
     let is_shuffle = matches.get_flag("shuffle");
 
     let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
