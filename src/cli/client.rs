@@ -28,47 +28,27 @@ impl CliClient {
     ///
     /// # Arguments
     ///
-    /// * 'm_definition' - measurement definition created from the command-line arguments
+    /// * 'm_definition' - measurement definition  for the orchestrator created from the command-line arguments
     ///
-    /// * 'is_cli' - boolean whether the results should be streamed to the CLI or not
+    /// * 'args' - contains additional arguments for the measurement execution
     ///
-    /// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
+    /// * 'is_ipv6' - boolean whether the measurement is IPv6 or not
     ///
-    /// * 'hitlist' - hitlist file path
-    ///
-    /// * 'hitlist_length' - length of hitlist (i.e., number of target addresses)
-    ///
-    /// * 'path' - optional path for output file (default is current directory)
-    ///
-    /// * 'is_config' - boolean whether the measurement is configuration-based or not
-    ///
-    /// * 'worker_map' - bidirectional map of worker IDs to hostnames
+    /// * 'is_unicast' - boolean whether the measurement is unicast or anycast
     pub(crate) async fn do_measurement_to_server(
         &mut self,
         m_definition: ScheduleMeasurement,
         args: MeasurementExecutionArgs<'_>,
+        is_ipv6: bool,
+        is_unicast: bool,
     ) -> Result<(), Box<dyn Error>> {
         let is_divide = m_definition.is_divide;
-        let is_ipv6 = m_definition.is_ipv6;
         let probing_rate = m_definition.probing_rate;
         let worker_interval = m_definition.worker_interval;
         let m_type = m_definition.m_type;
-        let is_unicast = m_definition.is_unicast;
         let is_latency = m_definition.is_latency;
         let is_responsive = m_definition.is_responsive;
-        let origin_str = if is_unicast {
-            m_definition
-                .configurations
-                .first()
-                .and_then(|conf| conf.origin.as_ref())
-                .map(|origin| {
-                    format!(
-                        "Unicast (source port: {}, destination port: {})",
-                        origin.sport, origin.dport
-                    )
-                })
-                .expect("No unicast origin found")
-        } else if args.is_config {
+        let origin_str =  if args.is_config { // TODO encode configs into configurations
             "Anycast configuration-based".to_string()
         } else {
             m_definition
@@ -203,7 +183,8 @@ impl CliClient {
         };
 
         // Determine the type of measurement
-        let filetype = if is_unicast { "GCD_" } else { "MAnycast_" };
+        let filetype = if is_unicast { "LB_" } else { "AB_" }; // TODO filetype for both unicast and anycast
+        // TODO filetype for traceroute measurements
 
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;

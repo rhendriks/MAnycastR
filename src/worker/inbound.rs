@@ -24,9 +24,6 @@ pub struct InboundConfig {
     /// The unique ID of this specific worker.
     pub worker_id: u16,
 
-    /// Specifies whether to listen for IPv6 packets (`true`) or IPv4 packets (`false`).
-    pub is_ipv6: bool,
-
     /// The type of measurement being performed (e.g., ICMP, DNS, TCP).
     pub m_type: u8,
 
@@ -38,6 +35,9 @@ pub struct InboundConfig {
 
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
+
+    /// Indicates if the measurement is using IPv6 (true) or IPv4 (false).
+    pub is_ipv6: bool,
 }
 
 /// Listen for incoming packets

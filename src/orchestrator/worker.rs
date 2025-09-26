@@ -160,6 +160,11 @@ impl<T> WorkerSender<T> {
         *self.status.lock().unwrap() == Probing
     }
 
+    pub fn is_participating(&self) -> bool {
+        let status = self.status.lock().unwrap();
+        *status == Probing || *status == Listening
+    }
+
     pub fn get_status(&self) -> String {
         self.status.lock().unwrap().clone().to_string()
     }

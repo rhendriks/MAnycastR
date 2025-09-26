@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6};
+use manycastr::{address::Value::V4, address::Value::V6, Address, IPv6, address::Value::Unicast};
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
@@ -23,6 +23,7 @@ impl Display for Address {
             )
             .to_string(),
             None => String::from("None"),
+            Some(Unicast(_)) => "UNICAST".to_string(),
         };
         write!(f, "{str}")
     }
@@ -31,6 +32,10 @@ impl Display for Address {
 impl Address {
     pub fn is_v6(&self) -> bool {
         matches!(&self.value, Some(V6(_)))
+    }
+
+    pub fn is_unicast(&self) -> bool {
+        matches!(&self.value, Some(Unicast(_)))
     }
 
     /// Get the prefix of the address
@@ -48,7 +53,7 @@ impl Address {
                 // Return the sum of first 48 bits
                 (v6.p1 >> 16) & 0x0000FFFFFFFF
             }
-            None => 0,
+            _ => 0,
         }
     }
 
@@ -81,7 +86,7 @@ impl Address {
             Some(V6(_)) => {
                 self.get_v6().to_be_bytes().to_vec()
             }
-            None => vec![],
+            _ => vec![],
         }
     }
 }

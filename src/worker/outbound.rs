@@ -35,10 +35,8 @@ pub struct OutboundConfig {
     ///
     /// E.g., when the CLI has abruptly disconnected.
     pub abort_s: Arc<AtomicBool>,
-    /// Specifies whether to send IPv6 packets (`true`) or IPv4 packets (`false`).
-    pub is_ipv6: bool,
     /// Indicates if this is a latency measurement.
-    pub is_symmetric: bool,
+    pub is_latency: bool,
     /// The unique ID of the measurement.
     pub m_id: u32,
     /// The type of probe to send (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP).
@@ -53,6 +51,8 @@ pub struct OutboundConfig {
     pub probing_rate: u32,
     /// Vector of origins to find the matching origin ID for traceroute tasks
     pub origin_map: Option<Vec<Origin>>,
+    /// Indicates if the measurement is IPv6 (true) or IPv4 (false).
+    pub is_ipv6: bool,
 }
 
 /// Starts the outbound worker thread that awaits tasks and sends probes.
@@ -123,7 +123,7 @@ pub fn outbound(
                                         &mut socket_tx,
                                         &mut limiter,
                                         config.m_type,
-                                        config.is_symmetric,
+                                        config.is_latency,
                                         &config.qname,
                                     );
                                     sent += s;
@@ -140,7 +140,7 @@ pub fn outbound(
                                         &mut socket_tx,
                                         &mut limiter,
                                         config.m_type,
-                                        config.is_symmetric,
+                                        config.is_latency,
                                         &config.qname,
                                     );
                                     sent_discovery += s;

@@ -34,16 +34,15 @@ impl Worker {
             panic!("Received non-start packet for init")
         };
         let m_id = start_measurement.m_id;
-        let is_ipv6 = start_measurement.is_ipv6;
-        let mut rx_origins: Vec<Origin> = start_measurement.rx_origins;
-        let is_unicast = start_measurement.is_unicast;
+        let rx_origins: Vec<Origin> = start_measurement.rx_origins;
         let is_probing = !start_measurement.tx_origins.is_empty();
         let qname = start_measurement.record;
         let info_url = start_measurement.url;
         let probing_rate = start_measurement.rate;
         let is_latency = start_measurement.is_latency;
         let is_trace = start_measurement.is_traceroute;
-
+        let tx_origins: Vec<Origin> = start_measurement.tx_origins;
+        let is_ipv6 = start_measurement.is_ipv6;
         // Channel for forwarding tasks to outbound
         let outbound_rx = if is_probing {
             let (tx, rx) = tokio::sync::mpsc::channel(1000);
@@ -53,43 +52,39 @@ impl Worker {
             None
         };
 
-        let tx_origins: Vec<Origin> = if !is_probing {
-            vec![]
-        } else if is_unicast {
-            // Use the local unicast address and CLI defined ports
-            let sport = start_measurement.tx_origins[0].sport;
-            let dport = start_measurement.tx_origins[0].dport;
-
-            // Get the local unicast address
-            let unicast_ip = Address::from(if is_ipv6 {
-                local_ipv6().expect("Unable to get local unicast IPv6 address")
-            } else {
-                local_ip().expect("Unable to get local unicast IPv4 address")
-            });
-
-            let unicast_origin = Origin {
-                src: Some(unicast_ip), // Unicast IP
-                sport,                 // CLI defined source port
-                dport,                 // CLI defined destination port
-                origin_id: u32::MAX,   // ID for unicast address
-            };
-
-            // We only listen to our own unicast address (each worker has its own unicast address)
-            rx_origins = vec![unicast_origin];
-
-            info!("[Worker] Using local unicast IP address: {unicast_ip}");
-            // Use the local unicast address
-            vec![unicast_origin]
-        } else {
-            // Use the sender origins set by the orchestrator
-            start_measurement.tx_origins
-        };
-
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Get the network interface to use
         let interfaces = datalink::interfaces();
+
+        // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
+        let local_v4 = local_ip().ok().map(Address::from);
+        let local_v6 = local_ipv6().ok().map(Address::from);
+
+        let tx_origins: Vec<Origin> = tx_origins
+            .into_iter()
+            .map(|mut origin| {
+                if let Some(src) = origin.src {
+                    if src.is_unicast() {
+                        origin.src = if is_ipv6 { local_v6 } else { local_v4 };
+                    }
+                }
+                origin
+            })
+            .collect();
+        
+        let rx_origins: Vec<Origin> = rx_origins
+            .into_iter()
+            .map(|mut origin| {
+                if let Some(src) = origin.src {
+                    if src.is_unicast() {
+                        origin.src = if is_ipv6 { local_v6 } else { local_v4 };
+                    }
+                }
+                origin
+            })
+            .collect();
 
         // Look for the interface that uses the listening IP address
         let addr = rx_origins[0].src.unwrap().to_string();
@@ -127,24 +122,18 @@ impl Worker {
             Err(e) => panic!("Failed to create datalink channel: {e}"),
         };
 
-        // Start listening thread (except if it is a unicast measurement and we are not probing)
-        if !is_unicast || is_probing {
-            if !is_trace {
-                let config = InboundConfig {
-                    m_id,
-                    worker_id,
-                    is_ipv6,
-                    m_type: start_measurement.m_type as u8,
-                    origin_map: rx_origins.clone(),
-                    abort_s: self.abort_s.clone(),
-                    is_traceroute: start_measurement.is_traceroute,
-                };
+        // Start listening thread
+        let config = InboundConfig {
+            m_id,
+            worker_id,
+            m_type: start_measurement.m_type as u8,
+            origin_map: rx_origins.clone(),
+            abort_s: self.abort_s.clone(),
+            is_traceroute: start_measurement.is_traceroute,
+            is_ipv6,
+        };
 
-                inbound(config, tx, socket_rx);
-            } else {
-                // Trace listening thread TODO
-            }
-        }
+        inbound(config, tx, socket_rx);
 
         if is_probing {
             match start_measurement.m_type as u8 {
@@ -177,8 +166,7 @@ impl Worker {
                     worker_id,
                     tx_origins,
                     abort_s: abort_s.unwrap(),
-                    is_ipv6,
-                    is_symmetric: is_latency || is_unicast,
+                    is_latency,
                     m_id,
                     m_type: start_measurement.m_type as u8,
                     qname,
@@ -186,6 +174,7 @@ impl Worker {
                     if_name: interface.name.clone(),
                     probing_rate,
                     origin_map: Some(rx_origins),
+                    is_ipv6,
                 };
 
                 // Start sending thread
