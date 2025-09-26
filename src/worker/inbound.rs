@@ -233,12 +233,10 @@ fn parse_time_exceeded(
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
-    println!("received Time Exceeded packet with length {}", packet_bytes.len());
     // Check for ICMP Time Exceeded code TODO include length check
     if (is_ipv6 && (packet_bytes.len() < 88 || packet_bytes[40] != 3))
         || (!is_ipv6 && (packet_bytes.len() < 48 || packet_bytes[20] != 11))
     {
-        println!("invalid Time Exceeded packet");
         return None;
     }
 
@@ -248,12 +246,12 @@ fn parse_time_exceeded(
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
 
-    // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6)
-    let pkt_measurement_id = ip_header.identifier();
-    if pkt_measurement_id != m_id {
-        println!("invalid measurement ID in Time Exceeded packet");
-        return None;
-    }
+    // // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6) TODO
+    // let pkt_measurement_id = ip_header.identifier();
+    // if pkt_measurement_id != m_id {
+    //     println!("invalid measurement ID in Time Exceeded packet");
+    //     return None;
+    // }
     // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
     let icmp_header = match &ip_header.payload() {
         PacketPayload::Icmp { value } => value,
