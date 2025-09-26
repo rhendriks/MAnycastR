@@ -110,7 +110,7 @@ pub async fn handle(
 
     // Get the workers that have to send out probes
     let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
-        || Vec::new(),
+        || vec![ALL_WORKERS], // Default: all workers
         |worker_entries_str| {
             worker_entries_str
                 .trim_matches(|c| c == '[' || c == ']')
@@ -158,32 +158,19 @@ pub async fn handle(
                 }
             });
 
-        if sender_ids.is_empty() {
-            // All workers
-            vec![Configuration {
-                worker_id: u32::MAX, // All clients
+        // list of worker IDs defined
+        sender_ids
+            .iter()
+            .map(|&worker_id| Configuration {
+                worker_id,
                 origin: Some(Origin {
                     src,
                     sport,
                     dport,
                     origin_id: 0, // Only one origin
                 }),
-            }]
-        } else {
-            // list of worker IDs defined
-            sender_ids
-                .iter()
-                .map(|&worker_id| Configuration {
-                    worker_id,
-                    origin: Some(Origin {
-                        src,
-                        sport,
-                        dport,
-                        origin_id: 0, // Only one origin
-                    }),
-                })
-                .collect()
-        }
+            })
+            .collect()
     };
 
     // There must be a defined anycast source address, configuration, or unicast flag
