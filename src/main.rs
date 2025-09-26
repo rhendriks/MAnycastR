@@ -201,6 +201,8 @@
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use log::{error, info};
+use pretty_env_logger::formatted_builder;
+use std::io::Write;
 
 mod cli;
 mod custom_module;
@@ -220,8 +222,19 @@ pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
-    pretty_env_logger::init();
-    // Parse the command-line arguments
+    // Initialize logging with timestamps
+    formatted_builder()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] {} > {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
+        .init();    // Parse the command-line arguments
     let matches = parse_cmd();
 
     if let Some(worker_matches) = matches.subcommand_matches("worker") {
