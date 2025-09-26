@@ -228,14 +228,14 @@ fn main() {
         .format(|buf, record| {
             writeln!(
                 buf,
-                "{} [{}] {} > {}",
+                "{} [{}] > {}",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
-                record.target(),
                 record.args()
             )
         })
-        .init();    // Parse the command-line arguments
+        .init();
+    // Parse the command-line arguments
     let matches = parse_cmd();
 
     if let Some(worker_matches) = matches.subcommand_matches("worker") {
