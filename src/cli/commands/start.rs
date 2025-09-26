@@ -3,11 +3,12 @@ use clap::ArgMatches;
 use log::{info, warn};
 use prettytable::{format, row, Table};
 use crate::cli::client::CliClient;
-use crate::custom_module::manycastr::{Address, Configuration, Origin, ScheduleMeasurement};
+use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement};
 use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::Separated;
+use crate::custom_module::manycastr::address::Value::Unicast;
 
 pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
@@ -72,7 +73,13 @@ pub async fn handle(
     let url = matches.get_one::<String>("url").unwrap().clone();
 
     // Source IP for the measurement
-    let src = matches.get_one::<String>("address").map(Address::from);
+    let src = if is_unicast {
+        Some(Address {
+            value: Some(Unicast(Empty {})),
+        })
+    } else {
+        matches.get_one::<String>("address").map(Address::from)
+    };
 
     // Get the measurement type
     let m_type = match matches
@@ -101,17 +108,12 @@ pub async fn handle(
 
     let is_config = matches.contains_id("configuration");
 
-    // Get the workers that have to send out probes TODO convert this into configurations
+    // Get the workers that have to send out probes
     let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
         || {
-            info!(
-                "[CLI] Probes will be sent out from all ({}) workers",
-                worker_map.len()
-            );
             Vec::new()
         },
         |worker_entries_str| {
-            info!("[CLI] Selective probing using specified workers...");
             worker_entries_str
                 .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
@@ -123,16 +125,12 @@ pub async fn handle(
                     // Try to parse as worker ID
                     if let Ok(id_val) = entry_str.parse::<u32>() {
                         if worker_map.contains_left(&id_val) {
-                            let hostname = worker_map.get_by_left(&id_val).unwrap();
-                            info!("[CLI]\t * ID: {id_val}, Hostname: {hostname}");
                             Some(id_val)
                         } else {
                             warn!("Worker ID '{entry_str}' is not a known worker.");
                             None
                         }
                     } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
-                        let hostname = worker_map.get_by_left(&found_id).unwrap();
-                        info!("[CLI]\t * ID: {found_id}, Hostname: {hostname}");
                         Some(found_id)
                     } else {
                         warn!("'{entry_str}' is not a valid worker ID or known hostname.");
@@ -143,7 +141,7 @@ pub async fn handle(
         },
     );
 
-    // Read the configuration file (unnecessary for unicast)
+    // Read the configuration file
     let configurations = if is_config {
         let conf_file = matches.get_one::<String>("configuration").unwrap();
         parse_configurations(conf_file, &worker_map)
@@ -257,45 +255,29 @@ pub async fn handle(
         info!("[CLI] Latency mode enabled");
     }
 
-    // Print the origins used TODO always put origins in the configurations to simplify code
-    if is_unicast {
-        let unicast_origin = configurations.first().unwrap().origin.unwrap();
-        info!(
-            "[CLI] Unicast probing with src port {} and dst port {}",
-            unicast_origin.sport, unicast_origin.dport
-        );
-    } else if is_config {
-        info!("[CLI] Workers send probes using the following configurations:");
-        let mut table = Table::new();
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-        table.set_titles(row![b->"Worker", b->"ID", b->"Source IP", b->"Source Port", b->"Dest Port"]);
+    // Print the origins used
+    info!("[CLI] Workers send probes using the following configurations:");
+    let mut table = Table::new();
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    table.set_titles(row![b->"Worker", b->"ID", b->"Source IP", b->"Source Port", b->"Dest Port"]);
 
-        for config in &configurations {
-            if let Some(origin) = &config.origin {
-                let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
-                    ("All Workers".to_string(), "N/A".to_string())
-                } else {
-                    (
-                        worker_map.get_by_left(&config.worker_id).cloned().unwrap_or_else(|| "Unknown".to_string()),
-                        config.worker_id.to_string(),
-                    )
-                };
-                let source_ip = origin.src.map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
+    for config in &configurations {
+        if let Some(origin) = &config.origin {
+            let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
+                ("All Workers".to_string(), "N/A".to_string())
+            } else {
+                (
+                    worker_map.get_by_left(&config.worker_id).cloned().unwrap_or_else(|| "Unknown".to_string()),
+                    config.worker_id.to_string(),
+                )
+            };
+            let source_ip = origin.src.map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
 
-                table.add_row(row![worker_name, worker_id_str, source_ip, origin.sport, origin.dport]);
-            }
+            table.add_row(row![worker_name, worker_id_str, source_ip, origin.sport, origin.dport]);
         }
-        table.printstd();
-    } else {
-        let anycast_origin = configurations.first().unwrap().origin.unwrap();
-
-        info!(
-            "[CLI] Workers probe with source IP: {}, source port: {}, destination port: {}",
-            anycast_origin.src.unwrap(),
-            anycast_origin.sport,
-            anycast_origin.dport
-        );
     }
+    table.printstd();
+
 
     // get optional path to write results to
     let path = matches.get_one::<String>("out");
@@ -308,8 +290,6 @@ pub async fn handle(
         probing_rate,
         configurations,
         m_type: m_type as u32,
-        is_unicast,
-        is_ipv6,
         is_divide,
         worker_interval,
         is_responsive,
@@ -320,6 +300,7 @@ pub async fn handle(
         probe_interval,
         number_of_probes,
         is_traceroute,
+        is_ipv6,
     };
 
     let args = MeasurementExecutionArgs {
@@ -335,6 +316,6 @@ pub async fn handle(
     };
 
     grpc_client
-        .do_measurement_to_server(m_definition, args)
+        .do_measurement_to_server(m_definition, args, is_ipv6, is_unicast)
         .await
 }

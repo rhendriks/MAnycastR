@@ -165,22 +165,16 @@ impl Worker {
 
                 // If we don't have an active measurement
             } else {
-                let (is_unicast, is_probing, m_id) =
+                let (is_probing, m_id) =
                     match instruction.instruction_type.clone() {
                         Some(InstructionType::Start(start)) => {
-                            (start.is_unicast, !start.tx_origins.is_empty(), start.m_id)
+                            (!start.tx_origins.is_empty(), start.m_id)
                         }
                         _ => {
                             // First task is not a start measurement task
                             continue;
                         }
                     };
-
-                // If we are not probing for a unicast measurement, we do nothing
-                if is_unicast && !is_probing {
-                    info!("[Worker] Not probing for unicast measurement, skipping");
-                    continue;
-                }
 
                 info!("[Worker] Starting new measurement");
                 *self.current_m_id.lock().unwrap() = Some(m_id);

@@ -227,6 +227,7 @@ impl Controller for ControllerService {
 
             // Set the is_probing bool for each worker_tx
             for worker in workers.iter_mut() {
+                // Probing if any configuration is assigned to this worker (or all workers u32::MAX)
                 let is_probing = m_definition.configurations.iter().any(|config| {
                     config.worker_id == worker.worker_id || config.worker_id == u32::MAX
                 });
@@ -234,8 +235,16 @@ impl Controller for ControllerService {
                 if is_probing {
                     *worker.status.lock().unwrap() = Probing;
                 } else {
-                    *worker.status.lock().unwrap() = Listening;
-                }
+                    // Listening if any worker is probing with anycast
+                    let is_listening = m_definition.configurations.iter().any(|config| {
+                        !config.origin.unwrap().src.unwrap().is_unicast()
+                    });
+                    if is_listening {
+                        *worker.status.lock().unwrap() = Listening;
+                    } else {
+                        *worker.status.lock().unwrap() = Idle;
+                    }
+                };
             }
 
             workers
@@ -251,31 +260,19 @@ impl Controller for ControllerService {
         // Get a random measurement ID
         let m_id = rand::rng().random_range(0..u32::MAX);
 
-        // Create a measurement from the ScheduleMeasurement
-        let is_unicast = m_definition.is_unicast;
-
-        let number_of_workers = workers.len() as u32;
         let number_of_probing_workers = workers.iter().filter(|sender| sender.is_probing()).count();
-
-        let number_of_active_workers = if is_unicast {
-            // Only probing workers are listening
-            number_of_probing_workers as u32
-        } else {
-            // All workers are listening
-            number_of_workers
-        };
+        let number_of_active_workers = workers.iter().filter(|sender| sender.is_participating()).count() as u32;
 
         // Store the number of workers that will perform this measurement
         self.active_workers.lock().unwrap().replace(number_of_active_workers);
 
         let probing_rate = m_definition.probing_rate;
         let m_type = m_definition.m_type;
-        let is_ipv6 = m_definition.is_ipv6;
         let dst_addresses = m_definition.targets;
         let dns_record = m_definition.record;
         let info_url = m_definition.url;
 
-        info!("[Orchestrator] {number_of_probing_workers} workers will probe, {number_of_workers} will listen ({worker_interval} seconds between probing workers)");
+        info!("[Orchestrator] {number_of_active_workers} participating workers, {number_of_probing_workers} will probe ({worker_interval} seconds between probing workers)");
 
         // Establish a stream with the CLI to return the TaskResults through
         let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
@@ -304,8 +301,11 @@ impl Controller for ControllerService {
             .map(|sender| sender.worker_id)
             .collect::<Vec<u32>>();
 
-        // Notify all workers that a measurement is starting
+        // Notify all participating workers that a measurement is starting
         for worker in workers.iter() {
+            if !worker.is_participating() {
+                continue; // Skip non-participating workers
+            }
             let worker_id = worker.worker_id;
             let mut tx_origins = vec![];
 
@@ -324,14 +324,13 @@ impl Controller for ControllerService {
                     rate: probing_rate,
                     m_id,
                     m_type,
-                    is_unicast,
-                    is_ipv6,
                     tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
                     is_latency,
                     is_traceroute,
+                    is_ipv6: m_definition.is_ipv6,
                 })),
             };
 
