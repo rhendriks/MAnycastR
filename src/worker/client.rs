@@ -108,7 +108,7 @@ impl Worker {
         } else {
             panic!("Did not receive Init message from orchestrator");
         };
-        info!("[Worker] Successfully connected with the orchestrator with worker_id: {worker_id}");
+        info!("[Worker] Connected to the orchestrator with worker_id: {worker_id}");
 
         // Await tasks
         while let Some(instruction) = stream.message().await.expect("Unable to receive task") {
