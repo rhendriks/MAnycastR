@@ -148,7 +148,7 @@ message Start {
   bool is_traceroute = 11; // whether the measurement is a traceroute measurement
 }
 
-// An end message, indicates the worker should stop sending out probes (also used for TraceTask)
+// An end message, indicates the worker should stop sending out probes
 message End {
   uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
@@ -176,7 +176,7 @@ message Probe {
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  fixed32 origin_id = 3; // ID of origin to use for the traceroute probe
+  uint32 origin_id = 3; // Origin to send the traceroute probe from
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results

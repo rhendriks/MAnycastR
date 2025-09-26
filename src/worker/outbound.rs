@@ -51,6 +51,8 @@ pub struct OutboundConfig {
     pub if_name: String,
     /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
+    /// Vector of origins to find the matching origin ID for traceroute tasks
+    pub origin_map: Option<Vec<Origin>>,
 }
 
 /// Starts the outbound worker thread that awaits tasks and sends probes.
@@ -250,7 +252,7 @@ pub fn send_probes(
     (sent, failed)
 }
 
-pub fn _send_trace ( ){
+pub fn _send_trace() {
     todo!();
     // let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
     // let worker_id = config.worker_id as u32;

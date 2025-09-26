@@ -135,7 +135,7 @@ impl Worker {
                     worker_id,
                     is_ipv6,
                     m_type: start_measurement.m_type as u8,
-                    origin_map: rx_origins,
+                    origin_map: rx_origins.clone(),
                     abort_s: self.abort_s.clone(),
                     is_traceroute: start_measurement.is_traceroute,
                 };
@@ -185,6 +185,7 @@ impl Worker {
                     info_url,
                     if_name: interface.name.clone(),
                     probing_rate,
+                    origin_map: Some(rx_origins),
                 };
 
                 // Start sending thread
