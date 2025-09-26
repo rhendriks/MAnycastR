@@ -15,7 +15,7 @@ use pnet::datalink::DataLinkSender;
 use crate::custom_module::Separated;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
-use crate::custom_module::manycastr::{Address};
+use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 
@@ -74,6 +74,7 @@ pub fn outbound(
         .spawn(move || {
             let mut sent: u32 = 0;
             let mut sent_discovery = 0;
+            let mut traces_sent: u32 = 0;
             let mut failed: u32 = 0;
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(config.probing_rate * config.tx_origins.len() as u32).unwrap());
@@ -112,7 +113,7 @@ pub fn outbound(
                         for task in tasks.tasks.iter() {
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
-                                    let (s, f ) = send_probes(
+                                    let (s, f) = send_probes(
                                         &ethernet_header,
                                         &config.tx_origins,
                                         &task.dst.unwrap(),
@@ -145,10 +146,18 @@ pub fn outbound(
                                     sent_discovery += s;
                                     failed += f;
                                 },
-                                Some(TaskType::Trace(_trace)) => {
-                                    // TODO implement send_traceroute_probe function
-                                    warn!("[Worker outbound] Received a Trace task in the outbound worker, which is unexpected. Skipping.");
-                                    continue;
+                                Some(TaskType::Trace(trace)) => {
+                                    let (s, f) = send_trace(
+                                        &ethernet_header,
+                                        config.worker_id as u32,
+                                        config.m_id,
+                                        &config.info_url,
+                                        trace,
+                                        &mut socket_tx,
+                                        &config.origin_map.as_ref().expect("Missing origin_map"),
+                                    );
+                                    traces_sent += s;
+                                    failed += f;
                                 }
                                 _ => continue, // Invalid task type
                             };
@@ -158,6 +167,9 @@ pub fn outbound(
                 };
             }
             info!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent.with_separator(), sent_discovery.with_separator(), failed.with_separator());
+            if traces_sent > 0 {
+                info!("[Worker outbound] Traceroute probes sent: {}", traces_sent.with_separator());
+            }
         })
         .expect("Failed to spawn outbound thread");
 }
@@ -252,38 +264,53 @@ pub fn send_probes(
     (sent, failed)
 }
 
-pub fn _send_trace() {
-    todo!();
-    // let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
-    // let worker_id = config.worker_id as u32;
-    // let origin_id = trace_task.origin_id;
-    // Get Origin mapped to this origin_id TODO
+/// Sends a traceroute probe based on the provided trace task and configuration.
+/// Only ICMP traceroute is currently implemented.
+/// # Arguments
+/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
+/// * 'config' - The outbound configuration containing worker details and settings.
+/// * 'trace_task' - The traceroute task containing destination and TTL information.
+/// * 'socket_tx' - The socket sender to use for sending the packet.
+/// * 'sent' - A mutable reference to a counter for successfully sent packets.
+/// * 'failed' - A mutable reference to a counter for failed packet sends.
+/// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
+pub fn send_trace(
+    ethernet_header: &Vec<u8>,
+    worker_id: u32,
+    m_id: u32,
+    info_url: &String,
+    trace_task: &Trace,
+    socket_tx: &mut Box<dyn DataLinkSender>,
+    origins: &Vec<Origin>,
+) -> (u32, u32) {
+    let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
+    let origin_id = trace_task.origin_id;
+    // Get the matching origin for this trace task
+    let tx_origin = origins.iter().find(|o| o.origin_id == origin_id);
+    if tx_origin.is_none() {
+        warn!("[Worker outbound] No matching origin found for trace task with origin ID {}", origin_id);
+        return (0, 1);
+    }
+    let tx_origin = tx_origin.unwrap();
 
-    // let src = &trace_task.origin.unwrap().src.unwrap();
-    // let mut packet = ethernet_header.clone();
-    // // Create the appropriate traceroute packet based on the trace_type
-    // match config.trace_type {
-    //     1 => { // ICMP
-    //         packet.extend_from_slice(&create_icmp(
-    //             src,
-    //             target,
-    //             trace_task.ttl as u16, // encoding TTL in ICMP identifier
-    //             worker_id as u16, // encoding worker ID in ICMP sequence number
-    //             worker_id,
-    //             config.trace_id,
-    //             &config.info_url,
-    //             trace_task.ttl as u8
-    //         ));
-    //     }
-    //     // TODO implement DNS and TCP traceroute packets
-    //     _ => panic!("Invalid measurement type"), // Invalid measurement
-    // }
-    // match socket_tx.send_to(&packet, None) {
-    //     Some(Ok(())) => sent += 1,
-    //     Some(Err(e)) => {
-    //         warn!("[Worker outbound] Failed to send traceroute packet: {e}");
-    //         failed += 1;
-    //     },
-    //     None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
-    // }
+    let mut packet = ethernet_header.clone();
+    // Create the appropriate traceroute packet based on the trace_type
+    packet.extend_from_slice(&create_icmp(
+        tx_origin.src.as_ref().unwrap(),
+        target,
+        trace_task.ttl as u16, // encoding TTL in ICMP identifier
+        worker_id as u16, // encoding worker ID in ICMP sequence number
+        worker_id,
+        m_id, // TODO payload is lost?
+        info_url, // TODO payload is lost?
+        trace_task.ttl as u8
+    ));
+    match socket_tx.send_to(&packet, None) {
+        Some(Ok(())) => return (1, 0),
+        Some(Err(e)) => {
+            warn!("[Worker outbound] Failed to send traceroute packet: {e}");
+        },
+        None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
+    }
+    (0, 1)
 }
