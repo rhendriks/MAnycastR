@@ -177,7 +177,7 @@ impl CliClient {
         };
 
         // Create the output file
-        info!("[CLI] Writing results to file {file_path}");
+        info!("[CLI] Writing results to {file_path}");
         let file = File::create(file_path).expect("Unable to create file");
 
         let metadata_args = MetadataArgs {
