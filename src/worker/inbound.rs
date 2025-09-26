@@ -11,6 +11,7 @@ use crate::custom_module::Separated;
 use crate::net::{DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
+use crate::worker::config::get_origin_id;
 
 /// Configuration for an inbound packet listening worker.
 ///
@@ -624,35 +625,4 @@ fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -> Op
         },
         is_discovery),
     )
-}
-
-
-/// Get the origin ID from the origin map based on the reply destination address and ports.
-///
-/// # Arguments
-///
-/// * `reply_dst` - the destination address of the reply
-/// * `reply_sport` - the source port of the reply
-/// * `reply_dport` - the destination port of the reply
-/// * `origin_map` - the origin map to search in
-/// # Returns
-/// * `Option<u32>` - the origin ID if found, None otherwise
-pub fn get_origin_id(
-    reply_dst: Address,
-    reply_sport: u16,
-    reply_dport: u16,
-    origin_map: &Vec<Origin>,
-) -> Option<u32> {
-    for origin in origin_map {
-        if origin.src == Some(reply_dst)
-            && origin.sport as u16 == reply_dport
-            && origin.dport as u16 == reply_sport
-        {
-            return Some(origin.origin_id);
-        } else if origin.src == Some(reply_dst) && 0 == reply_sport && 0 == reply_dport {
-            // ICMP replies have no port numbers
-            return Some(origin.origin_id);
-        }
-    }
-    None
 }
