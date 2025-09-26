@@ -19,7 +19,7 @@ use parquet::schema::types::{Type as SchemaType, TypePtr};
 use std::io::BufWriter;
 use std::sync::Arc;
 
-use crate::{custom_module, CHAOS_ID, TCP_ID};
+use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
 
 /// Configuration for the results writing process.
 ///
@@ -50,8 +50,6 @@ pub struct WriteConfig<'a> {
 pub struct MetadataArgs<'a> {
     /// Divide-and-conquer measurement flag.
     pub is_divide: bool,
-    /// The origins used in the measurement.
-    pub origin_str: String,
     /// Path to the hitlist used.
     pub hitlist: &'a str,
     /// Whether the hitlist was shuffled.
@@ -62,8 +60,6 @@ pub struct MetadataArgs<'a> {
     pub probing_rate: u32,
     /// The interval between subsequent workers.
     pub interval: u32,
-    /// Hostnames of the workers selected to probe.
-    pub active_workers: Vec<String>,
     /// A bidirectional map of all possible worker IDs to their hostnames.
     pub all_workers: &'a BiHashMap<u32, String>,
     /// Optional configuration file used.
@@ -279,7 +275,24 @@ pub fn get_csv_metadata(
     } else if args.is_responsive {
         md_file.push("# Measurement style: Responsive-mode".to_string());
     }
-    md_file.push(format!("# Origin used: {}", args.origin_str));
+
+    // Print configurations used
+    for configuration in args.configurations {
+        let origin = configuration.origin.unwrap();
+        let src = origin.src.expect("Invalid source address");
+        let hostname = if configuration.worker_id == ALL_WORKERS {
+            "ALL".to_string()
+        } else {
+            worker_map
+                .get_by_left(&configuration.worker_id)
+                .unwrap_or(&String::from("Unknown"))
+                .to_string()
+        };
+        md_file.push(format!(
+            "# Configuration - Worker: {:<2}, source IP: {}, source port: {}, destination port: {}",
+            hostname, src, origin.sport, origin.dport
+        ));
+    }
     md_file.push(format!(
         "# Hitlist{}: {}",
         if args.is_shuffle { " (shuffled)" } else { "" },
@@ -291,12 +304,6 @@ pub fn get_csv_metadata(
         args.probing_rate.with_separator()
     ));
     md_file.push(format!("# Worker interval: {}", args.interval));
-    if !args.active_workers.is_empty() {
-        md_file.push(format!(
-            "# Selective probing using the following workers: {:?}",
-            args.active_workers
-        ));
-    }
     md_file.push(format!("# {} connected workers:", args.all_workers.len()));
     for (_, hostname) in args.all_workers {
         md_file.push(format!("# * {hostname}"))
@@ -352,7 +359,6 @@ pub fn get_parquet_metadata(
         ));
     }
 
-    md.push(("origin_used".to_string(), args.origin_str));
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
     md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
     md.push(("measurement_type".to_string(), args.m_type_str));
@@ -362,14 +368,6 @@ pub fn get_parquet_metadata(
         args.probing_rate.to_string(),
     ));
     md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
-
-    // Store active workers as a JSON string
-    if !args.active_workers.is_empty() {
-        md.push((
-            "selective_probing_workers".to_string(),
-            serde_json::to_string(&args.active_workers).unwrap_or_default(),
-        ));
-    }
 
     let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();
     md.push((
@@ -388,7 +386,7 @@ pub fn get_parquet_metadata(
             .map(|c| {
                 format!(
                     "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
-                    if c.worker_id == u32::MAX {
+                    if c.worker_id == ALL_WORKERS {
                         "ALL".to_string()
                     } else {
                         worker_map
