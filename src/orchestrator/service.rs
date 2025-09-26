@@ -709,6 +709,8 @@ impl Controller for ControllerService {
         let task_result = request.into_inner();
         let is_discovery = task_result.is_discovery;
 
+        println!("received result {:?}", task_result);
+
         // if self.r_prober is not None and equals this task's worker_id
         if is_discovery {
             // Sleep 1 second to avoid rate-limiting issues
@@ -726,6 +728,8 @@ impl Controller for ControllerService {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
         }
+
+        println!("forwarding result to CLI");
 
         // Default case: just forward the result to the CLI
         let tx = {
