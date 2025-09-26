@@ -428,12 +428,12 @@ fn parse_dns(
 ) -> Option<(Reply, bool)> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
-    if (is_ipv6 && (packet_bytes.len() < 48) || (packet_bytes[6] != 17))
-        || (packet_bytes.len() < 28)
-        || (packet_bytes[9] != 17)
+    if (is_ipv6 && (packet_bytes.len() < 48 || packet_bytes[6] != 17))
+        || (!is_ipv6 && (packet_bytes.len() < 28 || packet_bytes[9] != 17))
     {
         return None;
     }
+
 
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
