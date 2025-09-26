@@ -126,13 +126,8 @@ impl CliClient {
         let start = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos() as u64;
-        let timestamp_start = Local::now();
-        let timestamp_start_str = timestamp_start.format("%Y-%m-%dT%H_%M_%S").to_string();
-        info!(
-            "[CLI] Measurement started at {}",
-            timestamp_start.format("%H:%M:%S")
-        );
+            .as_secs();
+        let timestamp_start_str = Local::now().format("%Y-%m-%dT%H_%M_%S").to_string();
 
         // Progress bar
         let total_steps = (m_time * 60.0) as u64; // measurement_length in seconds
@@ -294,10 +289,10 @@ impl CliClient {
         let end = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos() as u64;
-        let length = (end - start) as f64 / 1_000_000_000.0; // Measurement length in seconds
+            .as_secs();
+        let length = (end - start) / 60; // Measurement length in minutes
         info!(
-            "[CLI] Waited {length:.6} seconds for results. Captured {} replies",
+            "[CLI] Waited {length:.6} minutes for results. Captured {} replies",
             replies_count.with_separator()
         );
 
