@@ -34,10 +34,6 @@ pub async fn task_sender(
     // Loop over the tasks in the channel
     while let Some((worker_id, instruction, multiple)) = rx.recv().await {
         let nprobes = if multiple { number_of_probes } else { 1 };
-        println!(
-            "[Orchestrator] Sending task to worker ID {worker_id} ({} probe(s))",
-            nprobes
-        );
 
         if worker_id == BREAK_SIGNAL {
             break;
