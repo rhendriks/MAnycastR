@@ -88,7 +88,6 @@ pub fn inbound(
 
                 if config.is_traceroute {
                     // Try to parse ICMP Time Exceeded first
-                    println!("Attempting to parse Time Exceeded");
                     let trace_reply = parse_time_exceeded(
                         &packet[14..],
                         config.m_id as u16,
@@ -240,11 +239,14 @@ fn parse_time_exceeded(
         return None;
     }
 
+    println!("Time Exceeded packet received");
+
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
+    println!("parsed IP header: {:?}", ip_header);
 
     // // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6) TODO
     // let pkt_measurement_id = ip_header.identifier();
@@ -257,6 +259,7 @@ fn parse_time_exceeded(
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
+    println!("parsed ICMP header: {:?}", icmp_header);
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
@@ -264,12 +267,14 @@ fn parse_time_exceeded(
     } else {
         IPPacket::V4(IPv4Packet::from(&icmp_header.body[0..20]))
     };
+    println!("parsed original IP header: {:?}", original_ip_header);
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
     let original_icmp_header = match &original_ip_header.payload() {
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
+    println!("parsed original ICMP header: {:?}", original_icmp_header);
 
     // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
