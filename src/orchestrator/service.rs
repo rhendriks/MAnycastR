@@ -468,7 +468,7 @@ impl Controller for ControllerService {
                         };
 
                         // Send the instruction to the follow-up worker
-                        tx_t.send((f_worker_id, instruction, false))
+                        tx_t.send((f_worker_id, instruction, true))
                             .await
                             .expect("Failed to send task to TaskDistributor");
                     }

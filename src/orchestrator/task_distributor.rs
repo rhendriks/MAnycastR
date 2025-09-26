@@ -23,7 +23,7 @@ use tonic::Status;
 ///
 /// * 'inter_probe_interval' - the interval in seconds between sending multiple probes to the same worker
 ///
-/// * 'number_of_probes' - the number of times to probe the same target
+/// * 'number_of_probes' - the number of times to probe the same target (for non-discovery probes)
 pub async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
     workers: Vec<WorkerSender<Result<Instruction, Status>>>,

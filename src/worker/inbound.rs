@@ -434,7 +434,6 @@ fn parse_dns(
         return None;
     }
 
-
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
