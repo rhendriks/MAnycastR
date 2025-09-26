@@ -177,16 +177,17 @@ impl CliClient {
         } else {
             format!("{type_str}v4")
         };
-
+        // Determine traceroute
+        let is_traceroute = args.is_traceroute;
         // Determine the type of measurement
-        let filetype = if is_unicast { "um" } else { "am" }; // TODO filetype for both unicast and anycast
-                                                             // TODO filetype for traceroute measurements
-
+        let filetype = match (is_unicast, is_traceroute) {
+            (true, false) => "um",   // unicast probing
+            (false, false) => "am",  // anycast probing
+            (true, true) => "ut",    // unicast traceroute
+            (false, true) => "at",   // anycast traceroute
+        };
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
-
-        // Determine traceroute
-        let is_traceroute = args.is_traceroute; // TODO change filename for traceroute measurements
 
         // traceroute only supported for ICMP
         if is_traceroute && m_type as u8 != ICMP_ID {
