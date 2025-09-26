@@ -239,14 +239,11 @@ fn parse_time_exceeded(
         return None;
     }
 
-    println!("Time Exceeded packet received");
-
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
-    println!("parsed IP header: {:?}", ip_header);
 
     // // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6) TODO
     // let pkt_measurement_id = ip_header.identifier();
@@ -259,7 +256,6 @@ fn parse_time_exceeded(
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
-    println!("parsed ICMP header: {:?}", icmp_header);
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
@@ -267,17 +263,16 @@ fn parse_time_exceeded(
     } else {
         IPPacket::V4(IPv4Packet::from(&icmp_header.body[0..20]))
     };
-    println!("parsed original IP header: {:?}", original_ip_header);
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
     let original_icmp_header = match &original_ip_header.payload() {
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
-    println!("parsed original ICMP header: {:?}", original_icmp_header);
 
     // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
+    println!("tx_id: {}", tx_id);
     // Get original probe TTL, i.e., hop count (ICMP sequence number field)
     let trace_ttl = original_icmp_header.sequence_number as u32;
 
@@ -286,6 +281,8 @@ fn parse_time_exceeded(
 
     // get origin ID to which this probe is targeted
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
+
+    return None; // TESTING
 
     Some(Reply {
         tx_time: 0, // not available for trace replies TODO can possibly extract from payload ?
