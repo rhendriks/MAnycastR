@@ -49,13 +49,8 @@ impl Worker {
         let tx_origins: Vec<Origin> = start_measurement.tx_origins;
         let is_ipv6 = start_measurement.is_ipv6;
         // Channel for forwarding tasks to outbound
-        let outbound_rx = if is_probing {
-            let (tx, rx) = tokio::sync::mpsc::channel(1000);
-            self.outbound_tx = Some(tx);
-            Some(rx)
-        } else {
-            None
-        };
+        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
+        self.outbound_tx = Some(outbound_tx);
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -159,7 +154,7 @@ impl Worker {
                 };
 
                 // Start sending thread
-                outbound(config, outbound_rx.unwrap(), socket_tx);
+                outbound(config, outbound_rx, socket_tx);
             } else {
                 // Trace sending thread TODO
             }
