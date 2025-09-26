@@ -262,7 +262,7 @@ pub async fn handle(
     for config in &configurations {
         if let Some(origin) = &config.origin {
             let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
-                ("All Workers".to_string(), "N/A".to_string())
+                ("All Workers".to_string(), "ALL".to_string())
             } else {
                 (
                     worker_map
@@ -272,14 +272,11 @@ pub async fn handle(
                     config.worker_id.to_string(),
                 )
             };
-            let source_ip = origin
-                .src
-                .map_or_else(|| "N/A".to_string(), |addr| addr.to_string());
 
             table.add_row(row![
                 worker_name,
                 worker_id_str,
-                source_ip,
+                origin.src.unwrap().to_string(),
                 origin.sport,
                 origin.dport
             ]);
