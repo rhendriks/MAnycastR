@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use parquet::data_type::AsBytes;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
@@ -262,9 +263,9 @@ fn parse_time_exceeded(
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(&icmp_header.body[0..20]))
+        IPPacket::V6(IPv6Packet::from(icmp_header.body.as_bytes()))
     } else {
-        IPPacket::V4(IPv4Packet::from(&icmp_header.body[0..20]))
+        IPPacket::V4(IPv4Packet::from(icmp_header.body.as_bytes()))
     };
     println!("parsed original IP header");
 
