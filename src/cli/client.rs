@@ -179,8 +179,8 @@ impl CliClient {
         };
 
         // Determine the type of measurement
-        let filetype = if is_unicast { "lb" } else { "ab" }; // TODO filetype for both unicast and anycast
-                                                               // TODO filetype for traceroute measurements
+        let filetype = if is_unicast { "um" } else { "am" }; // TODO filetype for both unicast and anycast
+                                                             // TODO filetype for traceroute measurements
 
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
