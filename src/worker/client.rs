@@ -74,7 +74,6 @@ impl Worker {
     ///
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     pub(crate) async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        info!("[Worker] Connecting to orchestrator");
         let mut abort_s: Option<Arc<AtomicBool>> = None;
 
         // Get the local unicast addresses
@@ -108,7 +107,7 @@ impl Worker {
         } else {
             panic!("Did not receive Init message from orchestrator");
         };
-        info!("[Worker] Connected to the orchestrator with worker_id: {worker_id}");
+        info!("[Worker] Connected to Orchestrator with worker_id: {worker_id}");
 
         // Await tasks
         while let Some(instruction) = stream.message().await.expect("Unable to receive task") {
