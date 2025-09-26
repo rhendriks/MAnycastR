@@ -9,7 +9,7 @@ use crate::custom_module::manycastr::{Address, Finished, Instruction, Origin, Ta
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::{ALL_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use crate::net::packet::is_in_prefix;
-use crate::worker::config::Worker;
+use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
 
@@ -59,32 +59,8 @@ impl Worker {
         let interfaces = datalink::interfaces();
 
         // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
-        let local_v4 = local_ip().ok().map(Address::from);
-        let local_v6 = local_ipv6().ok().map(Address::from);
-
-        let tx_origins: Vec<Origin> = tx_origins
-            .into_iter()
-            .map(|mut origin| {
-                if let Some(src) = origin.src {
-                    if src.is_unicast() {
-                        origin.src = if is_ipv6 { local_v6 } else { local_v4 };
-                    }
-                }
-                origin
-            })
-            .collect();
-        
-        let rx_origins: Vec<Origin> = rx_origins
-            .into_iter()
-            .map(|mut origin| {
-                if let Some(src) = origin.src {
-                    if src.is_unicast() {
-                        origin.src = if is_ipv6 { local_v6 } else { local_v4 };
-                    }
-                }
-                origin
-            })
-            .collect();
+        let rx_origins = set_unicast_origins(rx_origins, is_ipv6);
+        let tx_origins = set_unicast_origins(tx_origins, is_ipv6);
 
         // Look for the interface that uses the listening IP address
         let addr = rx_origins[0].src.unwrap().to_string();
