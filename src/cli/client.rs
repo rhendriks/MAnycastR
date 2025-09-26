@@ -65,7 +65,8 @@ impl CliClient {
         };
 
         let m_time = if is_divide || is_latency {
-            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 1.0) / 60.0
+            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 1.0)
+                / 60.0
         } else {
             (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
                 + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
@@ -123,7 +124,7 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-        // Obtain the Stream from the orchestrator and read from it
+                                  // Obtain the Stream from the orchestrator and read from it
         let mut stream = response
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
@@ -147,10 +148,10 @@ impl CliClient {
         let is_traceroute = args.is_traceroute;
         // Determine the type of measurement
         let filetype = match (is_unicast, is_traceroute) {
-            (true, false) => "um",   // unicast probing
-            (false, false) => "am",  // anycast probing
-            (true, true) => "ut",    // unicast traceroute
-            (false, true) => "at",   // anycast traceroute
+            (true, false) => "um",  // unicast probing
+            (false, false) => "am", // anycast probing
+            (true, true) => "ut",   // unicast traceroute
+            (false, true) => "at",  // anycast traceroute
         };
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
