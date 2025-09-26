@@ -613,12 +613,12 @@ fn parse_tcp(
 ) -> Option<(Reply, bool)> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
-    if (is_ipv6 && (packet_bytes.len() < 60) || ((packet_bytes[53] & 0x04) == 0))
-        || (packet_bytes.len() < 40)
-        || ((packet_bytes[33] & 0x04) == 0)
+    if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
+        || (!is_ipv6 && (packet_bytes.len() < 40 || (packet_bytes[33] & 0x04) == 0))
     {
         return None;
     }
+
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
