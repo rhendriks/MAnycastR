@@ -88,7 +88,8 @@ pub fn inbound(
 
                 if config.is_traceroute {
                     // Try to parse ICMP Time Exceeded first
-                    let trace_reply = parse_icmp_trace(
+                    println!("Attempting to parse Time Exceeded");
+                    let trace_reply = parse_time_exceeded(
                         &packet[14..],
                         config.m_id as u16,
                         &config.origin_map,
@@ -226,20 +227,18 @@ fn handle_results(
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-fn parse_icmp_trace(
+fn parse_time_exceeded(
     packet_bytes: &[u8],
     m_id: u16,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
+    println!("received Time Exceeded packet with length {}", packet_bytes.len());
     // Check for ICMP Time Exceeded code TODO include length check
-    if is_ipv6 {
-        // ICMPv6 Time Exceeded 88 length (IPv6 header (40) + ICMP header (8) + original IPv6 header (40)) + check it is an ICMP Time Exceeded
-        if (packet_bytes[40] != 3) || (packet_bytes.len() < 88) {
-            return None;
-        }
-        // ICMPv4 Time Exceeded 48 length (IPv4 header (20) + ICMP header (8) + original IPv4 header (20)) + check it is an ICMP Time Exceeded
-    } else if (packet_bytes[20] != 11) || (packet_bytes.len() < 48) {
+    if (is_ipv6 && (packet_bytes.len() < 88 || packet_bytes[40] != 3))
+        || (!is_ipv6 && (packet_bytes.len() < 48 || packet_bytes[20] != 11))
+    {
+        println!("invalid Time Exceeded packet");
         return None;
     }
 
@@ -252,6 +251,7 @@ fn parse_icmp_trace(
     // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6)
     let pkt_measurement_id = ip_header.identifier();
     if pkt_measurement_id != m_id {
+        println!("invalid measurement ID in Time Exceeded packet");
         return None;
     }
     // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
