@@ -322,9 +322,8 @@ fn parse_icmp(
 ) -> Option<(Reply, bool)> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
-    if (is_ipv6 && (packet_bytes.len() < 66) || (packet_bytes[40] != 129))
-        || (packet_bytes.len() < 52)
-        || (packet_bytes[20] != 0)
+    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
+        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
     {
         return None;
     }
