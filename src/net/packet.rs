@@ -178,9 +178,13 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// # Arguments
 ///
-/// * 'origin' - the source address and ICMP identifier (dst port) we use for our probes
+/// * 'src' - the source address for the ping packet
 ///
 /// * 'dst' - the destination address for the ping packet
+///
+/// * 'identifier' - the identifier to use in the ICMP header
+///
+/// * 'sequence_number' - the sequence number to use in the ICMP header
 ///
 /// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
 ///

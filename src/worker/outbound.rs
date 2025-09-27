@@ -299,8 +299,8 @@ pub fn send_trace(
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
-        trace_task.ttl as u16, // encoding TTL in ICMP identifier
-        worker_id as u16,      // encoding worker ID in ICMP sequence number
+        worker_id as u16, // encoding worker ID in ICMP identifier
+        trace_task.ttl as u16, // encoding TTL in ICMP sequence number
         worker_id,
         m_id,     // TODO payload is lost?
         info_url, // TODO payload is lost?
