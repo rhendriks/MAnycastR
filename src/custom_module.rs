@@ -78,7 +78,7 @@ impl Address {
     }
 
     /// Convert Address to bytes (big-endian)
-    pub fn to_be_bytes(&self) -> Vec<u8> {
+    pub fn to_be_bytes(self) -> Vec<u8> {
         match &self.value {
             Some(V4(_)) => self.get_v4().to_be_bytes().to_vec(),
             Some(V6(_)) => self.get_v6().to_be_bytes().to_vec(),
