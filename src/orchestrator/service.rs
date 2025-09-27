@@ -373,7 +373,12 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        if is_responsive {
+        if is_traceroute {
+            self.m_type
+                .lock()
+                .unwrap()
+                .replace(MeasurementType::Traceroute);
+        } else if is_responsive {
             self.m_type
                 .lock()
                 .unwrap()
@@ -383,11 +388,6 @@ impl Controller for ControllerService {
                 .lock()
                 .unwrap()
                 .replace(MeasurementType::Latency);
-        } else if is_traceroute {
-            self.m_type
-                .lock()
-                .unwrap()
-                .replace(MeasurementType::Traceroute);
         } else {
             self.m_type.lock().unwrap().take(); // Set to None
         }
@@ -729,7 +729,7 @@ impl Controller for ControllerService {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
         }
-        
+
         // Default case: just forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
