@@ -233,23 +233,23 @@ fn parse_time_exceeded(
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
-    // Check for ICMP Time Exceeded code TODO include length check
-    if (is_ipv6 && (packet_bytes[40] != 3))
-        || (!is_ipv6 && (packet_bytes[20] != 11))
-    {
-        return None;
+    // Check for ICMP Time Exceeded code
+    if is_ipv6 {
+        if packet_bytes.len() < 88 { return None; }
+        if packet_bytes[40] != 3 { return None; } // ICMPv6 type != Time Exceeded
+    } else {
+        if packet_bytes.len() < 56 { return None; }
+        if packet_bytes[20] != 11 { return None; } // ICMPv4 type != Time Exceeded
     }
-    println!("received ICMP Time Exceeded packet");
 
     let ip_header = if is_ipv6 {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
-    println!("parsed IP header");
 
     // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6) TODO
-    let pkt_measurement_id = ip_header.identifier();
+    // let pkt_measurement_id = ip_header.identifier();
     // if pkt_measurement_id != m_id {
     //     println!("invalid measurement ID in Time Exceeded packet");
     //     return None;
@@ -259,7 +259,6 @@ fn parse_time_exceeded(
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
-    println!("parsed ICMP header");
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
@@ -267,24 +266,26 @@ fn parse_time_exceeded(
     } else {
         IPPacket::V4(IPv4Packet::from(icmp_header.body.as_bytes()))
     };
-    println!("parsed original IP header");
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
     let original_icmp_header = match &original_ip_header.payload() {
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
-    println!("parsed original ICMP header");
-    println!("----------------------------------");
-    println!("pkt measurement_id: {}", pkt_measurement_id);
-    println!("m_id: {}", m_id);
 
     // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
-    println!("tx_id: {}", tx_id);
-    // Get original probe TTL, i.e., hop count (ICMP sequence number field)
-    let trace_ttl = original_icmp_header.sequence_number as u32;
+    // Get original probe TTL (first 8 bits of sequence number field)
+    let trace_ttl = (original_icmp_header.sequence_number >> 8) as u32;
+    // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
+    let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
+    if pkt_m_id_part != (m_id as u32 & 0xFF) {
+        println!("invalid measurement ID part in Time Exceeded packet");
+        return None;
+    }
+    println!("----------------------------------");
     println!("trace_ttl: {}", trace_ttl);
+    println!("tx_id: {}", tx_id);
 
     // get hop address
     let hop_addr = ip_header.src();
