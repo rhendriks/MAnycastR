@@ -295,12 +295,15 @@ pub fn send_trace(
     let tx_origin = tx_origin.unwrap();
 
     let mut packet = ethernet_header.clone();
+
+    // Encode TTL and first 8 bits of measurement ID in the ICMP sequence number
+    let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | ((m_id & 0xFF) as u16);
     // Create the appropriate traceroute packet based on the trace_type
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
         worker_id as u16, // encoding worker ID in ICMP identifier
-        trace_task.ttl as u16, // encoding TTL in ICMP sequence number
+        sequence_number,
         worker_id,
         m_id,     // TODO payload is lost?
         info_url, // TODO payload is lost?
