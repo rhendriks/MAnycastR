@@ -71,12 +71,11 @@ pub fn responsive_handler(
 
 /// Handles traceroute discovery probe replies, used to determine the catching worker.
 /// Instructs that worker to perform an initial TraceTask towards that target.
-///
-/// Returns a list of TraceTasks to be sent to the catching worker.
+/// TODO fix rustdoc
 pub fn trace_discovery_handler(
-    task_result: TaskResult,
+    task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-) -> Result<Response<Ack>, Status> {
+) {
     // Get catcher that received the anycast probe reply
     let catcher = task_result.worker_id;
 
@@ -116,9 +115,4 @@ pub fn trace_discovery_handler(
         .entry(catcher)
         .or_default()
         .extend(trace_tasks);
-
-    Ok(Response::new(Ack {
-        is_success: true,
-        error_message: "".to_string(),
-    }))
 }

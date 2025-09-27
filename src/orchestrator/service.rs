@@ -720,17 +720,16 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                return trace_discovery_handler(
-                    task_result,
+                trace_discovery_handler(
+                    &task_result,
                     &mut self.worker_stacks.lock().unwrap(),
                 );
+                // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
         }
-
-        println!("forwarding result to CLI");
-
+        
         // Default case: just forward the result to the CLI
         let tx = {
             let sender = self.cli_sender.lock().unwrap();
