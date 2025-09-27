@@ -47,14 +47,6 @@ impl IPPacket {
             IPPacket::V6(packet) => &packet.payload,
         }
     }
-
-    /// Returns IP identifier (IPv4), flow label (IPv6)
-    pub(crate) fn identifier(&self) -> u16 {
-        match self {
-            IPPacket::V4(packet) => packet.identifier,
-            IPPacket::V6(packet) => packet.flow_label as u16,
-        }
-    }
 }
 
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>

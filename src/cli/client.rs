@@ -213,6 +213,7 @@ impl CliClient {
             is_multi_origin,
             is_symmetric: is_unicast || is_latency,
             worker_map: args.worker_map.clone(),
+            is_traceroute,
         };
 
         // Start thread that writes results to file
@@ -240,7 +241,7 @@ impl CliClient {
                 graceful = true;
                 break;
             }
-            
+
             println!("Received task result {:?}", task_result); // Debug print
 
             replies_count += task_result.result_list.len();
