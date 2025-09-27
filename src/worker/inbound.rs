@@ -277,7 +277,8 @@ fn parse_time_exceeded(
     };
     // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
     let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
-    if pkt_m_id_part != (m_id as u32 & 0xFF) { // TODO move up
+    if pkt_m_id_part != (m_id as u32 & 0xFF) {
+        // TODO move up
         return None;
     }
 

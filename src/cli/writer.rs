@@ -180,7 +180,15 @@ pub fn get_header(
     is_traceroute: bool,
 ) -> Vec<&'static str> {
     let mut header = if is_traceroute {
-        vec!["rx", "hop_addr", "ttl", "tx", "trace_dst", "trace_ttl", "rtt"]
+        vec![
+            "rx",
+            "hop_addr",
+            "ttl",
+            "tx",
+            "trace_dst",
+            "trace_ttl",
+            "rtt",
+        ]
     } else if is_symmetric {
         vec!["rx", "addr", "ttl", "rtt"]
     } else {

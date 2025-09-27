@@ -303,10 +303,10 @@ pub fn send_trace(
         tx_origin.src.as_ref().unwrap(),
         target,
         worker_id as u16, // encoding worker ID in ICMP identifier
-        sequence_number, // encoding TTL and first 8 bits of m_id in ICMP sequence number
+        sequence_number,  // encoding TTL and first 8 bits of m_id in ICMP sequence number
         worker_id, // Encoded in payload, not guaranteed to be returned for ICMP Time Exceeded
-        m_id, // Payload
-        info_url, // Payload
+        m_id,      // Payload
+        info_url,  // Payload
         trace_task.ttl as u8,
     ));
     match socket_tx.send_to(&packet, None) {
