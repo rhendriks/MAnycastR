@@ -179,10 +179,10 @@ pub fn get_header(
     is_symmetric: bool,
     is_traceroute: bool,
 ) -> Vec<&'static str> {
-    let mut header = if is_symmetric {
-        vec!["rx", "addr", "ttl", "rtt"]
-    } else if is_traceroute {
+    let mut header = if is_traceroute {
         vec!["rx", "hop_addr", "ttl", "tx", "trace_dst", "trace_ttl", "rtt"]
+    } else if is_symmetric {
+        vec!["rx", "addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
         if m_type == TCP_ID as u32 {
