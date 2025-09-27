@@ -182,7 +182,7 @@ pub fn get_header(
     let mut header = if is_symmetric {
         vec!["rx", "addr", "ttl", "rtt"]
     } else if is_traceroute {
-        vec!["rx", "hop_addr", "ttl", "tx", "trace_dst", "trace_ttl"]
+        vec!["rx", "hop_addr", "ttl", "tx", "trace_dst", "trace_ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
         if m_type == TCP_ID as u32 {
@@ -272,7 +272,7 @@ fn get_row(
 }
 
 /// Get traceroute row
-/// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl
+/// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt
 fn get_trace_row(
     trace_result: Reply,
     rx_worker_id: &u32,
@@ -291,28 +291,40 @@ fn get_trace_row(
         .get_by_left(&tx_id)
         .unwrap_or(&String::from("Unknown"))
         .to_string();
+
+    // Calculate RTT if tx_time is available
+    let rtt = if trace_result.tx_time != 0 {
+        format!(
+            "{:.2}",
+            calculate_rtt(trace_result.rx_time, trace_result.tx_time, false)
+        )
+    } else {
+        String::from("")
+    };
     if let Some(trace_ttl) = trace_result.trace_ttl {
         let trace_dst = trace_result.trace_dst.unwrap().to_string();
-
-        return vec![
+        // Intermediate hop
+        vec![
             rx_hostname,
             hop_addr,
             ttl,
             tx_hostname,
             trace_dst,
             trace_ttl.to_string(),
-        ];
+            rtt,
+        ]
+    } else {
+        // Reply from the destination
+        vec![
+            rx_hostname,
+            hop_addr,
+            ttl,
+            tx_hostname,
+            String::from(""),
+            String::from(""),
+            rtt,
+        ]
     }
-
-    // Reply from the destination
-    return vec![
-        rx_hostname,
-        hop_addr,
-        ttl,
-        tx_hostname,
-        String::from(""),
-        String::from(""),
-    ];
 }
 
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {

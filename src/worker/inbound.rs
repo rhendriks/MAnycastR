@@ -300,10 +300,15 @@ fn parse_time_exceeded(
     println!("origin_id: {}", origin_id);
     println!("----------------------------------");
 
-    // TODO optionally get tx_time from payload if available
+    // Attempt to get tx_time from payload (not guaranteed depending on router implementation)
+    let tx_time: u64 = if original_icmp_header.body.len() >= 12 {
+        u64::from_be_bytes(original_icmp_header.body[4..12].try_into().unwrap())
+    } else {
+        0
+    };
 
     Some(Reply {
-        tx_time: 0, // not available for trace replies TODO can possibly extract from payload ?
+        tx_time, // not available for trace replies
         tx_id,
         src: Some(hop_addr),
         ttl: ip_header.ttl() as u32, // TTL of the ICMP Time Exceeded packet
