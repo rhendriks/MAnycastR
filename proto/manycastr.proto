@@ -5,14 +5,40 @@ package manycastr;
 service Controller {
   // Worker lets the orchestrator know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
-  // Worker announces itself, and starts its connection with the orchestrator. The orchestrator sends a stream of tasks
-  rpc WorkerConnect(Worker) returns (stream Task) {}
+  // Worker connects with the orchestrator, which returns a stream for future instructions
+  rpc WorkerConnect(Worker) returns (stream Instruction) {}
   // CLI instructs orchestrator to perform a measurement
   rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
+  // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
+  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream TaskResult) {}
   // CLI asks orchestrator its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
   rpc SendResult(TaskResult) returns (Ack) {}
+}
+
+// Metadata for the measurement session (sent once at the start)
+message LiveMeasurementMetadata {
+  string url = 1; // URL to encode in probes
+}
+
+// Per-task information (streamed for each task)
+message LiveTask {
+  uint32 worker_id = 1;       // Worker from which to send the probe (0 for any worker)
+  Origin origin = 2;           // Origin to send the probe from
+  Address dst = 3;             // Destination to send the probe to
+  uint32 m_type = 4;           // Measurement type (ICMP, UDP, TCP, DNS)
+  bool is_ipv6 = 5;            // Whether to use IPv6
+  optional string record = 6;  // Record to use for DNS queries (TXT/A/AAAA)
+  bool is_latency = 7;         // Whether the measurement is for latency
+}
+
+// Wrapper message for streaming tasks or sending metadata
+message LiveMeasurementMessage {
+  oneof msg {
+    LiveMeasurementMetadata metadata = 1; // Sent once
+    LiveTask task = 2;                    // Sent multiple times
+  }
 }
 
 // Empty message
@@ -32,20 +58,20 @@ message Finished {
 
 // Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
-  uint32 probing_rate = 1;
+  uint32 probing_rate = 1; // Probing rate (probes per second)
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
-  uint32 m_type = 3;
-  bool is_unicast = 4;
-  bool is_ipv6 = 5;
-  uint32 worker_interval = 6;
-  bool is_responsive = 7;
-  bool is_latency = 8;
-  bool is_divide = 9;
-  Targets targets = 10;
-  string record = 11; // Record to send CHAOS (TXT) or A/AAAA requests for
-  string url = 12; // URL to encode in probes (e.g., opt-out link)
-  uint32 probe_interval = 13; // interval between probes from/to the same origin,dst pair
-  uint32 number_of_probes = 14; // number of probes to send per origin,dst pair
+  uint32 m_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
+  uint32 worker_interval = 4; // interval between probes from different workers
+  bool is_responsive = 5; // whether the measurement is for responsiveness
+  bool is_latency = 6; // whether the measurement is for latency
+  bool is_divide = 7; // whether to divide targets among workers
+  repeated Address targets = 8; // target addresses to probe
+  string record = 9; // Record to send CHAOS (TXT) or A/AAAA requests for
+  string url = 10; // URL to encode in probes (e.g., opt-out link)
+  uint32 probe_interval = 11; // interval between probes from/to the same origin,dst pair
+  uint32 number_of_probes = 12; // number of probes to send per origin,dst pair
+  bool is_traceroute = 13; // whether the measurement is a traceroute measurement
+  bool is_ipv6 = 14; // whether the measurement is for IPv6
 }
 
 // A list of workers
@@ -67,6 +93,7 @@ message Address {
   oneof value {
     fixed32 v4 = 1;
     IPv6 v6 = 2;
+    Empty unicast = 3; // use unicast origin
   }
 }
 
@@ -76,28 +103,48 @@ message IPv6 {
   fixed64 p2 = 2;
 }
 
-// A task for a worker, either a start or end message, or a list of targets
-message Task {
-  oneof data {
-    End end = 1; // End measurement
-    Start start = 2; // Start measurement
-    Targets targets = 3; // Targets to measure
+
+// A task for a worker, either a start or end message, a list of targets, or a traceroute task
+message Instruction {
+  oneof instruction_type {
+    End end = 1; // End measurement [control]
+    Start start = 2; // Start measurement [control]
+    Init init = 3; // Initial message to worker (contains worker ID) [control]
+    Tasks tasks = 4; // List of tasks (probes/traceroutes) to perform [measurement]
   }
-  optional uint32 worker_id = 4; // Unique worker ID for the client
 }
 
-// A start message, forwards the configuration to the worker
+// A list of tasks (i.e., measurements) for a worker to perform
+message Tasks {
+  repeated Task tasks = 1;
+}
+
+// A task (i.e., measurement) for a worker to perform, either a probe, traceroute, or discovery task
+message Task {
+  oneof task_type {
+    Probe probe = 1; // A probe task (e.g., regular ping)
+    Trace trace = 2; // A traceroute task (to a specific TTL)
+    Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
+  }
+}
+
+// Initial message to worker, contains the worker ID assigned by the orchestrator
+message Init {
+  uint32 worker_id = 1;
+}
+
+// A start control instruction, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
   uint32 m_type = 3;
   repeated Origin tx_origins = 4; // origins to send with
-  bool is_unicast = 5;
-  bool is_ipv6 = 6;
-  repeated Origin rx_origins = 7; // origins to listen for
-  string record = 8; // domain to use for DNS queries (TXT/A/AAAA)
-  string url = 9; // URL encoded in probes
-  bool is_latency = 10; // whether the measurement is for latency
+  repeated Origin rx_origins = 5; // origins to listen for
+  string record = 6; // domain to use for DNS queries (TXT/A/AAAA)
+  string url = 7; // URL encoded in probes
+  bool is_latency = 8; // whether the measurement is for latency
+  bool is_traceroute = 9; // whether the measurement is a traceroute measurement
+  bool is_ipv6 = 10; // whether the measurement is for IPv6
 }
 
 // An end message, indicates the worker should stop sending out probes
@@ -119,10 +166,16 @@ message Configuration {
   uint32 worker_id = 2;
 }
 
-// A list of target addresses
-message Targets {
-  repeated Address dst_list = 1;
-  optional bool is_discovery = 2; // whether the targets are being probed as discovery (responsiveness, latency)
+// A probing task, containing the target address to probe
+message Probe {
+  Address dst = 1; // target address of the probe
+}
+
+// A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
+message Trace {
+  Address dst = 1; // target address of the traceroute probe
+  uint32 ttl = 2; // TTL to use for the traceroute probe
+  uint32 origin_id = 3; // Origin to send the traceroute probe from
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -131,6 +184,7 @@ message TaskResult {
   repeated Reply result_list = 2;
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
 }
+
 
 // Probe reply message
 message Reply {
@@ -141,4 +195,6 @@ message Reply {
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
   optional string chaos = 7;
+  optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
+  optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
 }

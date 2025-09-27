@@ -10,16 +10,16 @@ use custom_module::manycastr::{Configuration, Reply, TaskResult};
 use custom_module::Separated;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use std::io::BufWriter;
-use std::sync::Arc;
-
+use log::error;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
+use std::io::BufWriter;
+use std::sync::Arc;
 
-use crate::{custom_module, CHAOS_ID, TCP_ID};
+use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
 
 /// Configuration for the results writing process.
 ///
@@ -44,14 +44,14 @@ pub struct WriteConfig<'a> {
     pub is_symmetric: bool,
     /// A bidirectional map used to convert worker IDs (u32) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
+    /// Indicate whether it is a traceroute measurement
+    pub is_traceroute: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
 pub struct MetadataArgs<'a> {
     /// Divide-and-conquer measurement flag.
     pub is_divide: bool,
-    /// The origins used in the measurement.
-    pub origin_str: String,
     /// Path to the hitlist used.
     pub hitlist: &'a str,
     /// Whether the hitlist was shuffled.
@@ -62,8 +62,6 @@ pub struct MetadataArgs<'a> {
     pub probing_rate: u32,
     /// The interval between subsequent workers.
     pub interval: u32,
-    /// Hostnames of the workers selected to probe.
-    pub active_workers: Vec<String>,
     /// A bidirectional map of all possible worker IDs to their hostnames.
     pub all_workers: &'a BiHashMap<u32, String>,
     /// Optional configuration file used.
@@ -98,7 +96,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     let md_lines = get_csv_metadata(config.metadata_args, &config.worker_map);
     for line in md_lines {
         if let Err(e) = writeln!(gz_encoder, "{line}") {
-            eprintln!("Failed to write metadata line to Gzip stream: {e}");
+            error!("Failed to write metadata line to Gzip stream: {e}");
         }
     }
 
@@ -106,7 +104,12 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     let mut wtr_file = Writer::from_writer(gz_encoder);
 
     // Write header
-    let header = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
+    let header = get_header(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+    );
     if let Some(wtr) = wtr_cli.as_mut() {
         wtr.write_record(&header)
             .expect("Failed to write header to stdout")
@@ -123,13 +126,22 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
             }
             let results: Vec<Reply> = task_result.result_list;
             for result in results {
-                let result = get_row(
-                    result,
-                    task_result.worker_id,
-                    config.m_type as u8,
-                    config.is_symmetric,
-                    config.worker_map.clone(),
-                );
+                let result = if config.is_traceroute {
+                    get_trace_row(
+                        result,
+                        &task_result.worker_id,
+                        config.m_type as u8,
+                        &config.worker_map,
+                    )
+                } else {
+                    get_row(
+                        result,
+                        &task_result.worker_id,
+                        config.m_type as u8,
+                        config.is_symmetric,
+                        &config.worker_map,
+                    )
+                };
 
                 // Write to command-line
                 if let Some(ref mut wtr) = wtr_cli {
@@ -159,8 +171,25 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
 ///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-pub fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec<&'static str> {
-    let mut header = if is_symmetric {
+///
+/// * 'is_traceroute' - A boolean that determines whether the measurement is a traceroute
+pub fn get_header(
+    m_type: u32,
+    is_multi_origin: bool,
+    is_symmetric: bool,
+    is_traceroute: bool,
+) -> Vec<&'static str> {
+    let mut header = if is_traceroute {
+        vec![
+            "rx",
+            "hop_addr",
+            "ttl",
+            "tx",
+            "trace_dst",
+            "trace_ttl",
+            "rtt",
+        ]
+    } else if is_symmetric {
         vec!["rx", "addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
@@ -201,17 +230,16 @@ pub fn get_header(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> Vec
 /// A vector of strings representing the row in the CSV file
 fn get_row(
     result: Reply,
-    rx_worker_id: u32,
+    rx_worker_id: &u32,
     m_type: u8,
     is_symmetric: bool,
-    worker_map: BiHashMap<u32, String>,
+    worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
-    let rx_worker_id = rx_worker_id.to_string();
     // convert the worker ID to hostname
     let rx_hostname = worker_map
-        .get_by_left(&rx_worker_id.parse::<u32>().unwrap())
+        .get_by_left(rx_worker_id)
         .unwrap_or(&String::from("Unknown"))
         .to_string();
     let rx_time = result.rx_time.to_string();
@@ -251,6 +279,62 @@ fn get_row(
     row
 }
 
+/// Get traceroute row
+/// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt
+fn get_trace_row(
+    trace_result: Reply,
+    rx_worker_id: &u32,
+    _m_type: u8, // TODO ICMP only for now
+    worker_map: &BiHashMap<u32, String>,
+) -> Vec<String> {
+    // convert the worker ID to hostname
+    let rx_hostname = worker_map
+        .get_by_left(rx_worker_id)
+        .unwrap_or(&String::from("Unknown"))
+        .to_string();
+    let hop_addr = trace_result.src.unwrap().to_string();
+    let ttl = trace_result.ttl.to_string();
+    let tx_id = trace_result.tx_id;
+    let tx_hostname = worker_map
+        .get_by_left(&tx_id)
+        .unwrap_or(&String::from("Unknown"))
+        .to_string();
+
+    // Calculate RTT if tx_time is available
+    let rtt = if trace_result.tx_time != 0 {
+        format!(
+            "{:.2}",
+            calculate_rtt(trace_result.rx_time, trace_result.tx_time, false)
+        )
+    } else {
+        String::from("")
+    };
+    if let Some(trace_ttl) = trace_result.trace_ttl {
+        let trace_dst = trace_result.trace_dst.unwrap().to_string();
+        // Intermediate hop
+        vec![
+            rx_hostname,
+            hop_addr,
+            ttl,
+            tx_hostname,
+            trace_dst,
+            trace_ttl.to_string(),
+            rtt,
+        ]
+    } else {
+        // Reply from the destination
+        vec![
+            rx_hostname,
+            hop_addr,
+            ttl,
+            tx_hostname,
+            String::from(""),
+            String::from(""),
+            rtt,
+        ]
+    }
+}
+
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         let rx_time_ms = rx_time / 1_000;
@@ -279,7 +363,24 @@ pub fn get_csv_metadata(
     } else if args.is_responsive {
         md_file.push("# Measurement style: Responsive-mode".to_string());
     }
-    md_file.push(format!("# Origin used: {}", args.origin_str));
+
+    // Print configurations used
+    for configuration in args.configurations {
+        let origin = configuration.origin.unwrap();
+        let src = origin.src.expect("Invalid source address");
+        let hostname = if configuration.worker_id == ALL_WORKERS {
+            "ALL".to_string()
+        } else {
+            worker_map
+                .get_by_left(&configuration.worker_id)
+                .unwrap_or(&String::from("Unknown"))
+                .to_string()
+        };
+        md_file.push(format!(
+            "# Configuration - Worker: {:<2}, source IP: {}, source port: {}, destination port: {}",
+            hostname, src, origin.sport, origin.dport
+        ));
+    }
     md_file.push(format!(
         "# Hitlist{}: {}",
         if args.is_shuffle { " (shuffled)" } else { "" },
@@ -291,12 +392,6 @@ pub fn get_csv_metadata(
         args.probing_rate.with_separator()
     ));
     md_file.push(format!("# Worker interval: {}", args.interval));
-    if !args.active_workers.is_empty() {
-        md_file.push(format!(
-            "# Selective probing using the following workers: {:?}",
-            args.active_workers
-        ));
-    }
     md_file.push(format!("# {} connected workers:", args.all_workers.len()));
     for (_, hostname) in args.all_workers {
         md_file.push(format!("# * {hostname}"))
@@ -352,7 +447,6 @@ pub fn get_parquet_metadata(
         ));
     }
 
-    md.push(("origin_used".to_string(), args.origin_str));
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
     md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
     md.push(("measurement_type".to_string(), args.m_type_str));
@@ -362,14 +456,6 @@ pub fn get_parquet_metadata(
         args.probing_rate.to_string(),
     ));
     md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
-
-    // Store active workers as a JSON string
-    if !args.active_workers.is_empty() {
-        md.push((
-            "selective_probing_workers".to_string(),
-            serde_json::to_string(&args.active_workers).unwrap_or_default(),
-        ));
-    }
 
     let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();
     md.push((
@@ -388,7 +474,7 @@ pub fn get_parquet_metadata(
             .map(|c| {
                 format!(
                     "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
-                    if c.worker_id == u32::MAX {
+                    if c.worker_id == ALL_WORKERS {
                         "ALL".to_string()
                     } else {
                         worker_map
@@ -415,8 +501,8 @@ pub fn get_parquet_metadata(
     md
 }
 
-const BATCH_SIZE: usize = 1024;
-
+const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
+const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// Represents a row of data in the Parquet file format.
 /// Fields used depend on the measurement type and configuration.
 struct ParquetDataRow {
@@ -448,10 +534,13 @@ struct ParquetDataRow {
 /// * `rx` - The receiver channel that receives the results.
 ///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
-///
-/// * `metadata_args` - Arguments for generating metadata, including measurement type, origins, and configurations.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
-    let schema = build_parquet_schema(config.m_type, config.is_multi_origin, config.is_symmetric);
+    let schema = build_parquet_schema(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+    );
 
     // Get metadata key-value pairs for the Parquet file
     let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
@@ -466,6 +555,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         WriterProperties::builder()
             .set_compression(ParquetCompression::SNAPPY)
             .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
+            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
             .build(),
     );
 
@@ -473,10 +563,15 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         .expect("Failed to create parquet writer");
 
     // Get the appropriate header for the Parquet file based on the measurement type and configuration
-    let headers = get_header(config.m_type, config.is_multi_origin, config.is_symmetric);
+    let headers = get_header(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+    );
 
     tokio::spawn(async move {
-        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(BATCH_SIZE);
+        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
 
         while let Some(task_result) = rx.recv().await {
             if task_result == TaskResult::default() {
@@ -496,7 +591,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
             }
 
             // If the buffer is full, write the batch to the file
-            if row_buffer.len() >= BATCH_SIZE {
+            if row_buffer.len() >= ROW_BUFFER_CAPACITY {
                 write_batch_to_parquet(&mut writer, &row_buffer, &headers)
                     .expect("Failed to write batch to Parquet file");
                 row_buffer.clear();
@@ -515,8 +610,13 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
 }
 
 /// Creates a parquet data schema from the headers based on the measurement type and configuration.
-fn build_parquet_schema(m_type: u32, is_multi_origin: bool, is_symmetric: bool) -> TypePtr {
-    let headers = get_header(m_type, is_multi_origin, is_symmetric);
+fn build_parquet_schema(
+    m_type: u32,
+    is_multi_origin: bool,
+    is_symmetric: bool,
+    is_traceroute: bool,
+) -> TypePtr {
+    let headers = get_header(m_type, is_multi_origin, is_symmetric, is_traceroute);
     let mut fields = Vec::new();
 
     for &header in &headers {
