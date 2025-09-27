@@ -71,7 +71,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 /// * 'is_ipv6' - whether we are using IPv6 or not
 ///
 /// * 'if_name' - the name of the interface to use
-pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
+pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
     // Get the source MAC address for the used interface
     let mac_src = mac_address_by_name(&if_name)
         .unwrap_or_else(|_| panic!("No MAC address found for interface: {if_name}"))
