@@ -708,7 +708,7 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let is_discovery = task_result.is_discovery;
-        
+
         // if self.r_prober is not None and equals this task's worker_id
         if is_discovery {
             // Sleep 1 second to avoid rate-limiting issues
@@ -718,10 +718,7 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                trace_discovery_handler(
-                    &task_result,
-                    &mut self.worker_stacks.lock().unwrap(),
-                );
+                trace_discovery_handler(&task_result, &mut self.worker_stacks.lock().unwrap());
                 // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
