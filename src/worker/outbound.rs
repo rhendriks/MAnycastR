@@ -154,7 +154,7 @@ pub fn outbound(
                                         &config.info_url,
                                         trace,
                                         &mut socket_tx,
-                                        &config.origin_map.as_ref().expect("Missing origin_map"),
+                                        config.origin_map.as_ref().expect("Missing origin_map"),
                                     );
                                     traces_sent += s;
                                     failed += f;
@@ -194,12 +194,12 @@ pub fn outbound(
 ///
 /// Returns a tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_probes(
-    ethernet_header: &Vec<u8>,
+    ethernet_header: &[u8],
     origins: &Vec<Origin>,
     dst: &Address,
     worker_id: u32,
     m_id: u32,
-    info_url: &String,
+    info_url: &str,
     socket_tx: &mut Box<dyn DataLinkSender>,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     m_type: u8,
@@ -209,7 +209,7 @@ pub fn send_probes(
     let mut sent = 0;
     let mut failed = 0;
     for origin in origins {
-        let mut packet = ethernet_header.clone();
+        let mut packet = ethernet_header.to_owned();
         match m_type {
             1 => {
                 // ICMP
@@ -273,13 +273,13 @@ pub fn send_probes(
 /// * 'failed' - A mutable reference to a counter for failed packet sends.
 /// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
 pub fn send_trace(
-    ethernet_header: &Vec<u8>,
+    ethernet_header: &[u8],
     worker_id: u32,
     m_id: u32,
-    info_url: &String,
+    info_url: &str,
     trace_task: &Trace,
     socket_tx: &mut Box<dyn DataLinkSender>,
-    origins: &Vec<Origin>,
+    origins: &[Origin],
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
     let origin_id = trace_task.origin_id;
@@ -294,7 +294,7 @@ pub fn send_trace(
     }
     let tx_origin = tx_origin.unwrap();
 
-    let mut packet = ethernet_header.clone();
+    let mut packet = ethernet_header.to_owned();
 
     // Encode TTL and first 8 bits of measurement ID in the ICMP sequence number
     let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | ((m_id & 0xFF) as u16);
