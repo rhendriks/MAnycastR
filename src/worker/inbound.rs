@@ -234,20 +234,13 @@ fn parse_time_exceeded(
     is_ipv6: bool,
 ) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
+    // TODO match with m_id early
     if is_ipv6 {
         if packet_bytes.len() < 88 { return None; }
         if packet_bytes[40] != 3 { return None; } // ICMPv6 type != Time Exceeded
-        let pkt_m_id_part = packet_bytes[93]; // match last 8 bits of sequence number field
-        // if pkt_m_id_part != (m_id & 0xFF) as u8 {
-        //     return None;
-        // }
     } else {
         if packet_bytes.len() < 56 { return None; }
         if packet_bytes[20] != 11 { return None; } // ICMPv4 type != Time Exceeded
-        let pkt_m_id_part = packet_bytes[51]; // match last 8 bits of sequence number field
-        // if pkt_m_id_part != (m_id & 0xFF) as u8 {
-        //     return None;
-        // }
     }
 
     let ip_header = if is_ipv6 {
@@ -298,7 +291,7 @@ fn parse_time_exceeded(
     println!("origin_id: {}", origin_id);
     println!("----------------------------------");
 
-    return None; // TESTING
+    // TODO optionally get tx_time from payload if available
 
     Some(Reply {
         tx_time: 0, // not available for trace replies TODO can possibly extract from payload ?
@@ -312,7 +305,7 @@ fn parse_time_exceeded(
         origin_id,
         chaos: None,
         trace_dst: Some(original_ip_header.dst()), // original destination address
-        trace_ttl: Some(trace_ttl),                // TTL TODO
+        trace_ttl: Some(trace_ttl),                // TTL
     })
 }
 
