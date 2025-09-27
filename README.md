@@ -1,6 +1,6 @@
-# ManycastR
+# MAnycastR
 
-MAnycastR (Measuring Anycast Reloaded) is a tool designed to measure anycast infrastructure.
+MAnycastR (Measure Anycast Routing) is a tool designed to measure anycast infrastructure.
 
 This includes:
 
@@ -12,10 +12,9 @@ i) Measuring anycast infrastructure itself
 * [Site flipping]() (detecting network regions experiencing anycast site flipping)
 
 ii) Measuring external anycast infrastructure
-* [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (detecting anycast using anycast)
-* [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (enumerating and geolocating anycast PoPs using Great-Circle-Distance latency measurements)
+* [LACeS](https://arxiv.org/abs/2503.20554) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
 
-Both IPv4 and IPv6 are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+Full documenation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
 
 ## The components
 
@@ -116,7 +115,7 @@ cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
 
 hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 
-Enabling divide-and-conquer means each target receives a single probe, whereas before one worker would probe all targets.
+Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe all targets.
 Allows for faster measurements (hitlist split among workers), and spreading probing burden amongst individual PoPs' upstreams.
 
 ### MAnycast2 anycast detection
@@ -157,69 +156,100 @@ Filtering on the lowest unicast RTTs indicates the best anycast site for each ta
 
 Results are stored in .parquet format.
 
-## Requirements
+## Installation
 
+### Cargo
+
+---
+
+* Option 1. Download x86_64 musl binary
+
+#### Download
+```bash
+curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/download/latest/manycastr
+chmod +x manycastr
+```
+
+#### Give permissions for opening raw sockets
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
+```
+
+---
+
+* Option 2. Build locally from source
+
+Requirements:
 * rustup
 * protobuf-compiler
 * gcc
 * musl-tools
 
-## Installation
-
-### Cargo (static binary)
-
-#### Install rustup
+#### Install Rust via rustup
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 ```
 
-### Install dependencies
+#### Install dependencies
 ```bash
 apt-get install -y protobuf-compiler gcc musl-tools
 ```
 
-### Add the musl target
+#### Clone repo
 ```bash
-rustup target add x86_64-unknown-linux-musl
+git clone https://github.com/rhendriks/MAnycastR.git
+cd MAnycastR
 ```
 
-#### Clone the repository
+#### Build  (recommendation is to build using a statically linked binary target for distribution)
 ```bash
-git clone <repo>
-cd <repo_dir>
+cargo build --release
 ```
 
-#### Compile the code (16 MB binary)
+#### Move binary and set permissions (NOTE: path may differ when built using a specific target)
 ```bash
-cargo build --release --target x86_64-unknown-linux-musl
+target/release/manycastr
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
 ```
 
-#### Optionally strip the binary (16 MB -> 8 MB)
-```bash
-strip target/x86_64-unknown-linux-musl/release/manycast
-```
+---
 
 Next, distribute the binary to the workers.
 
-Workers need either sudo or the CAP_NET_RAW capability to open a raw socket (for sending/receiving).
-```bash
-sudo setcap cap_net_raw,cap_net_admin=eip manycast
-```
-
 ### Docker
 
-#### Build the Docker image
+#### Fetch the Docker image
 ```bash
-docker build -t manycast .
+docker pull ghcr.io/rhendriks/manycastr:latest
+```
+
+Alternatively clone the repo and build yourself.
+```bash
+docker build -t manycastr .
 ```
 
 Advise is to run the container with network host mode.
 Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
 ```bash
-docker run -it --init --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
+docker run -it --init --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycastr
 ```
 
 ## Contributions
 
 Issues and pull requests are welcome
+
+
+## Citation
+MAnycastR as a tool for anycast censuses was developed for the following paper. Please cite this when using this tool to perform anycast censuses.
+```
+@misc{hendriks2025lacesopenfastresponsible,
+      title={LACeS: an Open, Fast, Responsible and Efficient Longitudinal Anycast Census System}, 
+      author={Remi Hendriks and Matthew Luckie and Mattijs Jonker and Raffaele Sommese and Roland van Rijswijk-Deij},
+      year={2025},
+      eprint={2503.20554},
+      archivePrefix={arXiv},
+      primaryClass={cs.NI},
+      url={https://arxiv.org/abs/2503.20554}, 
+}
+```

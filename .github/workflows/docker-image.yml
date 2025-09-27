@@ -9,7 +9,7 @@ on:
     branches: [ "master" ]
 
 env:
-  IMAGE_NAME: ghcr.io/anycastc/manycast
+  IMAGE_NAME: ghcr.io/rhendriks/manycastr
 
 jobs:
   build-and-push:
@@ -54,6 +54,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }} # Push only if not a PR
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
