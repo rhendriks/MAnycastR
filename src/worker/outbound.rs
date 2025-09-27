@@ -79,7 +79,7 @@ pub fn outbound(
             // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
             let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(config.probing_rate * config.tx_origins.len() as u32).unwrap());
 
-            let ethernet_header = get_ethernet_header(config.is_ipv6, config.if_name);
+            let ethernet_header = get_ethernet_header(config.is_ipv6, &config.if_name);
             'outer: loop {
                 if config.abort_s.load(std::sync::atomic::Ordering::SeqCst) {
                     // If the finish_rx is set to true, break the loop (abort)
@@ -114,34 +114,24 @@ pub fn outbound(
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
                                     let (s, f) = send_probes(
+                                        &config,
                                         &ethernet_header,
-                                        &config.tx_origins,
                                         &task.dst.unwrap(),
-                                        config.worker_id as u32,
-                                        config.m_id,
-                                        &config.info_url,
                                         &mut socket_tx,
                                         &mut limiter,
-                                        config.m_type,
-                                        config.is_latency,
-                                        &config.qname,
+                                        false, // Not a discovery probe
                                     );
                                     sent += s;
                                     failed += f;
                                 },
                                 Some(TaskType::Discovery(task)) => {
                                     let (s, f) = send_probes(
+                                        &config,
                                         &ethernet_header,
-                                        &config.tx_origins,
                                         &task.dst.unwrap(),
-                                        config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET, // Use a different worker ID range for discovery probes
-                                        config.m_id,
-                                        &config.info_url,
                                         &mut socket_tx,
                                         &mut limiter,
-                                        config.m_type,
-                                        config.is_latency,
-                                        &config.qname,
+                                        true, // This is a discovery probe
                                     );
                                     sent_discovery += s;
                                     failed += f;
@@ -174,40 +164,40 @@ pub fn outbound(
         .expect("Failed to spawn outbound thread");
 }
 
-/// Sends probes to the specified destination using the provided origins.
+/// Sends probes to the specified destination using the provided measurement configuration.
 /// This function constructs the appropriate packet based on the measurement type
 /// and sends it through the provided socket.
 /// # Arguments
-/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
-/// * 'origins' - A list of source addresses and ports to send probes from.
-/// * 'dst' - The destination address to send probes to.
-/// * 'worker_id' - The unique ID of the worker sending the probes.
-/// * 'm_id' - The measurement ID.
-/// * 'info_url' - An informational URL to embed in the probe's payload.
-/// * 'socket_tx' - The socket sender to use for sending the packets.
-/// * 'limiter' - A rate limiter to control the sending rate of packets.
-/// * 'sent' - A mutable reference to a counter for successfully sent packets.
-/// * 'failed' - A mutable reference to a counter for failed packet sends.
-/// * 'm_type' - The type of measurement (1=ICMP, 2=DNS A, 3=TCP, 4=DNS CHAOS).
-/// * 'is_symmetric' - Optional flag indicating if the measurement is symmetric (only used for TCP).
-/// * 'qname' - Optional domain name to query (only used for DNS).
 ///
-/// Returns a tuple containing the number of successfully sent packets and the number of failed sends.
+/// * 'config' - The outbound configuration containing worker details and settings.
+/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
+/// * 'dst' - The destination address to which the probes will be sent.
+/// * 'socket_tx' - The socket sender to use for sending the packet.
+/// * 'limiter' - A rate limiter to control the sending rate of packets.
+/// * 'is_discovery' - A boolean indicating whether the probes are for discovery purposes.
+/// # Returns
+/// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_probes(
+    config: &OutboundConfig,
     ethernet_header: &[u8],
-    origins: &Vec<Origin>,
     dst: &Address,
-    worker_id: u32,
-    m_id: u32,
-    info_url: &str,
     socket_tx: &mut Box<dyn DataLinkSender>,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
-    m_type: u8,
-    is_symmetric: bool, // Only used for TCP
-    qname: &str,        // Only used for DNS
+    is_discovery: bool, // Whether we are sending a discovery probe
 ) -> (u32, u32) {
+    let origins = &config.tx_origins;
+    let worker_id = if is_discovery {
+        config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET // Use a different worker ID range for discovery probes
+    } else {
+        config.worker_id as u32
+    };
+    let m_type = config.m_type;
+    let is_symmetric = config.is_latency; // For TCP, use the is_latency flag
+    let m_id = config.m_id;
+    let info_url = &config.info_url;
     let mut sent = 0;
     let mut failed = 0;
+    let qname = &config.qname;
     for origin in origins {
         let mut packet = ethernet_header.to_owned();
         match m_type {
