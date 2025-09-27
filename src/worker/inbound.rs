@@ -96,10 +96,10 @@ pub fn inbound(
                         config.is_ipv6,
                     );
                     // If we got a trace reply, add it to the queue and continue to the next packet
-                    if trace_reply.is_some() {
+                    if let Some(reply) = trace_reply {
                         received += 1;
                         let mut buffer = rq_c.lock().unwrap();
-                        buffer.push((trace_reply.unwrap(), false));
+                        buffer.push((reply, false));
                         continue; // Continue to next packet
                     }
                 }
