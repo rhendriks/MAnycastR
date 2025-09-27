@@ -708,9 +708,7 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let is_discovery = task_result.is_discovery;
-
-        println!("received result {:?}", task_result);
-
+        
         // if self.r_prober is not None and equals this task's worker_id
         if is_discovery {
             // Sleep 1 second to avoid rate-limiting issues
