@@ -73,7 +73,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 /// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
     // Get the source MAC address for the used interface
-    let mac_src = mac_address_by_name(&if_name)
+    let mac_src = mac_address_by_name(if_name)
         .unwrap_or_else(|_| panic!("No MAC address found for interface: {if_name}"))
         .unwrap()
         .bytes()
@@ -174,6 +174,14 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
     ethernet_header
 }
 
+/// ICMP arguments to encode in the payload.
+#[derive(Debug)]
+pub struct ProbePayload<'a> {
+    pub worker_id: u32,
+    pub m_id: u32,
+    pub info_url: &'a str,
+}
+
 /// Creates a ping packet to send.
 ///
 /// # Arguments
@@ -184,11 +192,11 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
 ///
 /// * 'identifier' - the identifier to use in the ICMP header
 ///
-/// * 'sequence_number' - the sequence number to use in the ICMP header
+/// * 'seq' - the sequence number to use in the ICMP header
 ///
 /// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
 ///
-/// * 'measurement_id' - the unique ID of the current measurement (encoded in payload)
+/// * 'm_id' - the unique ID of the current measurement (encoded in payload)
 ///
 /// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
 ///
@@ -201,10 +209,8 @@ pub fn create_icmp(
     src: &Address,
     dst: &Address,
     identifier: u16,
-    sequence_number: u16,
-    worker_id: u32,
-    measurement_id: u32,
-    info_url: &str,
+    seq: u16,
+    payload: ProbePayload,
     ttl: u8,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
@@ -214,9 +220,9 @@ pub fn create_icmp(
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
-    payload_bytes.extend_from_slice(&measurement_id.to_be_bytes()); // Bytes 0 - 3
+    payload_bytes.extend_from_slice(&payload.m_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
-    payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
+    payload_bytes.extend_from_slice(&payload.worker_id.to_be_bytes()); // Bytes 12 - 15
 
     // Add addresses to payload (used for spoofing detection)
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
@@ -227,22 +233,22 @@ pub fn create_icmp(
         ICMPPacket::echo_request_v6(
             // TODO combine v6 and v4 functions into one
             identifier,
-            sequence_number,
+            seq,
             payload_bytes,
             src.get_v6(),
             dst.get_v6(),
             ttl,
-            info_url,
+            payload.info_url
         )
     } else {
         ICMPPacket::echo_request(
             identifier,
-            sequence_number,
+            seq,
             payload_bytes,
             src.get_v4(),
             dst.get_v4(),
             ttl,
-            info_url,
+            payload.info_url
         )
     }
 }
