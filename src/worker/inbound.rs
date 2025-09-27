@@ -1,10 +1,10 @@
 use log::info;
+use parquet::data_type::AsBytes;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use parquet::data_type::AsBytes;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
@@ -236,11 +236,19 @@ fn parse_time_exceeded(
     // Check for ICMP Time Exceeded code
     // TODO match with m_id early
     if is_ipv6 {
-        if packet_bytes.len() < 88 { return None; }
-        if packet_bytes[40] != 3 { return None; } // ICMPv6 type != Time Exceeded
+        if packet_bytes.len() < 88 {
+            return None;
+        }
+        if packet_bytes[40] != 3 {
+            return None;
+        } // ICMPv6 type != Time Exceeded
     } else {
-        if packet_bytes.len() < 56 { return None; }
-        if packet_bytes[20] != 11 { return None; } // ICMPv4 type != Time Exceeded
+        if packet_bytes.len() < 56 {
+            return None;
+        }
+        if packet_bytes[20] != 11 {
+            return None;
+        } // ICMPv4 type != Time Exceeded
     }
 
     let ip_header = if is_ipv6 {
@@ -279,6 +287,7 @@ fn parse_time_exceeded(
         return None;
     }
     println!("----------------------------------");
+    println!("trace dest: {}", original_ip_header.dst());
     println!("trace_ttl: {}", trace_ttl);
     println!("tx_id: {}", tx_id);
 
