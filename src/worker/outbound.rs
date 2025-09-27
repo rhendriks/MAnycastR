@@ -16,7 +16,7 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
-use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header};
+use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header, ProbePayload};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
@@ -202,15 +202,18 @@ pub fn send_probes(
         let mut packet = ethernet_header.to_owned();
         match m_type {
             1 => {
+                let payload_fields = ProbePayload {
+                    worker_id,
+                    m_id,
+                    info_url,
+                };
                 // ICMP
                 packet.extend_from_slice(&create_icmp(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2,                   // ICMP sequence number
-                    worker_id,
-                    m_id,
-                    info_url,
+                    2,   // ICMP sequence number
+                    payload_fields,
                     255,
                 ));
             }
@@ -288,15 +291,20 @@ pub fn send_trace(
 
     // Encode TTL and first 8 bits of measurement ID in the ICMP sequence number
     let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | ((m_id & 0xFF) as u16);
+
+    let payload_fields = ProbePayload {
+        worker_id,
+        m_id,
+        info_url,
+    };
+
     // Create the appropriate traceroute packet based on the trace_type
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
         worker_id as u16, // encoding worker ID in ICMP identifier
         sequence_number,  // encoding TTL and first 8 bits of m_id in ICMP sequence number
-        worker_id, // Encoded in payload, not guaranteed to be returned for ICMP Time Exceeded
-        m_id,      // Payload
-        info_url,  // Payload
+        payload_fields,
         trace_task.ttl as u8,
     ));
     match socket_tx.send_to(&packet, None) {
