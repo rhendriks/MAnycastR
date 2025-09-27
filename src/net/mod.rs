@@ -7,6 +7,48 @@ use prost::bytes::Buf;
 
 pub(crate) mod packet;
 
+/// Enum representing either an IPv4 or IPv6 packet.
+#[derive(Debug)]
+pub enum IPPacket {
+    V4(IPv4Packet),
+    V6(IPv6Packet),
+}
+
+/// Methods for IPPacket
+impl IPPacket {
+    /// Returns the source IP address.
+    pub fn src(&self) -> Address {
+        match self {
+            IPPacket::V4(packet) => Address::from(packet.src),
+            IPPacket::V6(packet) => Address::from(packet.src),
+        }
+    }
+
+    /// Returns the destination IP address.
+    pub fn dst(&self) -> Address {
+        match self {
+            IPPacket::V4(packet) => Address::from(packet.dst),
+            IPPacket::V6(packet) => Address::from(packet.dst),
+        }
+    }
+
+    /// Returns the Time To Live (IPv4) or Hop Limit (IPv6).
+    pub fn ttl(&self) -> u8 {
+        match self {
+            IPPacket::V4(packet) => packet.ttl,
+            IPPacket::V6(packet) => packet.hop_limit,
+        }
+    }
+
+    /// Returns a reference to the payload.
+    pub fn payload(&self) -> &PacketPayload {
+        match self {
+            IPPacket::V4(packet) => &packet.payload,
+            IPPacket::V6(packet) => &packet.payload,
+        }
+    }
+}
+
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
@@ -15,6 +57,7 @@ pub struct IPv4Packet {
     pub src: u32,               // 32-bit Source IP Address
     pub dst: u32,               // 32-bit Destination IP Address
     pub payload: PacketPayload, // Payload
+    pub identifier: u16,        // 16-bit Identification
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -24,6 +67,7 @@ impl From<&[u8]> for IPv4Packet {
         // Get header length, which is the 4 right bits in the first byte (hence & 0xF)
         // header length is in number of 32 bits i.e. 4 bytes (hence *4)
         let header_length: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
+        let identifier = cursor.read_u16::<NetworkEndian>().unwrap(); // Identification
         cursor.set_position(8); // Time To Live
         let ttl = cursor.read_u8().unwrap();
         let packet_type = cursor.read_u8().unwrap(); // Protocol
@@ -39,6 +83,7 @@ impl From<&[u8]> for IPv4Packet {
                 src,
                 dst,
                 payload: PacketPayload::Unimplemented,
+                identifier,
             };
         }
 
@@ -80,6 +125,7 @@ impl From<&[u8]> for IPv4Packet {
             src,
             dst,
             payload,
+            identifier,
         }
     }
 }
@@ -101,7 +147,7 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
         wtr.write_u16::<NetworkEndian>(packet.length)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Total Length
-        wtr.write_u16::<NetworkEndian>(0x3a7d)
+        wtr.write_u16::<NetworkEndian>(packet.identifier)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Identification
         wtr.write_u16::<NetworkEndian>(0x0000)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Flags (0) and Fragment Offset (0)
@@ -137,7 +183,7 @@ impl From<&IPv4Packet> for Vec<u8> {
 pub struct IPv6Packet {
     // pub version: u8,                 // 4-bit Version
     // pub traffic_class: u8,           // 8-bit Traffic Class
-    // pub flow_label: u32,             // 20-bit Flow Label
+    pub flow_label: u32,        // 20-bit Flow Label
     pub payload_length: u16,    // 16-bit Payload Length
     pub next_header: u8,        // 8-bit Next Header
     pub hop_limit: u8,          // 8-bit Hop Limit
@@ -151,6 +197,7 @@ impl From<&[u8]> for IPv6Packet {
     fn from(data: &[u8]) -> Self {
         let mut cursor = Cursor::new(data);
         let _version_traffic_flow: u32 = cursor.read_u32::<NetworkEndian>().unwrap();
+        let flow_label = _version_traffic_flow & 0x000FFFFF; // Lower 20 bits
         let payload_length = cursor.read_u16::<NetworkEndian>().unwrap();
         let next_header = cursor.read_u8().unwrap();
         let hop_limit = cursor.read_u8().unwrap();
@@ -193,7 +240,7 @@ impl From<&[u8]> for IPv6Packet {
         IPv6Packet {
             // version: (version_traffic_class >> 12) as u8,
             // traffic_class: ((version_traffic_class >> 4) & 0xFF) as u8,
-            // flow_label,
+            flow_label,
             payload_length,
             next_header,
             hop_limit,
@@ -384,18 +431,18 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     !(sum as u16)
 }
 
-/// An ICMP4Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
+/// An ICMP Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
 #[derive(Debug)]
 pub struct ICMPPacket {
     pub icmp_type: u8,
     pub code: u8,
     pub checksum: u16,
-    pub identifier: u16,
+    pub icmp_identifier: u16,
     pub sequence_number: u16,
     pub body: Vec<u8>,
 }
 
-/// Parsing from bytes to ICMP4Packet
+/// Parsing from bytes to ICMPPacket
 impl From<&[u8]> for ICMPPacket {
     fn from(data: &[u8]) -> Self {
         let mut data = Cursor::new(data);
@@ -403,14 +450,14 @@ impl From<&[u8]> for ICMPPacket {
             icmp_type: data.read_u8().unwrap(),
             code: data.read_u8().unwrap(),
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
-            identifier: data.read_u16::<NetworkEndian>().unwrap(),
+            icmp_identifier: data.read_u16::<NetworkEndian>().unwrap(),
             sequence_number: data.read_u16::<NetworkEndian>().unwrap(),
             body: data.into_inner()[8..].to_vec(),
         }
     }
 }
 
-/// Convert ICMp4Packet into a vector of bytes
+/// Convert ICMP Packet into a vector of bytes
 impl From<&ICMPPacket> for Vec<u8> {
     fn from(packet: &ICMPPacket) -> Self {
         let mut wtr = vec![];
@@ -420,7 +467,7 @@ impl From<&ICMPPacket> for Vec<u8> {
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_u16::<NetworkEndian>(packet.checksum)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_u16::<NetworkEndian>(packet.identifier)
+        wtr.write_u16::<NetworkEndian>(packet.icmp_identifier)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_u16::<NetworkEndian>(packet.sequence_number)
             .expect("Unable to write to byte buffer for ICMP packet");
@@ -449,7 +496,7 @@ impl ICMPPacket {
     ///
     /// * 'info_url' - the URL to be added to the packet payload (e.g., opt-out URL)
     pub fn echo_request(
-        identifier: u16,
+        icmp_identifier: u16,
         sequence_number: u16,
         body: Vec<u8>,
         src: u32,
@@ -462,7 +509,7 @@ impl ICMPPacket {
             icmp_type: 8,
             code: 0,
             checksum: 0,
-            identifier,
+            icmp_identifier,
             sequence_number,
             body,
         };
@@ -474,6 +521,7 @@ impl ICMPPacket {
 
         let v4_packet = IPv4Packet {
             length: 20 + 8 + body_len + info_url.len() as u16,
+            identifier: 15037,
             ttl,
             src,
             dst,
@@ -504,7 +552,7 @@ impl ICMPPacket {
     ///
     /// * 'info_url' - URL encoded in packet payload (e.g., opt-out URL)
     pub fn echo_request_v6(
-        identifier: u16,
+        icmp_identifier: u16,
         sequence_number: u16,
         body: Vec<u8>,
         src: u128,
@@ -517,7 +565,7 @@ impl ICMPPacket {
             icmp_type: 128,
             code: 0,
             checksum: 0,
-            identifier,
+            icmp_identifier,
             sequence_number,
             body,
         };
@@ -544,7 +592,8 @@ impl ICMPPacket {
 
         let v6_packet = IPv6Packet {
             payload_length: 8 + body_len + info_url.len() as u16, // ICMP header (8 bytes) + body length
-            next_header: 58,                                      // ICMPv6
+            flow_label: 15037,
+            next_header: 58, // ICMPv6
             hop_limit,
             src,
             dst,
@@ -836,6 +885,7 @@ impl UDPPacket {
         if src.is_v6() {
             (&IPv6Packet {
                 payload_length: udp_length,
+                flow_label: 15037,
                 next_header: 17, // UDP
                 hop_limit: ttl,
                 src: src.get_v6(),
@@ -846,6 +896,7 @@ impl UDPPacket {
         } else {
             (&IPv4Packet {
                 length: 20 + udp_length,
+                identifier: 15037,
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
@@ -944,6 +995,7 @@ impl UDPPacket {
             // Create the IPv6 packet
             let v6_packet = IPv6Packet {
                 payload_length: udp_length as u16,
+                flow_label: 15037,
                 next_header: 17, // UDP
                 hop_limit: 255,
                 src: src.get_v6(),
@@ -955,6 +1007,7 @@ impl UDPPacket {
             // Create the IPv4 packet
             let v4_packet = IPv4Packet {
                 length: 20 + udp_length as u16,
+                identifier: 15037,
                 ttl: 255,
                 src: src.get_v4(),
                 dst: dst.get_v4(),
@@ -1106,6 +1159,7 @@ impl TCPPacket {
             // Create the IPv6 packet
             let v6_packet = IPv6Packet {
                 payload_length: bytes.len() as u16,
+                flow_label: 15037,
                 next_header: 6, // TCP
                 hop_limit: ttl,
                 src: src.get_v6(),
@@ -1117,6 +1171,7 @@ impl TCPPacket {
             // Create the IPv4 packet
             let v4_packet = IPv4Packet {
                 length: 20 + bytes.len() as u16,
+                identifier: 15037,
                 ttl,
                 src: src.get_v4(),
                 dst: dst.get_v4(),

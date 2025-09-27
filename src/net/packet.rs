@@ -178,31 +178,39 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: String) -> Vec<u8> {
 ///
 /// # Arguments
 ///
-/// * 'origin' - the source address and ICMP identifier (dst port) we use for our probes
+/// * 'src' - the source address for the ping packet
 ///
 /// * 'dst' - the destination address for the ping packet
 ///
-/// * 'worker_id' - the unique worker ID of this worker
+/// * 'identifier' - the identifier to use in the ICMP header
 ///
-/// * 'measurement_id' - the unique ID of the current measurement
+/// * 'sequence_number' - the sequence number to use in the ICMP header
 ///
-/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
+///
+/// * 'measurement_id' - the unique ID of the current measurement (encoded in payload)
+///
+/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
+///
+/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
 ///
 /// # Returns
 ///
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_icmp(
-    origin: &Origin,
+    src: &Address,
     dst: &Address,
+    identifier: u16,
+    sequence_number: u16,
     worker_id: u32,
     measurement_id: u32,
     info_url: &str,
+    ttl: u8,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-    let src = origin.src.expect("None IP address");
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
@@ -210,31 +218,30 @@ pub fn create_icmp(
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
     payload_bytes.extend_from_slice(&worker_id.to_be_bytes()); // Bytes 12 - 15
 
+    // Add addresses to payload (used for spoofing detection)
+    payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
+    payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
+
     // add the source address
     if src.is_v6() {
-        payload_bytes.extend_from_slice(&src.get_v6().to_be_bytes()); // Bytes 16 - 33
-        payload_bytes.extend_from_slice(&dst.get_v6().to_be_bytes()); // Bytes 34 - 51
-
         ICMPPacket::echo_request_v6(
-            origin.dport as u16,
-            2,
+            // TODO combine v6 and v4 functions into one
+            identifier,
+            sequence_number,
             payload_bytes,
             src.get_v6(),
             dst.get_v6(),
-            255,
+            ttl,
             info_url,
         )
     } else {
-        payload_bytes.extend_from_slice(&src.get_v4().to_be_bytes()); // Bytes 16 - 19
-        payload_bytes.extend_from_slice(&dst.get_v4().to_be_bytes()); // Bytes 20 - 23
-
         ICMPPacket::echo_request(
-            origin.dport as u16,
-            2,
+            identifier,
+            sequence_number,
             payload_bytes,
             src.get_v4(),
             dst.get_v4(),
-            255,
+            ttl,
             info_url,
         )
     }

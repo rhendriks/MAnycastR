@@ -194,14 +194,15 @@
 //!
 //! # Future
 //!
-//! * Responsiveness pre-check
-//! * Anycast traceroute
+//! * Anycast traceroute / reverse traceroute
+//! * Unicast traceroute / reverse traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Support multiple packets per <worker, target> pair
 //! * Synchronous unicast and anycast measurements
-//! * Anycast latency using divide-and-conquer (probe 1; assess catching anycast site - probe 2; probe from catching site to obtain latency)
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use log::{error, info};
+use pretty_env_logger::formatted_builder;
+use std::io::Write;
 
 mod cli;
 mod custom_module;
@@ -215,16 +216,30 @@ pub const A_ID: u8 = 2; // UDP DNS A Record
 pub const TCP_ID: u8 = 3; // TCP SYN/ACK
 pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
 pub const ALL_ID: u8 = 255; // All measurement types
+pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
+    // Initialize logging with timestamps
+    formatted_builder()
+        .parse_env(pretty_env_logger::env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] > {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .init();
     // Parse the command-line arguments
     let matches = parse_cmd();
 
     if let Some(worker_matches) = matches.subcommand_matches("worker") {
-        println!("[Main] Executing worker version {}", env!("GIT_HASH"));
+        info!("[Main] Executing worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -235,11 +250,11 @@ fn main() {
     }
     // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
     else if let Some(cli_matches) = matches.subcommand_matches("cli") {
-        println!("[Main] Executing CLI version {}", env!("GIT_HASH"));
+        info!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
         let _ = cli::execute(cli_matches);
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
-        println!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
+        info!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -247,6 +262,8 @@ fn main() {
             .unwrap();
 
         rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
+    } else {
+        error!("[Main] No valid subcommand provided, use --help for more information");
     }
 }
 
@@ -324,10 +341,30 @@ fn parse_cmd() -> ArgMatches {
                         .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
-                .subcommand(Command::new("start").about("performs MAnycastR on the indicated worker")
-                    .arg(Arg::new("IP_FILE").help("A file that contains IP addresses to probe")
+                .subcommand(Command::new("live").about("performs a feed-based measurement [UNIMPLEMENTED]")
+                    .arg(Arg::new("pipe")
+                        .long("pipe")
+                        .short('p')
+                        .value_parser(value_parser!(String))
                         .required(true)
-                        .index(1)
+                        .help("A FIFO pipe that provides IP addresses to probe")
+                    )
+                    .arg(Arg::new("url")
+                        .long("url")
+                        .short('u')
+                        .value_parser(value_parser!(String))
+                        .required(false)
+                        .default_value("")
+                        .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
+                    )
+                )
+                .subcommand(Command::new("start").about("performs a hitlist-based measurement")
+                    .arg(Arg::new("hitlist")
+                        .long("hitlist")
+                        .short('h')
+                        .value_parser(value_parser!(String))
+                        .required(true)
+                        .help("Path to the hitlist file (can be .gz compressed)")
                     )
                     .arg(Arg::new("type")
                         .long("type")
@@ -433,7 +470,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('q')
                         .value_parser(value_parser!(String))
                         .required(false)
-                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)")
+                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)")
                     )
                     .arg(Arg::new("responsive")
                         .long("responsive")
@@ -453,6 +490,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('o')
                         .value_parser(value_parser!(String))
                         .required(false)
+                        .default_value("./")
                         .help("Optional path and/or filename to store the results of the measurement (default ./)")
                     )
                     .arg(Arg::new("url")
@@ -468,6 +506,12 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Write results as parquet instead of .csv.gz")
+                    )
+                    .arg(Arg::new("traceroute")
+                        .long("traceroute")
+                        .action(ArgAction::SetTrue)
+                        .required(false)
+                        .help("Perform a traceroute to each target (supports anycast source addresses) [NOTE: violates probing rate]")
                     )
                 )
         )
