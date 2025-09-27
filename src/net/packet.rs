@@ -238,7 +238,7 @@ pub fn create_icmp(
             src.get_v6(),
             dst.get_v6(),
             ttl,
-            payload.info_url
+            payload.info_url,
         )
     } else {
         ICMPPacket::echo_request(
@@ -248,7 +248,7 @@ pub fn create_icmp(
             src.get_v4(),
             dst.get_v4(),
             ttl,
-            payload.info_url
+            payload.info_url,
         )
     }
 }
