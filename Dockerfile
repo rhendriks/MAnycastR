@@ -10,8 +10,8 @@ RUN apt-get update && \
 
 RUN rustup target add x86_64-unknown-linux-musl
 
-RUN USER=root cargo new --bin manycast
-WORKDIR /manycast
+RUN USER=root cargo new --bin manycastr
+WORKDIR /manycastr
 
 # Copy necessary files
 COPY ./Cargo.toml ./Cargo.toml
@@ -22,10 +22,10 @@ COPY ./src ./src
 # Build the application
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
-RUN strip target/x86_64-unknown-linux-musl/release/manycast
+RUN strip target/x86_64-unknown-linux-musl/release/manycastr
 
 # ---- Final Stage ----
 FROM scratch
-COPY --from=builder /manycast/target/x86_64-unknown-linux-musl/release/manycast /manycast
-ENTRYPOINT ["/manycast"]
+COPY --from=builder /manycastr/target/x86_64-unknown-linux-musl/release/manycastr /manycastr
+ENTRYPOINT ["/manycastr"]
 CMD ["--help"]
