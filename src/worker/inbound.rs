@@ -238,16 +238,16 @@ fn parse_time_exceeded(
         if packet_bytes.len() < 88 { return None; }
         if packet_bytes[40] != 3 { return None; } // ICMPv6 type != Time Exceeded
         let pkt_m_id_part = packet_bytes[93]; // match last 8 bits of sequence number field
-        if pkt_m_id_part != (m_id & 0xFF) as u8 {
-            return None;
-        }
+        // if pkt_m_id_part != (m_id & 0xFF) as u8 {
+        //     return None;
+        // }
     } else {
         if packet_bytes.len() < 56 { return None; }
         if packet_bytes[20] != 11 { return None; } // ICMPv4 type != Time Exceeded
         let pkt_m_id_part = packet_bytes[51]; // match last 8 bits of sequence number field
-        if pkt_m_id_part != (m_id & 0xFF) as u8 {
-            return None;
-        }
+        // if pkt_m_id_part != (m_id & 0xFF) as u8 {
+        //     return None;
+        // }
     }
 
     let ip_header = if is_ipv6 {
@@ -282,7 +282,7 @@ fn parse_time_exceeded(
     // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
     let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
     if pkt_m_id_part != (m_id as u32 & 0xFF) {
-        println!("invalid measurement ID part in Time Exceeded packet");
+        // println!("invalid measurement ID part in Time Exceeded packet");
         return None;
     }
     println!("----------------------------------");
