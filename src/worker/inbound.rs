@@ -249,7 +249,7 @@ fn parse_time_exceeded(
     println!("parsed IP header");
 
     // Verify measurement ID (encoded in IP identification field for IPv4, flow label for IPv6) TODO
-    // let pkt_measurement_id = ip_header.identifier();
+    let pkt_measurement_id = ip_header.identifier();
     // if pkt_measurement_id != m_id {
     //     println!("invalid measurement ID in Time Exceeded packet");
     //     return None;
@@ -275,18 +275,25 @@ fn parse_time_exceeded(
         _ => return None,
     };
     println!("parsed original ICMP header");
+    println!("----------------------------------");
+    println!("pkt measurement_id: {}", pkt_measurement_id);
+    println!("m_id: {}", m_id);
 
     // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
     println!("tx_id: {}", tx_id);
     // Get original probe TTL, i.e., hop count (ICMP sequence number field)
     let trace_ttl = original_icmp_header.sequence_number as u32;
+    println!("trace_ttl: {}", trace_ttl);
 
     // get hop address
     let hop_addr = ip_header.src();
+    println!("hop_addr: {}", hop_addr);
 
     // get origin ID to which this probe is targeted
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
+    println!("origin_id: {}", origin_id);
+    println!("----------------------------------");
 
     return None; // TESTING
 
