@@ -58,5 +58,5 @@ pub fn validate_path_perms(path_str: &String) -> Result<(), Box<dyn Error>> {
             fs::create_dir_all(path).expect("Unable to create output directory");
         }
     }
-    return Ok(());
+    Ok(())
 }

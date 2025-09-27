@@ -37,7 +37,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let mut cli_client = CliClient { grpc_client };
 
     if args.subcommand_matches("worker-list").is_some() {
-        Ok(worker_list::handle(response).await)
+        worker_list::handle(response).await
     } else if let Some(matches) = args.subcommand_matches("start") {
         // Map to convert hostnames to worker IDs and vice versa
         let worker_map: BiHashMap<u32, String> = response
@@ -47,10 +47,11 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .map(|worker| (worker.worker_id, worker.hostname)) // .clone() is no longer needed on hostname
             .collect();
 
-        Ok(start::handle(matches, &mut cli_client, worker_map).await?)
+        start::handle(matches, &mut cli_client, worker_map).await?
     } else if let Some(matches) = args.subcommand_matches("live") {
-        Ok(live::handle(matches, &mut cli_client).await?)
+        live::handle(matches, &mut cli_client).await?
     } else {
         panic!("Unrecognized command");
-    }
+    };
+    Ok(())
 }

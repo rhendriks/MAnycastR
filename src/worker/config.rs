@@ -73,7 +73,7 @@ pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
         .map(|mut origin| {
             if let Some(src) = origin.src {
                 if src.is_unicast() {
-                    origin.src = src_addr.clone();
+                    origin.src = src_addr;
                 }
             }
             origin
