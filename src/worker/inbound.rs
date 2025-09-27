@@ -275,30 +275,21 @@ fn parse_time_exceeded(
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
+    // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
+    let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
+    if pkt_m_id_part != (m_id as u32 & 0xFF) { // TODO move up
+        return None;
+    }
 
     // Get sender worker ID and TTL  (ICMP identifier field)
     let tx_id = original_icmp_header.icmp_identifier as u32;
     // Get original probe TTL (first 8 bits of sequence number field)
     let trace_ttl = (original_icmp_header.sequence_number >> 8) as u32;
-    // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
-    let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
-    if pkt_m_id_part != (m_id as u32 & 0xFF) {
-        // println!("invalid measurement ID part in Time Exceeded packet");
-        return None;
-    }
-    println!("----------------------------------");
-    println!("trace dest: {}", original_ip_header.dst());
-    println!("trace_ttl: {}", trace_ttl);
-    println!("tx_id: {}", tx_id);
-
     // get hop address
     let hop_addr = ip_header.src();
-    println!("hop_addr: {}", hop_addr);
 
     // get origin ID to which this probe is targeted
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
-    println!("origin_id: {}", origin_id);
-    println!("----------------------------------");
 
     // Attempt to get tx_time from payload (not guaranteed depending on router implementation)
     let tx_time: u64 = if original_icmp_header.body.len() >= 12 {
