@@ -220,7 +220,7 @@ pub const ALL_ID: u8 = 255; // All measurement types
 pub const ANY_ID: u8 = 254; // Any measurement type
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 
-/// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
+/// Parse command line input and start MAnycastR orchestrator, worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.
 fn main() {
@@ -269,6 +269,9 @@ fn main() {
     }
 }
 
+/// Parse command line arguments using clap
+///
+/// Returns the parsed arguments as ArgMatches
 fn parse_cmd() -> ArgMatches {
     Command::new("MAnycastR")
         .version(env!("GIT_HASH"))
