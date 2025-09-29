@@ -4,7 +4,7 @@ use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::address::Value::Unicast;
 use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement};
 use crate::custom_module::Separated;
-use crate::{ALL_ID, ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::{ALL_ID, ALL_WORKERS, ANY_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{info, warn};
@@ -57,16 +57,8 @@ pub async fn handle(
     let is_unicast = matches.get_flag("unicast");
     let is_divide = matches.get_flag("divide");
     let is_responsive = matches.get_flag("responsive");
-    let mut is_latency = matches.get_flag("latency");
+    let is_latency = matches.get_flag("latency");
     let is_traceroute = matches.get_flag("traceroute");
-
-    if is_responsive && is_divide {
-        panic!("Incompatible flags: Responsive mode cannot be combined with divide-and-conquer measurements.");
-    } else if is_latency && (is_divide || is_responsive) {
-        panic!("Incompatible flags: Latency mode cannot be combined with divide-and-conquer or responsive measurements.");
-    } else if is_unicast && is_latency {
-        is_latency = false; // Unicast mode is latency by design
-    }
 
     // Get optional opt-out URL
     let url = matches.get_one::<String>("url").unwrap().clone();
@@ -76,34 +68,26 @@ pub async fn handle(
         Some(Address {
             value: Some(Unicast(Empty {})),
         })
-    } else {
+    } else if !matches.contains_id("configuration") {
         matches.get_one::<String>("address").map(Address::from)
+    } else {
+        None
     };
 
     // Get the measurement type
     let m_type = match matches
         .get_one::<String>("type")
         .unwrap()
-        .to_lowercase()
         .as_str()
     {
         "icmp" => ICMP_ID,
         "dns" => A_ID,
         "tcp" => TCP_ID,
         "chaos" => CHAOS_ID,
+        "any" => ANY_ID,
         "all" => ALL_ID,
         _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
     };
-
-    // TODO TCP and --latency are currently broken
-    if is_latency && m_type == TCP_ID {
-        panic!("TCP measurements are not supported in latency mode!");
-    }
-
-    // Temporarily broken
-    if is_responsive && is_unicast && m_type == TCP_ID {
-        panic!("Responsive mode not supported for unicast TCP measurements");
-    }
 
     let is_config = matches.contains_id("configuration");
 
@@ -172,12 +156,7 @@ pub async fn handle(
             .collect()
     };
 
-    // There must be a defined anycast source address, configuration, or unicast flag
-    if src.is_none() && !is_config && !is_unicast {
-        panic!("No source address or configuration file provided!");
-    }
-
-    // Get the target IP addresses
+    // Get the target IP addresses TODO allow for a single target
     let hitlist_path = matches.get_one::<String>("hitlist").unwrap();
     let is_shuffle = matches.get_flag("shuffle");
 
@@ -199,20 +178,12 @@ pub async fn handle(
 
     // Check for command-line option that determines whether to stream to CLI
     let is_cli = matches.get_flag("stream");
-
     // Check for command-line option that determines whether to write results in Parquet format
     let is_parquet = matches.get_flag("parquet");
 
-    if is_cli && is_parquet {
-        panic!("Cannot stream results to CLI and write in Parquet format at the same time!");
-    }
+    let is_reverse = matches.get_flag("reverse"); // reverse traceroute flag
 
-    // --latency and --divide send single probes to each address, so no worker interval is needed
-    let worker_interval = if is_latency || is_divide {
-        0
-    } else {
-        *matches.get_one::<u32>("worker_interval").unwrap()
-    };
+    let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
     let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
@@ -221,23 +192,37 @@ pub async fn handle(
         A_ID => "DNS/A",
         TCP_ID => "TCP/SYN-ACK",
         CHAOS_ID => "DNS/CHAOS",
+        ANY_ID => "Any (ICMP,DNS/A,TCP)",
         ALL_ID => "All (ICMP,DNS/A,TCP)",
         _ => "Unknown",
     };
     let hitlist_length = targets.len();
 
-    info!("[CLI] Performing {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+    // Measurement category (unicast, divide, latency, responsive, traceroute, reverse traceroute, anycast (default))
+    let m_cat = if is_unicast {
+        "Unicast"
+    } else if is_divide {
+        "Anycast-divide"
+    } else if is_latency {
+        "Anycast-latency"
+    } else if is_traceroute {
+        "Anycast-traceroute"
+    } else if is_reverse {
+        "Anycast-reverse-traceroute"
+    } else {
+        "Anycast"
+    };
+    let m_cat = if is_responsive {
+        format!("{}-responsive", m_cat)
+    } else {
+        m_cat.to_string()
+    };
+
+
+    info!("[CLI] Performing {m_cat} {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
     );
-
-    if is_responsive {
-        info!("[CLI] Responsive mode enabled");
-    }
-
-    if is_latency {
-        info!("[CLI] Latency mode enabled");
-    }
 
     // Print the origins used
     info!("[CLI] Workers send probes using the following configurations:");

@@ -199,10 +199,11 @@
 //! * Allow feed of targets (instead of a pre-defined hitlist)
 //! * Synchronous unicast and anycast measurements
 
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
+use clap::builder::PossibleValuesParser;
 
 mod cli;
 mod custom_module;
@@ -216,6 +217,7 @@ pub const A_ID: u8 = 2; // UDP DNS A Record
 pub const TCP_ID: u8 = 3; // TCP SYN/ACK
 pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
 pub const ALL_ID: u8 = 255; // All measurement types
+pub const ANY_ID: u8 = 254; // Any measurement type
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 
 /// Parse command line input and start MAnycastR orchestrator (orchestrator), worker, or CLI
@@ -363,7 +365,7 @@ fn parse_cmd() -> ArgMatches {
                         .long("hitlist")
                         .short('h')
                         .value_parser(value_parser!(String))
-                        .required(true)
+                        .required(false)
                         .help("Path to the hitlist file (can be .gz compressed)")
                     )
                     .arg(Arg::new("target") // TODO implement single target probing (stream results to stdout and create no output file)
@@ -377,10 +379,13 @@ fn parse_cmd() -> ArgMatches {
                     .arg(Arg::new("type")
                         .long("type")
                         .short('t')
-                        .value_parser(value_parser!(String))
+                        .value_parser(PossibleValuesParser::new([
+                            "icmp", "dns", "tcp", "chaos", "any", "all",
+                        ]))
+                        .ignore_case(true)
                         .required(false)
                         .default_value("icmp")
-                        .help("The type of measurement (icmp, dns, tcp, chaos, all)")
+                        .help("The type of measurement")
                     )
                     .arg(Arg::new("rate")
                         .long("rate")
@@ -404,7 +409,7 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .required(false)
                         .help("Path to the configuration file")
-                        .conflicts_with_all(["selective", "traceroute", "reverse"])
+                        .conflicts_with_all(["selective", "traceroute", "reverse", "unicast", "address"])
                     )
                     .arg(Arg::new("out")
                         .long("out")
@@ -440,7 +445,7 @@ fn parse_cmd() -> ArgMatches {
                         .long("unicast")
                         .action(ArgAction::SetTrue)
                         .help("Probe the targets using the unicast address of each worker (GCD measurement)")
-                        .conflicts_with_all(["latency", "traceroute", "reverse", "divide"])
+                        .conflicts_with_all(["latency", "traceroute", "reverse", "divide", "address", "configuration"])
                     )
                     .arg(Arg::new("divide")
                         .long("divide")
@@ -485,6 +490,7 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .default_value("1")
                         .help("Interval between separate worker's probes to the same target")
+                        .conflicts_with_all(["latency", "divide"]) // --latency and --divide send single probes to each address, so no worker interval is needed
                     )
                     .arg(Arg::new("probe_interval")
                         .long("probe-interval")
@@ -541,6 +547,16 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .default_value("")
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
+                    )
+                    .group(
+                        ArgGroup::new("source_spec")
+                            .args(["address", "unicast", "configuration"])
+                            .required(true),
+                    )
+                    .group(
+                        ArgGroup::new("target_spec")
+                            .args(["hitlist", "target"])
+                            .required(true),
                     )
                 )
             )
