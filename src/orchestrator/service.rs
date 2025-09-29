@@ -207,6 +207,7 @@ impl Controller for ControllerService {
         let probe_interval = m_definition.probe_interval as u64;
         let number_of_probes = m_definition.number_of_probes as u8;
         let is_traceroute = m_definition.is_traceroute;
+        let is_reverse = m_definition.is_reverse;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Instruction, Status>>> = {
@@ -351,6 +352,7 @@ impl Controller for ControllerService {
                     is_latency,
                     is_traceroute,
                     is_ipv6: m_definition.is_ipv6,
+                    is_reverse,
                 })),
             };
 
@@ -409,7 +411,7 @@ impl Controller for ControllerService {
             None
         };
 
-        if is_divide || is_responsive || is_latency || is_traceroute {
+        if is_divide || is_responsive || is_latency || is_traceroute || is_reverse {
             info!("[Orchestrator] Starting Round-Robin Task Distributor.");
             let mut cooldown_timer: Option<Instant> = None;
 
