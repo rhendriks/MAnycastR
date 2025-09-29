@@ -16,7 +16,7 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
-use crate::net::packet::{create_dns, create_icmp, create_tcp, get_ethernet_header, ProbePayload};
+use crate::net::packet::{create_dns, create_icmp, create_reverse_icmp, create_tcp, get_ethernet_header, ProbePayload};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
@@ -326,17 +326,54 @@ pub fn send_trace(
 /// * 'info_url' - An informational URL to be embedded in the probe's payload.
 /// * 'dst' - The destination address to which the probe will be sent.
 /// * 'socket_tx' - The socket sender to use for sending the packet.
+/// * 'limiter' - A rate limiter to control the sending rate of packets.
 /// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
-pub fn _send_reverse_trace(
-    // ethernet_header: &[u8],
-    // worker_id: u32,
-    // m_id: u32,
-    // info_url: &str,
-    // dst: &Address,
-    // socket_tx: &mut Box<dyn DataLinkSender>,
-    // origins: &[Origin],
+pub fn send_reverse_trace(
+    ethernet_header: &[u8],
+    worker_id: u32,
+    m_id: u32,
+    info_url: &str,
+    dst: &Address,
+    socket_tx: &mut Box<dyn DataLinkSender>,
+    limiter: &mut DirectRateLimiter<LeakyBucket>,
+    origins: &[Origin],
 ) -> (u32, u32) {
-    todo!()
+    let mut sent = 0;
+    let mut failed = 0;
+
+    for origin in origins {
+        let mut packet = ethernet_header.to_owned();
+        let payload_fields = ProbePayload {
+            worker_id,
+            m_id,
+            info_url,
+        };
+
+        packet.extend_from_slice(&create_reverse_icmp(
+            origin.src.as_ref().unwrap(),
+            dst,
+            origin.dport as u16, // encoding worker ID in ICMP identifier
+            2,               // sequence number set to 1 for reverse traceroute
+            payload_fields,
+            64,              // TTL set to 64 for reverse traceroute
+        ));
+
+        while limiter.check().is_err() {
+            // Rate limit to avoid bursts
+            sleep(Duration::from_millis(1));
+        }
+
+        match socket_tx.send_to(&packet, None) {
+            Some(Ok(())) => sent += 1,
+            Some(Err(e)) => {
+                warn!("[Worker outbound] Failed to send reverse traceroute packet: {e}");
+                failed += 1;
+            }
+            None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
+        }
+
+    }
+    (sent, failed)
 }
