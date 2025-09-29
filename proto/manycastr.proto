@@ -126,6 +126,7 @@ message Task {
     Probe probe = 1; // A probe task (e.g., regular ping)
     Trace trace = 2; // A traceroute task (to a specific TTL)
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
+    Reverse reverse = 4; // A reverse traceroute task
   }
 }
 

@@ -23,24 +23,20 @@ use pnet::datalink::DataLinkReceiver;
 pub struct InboundConfig {
     /// The unique ID of the measurement.
     pub m_id: u32,
-
     /// The unique ID of this specific worker.
     pub worker_id: u16,
-
     /// The type of measurement being performed (e.g., ICMP, DNS, TCP).
     pub m_type: u8,
-
     /// A map of valid source addresses and port values (`Origin`) to verify incoming packets against.
     pub origin_map: Vec<Origin>,
-
     /// A shared signal that can be used to gracefully shut down the worker.
     pub abort_s: Arc<AtomicBool>,
-
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
-
     /// Indicates if the measurement is using IPv6 (true) or IPv4 (false).
     pub is_ipv6: bool,
+    /// Indicates if the measurement is a reverse traceroute.
+    pub is_reverse: bool,
 }
 
 /// Listen for incoming packets
@@ -315,6 +311,7 @@ fn parse_time_exceeded(
         chaos: None,
         trace_dst: Some(original_ip_header.dst()), // original destination address
         trace_ttl: Some(trace_ttl),                // TTL
+        reverse_hops: vec![],
     })
 }
 
@@ -414,6 +411,7 @@ fn parse_icmp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
+            reverse_hops: vec![],
         },
         is_discovery,
     ))
@@ -515,6 +513,7 @@ fn parse_dns(
             chaos,
             trace_dst: None,
             trace_ttl: None,
+            reverse_hops: vec![],
         },
         is_discovery,
     ))
@@ -681,6 +680,7 @@ fn parse_tcp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
+            reverse_hops: vec![],
         },
         is_discovery,
     ))

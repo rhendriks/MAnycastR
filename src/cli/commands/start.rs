@@ -172,13 +172,9 @@ pub async fn handle(
         ""
     };
 
-    // Check for command-line option that determines whether to stream to CLI
     let is_cli = matches.get_flag("stream");
-    // Check for command-line option that determines whether to write results in Parquet format
     let is_parquet = matches.get_flag("parquet");
-
     let is_reverse = matches.get_flag("reverse"); // reverse traceroute flag
-
     let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
@@ -270,6 +266,7 @@ pub async fn handle(
         number_of_probes,
         is_traceroute,
         is_ipv6,
+        is_reverse,
     };
 
     let args = MeasurementExecutionArgs {
