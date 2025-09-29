@@ -289,6 +289,9 @@ pub fn create_reverse_icmp(
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
+    // Add info URl to payload
+    payload_bytes.extend(payload.info_url.bytes());
+
     // add the source address
     if src.is_v6() {
         panic!("Reverse traceroute not supported for IPv6 yet"); // TODO

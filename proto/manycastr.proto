@@ -171,6 +171,11 @@ message Probe {
   Address dst = 1; // target address of the probe
 }
 
+// A reverse traceroute task, containing the target address to probe
+message Reverse {
+  Address dst = 1; // target address of the reverse traceroute probe
+}
+
 // A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
 message Trace {
   Address dst = 1; // target address of the traceroute probe
@@ -185,8 +190,7 @@ message TaskResult {
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
 }
 
-
-// Probe reply message
+// Probe reply message TODO split into different results based on measurement type (traceroute, reverse traceroute, other)
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
@@ -197,4 +201,5 @@ message Reply {
   optional string chaos = 7;
   optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
   optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
+  repeated Address reverse_hops = 10; // if this reply is part of a reverse traceroute, the hops discovered
 }
