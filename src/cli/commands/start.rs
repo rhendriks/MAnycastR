@@ -75,11 +75,7 @@ pub async fn handle(
     };
 
     // Get the measurement type
-    let m_type = match matches
-        .get_one::<String>("type")
-        .unwrap()
-        .as_str()
-    {
+    let m_type = match matches.get_one::<String>("type").unwrap().as_str() {
         "icmp" => ICMP_ID,
         "dns" => A_ID,
         "tcp" => TCP_ID,
@@ -217,7 +213,6 @@ pub async fn handle(
     } else {
         m_cat.to_string()
     };
-
 
     info!("[CLI] Performing {m_cat} {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),

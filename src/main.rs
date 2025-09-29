@@ -199,11 +199,11 @@
 //! * Allow feed of targets (instead of a pre-defined hitlist)
 //! * Synchronous unicast and anycast measurements
 
+use clap::builder::PossibleValuesParser;
 use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
-use clap::builder::PossibleValuesParser;
 
 mod cli;
 mod custom_module;
