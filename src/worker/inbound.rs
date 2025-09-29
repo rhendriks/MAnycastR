@@ -102,6 +102,9 @@ pub fn inbound(
                         buffer.push((reply, false));
                         continue; // Continue to next packet
                     }
+                } else if config.is_reverse {
+                    // Try to parse reverse tracerout packets
+                    todo!();
                 }
 
                 // Parse the packet based on the measurement type (skip Ethernet header)
