@@ -420,7 +420,7 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .required(false)
                         .default_value("./")
-                        .help("Optional path and/or filename to store the results of the measurement (default ./)")
+                        .help("Optional path and/or filename to store the results of the measurement")
                         .conflicts_with("target")
                     )
                     .arg(Arg::new("parquet")
