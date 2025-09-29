@@ -558,6 +558,30 @@ fn parse_cmd() -> ArgMatches {
                             .args(["hitlist", "target"])
                             .required(true),
                     )
+                    .group(
+                        ArgGroup::new("measurement_type")
+                            .args(["latency", "traceroute", "reverse", "unicast", "divide", "responsive"])
+                            .multiple(true)
+                            .required(false)
+                    )
+                    .group(
+                        ArgGroup::new("output_type")
+                            .args(["out", "stream", "parquet"])
+                            .multiple(true)
+                            .required(false)
+                    )
+                    .group(
+                        ArgGroup::new("probing_control")
+                            .args(["rate", "number_of_probes", "probe_interval", "worker_interval", "selective"])
+                            .multiple(true)
+                            .required(false)
+                    )
+                    .group(
+                        ArgGroup::new("probe_def")
+                        .args(["address", "source port", "destination port", "query", "type", "url"])
+                        .multiple(true)
+                        .required(false)
+                    )
                 )
             )
         .get_matches()
