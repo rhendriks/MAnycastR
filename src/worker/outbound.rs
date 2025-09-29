@@ -113,7 +113,7 @@ pub fn outbound(
                         for task in tasks.tasks.iter() {
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
-                                    let (s, f) = send_probes(
+                                    let (s, f) = send_probe(
                                         &config,
                                         &ethernet_header,
                                         &task.dst.unwrap(),
@@ -125,7 +125,7 @@ pub fn outbound(
                                     failed += f;
                                 },
                                 Some(TaskType::Discovery(task)) => {
-                                    let (s, f) = send_probes(
+                                    let (s, f) = send_probe(
                                         &config,
                                         &ethernet_header,
                                         &task.dst.unwrap(),
@@ -177,7 +177,7 @@ pub fn outbound(
 /// * 'is_discovery' - A boolean indicating whether the probes are for discovery purposes.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
-pub fn send_probes(
+pub fn send_probe(
     config: &OutboundConfig,
     ethernet_header: &[u8],
     dst: &Address,
@@ -315,4 +315,28 @@ pub fn send_trace(
         None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
     }
     (0, 1)
+}
+
+/// Send a reverse traceroute probe (ICMP only for now)
+///
+/// # Arguments
+/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
+/// * 'worker_id' - The unique ID of the worker sending the probe.
+/// * 'm_id' - The unique ID of the measurement.
+/// * 'info_url' - An informational URL to be embedded in the probe's payload.
+/// * 'dst' - The destination address to which the probe will be sent.
+/// * 'socket_tx' - The socket sender to use for sending the packet.
+/// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
+/// # Returns
+/// A tuple containing the number of successfully sent packets and the number of failed sends.
+pub fn _send_reverse_trace(
+    // ethernet_header: &[u8],
+    // worker_id: u32,
+    // m_id: u32,
+    // info_url: &str,
+    // dst: &Address,
+    // socket_tx: &mut Box<dyn DataLinkSender>,
+    // origins: &[Origin],
+) -> (u32, u32) {
+    todo!()
 }
