@@ -9,9 +9,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::custom_module::Separated;
-use crate::net::{
-    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
-};
+use crate::net::{parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
@@ -100,7 +98,19 @@ pub fn inbound(
                     }
                 } else if config.is_reverse {
                     // Try to parse reverse tracerout packets
-                    todo!();
+                    let reverse_reply = parse_reverse_trace(
+                        &packet[14..],
+                        config.m_id as u16,
+                        &config.origin_map,
+                        config.is_ipv6,
+                    );
+                    // If we got a reverse trace reply, add it to the queue and continue to the next packet
+                    if let Some(reply) = reverse_reply {
+                        received += 1;
+                        let mut buffer = rq_c.lock().unwrap();
+                        buffer.push((reply, false));
+                        continue; // Continue to next packet
+                    }
                 }
 
                 // Parse the packet based on the measurement type (skip Ethernet header)
@@ -312,6 +322,85 @@ fn parse_time_exceeded(
         trace_dst: Some(original_ip_header.dst()), // original destination address
         trace_ttl: Some(trace_ttl),                // TTL
         reverse_hops: vec![],
+    })
+}
+
+/// Parse reverse traceroute packets into a Reply result with reverse hops information.
+///
+/// # Arguments
+/// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
+/// * `m_id` - the ID of the current measurement
+/// * `worker_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+/// # Returns
+/// * `Option<Reply>` - the received reverse trace reply (None if it is not a valid reverse traceroute packet)
+fn parse_reverse_trace(
+    packet_bytes: &[u8],
+    m_id: u16,
+    worker_map: &Vec<Origin>,
+    is_ipv6: bool,
+) -> Option<Reply> {
+    // Check for ICMP echo reply code and minimum length
+    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
+        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
+    {
+        return None;
+    }
+
+    if is_ipv6 {
+        panic!("IPv6 reverse traceroute not implemented") // TODO
+    }
+
+    // Parse IP header
+    let ip_header = IPv4Packet::from(packet_bytes);
+
+    // Get options (if any)
+    let hops =if let Some(ip_option) = ip_header.options {
+        parse_record_route_option(&*ip_option)
+    } else {
+        return None; // No options, cannot be a reverse traceroute packet
+    };
+
+    // Parse ICMP header
+    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
+        return None;
+    };
+
+    // Make sure that this packet belongs to this measurement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
+    if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
+        return None;
+    }
+
+    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
+    let tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let probe_src = Address::from(u32::from_be_bytes(
+        icmp_packet.body[16..20].try_into().unwrap(),
+    ));
+    let probe_dst = Address::from(u32::from_be_bytes(
+        icmp_packet.body[20..24].try_into().unwrap(),
+    ));
+    if (probe_src.get_v4() != ip_header.dst) | (probe_dst.get_v4() != ip_header.src) {
+        return None; // spoofed reply
+    }
+
+    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map)?;
+    let rx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+    // Create a Reply for the received ping reply
+    Some(Reply {
+        tx_time,
+        tx_id,
+        src: Some(Address::from(ip_header.src)),
+        ttl: ip_header.ttl as u32,
+        rx_time,
+        origin_id,
+        chaos: None,
+        trace_dst: None,
+        trace_ttl: None,
+        reverse_hops: hops,
     })
 }
 

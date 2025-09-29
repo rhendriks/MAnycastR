@@ -209,11 +209,11 @@ fn record_route_option() -> Vec<u8> {
 }
 
 /// Convert a record route option byte array into a vector of IP addresses.
-fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
+pub fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
     if data.len() < 3 || data[0] != 7 {
         return vec![]; // Not a valid Record Route option
     }
-    
+
     let mut addresses = vec![];
     let mut cursor = Cursor::new(data);
     // Skip the first 3 bytes (option type, length, pointer)
@@ -573,7 +573,7 @@ impl ICMPPacket {
 
         (&v4_packet).into()
     }
-    
+
     /// Create a reverse traceroute ICMPv4 packet with Record Route option and checksum.
     pub fn reverse_traceroute(
         icmp_identifier: u16,
