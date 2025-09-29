@@ -149,6 +149,20 @@ pub fn outbound(
                                     traces_sent += s;
                                     failed += f;
                                 }
+                                Some(TaskType::Reverse(task)) => {
+                                    let (s, f) = send_reverse_trace(
+                                        &ethernet_header,
+                                        config.worker_id as u32,
+                                        config.m_id,
+                                        &config.info_url,
+                                        &task.dst.unwrap(),
+                                        &mut socket_tx,
+                                        &mut limiter,
+                                        config.origin_map.as_ref().expect("Missing origin_map"),
+                                    );
+                                    sent += s;
+                                    failed += f;
+                                }
                                 _ => continue, // Invalid task type
                             };
                         }
