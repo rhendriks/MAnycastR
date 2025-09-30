@@ -505,7 +505,7 @@ pub struct ICMPPacket {
     pub checksum: u16,
     pub icmp_identifier: u16,
     pub sequence_number: u16,
-    pub body: Vec<u8>,
+    pub payload: Vec<u8>,
 }
 
 /// Parsing from bytes to ICMPPacket
@@ -518,7 +518,7 @@ impl From<&[u8]> for ICMPPacket {
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
             icmp_identifier: data.read_u16::<NetworkEndian>().unwrap(),
             sequence_number: data.read_u16::<NetworkEndian>().unwrap(),
-            body: data.into_inner()[8..].to_vec(),
+            payload: data.into_inner()[8..].to_vec(),
         }
     }
 }
@@ -537,7 +537,7 @@ impl From<&ICMPPacket> for Vec<u8> {
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_u16::<NetworkEndian>(packet.sequence_number)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_all(&packet.body)
+        wtr.write_all(&packet.payload)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr
     }
@@ -568,7 +568,7 @@ impl ICMPPacket {
             checksum: 0,
             icmp_identifier,
             sequence_number,
-            body,
+            payload: body,
         };
 
         // Turn everything into a vec of bytes and calculate checksum
@@ -588,23 +588,23 @@ impl ICMPPacket {
         (&v4_packet).into()
     }
 
-    /// Create a reverse traceroute ICMPv4 packet with Record Route option and checksum.
-    pub fn reverse_traceroute(
+    /// Create an ICMPv4 packet with Record Route option and checksum.
+    pub fn record_route_icmpv4(
         icmp_identifier: u16,
         sequence_number: u16,
-        body: Vec<u8>,
+        payload: Vec<u8>,
         src: u32,
         dst: u32,
         ttl: u8,
     ) -> Vec<u8> {
-        let body_len = body.len() as u16;
+        let body_len = payload.len() as u16;
         let mut packet = ICMPPacket {
             icmp_type: 8, // Echo Request
             code: 0,
             checksum: 0,
             icmp_identifier,
             sequence_number,
-            body,
+            payload,
         };
 
         // Turn everything into a vec of bytes and calculate checksum
@@ -618,12 +618,11 @@ impl ICMPPacket {
             ttl,
             src,
             dst,
-            payload: PacketPayload::Icmp { value: packet },
             options: Some(options),
+            payload: PacketPayload::Icmp { value: packet },
         };
 
-        let bytes: Vec<u8> = (&v4_packet).into();
-        bytes
+        (&v4_packet).into()
     }
 
     /// Create an ICMPv6 echo request packet with checksum
@@ -658,7 +657,7 @@ impl ICMPPacket {
             checksum: 0,
             icmp_identifier,
             sequence_number,
-            body,
+            payload: body,
         };
         let icmp_bytes: Vec<u8> = (&packet).into();
 

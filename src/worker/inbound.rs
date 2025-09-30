@@ -277,9 +277,9 @@ fn parse_time_exceeded(
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(icmp_header.body.as_bytes()))
+        IPPacket::V6(IPv6Packet::from(icmp_header.payload.as_bytes()))
     } else {
-        IPPacket::V4(IPv4Packet::from(icmp_header.body.as_bytes()))
+        IPPacket::V4(IPv4Packet::from(icmp_header.payload.as_bytes()))
     };
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
@@ -305,8 +305,8 @@ fn parse_time_exceeded(
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
     // Attempt to get tx_time from payload (not guaranteed depending on router implementation)
-    let tx_time: u64 = if original_icmp_header.body.len() >= 12 {
-        u64::from_be_bytes(original_icmp_header.body[4..12].try_into().unwrap())
+    let tx_time: u64 = if original_icmp_header.payload.len() >= 12 {
+        u64::from_be_bytes(original_icmp_header.payload[4..12].try_into().unwrap())
     } else {
         0
     };
@@ -370,18 +370,18 @@ fn parse_reverse_trace(
     };
 
     // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
         return None;
     }
 
-    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
-    let tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
+    let tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());
     let probe_src = Address::from(u32::from_be_bytes(
-        icmp_packet.body[16..20].try_into().unwrap(),
+        icmp_packet.payload[16..20].try_into().unwrap(),
     ));
     let probe_dst = Address::from(u32::from_be_bytes(
-        icmp_packet.body[20..24].try_into().unwrap(),
+        icmp_packet.payload[20..24].try_into().unwrap(),
     ));
     if (probe_src.get_v4() != ip_header.dst) | (probe_dst.get_v4() != ip_header.src) {
         return None; // spoofed reply
@@ -447,29 +447,29 @@ fn parse_icmp(
     };
 
     // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
         return None;
     }
 
-    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
+    let mut tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());
     let (probe_src, probe_dst) = if is_ipv6 {
         (
             Address::from(u128::from_be_bytes(
-                icmp_packet.body[16..32].try_into().unwrap(),
+                icmp_packet.payload[16..32].try_into().unwrap(),
             )),
             Address::from(u128::from_be_bytes(
-                icmp_packet.body[32..48].try_into().unwrap(),
+                icmp_packet.payload[32..48].try_into().unwrap(),
             )),
         )
     } else {
         (
             Address::from(u32::from_be_bytes(
-                icmp_packet.body[16..20].try_into().unwrap(),
+                icmp_packet.payload[16..20].try_into().unwrap(),
             )),
             Address::from(u32::from_be_bytes(
-                icmp_packet.body[20..24].try_into().unwrap(),
+                icmp_packet.payload[20..24].try_into().unwrap(),
             )),
         )
     };
