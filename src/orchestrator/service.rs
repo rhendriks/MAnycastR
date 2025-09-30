@@ -414,6 +414,7 @@ impl Controller for ControllerService {
                 probing_rate_interval,
                 number_of_probing_workers,
                 worker_interval,
+                is_reverse,
             )
             .await;
         } else if is_responsive || is_latency || is_traceroute {
