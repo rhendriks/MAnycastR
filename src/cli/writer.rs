@@ -173,11 +173,14 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
 ///
 /// * 'is_traceroute' - A boolean that determines whether the measurement is a traceroute
+///
+/// * 'is_record' - A boolean that determines whether Record Route is used
 pub fn get_header(
     m_type: u32,
     is_multi_origin: bool,
     is_symmetric: bool,
     is_traceroute: bool,
+    is_record: bool,
 ) -> Vec<&'static str> {
     let mut header = if is_traceroute {
         vec![
@@ -200,12 +203,15 @@ pub fn get_header(
         }
     };
 
+    // Optional fields
     if m_type == CHAOS_ID as u32 {
         header.push("chaos_data");
     }
-
     if is_multi_origin {
         header.push("origin_id");
+    }
+    if is_record {
+        header.push("record_route");
     }
 
     header
@@ -225,6 +231,8 @@ pub fn get_header(
 ///
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 ///
+/// * `is_record` - A boolean that determines whether Record Route is included
+///
 /// # Returns
 ///
 /// A vector of strings representing the row in the CSV file
@@ -234,6 +242,7 @@ fn get_row(
     m_type: u8,
     is_symmetric: bool,
     worker_map: &BiHashMap<u32, String>,
+    is_record: bool,
 ) -> Vec<String> {
     let origin_id = result.origin_id.to_string();
     let is_multi_origin = result.origin_id != 0 && result.origin_id != u32::MAX;
@@ -274,6 +283,14 @@ fn get_row(
     }
     if is_multi_origin {
         row.push(origin_id);
+    }
+    if is_record {
+        let hops_str = result.reverse_hops.iter()
+                .map(|ip| ip.to_string())
+                .collect::<Vec<String>>()
+                .join(" | ");
+
+        row.push(hops_str);
     }
 
     row
@@ -568,6 +585,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         config.is_multi_origin,
         config.is_symmetric,
         config.is_traceroute,
+        config.is_record,
     );
 
     tokio::spawn(async move {
