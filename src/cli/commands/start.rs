@@ -194,7 +194,7 @@ pub async fn handle(
     } else if is_traceroute {
         "Anycast-traceroute"
     } else if is_record {
-        "Anycast-reverse-traceroute"
+        "Anycast-Record-Route"
     } else {
         "Anycast"
     };
