@@ -359,7 +359,7 @@ fn parse_reverse_trace(
 
     // Get options (if any)
     let hops = if let Some(ip_option) = ip_header.options {
-        parse_record_route_option(&*ip_option)
+        parse_record_route_option(&ip_option)
     } else {
         return None; // No options, cannot be a reverse traceroute packet
     };
