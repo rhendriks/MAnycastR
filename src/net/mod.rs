@@ -189,6 +189,7 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Write options (will be empty if none)
+        println!("options {:x?}", options);
         wtr.write_all(&options).expect("Unable to write to byte buffer for IPv4 packet");
 
         // Calculate and write the checksum
