@@ -241,7 +241,6 @@ pub fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
         }
     }
 
-    println!("received packet {:x?}", data);
     addresses
 }
 
