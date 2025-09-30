@@ -399,6 +399,9 @@ fn parse_reverse_trace(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
+
+    println!("sending result");
+
     // Create a Reply for the received ping reply
     Some(Reply {
         tx_time,
