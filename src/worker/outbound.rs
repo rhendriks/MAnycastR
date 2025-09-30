@@ -154,13 +154,10 @@ pub fn outbound(
                                 Some(TaskType::Reverse(task)) => {
                                     let (s, f) = send_reverse_trace(
                                         &ethernet_header,
-                                        config.worker_id as u32,
-                                        config.m_id,
-                                        &config.info_url,
+                                        &config,
                                         &task.dst.unwrap(),
                                         &mut socket_tx,
                                         &mut limiter,
-                                        config.origin_map.as_ref().expect("Missing origin_map"),
                                     );
                                     sent += s;
                                     failed += f;
@@ -337,27 +334,26 @@ pub fn send_trace(
 ///
 /// # Arguments
 /// * 'ethernet_header' - The Ethernet header to prepend to the packet.
-/// * 'worker_id' - The unique ID of the worker sending the probe.
-/// * 'm_id' - The unique ID of the measurement.
-/// * 'info_url' - An informational URL to be embedded in the probe's payload.
+/// * 'config' - The outbound configuration containing worker details and settings.
 /// * 'dst' - The destination address to which the probe will be sent.
 /// * 'socket_tx' - The socket sender to use for sending the packet.
 /// * 'limiter' - A rate limiter to control the sending rate of packets.
-/// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_reverse_trace(
     ethernet_header: &[u8],
-    worker_id: u32,
-    m_id: u32,
-    info_url: &str,
+    config: &OutboundConfig,
     dst: &Address,
     socket_tx: &mut Box<dyn DataLinkSender>,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
-    origins: &[Origin],
 ) -> (u32, u32) {
     let mut sent = 0;
     let mut failed = 0;
+
+    let worker_id = config.worker_id as u32;
+    let m_id = config.m_id;
+    let info_url = &config.info_url;
+    let origins = config.origin_map.as_ref().expect("Missing origin_map");
 
     for origin in origins {
         let mut packet = ethernet_header.to_owned();

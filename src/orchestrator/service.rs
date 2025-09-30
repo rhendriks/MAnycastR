@@ -1,29 +1,27 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, End, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
-    ScheduleMeasurement, Start, Task, TaskResult, Tasks, Worker,
+    instruction, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage,
+    ScheduleMeasurement, Start, TaskResult, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     responsive_handler, symmetric_handler, trace_discovery_handler,
 };
-use crate::orchestrator::task_distributor::{broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender};
+use crate::orchestrator::task_distributor::{
+    broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
+};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{
-    ControllerService, MeasurementType, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL,
-};
+use crate::orchestrator::{ControllerService, MeasurementType};
 use crate::{custom_module, ALL_WORKERS};
 use futures_core::Stream;
 use log::{error, info, warn};
 use rand::Rng;
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use tonic::{Request, Response, Status, Streaming};
 
 /// Implementation of the Controller trait for the ControllerService
@@ -408,7 +406,6 @@ impl Controller for ControllerService {
         if is_divide || is_reverse {
             // Distribute tasks round-robin
             round_robin_distributor(
-                self.worker_stacks.clone(),
                 probing_worker_ids,
                 dst_addresses,
                 active_workers,
@@ -417,8 +414,8 @@ impl Controller for ControllerService {
                 probing_rate_interval,
                 number_of_probing_workers,
                 worker_interval,
-                is_responsive,
-            ).await;
+            )
+            .await;
         } else if is_responsive || is_latency || is_traceroute {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(
@@ -432,7 +429,8 @@ impl Controller for ControllerService {
                 number_of_probing_workers,
                 worker_interval,
                 is_responsive,
-            ).await;
+            )
+            .await;
         } else {
             // Broadcast tasks to all workers (regular anycast, unicast measurements)
             broadcast_distributor(
@@ -444,7 +442,7 @@ impl Controller for ControllerService {
                 number_of_probing_workers,
                 worker_interval,
             )
-                .await;
+            .await;
         }
 
         let rx = CLIReceiver {
