@@ -103,7 +103,7 @@ pub fn inbound(
                     // Try to parse reverse tracerout packets
                     let reverse_reply = parse_reverse_trace(
                         &packet[14..],
-                        config.m_id as u16,
+                        config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
                     );
@@ -339,7 +339,7 @@ fn parse_time_exceeded(
 /// * `Option<Reply>` - the received reverse trace reply (None if it is not a valid reverse traceroute packet)
 fn parse_reverse_trace(
     packet_bytes: &[u8],
-    m_id: u16,
+    m_id: u32,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
@@ -384,6 +384,7 @@ fn parse_reverse_trace(
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
+        println!("pkt_m_id: {}, m_id: {}", u32::from_be_bytes(pkt_measurement_id), m_id);
         println!("mid");
         return None;
     }
