@@ -67,7 +67,7 @@ impl From<&[u8]> for IPv4Packet {
         let mut cursor = Cursor::new(data);
         // Get header length, which is the 4 right bits in the first byte (hence & 0xF)
         // header length is in number of 32 bits i.e. 4 bytes (hence *4)
-        let header_length: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
+        let ihl: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
         let identifier = cursor.read_u16::<NetworkEndian>().unwrap(); // Identification
         cursor.set_position(8); // Time To Live
         let ttl = cursor.read_u8().unwrap();
@@ -77,9 +77,9 @@ impl From<&[u8]> for IPv4Packet {
         let dst = cursor.read_u32::<NetworkEndian>().unwrap(); // Destination IP Address
 
         // If the header length is longer than the data, the packet is incomplete
-        if header_length > data.len() {
+        if ihl > data.len() {
             return IPv4Packet {
-                length: header_length as u16,
+                length: ihl as u16,
                 ttl,
                 src,
                 dst,
@@ -90,9 +90,10 @@ impl From<&[u8]> for IPv4Packet {
         }
 
         // If the header length is greater than 20 bytes, read the options field
-        let options = if header_length > 20 {
-            let options_length = header_length - 20;
+        let options = if ihl > 20 {
+            let options_length = ihl - 20;
             let mut options_bytes = vec![0; options_length];
+            println!("received options bytes {:x?}", options_bytes);
             match cursor.read_exact(&mut options_bytes) {
                 Ok(()) => Some(options_bytes),
                 Err(_) => None,
@@ -101,7 +102,10 @@ impl From<&[u8]> for IPv4Packet {
             None
         };
 
-        let payload_bytes = &cursor.into_inner()[header_length..];
+        println!("ihl {}", ihl);
+
+        let payload_bytes = &cursor.into_inner()[ihl..];
+        println!("received payload bytes {:x?}", payload_bytes);
         let payload = match packet_type {
             1 => {
                 if payload_bytes.len() < 8 {
@@ -134,7 +138,7 @@ impl From<&[u8]> for IPv4Packet {
         };
 
         IPv4Packet {
-            length: header_length as u16,
+            length: ihl as u16,
             ttl,
             src,
             dst,
