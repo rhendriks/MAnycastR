@@ -178,6 +178,7 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
                                                                        // Write options if they exist
         if let Some(options) = &packet.options {
+            println!("[IPv4] Options: {:?}", options);
             wtr.write_all(options)
                 .expect("Unable to write options to byte buffer for IPv4 packet");
         }
