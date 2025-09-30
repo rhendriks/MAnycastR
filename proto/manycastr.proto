@@ -72,7 +72,7 @@ message ScheduleMeasurement {
   uint32 number_of_probes = 12; // number of probes to send per origin,dst pair
   bool is_traceroute = 13; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 14; // whether the measurement is for IPv6
-  bool is_reverse = 15; // whether the measurement is a reverse traceroute measurement
+  bool is_record = 15; // whether the measurement is a Record Route measurement
 }
 
 // A list of workers
@@ -126,7 +126,7 @@ message Task {
     Probe probe = 1; // A probe task (e.g., regular ping)
     Trace trace = 2; // A traceroute task (to a specific TTL)
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
-    Reverse reverse = 4; // A reverse traceroute task
+    Record record = 4; // A record route task
   }
 }
 
@@ -147,7 +147,7 @@ message Start {
   bool is_latency = 8; // whether the measurement is for latency
   bool is_traceroute = 9; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 10; // whether the measurement is for IPv6
-  bool is_reverse = 11; // whether the measurement is a reverse traceroute measurement
+  bool is_record = 11; // whether the measurement is a Record Route measurement
 }
 
 // An end message, indicates the worker should stop sending out probes
@@ -174,9 +174,9 @@ message Probe {
   Address dst = 1; // target address of the probe
 }
 
-// A reverse traceroute task, containing the target address to probe
-message Reverse {
-  Address dst = 1; // target address of the reverse traceroute probe
+// A Record Route task, containing the target address to probe
+message Record {
+  Address dst = 1;
 }
 
 // A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
@@ -193,7 +193,7 @@ message TaskResult {
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
 }
 
-// Probe reply message TODO split into different results based on measurement type (traceroute, reverse traceroute, other)
+// Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, other)
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
@@ -204,5 +204,5 @@ message Reply {
   optional string chaos = 7;
   optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
   optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
-  repeated Address reverse_hops = 10; // if this reply is part of a reverse traceroute, the hops discovered
+  repeated Address recorded_hops = 10; // if this reply is part of a Record Route measurement, the hops discovered
 }

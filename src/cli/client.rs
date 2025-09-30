@@ -146,9 +146,9 @@ impl CliClient {
         };
         // Determine traceroute
         let is_traceroute = args.is_traceroute;
-        let is_reverse = args.is_reverse;
+        let is_record = args.is_record;
         // Determine the type of measurement
-        let filetype = match (is_unicast, is_traceroute, is_reverse) {
+        let filetype = match (is_unicast, is_traceroute, is_record) {
             (true, false, false) => "up",  // unicast probing
             (false, false, false) => "ap", // anycast probing
             (true, true, _) => "ut",       // unicast traceroute
@@ -217,6 +217,7 @@ impl CliClient {
             is_symmetric: is_unicast || is_latency,
             worker_map: args.worker_map.clone(),
             is_traceroute,
+            is_record,
         };
 
         // Start thread that writes results to file
