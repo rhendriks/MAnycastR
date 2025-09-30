@@ -46,6 +46,8 @@ pub struct WriteConfig<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// Indicate whether it is a traceroute measurement
     pub is_traceroute: bool,
+    /// Indicate whether Record Route is used
+    pub is_record: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -109,6 +111,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
         config.is_multi_origin,
         config.is_symmetric,
         config.is_traceroute,
+        config.is_record,
     );
     if let Some(wtr) = wtr_cli.as_mut() {
         wtr.write_record(&header)
