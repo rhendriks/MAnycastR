@@ -146,12 +146,15 @@ impl CliClient {
         };
         // Determine traceroute
         let is_traceroute = args.is_traceroute;
+        let is_reverse = args.is_reverse;
         // Determine the type of measurement
-        let filetype = match (is_unicast, is_traceroute) {
-            (true, false) => "up",  // unicast probing
-            (false, false) => "ap", // anycast probing
-            (true, true) => "ut",   // unicast traceroute
-            (false, true) => "at",  // anycast traceroute
+        let filetype = match (is_unicast, is_traceroute, is_reverse) {
+            (true, false, false) => "up",  // unicast probing
+            (false, false, false) => "ap", // anycast probing
+            (true, true, _) => "ut",       // unicast traceroute
+            (false, true, _) => "at",      // anycast traceroute
+            (true, _, true) => "ur",       // unicast reverse traceroute
+            (false, _, true) => "ar",      // anycast reverse traceroute
         };
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;

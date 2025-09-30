@@ -1,4 +1,6 @@
-use crate::custom_module::manycastr::{instruction, task, Address, End, Instruction, Probe, Reverse, Task, Tasks};
+use crate::custom_module::manycastr::{
+    instruction, task, Address, End, Instruction, Probe, Reverse, Task, Tasks,
+};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};

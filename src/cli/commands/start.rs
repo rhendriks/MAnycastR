@@ -13,30 +13,24 @@ use prettytable::{format, row, Table};
 pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
     pub is_cli: bool,
-
     /// Indicates whether the results should be written in Parquet format (default: .csv.gz).
     pub is_parquet: bool,
-
     /// Specifies whether the list of targets should be shuffled before the measurement begins.
     pub is_shuffle: bool,
-
     /// The path to the file containing the list of measurement targets (the "hitlist").
     pub hitlist_path: &'a str,
-
     /// The total number of targets in the hitlist, used for estimating measurement duration.
     pub hitlist_length: usize,
-
     /// Path to write results to (may include filename and extension).
     pub out_path: String,
-
     /// Indicates whether the measurement is configuration-based (using a configuration file)
     pub is_config: bool,
-
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
-
     /// Indicates whether the measurement is a traceroute
     pub is_traceroute: bool,
+    /// Indicates whether the measurement is a reverse traceroute
+    pub is_reverse: bool,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -279,6 +273,7 @@ pub async fn handle(
         is_config,
         worker_map,
         is_traceroute,
+        is_reverse
     };
 
     grpc_client
