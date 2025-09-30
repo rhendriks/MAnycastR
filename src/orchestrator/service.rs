@@ -7,9 +7,7 @@ use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     responsive_handler, symmetric_handler, trace_discovery_handler,
 };
-use crate::orchestrator::task_distributor::{
-    broadcast_distributor, round_robin_distributor, task_sender,
-};
+use crate::orchestrator::task_distributor::{broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
@@ -414,7 +412,8 @@ impl Controller for ControllerService {
         };
 
         // Spawn appropriate task distributor thread
-        if is_divide || is_responsive || is_latency || is_traceroute || is_reverse {
+        if is_divide || is_reverse {
+            // Distribute tasks round-robin
             round_robin_distributor(
                 self.worker_stacks.clone(),
                 probing_worker_ids,
@@ -427,9 +426,24 @@ impl Controller for ControllerService {
                 worker_interval,
                 is_responsive,
                 is_discovery,
-            )
-            .await;
+            ).await;
+        } else if is_divide || is_responsive || is_latency || is_traceroute {
+            // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
+            round_robin_discovery(
+                self.worker_stacks.clone(),
+                probing_worker_ids,
+                dst_addresses,
+                active_workers,
+                tx_t.clone(),
+                probing_rate,
+                probing_rate_interval,
+                number_of_probing_workers,
+                worker_interval,
+                is_responsive,
+                is_discovery,
+            ).await;
         } else {
+            // Broadcast tasks to all workers (regular anycast, unicast measurements)
             broadcast_distributor(
                 dst_addresses,
                 probing_rate,
@@ -440,7 +454,7 @@ impl Controller for ControllerService {
                 worker_interval,
                 is_discovery,
             )
-            .await;
+                .await;
         }
 
         let rx = CLIReceiver {
