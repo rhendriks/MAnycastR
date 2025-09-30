@@ -191,7 +191,6 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
         // Write options (will be empty if none)
-        println!("options {:x?}", options);
         wtr.write_all(&options)
             .expect("Unable to write to byte buffer for IPv4 packet");
 
@@ -204,7 +203,6 @@ impl From<&IPv4Packet> for Vec<u8> {
         cursor.set_position(total_header_length as u64); // Skip the IP header
 
         // Add the payload
-        println!("payload: {:x?}", payload);
         cursor
             .write_all(&payload)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Payload
