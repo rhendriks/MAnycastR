@@ -155,8 +155,19 @@ impl From<&IPv4Packet> for Vec<u8> {
             PacketPayload::Unimplemented => (0, vec![]),
         };
 
-        let mut wtr = vec![];
-        wtr.write_u8(0x45)
+        // Pad options to a multiple of 4 bytes if they exist
+        let mut options = packet.options.clone().unwrap_or_default();
+        while options.len() % 4 != 0 {
+            options.push(0); // Padding with NOP (0)
+        }
+
+        // Calculate header length (IHL) including options if they exist
+        let options_length = options.len();
+        let total_header_length = 20 + options_length; // Base header length (20 bytes) + options length
+        let ihl = (total_header_length / 4) as u8;
+
+        let mut wtr = Vec::with_capacity(total_header_length);
+        wtr.write_u8((4 << 4) | ihl)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
         wtr.write_u8(0x00)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
@@ -177,19 +188,16 @@ impl From<&IPv4Packet> for Vec<u8> {
         wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
+        // Write options (will be empty if none)
+        wtr.write_all(&options).expect("Unable to write to byte buffer for IPv4 packet");
+
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
         let mut cursor = Cursor::new(wtr);
-        cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
+        cursor.set_position(10); // Checksum position
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
-        cursor.set_position(20); // Skip the header
-        // Write options if they exist
-        if let Some(options) = &packet.options {
-            println!("IP options: {:x?}", options);
-            cursor.write_all(options)
-                .expect("Unable to write options to byte buffer for IPv4 packet");
-        }
+        cursor.set_position(total_header_length as u64); // Skip the IP header
 
         // Add the payload
         println!("payload: {:x?}", payload);
