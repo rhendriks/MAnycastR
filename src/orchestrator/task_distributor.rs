@@ -26,7 +26,6 @@ use tonic::Status;
 /// * 'probing_rate_interval' - interval at which to send tasks
 /// * 'number_of_probing_workers' - number of probing workers
 /// * 'worker_interval' - inter-client interval between workers
-/// * 'is_discovery' - whether the measurement is a discovery measurement (None for discovery, Some(true) for unicast/anycast, Some(false) for latency)
 pub async fn broadcast_distributor(
     dst_addresses: Vec<Address>,
     probing_rate: u32,
@@ -35,7 +34,6 @@ pub async fn broadcast_distributor(
     mut probing_rate_interval: Interval,
     number_of_probing_workers: usize,
     worker_interval: u64,
-    is_discovery: Option<bool>,
 ) {
     info!("[Orchestrator] Starting Broadcast Task Distributor.");
     spawn(async move {
@@ -59,7 +57,7 @@ pub async fn broadcast_distributor(
                 Instruction {
                     instruction_type: Some(instruction::InstructionType::Tasks(Tasks { tasks })),
                 },
-                is_discovery.is_none(),
+                true,
             ))
             .await
             .expect("Failed to send task to TaskDistributor");
@@ -120,7 +118,6 @@ pub async fn broadcast_distributor(
 /// * 'number_of_probing_workers' - number of probing workers
 /// * 'worker_interval' - inter-client interval between workers
 /// * 'is_responsive' - whether the measurement is in responsive mode
-/// * 'is_discovery' - whether the measurement is a discovery measurement (None for discovery, Some(true) for unicast/anycast, Some(false) for latency)
 pub async fn round_robin_distributor(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     probing_worker_ids: Vec<u32>,
@@ -132,7 +129,6 @@ pub async fn round_robin_distributor(
     number_of_probing_workers: usize,
     worker_interval: u64,
     is_responsive: bool,
-    is_discovery: Option<bool>,
 ) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
@@ -233,7 +229,7 @@ pub async fn round_robin_distributor(
                 };
 
                 // Send the instruction to the current round-robin worker
-                tx_t.send((worker_id, instruction, is_discovery.is_none()))
+                tx_t.send((worker_id, instruction, false))
                     .await
                     .expect("Failed to send task to TaskDistributor");
             }
@@ -318,7 +314,6 @@ pub async fn round_robin_discovery(
     number_of_probing_workers: usize,
     worker_interval: u64,
     is_responsive: bool,
-    is_discovery: Option<bool>,
 ) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
@@ -419,7 +414,7 @@ pub async fn round_robin_discovery(
                 };
 
                 // Send the instruction to the current round-robin worker
-                tx_t.send((worker_id, instruction, is_discovery.is_none()))
+                tx_t.send((worker_id, instruction, false))
                     .await
                     .expect("Failed to send task to TaskDistributor");
             }

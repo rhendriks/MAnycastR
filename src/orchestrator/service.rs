@@ -404,13 +404,6 @@ impl Controller for ControllerService {
 
         let active_workers = self.active_workers.clone();
 
-        let is_discovery = if is_responsive || is_latency {
-            // If we are in responsive or latency mode, we want to discover the targets
-            Some(true)
-        } else {
-            None
-        };
-
         // Spawn appropriate task distributor thread
         if is_divide || is_reverse {
             // Distribute tasks round-robin
@@ -425,9 +418,8 @@ impl Controller for ControllerService {
                 number_of_probing_workers,
                 worker_interval,
                 is_responsive,
-                is_discovery,
             ).await;
-        } else if is_divide || is_responsive || is_latency || is_traceroute {
+        } else if is_responsive || is_latency || is_traceroute {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(
                 self.worker_stacks.clone(),
@@ -440,7 +432,6 @@ impl Controller for ControllerService {
                 number_of_probing_workers,
                 worker_interval,
                 is_responsive,
-                is_discovery,
             ).await;
         } else {
             // Broadcast tasks to all workers (regular anycast, unicast measurements)
@@ -452,7 +443,6 @@ impl Controller for ControllerService {
                 probing_rate_interval,
                 number_of_probing_workers,
                 worker_interval,
-                is_discovery,
             )
                 .await;
         }
