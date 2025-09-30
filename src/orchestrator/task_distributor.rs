@@ -246,7 +246,7 @@ pub async fn round_robin_discovery(
     worker_interval: u64,
     is_responsive: bool,
 ) {
-    info!("[Orchestrator] Starting Round-Robin Task Distributor.");
+    info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
 
     spawn(async move {
