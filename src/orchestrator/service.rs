@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::{
-    instruction, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage,
-    ScheduleMeasurement, Start, TaskResult, Worker,
+    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
+    Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -402,19 +402,45 @@ impl Controller for ControllerService {
 
         let active_workers = self.active_workers.clone();
 
+        // Convert dst_addresses into the appropriate TaskType
+        let tasks = if is_record {
+            // Send Reverse tasks
+            dst_addresses
+                .iter()
+                .map(|addr| Task {
+                    task_type: Some(task::TaskType::Record(Record { dst: Some(*addr) })),
+                })
+                .collect::<Vec<Task>>()
+        } else if is_responsive || is_latency || is_traceroute {
+            // Send Discovery tasks
+            dst_addresses
+                .iter()
+                .map(|addr| Task {
+                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
+                })
+                .collect::<Vec<Task>>()
+        } else {
+            // Send Probe tasks
+            dst_addresses
+                .iter()
+                .map(|addr| Task {
+                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
+                })
+                .collect::<Vec<Task>>()
+        };
+
         // Spawn appropriate task distributor thread
         if is_divide {
             // Distribute tasks round-robin
             round_robin_distributor(
                 probing_worker_ids,
-                dst_addresses,
+                tasks,
                 active_workers,
                 tx_t.clone(),
                 probing_rate,
                 probing_rate_interval,
                 number_of_probing_workers,
                 worker_interval,
-                is_record,
             )
             .await;
         } else if is_responsive || is_latency || is_traceroute {
@@ -422,7 +448,7 @@ impl Controller for ControllerService {
             round_robin_discovery(
                 self.worker_stacks.clone(),
                 probing_worker_ids,
-                dst_addresses,
+                tasks,
                 active_workers,
                 tx_t.clone(),
                 probing_rate,
@@ -435,7 +461,7 @@ impl Controller for ControllerService {
         } else {
             // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
             broadcast_distributor(
-                dst_addresses,
+                tasks,
                 probing_rate,
                 active_workers,
                 tx_t.clone(),

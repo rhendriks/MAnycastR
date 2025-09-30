@@ -363,7 +363,7 @@ fn parse_reverse_trace(
     } else {
         return None; // No options, cannot be a reverse traceroute packet
     };
-    
+
     // Parse ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
         return None;

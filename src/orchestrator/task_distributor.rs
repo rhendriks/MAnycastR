@@ -1,6 +1,4 @@
-use crate::custom_module::manycastr::{
-    instruction, task, Address, End, Instruction, Probe, Record, Task, Tasks,
-};
+use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
@@ -21,7 +19,7 @@ use tonic::Status;
 /// Used for --unicast and regular anycast measurements.
 ///
 /// # Arguments
-/// * 'dst_addresses' - the hitlist of target addresses to probe
+/// * 'dst_addresses' - vector of tasks to distribute
 /// * 'probing_rate' - number of tasks to send per interval
 /// * 'active_workers' - number of active workers (None if no measurement is active)
 /// * 'tx_t' - channel to send tasks to the TaskDistributor
@@ -29,7 +27,7 @@ use tonic::Status;
 /// * 'number_of_probing_workers' - number of probing workers
 /// * 'worker_interval' - inter-client interval between workers
 pub async fn broadcast_distributor(
-    dst_addresses: Vec<Address>,
+    tasks: Vec<Task>,
     probing_rate: u32,
     active_workers: Arc<Mutex<Option<u32>>>,
     tx_t: Sender<(u32, Instruction, bool)>,
@@ -40,24 +38,18 @@ pub async fn broadcast_distributor(
     info!("[Orchestrator] Starting Broadcast Task Distributor.");
     spawn(async move {
         // Iterate over the hitlist in chunks of the specified probing rate.
-        for chunk in dst_addresses.chunks(probing_rate as usize) {
+        for chunk in tasks.chunks(probing_rate as usize) {
             if active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] Measurement no longer active");
                 break;
             }
 
-            // Convert Addresses to a Tasks message
-            let tasks = chunk
-                .iter()
-                .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
-                })
-                .collect::<Vec<Task>>();
-
             tx_t.send((
                 ALL_WORKERS_INTERVAL,
                 Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks { tasks })),
+                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                        tasks: chunk.to_vec(),
+                    })),
                 },
                 true,
             ))
@@ -113,24 +105,22 @@ pub async fn broadcast_distributor(
 ///
 /// # Arguments
 /// * 'probing_worker_ids' - IDs of the probing workers
-/// * 'dst_addresses' - the hitlist of target addresses to probe
+/// * 'tasks' - Vector of tasks to distribute
 /// * 'active_workers' - number of active workers (None if no measurement is active)
 /// * 'tx_t' - channel to send tasks to the TaskDistributor
 /// * 'probing_rate' - number of tasks to send per interval
 /// * 'probing_rate_interval' - interval at which to send tasks
 /// * 'number_of_probing_workers' - number of probing workers
 /// * 'worker_interval' - inter-client interval between workers
-/// * 'is_reverse' - whether the measurement type is --reverse (true)
 pub async fn round_robin_distributor(
     probing_worker_ids: Vec<u32>,
-    dst_addresses: Vec<Address>,
+    tasks: Vec<Task>,
     active_workers: Arc<Mutex<Option<u32>>>,
     tx_t: Sender<(u32, Instruction, bool)>,
     probing_rate: u32,
     mut probing_rate_interval: Interval,
     number_of_probing_workers: usize,
     worker_interval: u64,
-    is_reverse: bool,
 ) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
 
@@ -140,7 +130,7 @@ pub async fn round_robin_distributor(
         // TODO update cycler if a worker disconnects
         // TODO update probing_rate_interval if a worker disconnects
 
-        for chunk in dst_addresses.chunks(probing_rate as usize) {
+        for chunk in tasks.chunks(probing_rate as usize) {
             if active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
@@ -149,30 +139,13 @@ pub async fn round_robin_distributor(
             // Get the current worker ID to send tasks to.
             let worker_id = sender_cycler.next().expect("No probing workers available");
 
-            // Convert Addresses to appropriate Tasks message
-            let tasks = if is_reverse {
-                // Send Reverse tasks
-                chunk
-                    .iter()
-                    .map(|addr| Task {
-                        task_type: Some(task::TaskType::Record(Record { dst: Some(*addr) })),
-                    })
-                    .collect::<Vec<Task>>()
-            } else {
-                // Send Probe tasks
-                chunk
-                    .iter()
-                    .map(|addr| Task {
-                        task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
-                    })
-                    .collect::<Vec<Task>>()
-            };
-
             // Send the instruction to the current round-robin worker
             tx_t.send((
                 worker_id,
                 Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks { tasks })),
+                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                        tasks: chunk.to_vec(),
+                    })),
                 },
                 true,
             ))
@@ -228,7 +201,7 @@ pub async fn round_robin_distributor(
 /// # Arguments
 /// * 'worker_stacks' - stacks of follow-up tasks for each worker
 /// * 'probing_worker_ids' - IDs of the probing workers
-/// * 'dst_addresses' - the hitlist of target addresses to probe
+/// * 'task' - vector of tasks to distribute
 /// * 'active_workers' - number of active workers (None if no measurement is active)
 /// * 'tx_t' - channel to send tasks to the TaskDistributor
 /// * 'probing_rate' - number of tasks to send per interval
@@ -239,7 +212,7 @@ pub async fn round_robin_distributor(
 pub async fn round_robin_discovery(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     probing_worker_ids: Vec<u32>,
-    dst_addresses: Vec<Address>,
+    tasks: Vec<Task>,
     active_workers: Arc<Mutex<Option<u32>>>,
     tx_t: Sender<(u32, Instruction, bool)>,
     probing_rate: u32,
@@ -258,7 +231,7 @@ pub async fn round_robin_discovery(
         // TODO update probing_rate_interval if a worker disconnects
 
         // We create a manual iterator over the general hitlist.
-        let mut hitlist_iter = dst_addresses.into_iter();
+        let mut hitlist_iter = tasks.into_iter();
         let mut hitlist_is_empty = false;
 
         loop {
@@ -319,13 +292,8 @@ pub async fn round_robin_discovery(
 
             let discovery_tasks = if remainder_needed > 0 && !hitlist_is_empty {
                 // Fill up the remainder with new discovery probes from the hitlist
-                let discovery_tasks: Vec<Task> = hitlist_iter
-                    .by_ref()
-                    .take(remainder_needed)
-                    .map(|addr| Task {
-                        task_type: Some(task::TaskType::Discovery(Probe { dst: Some(addr) })),
-                    })
-                    .collect();
+                let discovery_tasks: Vec<Task> =
+                    hitlist_iter.by_ref().take(remainder_needed).collect();
 
                 // If we could not fill up the entire batch, we mark the hitlist as empty (only once)
                 if discovery_tasks.len() < remainder_needed {
