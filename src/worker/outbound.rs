@@ -151,8 +151,8 @@ pub fn outbound(
                                     traces_sent += s;
                                     failed += f;
                                 }
-                                Some(TaskType::Reverse(task)) => {
-                                    let (s, f) = send_reverse_trace(
+                                Some(TaskType::Record(task)) => {
+                                    let (s, f) = send_record_route_probe(
                                         &ethernet_header,
                                         &config,
                                         &task.dst.unwrap(),
@@ -330,7 +330,7 @@ pub fn send_trace(
     (0, 1)
 }
 
-/// Send a reverse traceroute probe (ICMP only for now)
+/// Send a Record Route ICMP probe to the specified destination.
 ///
 /// # Arguments
 /// * 'ethernet_header' - The Ethernet header to prepend to the packet.
@@ -340,7 +340,7 @@ pub fn send_trace(
 /// * 'limiter' - A rate limiter to control the sending rate of packets.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
-pub fn send_reverse_trace(
+pub fn send_record_route_probe(
     ethernet_header: &[u8],
     config: &OutboundConfig,
     dst: &Address,

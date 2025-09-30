@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{
-    instruction, task, Address, End, Instruction, Probe, Reverse, Task, Tasks,
+    instruction, task, Address, End, Instruction, Probe, Record, Task, Tasks,
 };
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
@@ -155,7 +155,7 @@ pub async fn round_robin_distributor(
                 chunk
                     .iter()
                     .map(|addr| Task {
-                        task_type: Some(task::TaskType::Reverse(Reverse { dst: Some(*addr) })),
+                        task_type: Some(task::TaskType::Record(Record { dst: Some(*addr) })),
                     })
                     .collect::<Vec<Task>>()
             } else {
