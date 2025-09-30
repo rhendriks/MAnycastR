@@ -403,7 +403,7 @@ impl Controller for ControllerService {
         let active_workers = self.active_workers.clone();
 
         // Spawn appropriate task distributor thread
-        if is_divide || is_record {
+        if is_divide {
             // Distribute tasks round-robin
             round_robin_distributor(
                 probing_worker_ids,
@@ -433,7 +433,7 @@ impl Controller for ControllerService {
             )
             .await;
         } else {
-            // Broadcast tasks to all workers (regular anycast, unicast measurements)
+            // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
             broadcast_distributor(
                 dst_addresses,
                 probing_rate,
