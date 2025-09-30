@@ -1,6 +1,4 @@
-use crate::custom_module::manycastr::{
-    instruction, task, Address, End, Instruction, Probe, Task, Tasks,
-};
+use crate::custom_module::manycastr::{instruction, task, Address, End, Instruction, Probe, Reverse, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
@@ -120,6 +118,7 @@ pub async fn broadcast_distributor(
 /// * 'probing_rate_interval' - interval at which to send tasks
 /// * 'number_of_probing_workers' - number of probing workers
 /// * 'worker_interval' - inter-client interval between workers
+/// * 'is_reverse' - whether the measurement type is --reverse (true)
 pub async fn round_robin_distributor(
     probing_worker_ids: Vec<u32>,
     dst_addresses: Vec<Address>,
@@ -129,6 +128,7 @@ pub async fn round_robin_distributor(
     mut probing_rate_interval: Interval,
     number_of_probing_workers: usize,
     worker_interval: u64,
+    is_reverse: bool,
 ) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
 
@@ -147,13 +147,24 @@ pub async fn round_robin_distributor(
             // Get the current worker ID to send tasks to.
             let worker_id = sender_cycler.next().expect("No probing workers available");
 
-            // Convert Addresses to a Tasks message
-            let tasks = chunk
-                .iter()
-                .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
-                })
-                .collect::<Vec<Task>>();
+            // Convert Addresses to appropriate Tasks message
+            let tasks = if is_reverse {
+                // Send Reverse tasks
+                chunk
+                    .iter()
+                    .map(|addr| Task {
+                        task_type: Some(task::TaskType::Reverse(Reverse { dst: Some(*addr) })),
+                    })
+                    .collect::<Vec<Task>>()
+            } else {
+                // Send Probe tasks
+                chunk
+                    .iter()
+                    .map(|addr| Task {
+                        task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
+                    })
+                    .collect::<Vec<Task>>()
+            };
 
             // Send the instruction to the current round-robin worker
             tx_t.send((
