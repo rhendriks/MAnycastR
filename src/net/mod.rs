@@ -101,7 +101,9 @@ impl From<&[u8]> for IPv4Packet {
             None
         };
 
-        let payload_bytes = &cursor.into_inner()[ihl..];
+        let payload_start = cursor.position() as usize;
+        let payload_bytes = &data[payload_start..];
+
         let payload = match packet_type {
             1 => {
                 if payload_bytes.len() < 8 {
