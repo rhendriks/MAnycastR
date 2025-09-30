@@ -93,7 +93,6 @@ impl From<&[u8]> for IPv4Packet {
         let options = if ihl > 20 {
             let options_length = ihl - 20;
             let mut options_bytes = vec![0; options_length];
-            println!("received options bytes {:x?}", options_bytes);
             match cursor.read_exact(&mut options_bytes) {
                 Ok(()) => Some(options_bytes),
                 Err(_) => None,
@@ -102,10 +101,7 @@ impl From<&[u8]> for IPv4Packet {
             None
         };
 
-        println!("ihl {}", ihl);
-
         let payload_bytes = &cursor.into_inner()[ihl..];
-        println!("received payload bytes {:x?}", payload_bytes);
         let payload = match packet_type {
             1 => {
                 if payload_bytes.len() < 8 {
