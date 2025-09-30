@@ -17,7 +17,8 @@ use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
 use crate::net::packet::{
-    create_dns, create_icmp, create_record_route_icmp, create_tcp, get_ethernet_header, ProbePayload,
+    create_dns, create_icmp, create_record_route_icmp, create_tcp, get_ethernet_header,
+    ProbePayload,
 };
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
