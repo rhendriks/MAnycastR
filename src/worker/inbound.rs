@@ -354,12 +354,15 @@ fn parse_reverse_trace(
         panic!("IPv6 reverse traceroute not implemented") // TODO
     }
 
-    println!("received bytes {:x?}", packet_bytes);
-
     // Parse IP header
     let ip_header = IPv4Packet::from(packet_bytes);
 
-    // Get options (if any)
+    // print bytes if from quad 1 (1.1.1.1)
+    if ip_header.src == 0x01010101 {
+        println!("received bytes {:x?}", packet_bytes);
+    }
+
+        // Get options (if any)
     let hops = if let Some(ip_option) = ip_header.options {
         parse_record_route_option(&ip_option)
     } else {
