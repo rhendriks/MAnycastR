@@ -176,12 +176,6 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
         wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
-                                                                       // Write options if they exist
-        if let Some(options) = &packet.options {
-            println!("[IPv4] Options: {:?}", options);
-            wtr.write_all(options)
-                .expect("Unable to write options to byte buffer for IPv4 packet");
-        }
 
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
@@ -189,8 +183,16 @@ impl From<&IPv4Packet> for Vec<u8> {
         cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
-        // Add the payload
         cursor.set_position(20); // Skip the header
+        // Write options if they exist
+        if let Some(options) = &packet.options {
+            println!("IP options: {:x?}", options);
+            cursor.write_all(options)
+                .expect("Unable to write options to byte buffer for IPv4 packet");
+        }
+
+        // Add the payload
+        println!("payload: {:x?}", payload);
         cursor
             .write_all(&payload)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Payload
