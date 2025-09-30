@@ -52,12 +52,12 @@ impl IPPacket {
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,            // 16-bit Total Length
-    pub ttl: u8,                // 8-bit Time To Live
-    pub src: u32,               // 32-bit Source IP Address
-    pub dst: u32,               // 32-bit Destination IP Address
-    pub payload: PacketPayload, // Payload
-    pub identifier: u16,        // 16-bit Identification
+    pub length: u16,              // 16-bit Total Length
+    pub ttl: u8,                  // 8-bit Time To Live
+    pub src: u32,                 // 32-bit Source IP Address
+    pub dst: u32,                 // 32-bit Destination IP Address
+    pub payload: PacketPayload,   // Payload
+    pub identifier: u16,          // 16-bit Identification
     pub options: Option<Vec<u8>>, // Optional options field (variable length)
 }
 
@@ -176,7 +176,7 @@ impl From<&IPv4Packet> for Vec<u8> {
             .expect("Unable to write to byte buffer for IPv4 packet"); // Source IP Address
         wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
-        // Write options if they exist
+                                                                       // Write options if they exist
         if let Some(options) = &packet.options {
             wtr.write_all(options)
                 .expect("Unable to write options to byte buffer for IPv4 packet");
@@ -677,7 +677,6 @@ impl ICMPPacket {
         };
 
         (&v6_packet).into()
-
     }
 
     /// Calculate the ICMP Checksum.

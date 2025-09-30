@@ -9,7 +9,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::custom_module::Separated;
-use crate::net::{parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord};
+use crate::net::{
+    parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet,
+    PacketPayload, TXTRecord,
+};
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
@@ -355,7 +358,7 @@ fn parse_reverse_trace(
     let ip_header = IPv4Packet::from(packet_bytes);
 
     // Get options (if any)
-    let hops =if let Some(ip_option) = ip_header.options {
+    let hops = if let Some(ip_option) = ip_header.options {
         parse_record_route_option(&*ip_option)
     } else {
         return None; // No options, cannot be a reverse traceroute packet

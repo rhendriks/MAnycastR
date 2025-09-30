@@ -16,7 +16,9 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
-use crate::net::packet::{create_dns, create_icmp, create_reverse_icmp, create_tcp, get_ethernet_header, ProbePayload};
+use crate::net::packet::{
+    create_dns, create_icmp, create_reverse_icmp, create_tcp, get_ethernet_header, ProbePayload,
+};
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
@@ -369,9 +371,9 @@ pub fn send_reverse_trace(
             origin.src.as_ref().unwrap(),
             dst,
             origin.dport as u16, // encoding worker ID in ICMP identifier
-            2,               // sequence number set to 1 for reverse traceroute
+            2,                   // sequence number set to 1 for reverse traceroute
             payload_fields,
-            64,              // TTL set to 64 for reverse traceroute
+            64, // TTL set to 64 for reverse traceroute
         ));
 
         while limiter.check().is_err() {
@@ -387,7 +389,6 @@ pub fn send_reverse_trace(
             }
             None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
         }
-
     }
     (sent, failed)
 }

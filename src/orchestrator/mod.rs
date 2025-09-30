@@ -57,8 +57,6 @@ pub struct ControllerService {
     active_workers: Arc<Mutex<Option<u32>>>,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
-    /// Indicates if a measurement is currently active
-    // is_active: Arc<Mutex<bool>>,
     /// Indicates the type of measurement currently active
     m_type: Arc<Mutex<Option<MeasurementType>>>,
     /// Optional static mapping of hostnames to worker IDs
