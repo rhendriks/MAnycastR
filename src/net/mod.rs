@@ -157,7 +157,7 @@ impl From<&IPv4Packet> for Vec<u8> {
 
         // Pad options to a multiple of 4 bytes if they exist
         let mut options = packet.options.clone().unwrap_or_default();
-        while options.len() % 4 != 0 {
+        while !options.len().is_multiple_of(4) {
             options.push(0); // Padding with NOP (0)
         }
 
@@ -190,7 +190,8 @@ impl From<&IPv4Packet> for Vec<u8> {
 
         // Write options (will be empty if none)
         println!("options {:x?}", options);
-        wtr.write_all(&options).expect("Unable to write to byte buffer for IPv4 packet");
+        wtr.write_all(&options)
+            .expect("Unable to write to byte buffer for IPv4 packet");
 
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
