@@ -254,7 +254,7 @@ pub fn create_icmp(
     }
 }
 
-/// Create a reverse traceroute ICMP packet to send.
+/// Create a Record Route ICMP packet to send.
 /// # Arguments
 /// * 'src' - the source address for the ping packet
 /// * 'dst' - the destination address for the ping packet
@@ -266,7 +266,7 @@ pub fn create_icmp(
 /// * 'ttl' - the time-to-live (TTL) value to set in the IP header
 /// # Returns
 /// A reverse traceroute ICMP packet (including the IP header) as a byte vector.
-pub fn create_reverse_icmp(
+pub fn create_record_route_icmp(
     src: &Address,
     dst: &Address,
     identifier: u16,
