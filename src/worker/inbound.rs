@@ -354,6 +354,8 @@ fn parse_reverse_trace(
         panic!("IPv6 reverse traceroute not implemented") // TODO
     }
 
+    println!("received bytes {:x?}", packet_bytes);
+
     // Parse IP header
     let ip_header = IPv4Packet::from(packet_bytes);
 
