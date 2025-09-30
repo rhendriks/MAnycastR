@@ -343,9 +343,9 @@ fn parse_reverse_trace(
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
-    // Check for ICMP echo reply code and minimum length
-    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
-        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
+    // Check for Record Route option and minimum length
+    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 7)) // TODO fix ipv6 filter
+        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 7))
     {
         return None;
     }
