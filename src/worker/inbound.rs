@@ -364,6 +364,7 @@ fn parse_reverse_trace(
 
     // Get options (if any)
     let recorded_hops = if let Some(ip_option) = ip_header.options {
+        println!("received options {:x?}", ip_option);
         parse_record_route_option(&ip_option)
     } else {
         return None; // No options, cannot be a reverse traceroute packet
@@ -376,6 +377,9 @@ fn parse_reverse_trace(
         println!("cant parse payload");
         return None;
     };
+
+    // Print ICMP Payload
+    println!("ICMP Payload: {:x?}", icmp_packet.body);
 
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement

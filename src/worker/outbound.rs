@@ -17,7 +17,7 @@ use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
 use crate::net::packet::{
-    create_dns, create_icmp, create_reverse_icmp, create_tcp, get_ethernet_header, ProbePayload,
+    create_dns, create_icmp, create_record_route_icmp, create_tcp, get_ethernet_header, ProbePayload,
 };
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
@@ -363,7 +363,7 @@ pub fn send_record_route_probe(
             info_url,
         };
 
-        packet.extend_from_slice(&create_reverse_icmp(
+        packet.extend_from_slice(&create_record_route_icmp(
             origin.src.as_ref().unwrap(),
             dst,
             origin.dport as u16, // encoding worker ID in ICMP identifier
