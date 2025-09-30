@@ -373,12 +373,14 @@ fn parse_reverse_trace(
 
     // Parse ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
+        println!("cant parse payload");
         return None;
     };
 
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
+        println!("mid");
         return None;
     }
 
@@ -391,6 +393,7 @@ fn parse_reverse_trace(
         icmp_packet.body[20..24].try_into().unwrap(),
     ));
     if (probe_src.get_v4() != ip_header.dst) | (probe_dst.get_v4() != ip_header.src) {
+        println!("spoofed");
         return None; // spoofed reply
     }
 
