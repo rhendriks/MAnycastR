@@ -289,10 +289,12 @@ fn get_row(
         row.push(origin_id);
     }
     if is_record {
-        let hops_str = result.recorded_hops.iter()
-                .map(|ip| ip.to_string())
-                .collect::<Vec<String>>()
-                .join(" | ");
+        let hops_str = result
+            .recorded_hops
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<String>>()
+            .join(" | ");
 
         row.push(hops_str);
     }
@@ -640,7 +642,13 @@ fn build_parquet_schema(
     is_traceroute: bool,
     is_record: bool,
 ) -> TypePtr {
-    let headers = get_header(m_type, is_multi_origin, is_symmetric, is_traceroute, is_record);
+    let headers = get_header(
+        m_type,
+        is_multi_origin,
+        is_symmetric,
+        is_traceroute,
+        is_record,
+    );
     let mut fields = Vec::new();
 
     for &header in &headers {

@@ -273,7 +273,7 @@ pub async fn handle(
         is_config,
         worker_map,
         is_traceroute,
-        is_record
+        is_record,
     };
 
     grpc_client
