@@ -29,8 +29,8 @@ pub struct MeasurementExecutionArgs<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// Indicates whether the measurement is a traceroute
     pub is_traceroute: bool,
-    /// Indicates whether the measurement is a reverse traceroute
-    pub is_reverse: bool,
+    /// Indicates a Record Route measurement
+    pub is_record: bool,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -168,7 +168,7 @@ pub async fn handle(
 
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
-    let is_reverse = matches.get_flag("reverse"); // reverse traceroute flag
+    let is_record = matches.get_flag("record"); // Record Route flag
     let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
@@ -193,7 +193,7 @@ pub async fn handle(
         "Anycast-latency"
     } else if is_traceroute {
         "Anycast-traceroute"
-    } else if is_reverse {
+    } else if is_record {
         "Anycast-reverse-traceroute"
     } else {
         "Anycast"
@@ -260,7 +260,7 @@ pub async fn handle(
         number_of_probes,
         is_traceroute,
         is_ipv6,
-        is_reverse,
+        is_record,
     };
 
     let args = MeasurementExecutionArgs {
@@ -273,7 +273,7 @@ pub async fn handle(
         is_config,
         worker_map,
         is_traceroute,
-        is_reverse
+        is_record
     };
 
     grpc_client

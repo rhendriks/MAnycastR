@@ -324,7 +324,7 @@ fn parse_time_exceeded(
         chaos: None,
         trace_dst: Some(original_ip_header.dst()), // original destination address
         trace_ttl: Some(trace_ttl),                // TTL
-        reverse_hops: vec![],
+        recorded_hops: vec![],
     })
 }
 
@@ -362,14 +362,14 @@ fn parse_reverse_trace(
         println!("received bytes {:x?}", packet_bytes);
     }
 
-        // Get options (if any)
-    let hops = if let Some(ip_option) = ip_header.options {
+    // Get options (if any)
+    let recorded_hops = if let Some(ip_option) = ip_header.options {
         parse_record_route_option(&ip_option)
     } else {
         return None; // No options, cannot be a reverse traceroute packet
     };
 
-    println!("found the following hops: {:?}", hops);
+    println!("found the following hops: {:?}", recorded_hops);
 
     // Parse ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
@@ -410,7 +410,7 @@ fn parse_reverse_trace(
         chaos: None,
         trace_dst: None,
         trace_ttl: None,
-        reverse_hops: hops,
+        recorded_hops,
     })
 }
 
@@ -510,7 +510,7 @@ fn parse_icmp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
-            reverse_hops: vec![],
+            recorded_hops: vec![],
         },
         is_discovery,
     ))
@@ -612,7 +612,7 @@ fn parse_dns(
             chaos,
             trace_dst: None,
             trace_ttl: None,
-            reverse_hops: vec![],
+            recorded_hops: vec![],
         },
         is_discovery,
     ))
@@ -779,7 +779,7 @@ fn parse_tcp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
-            reverse_hops: vec![],
+            recorded_hops: vec![],
         },
         is_discovery,
     ))

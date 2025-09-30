@@ -48,7 +48,7 @@ impl Worker {
         let is_traceroute = start_measurement.is_traceroute;
         let tx_origins: Vec<Origin> = start_measurement.tx_origins;
         let is_ipv6 = start_measurement.is_ipv6;
-        let is_reverse = start_measurement.is_reverse;
+        let is_record = start_measurement.is_record;
         // Channel for forwarding tasks to outbound
         let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
         self.outbound_tx = Some(outbound_tx);
@@ -108,7 +108,7 @@ impl Worker {
             abort_s: self.abort_s.clone(),
             is_traceroute,
             is_ipv6,
-            is_reverse,
+            is_reverse: is_record,
         };
 
         inbound(config, tx, socket_rx);

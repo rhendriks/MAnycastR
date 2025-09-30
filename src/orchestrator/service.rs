@@ -205,7 +205,7 @@ impl Controller for ControllerService {
         let probe_interval = m_definition.probe_interval as u64;
         let number_of_probes = m_definition.number_of_probes as u8;
         let is_traceroute = m_definition.is_traceroute;
-        let is_reverse = m_definition.is_reverse;
+        let is_record = m_definition.is_record;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Instruction, Status>>> = {
@@ -350,7 +350,7 @@ impl Controller for ControllerService {
                     is_latency,
                     is_traceroute,
                     is_ipv6: m_definition.is_ipv6,
-                    is_reverse,
+                    is_record,
                 })),
             };
 
@@ -403,7 +403,7 @@ impl Controller for ControllerService {
         let active_workers = self.active_workers.clone();
 
         // Spawn appropriate task distributor thread
-        if is_divide || is_reverse {
+        if is_divide || is_record {
             // Distribute tasks round-robin
             round_robin_distributor(
                 probing_worker_ids,
@@ -414,7 +414,7 @@ impl Controller for ControllerService {
                 probing_rate_interval,
                 number_of_probing_workers,
                 worker_interval,
-                is_reverse,
+                is_record,
             )
             .await;
         } else if is_responsive || is_latency || is_traceroute {

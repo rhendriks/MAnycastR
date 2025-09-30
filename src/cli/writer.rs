@@ -143,6 +143,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
                         config.m_type as u8,
                         config.is_symmetric,
                         &config.worker_map,
+                        config.is_record,
                     )
                 };
 
@@ -288,7 +289,7 @@ fn get_row(
         row.push(origin_id);
     }
     if is_record {
-        let hops_str = result.reverse_hops.iter()
+        let hops_str = result.recorded_hops.iter()
                 .map(|ip| ip.to_string())
                 .collect::<Vec<String>>()
                 .join(" | ");
@@ -560,6 +561,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         config.is_multi_origin,
         config.is_symmetric,
         config.is_traceroute,
+        config.is_record,
     );
 
     // Get metadata key-value pairs for the Parquet file
@@ -636,8 +638,9 @@ fn build_parquet_schema(
     is_multi_origin: bool,
     is_symmetric: bool,
     is_traceroute: bool,
+    is_record: bool,
 ) -> TypePtr {
-    let headers = get_header(m_type, is_multi_origin, is_symmetric, is_traceroute);
+    let headers = get_header(m_type, is_multi_origin, is_symmetric, is_traceroute, is_record);
     let mut fields = Vec::new();
 
     for &header in &headers {
