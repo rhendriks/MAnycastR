@@ -377,9 +377,6 @@ pub fn send_record_route_probe(
             sleep(Duration::from_millis(1));
         }
 
-        println!("sendign reverse traceroute packet to {}", dst);
-        println!("packet: {:x?}", packet);
-
         match socket_tx.send_to(&packet, None) {
             Some(Ok(())) => sent += 1,
             Some(Err(e)) => {

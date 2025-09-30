@@ -357,35 +357,21 @@ fn parse_reverse_trace(
     // Parse IP header
     let ip_header = IPv4Packet::from(packet_bytes);
 
-    // print bytes if from quad 1 (1.1.1.1)
-    if ip_header.src == 0x01010101 {
-        println!("received bytes {:x?}", packet_bytes);
-    }
-
     // Get options (if any)
     let recorded_hops = if let Some(ip_option) = ip_header.options {
-        println!("received options {:x?}", ip_option);
         parse_record_route_option(&ip_option)
     } else {
         return None; // No options, cannot be a reverse traceroute packet
     };
-
-    println!("found the following hops: {:?}", recorded_hops);
-
+    
     // Parse ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
-        println!("cant parse payload");
         return None;
     };
-
-    // Print ICMP Payload
-    println!("ICMP Payload: {:x?}", icmp_packet.body);
 
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
-        println!("pkt_m_id: {}, m_id: {}", u32::from_be_bytes(pkt_measurement_id), m_id);
-        println!("mid");
         return None;
     }
 
@@ -398,7 +384,6 @@ fn parse_reverse_trace(
         icmp_packet.body[20..24].try_into().unwrap(),
     ));
     if (probe_src.get_v4() != ip_header.dst) | (probe_dst.get_v4() != ip_header.src) {
-        println!("spoofed");
         return None; // spoofed reply
     }
 
@@ -407,8 +392,6 @@ fn parse_reverse_trace(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-
-    println!("sending result");
 
     // Create a Reply for the received ping reply
     Some(Reply {
