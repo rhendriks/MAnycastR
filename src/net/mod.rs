@@ -160,7 +160,7 @@ impl From<&IPv4Packet> for Vec<u8> {
         // Pad options to a multiple of 4 bytes if they exist
         let mut options = packet.options.clone().unwrap_or_default();
         while !options.len().is_multiple_of(4) {
-            options.push(0); // Padding with NOP (0)
+            options.push(1); // Padding with NOP (0)
         }
 
         // Calculate header length (IHL) including options if they exist
