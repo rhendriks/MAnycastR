@@ -194,11 +194,8 @@ impl From<&IPv4Packet> for Vec<u8> {
         wtr.write_all(&options)
             .expect("Unable to write to byte buffer for IPv4 packet");
 
-        println!("packet bytes {:x?}", wtr);
-
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
-        println!("checksum {:x?}", checksum);
         let mut cursor = Cursor::new(wtr);
         cursor.set_position(10); // Checksum position
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
