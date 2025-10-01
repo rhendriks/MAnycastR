@@ -367,10 +367,10 @@ pub fn send_record_route_probe(
         packet.extend_from_slice(&create_record_route_icmp(
             origin.src.as_ref().unwrap(),
             dst,
-            origin.dport as u16, // encoding worker ID in ICMP identifier
-            2,                   // sequence number set to 1 for reverse traceroute
+            origin.dport as u16,
+            2,
             payload_fields,
-            64, // TTL set to 64 for reverse traceroute
+            255,
         ));
 
         while limiter.check().is_err() {
@@ -381,7 +381,7 @@ pub fn send_record_route_probe(
         match socket_tx.send_to(&packet, None) {
             Some(Ok(())) => sent += 1,
             Some(Err(e)) => {
-                warn!("[Worker outbound] Failed to send reverse traceroute packet: {e}");
+                warn!("[Worker outbound] Failed to send Record Route packet: {e}");
                 failed += 1;
             }
             None => error!("[Worker outbound] Failed to send packet: No Tx interface"),

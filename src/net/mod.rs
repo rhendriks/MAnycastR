@@ -160,7 +160,7 @@ impl From<&IPv4Packet> for Vec<u8> {
         // Pad options to a multiple of 4 bytes if they exist
         let mut options = packet.options.clone().unwrap_or_default();
         while !options.len().is_multiple_of(4) {
-            options.push(1); // Padding with NOP (0)
+            options.push(1); // Padding with NOP (1)
         }
 
         // Calculate header length (IHL) including options if they exist
@@ -213,7 +213,7 @@ impl From<&IPv4Packet> for Vec<u8> {
 
 /// Create a Record Route option for IPv4 packets (maximum 9 addresses).
 fn record_route_option() -> Vec<u8> {
-    let mut option = vec![1]; // Option type: No Operation (NOP) for padding (4-byte alignment)
+    let mut option = vec![1]; // Start with NOP for 4-byte alignment, then Record Route option
     option.push(7); // Option type: Record Route
     option.push(39); // Option length: 39 bytes (maximum for Record Route)
     option.push(4); // Pointer: starts at 4 (first address)
