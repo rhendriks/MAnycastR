@@ -36,8 +36,8 @@ pub struct InboundConfig {
     pub is_traceroute: bool,
     /// Indicates if the measurement is using IPv6 (true) or IPv4 (false).
     pub is_ipv6: bool,
-    /// Indicates if the measurement is a reverse traceroute.
-    pub is_reverse: bool,
+    /// Indicates if the measurement is a Record Route measurement.
+    pub is_record: bool,
 }
 
 /// Listen for incoming packets
@@ -99,16 +99,16 @@ pub fn inbound(
                         buffer.push((reply, false));
                         continue; // Continue to next packet
                     }
-                } else if config.is_reverse {
-                    // Try to parse reverse tracerout packets
-                    let reverse_reply = parse_reverse_trace(
+                } else if config.is_record {
+                    // Try to parse Record Route packets
+                    let rr_reply = parse_record_route(
                         &packet[14..],
                         config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
                     );
-                    // If we got a reverse trace reply, add it to the queue and continue to the next packet
-                    if let Some(reply) = reverse_reply {
+                    // If we got a Record Route reply, add it to the queue and continue to the next packet
+                    if let Some(reply) = rr_reply {
                         received += 1;
                         let mut buffer = rq_c.lock().unwrap();
                         buffer.push((reply, false));
@@ -328,7 +328,7 @@ fn parse_time_exceeded(
     })
 }
 
-/// Parse reverse traceroute packets into a Reply result with reverse hops information.
+/// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
@@ -336,8 +336,8 @@ fn parse_time_exceeded(
 /// * `worker_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// # Returns
-/// * `Option<Reply>` - the received reverse trace reply (None if it is not a valid reverse traceroute packet)
-fn parse_reverse_trace(
+/// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
+fn parse_record_route(
     packet_bytes: &[u8],
     m_id: u32,
     worker_map: &Vec<Origin>,
@@ -351,7 +351,7 @@ fn parse_reverse_trace(
     }
 
     if is_ipv6 {
-        panic!("IPv6 reverse traceroute not implemented") // TODO
+        panic!("IPv6 Record Route not implemented") // TODO
     }
 
     // Parse IP header
@@ -361,7 +361,7 @@ fn parse_reverse_trace(
     let recorded_hops = if let Some(ip_option) = ip_header.options {
         parse_record_route_option(&ip_option)
     } else {
-        return None; // No options, cannot be a reverse traceroute packet
+        return None; // No options, cannot be a RR packet
     };
 
     // Parse ICMP header
@@ -383,7 +383,7 @@ fn parse_reverse_trace(
     let probe_dst = Address::from(u32::from_be_bytes(
         icmp_packet.payload[20..24].try_into().unwrap(),
     ));
-    if (probe_src.get_v4() != ip_header.dst) | (probe_dst.get_v4() != ip_header.src) {
+    if (probe_src.get_v4() != ip_header.dst) || (probe_dst.get_v4() != ip_header.src) {
         return None; // spoofed reply
     }
 

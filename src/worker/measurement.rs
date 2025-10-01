@@ -108,7 +108,7 @@ impl Worker {
             abort_s: self.abort_s.clone(),
             is_traceroute,
             is_ipv6,
-            is_reverse: is_record,
+            is_record,
         };
 
         inbound(config, tx, socket_rx);
