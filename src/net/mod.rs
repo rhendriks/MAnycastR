@@ -52,12 +52,13 @@ impl IPPacket {
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,            // 16-bit Total Length
-    pub ttl: u8,                // 8-bit Time To Live
-    pub src: u32,               // 32-bit Source IP Address
-    pub dst: u32,               // 32-bit Destination IP Address
-    pub payload: PacketPayload, // Payload
-    pub identifier: u16,        // 16-bit Identification
+    pub length: u16,              // 16-bit Total Length
+    pub ttl: u8,                  // 8-bit Time To Live
+    pub src: u32,                 // 32-bit Source IP Address
+    pub dst: u32,                 // 32-bit Destination IP Address
+    pub payload: PacketPayload,   // Payload
+    pub identifier: u16,          // 16-bit Identification
+    pub options: Option<Vec<u8>>, // Optional options field (variable length)
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -66,7 +67,7 @@ impl From<&[u8]> for IPv4Packet {
         let mut cursor = Cursor::new(data);
         // Get header length, which is the 4 right bits in the first byte (hence & 0xF)
         // header length is in number of 32 bits i.e. 4 bytes (hence *4)
-        let header_length: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
+        let ihl: usize = ((cursor.read_u8().unwrap() & 0xF) * 4).into(); // Total Length
         let identifier = cursor.read_u16::<NetworkEndian>().unwrap(); // Identification
         cursor.set_position(8); // Time To Live
         let ttl = cursor.read_u8().unwrap();
@@ -76,18 +77,33 @@ impl From<&[u8]> for IPv4Packet {
         let dst = cursor.read_u32::<NetworkEndian>().unwrap(); // Destination IP Address
 
         // If the header length is longer than the data, the packet is incomplete
-        if header_length > data.len() {
+        if ihl > data.len() {
             return IPv4Packet {
-                length: header_length as u16,
+                length: ihl as u16,
                 ttl,
                 src,
                 dst,
                 payload: PacketPayload::Unimplemented,
                 identifier,
+                options: None,
             };
         }
 
-        let payload_bytes = &cursor.into_inner()[header_length..];
+        // If the header length is greater than 20 bytes, read the options field
+        let options = if ihl > 20 {
+            let options_length = ihl - 20;
+            let mut options_bytes = vec![0; options_length];
+            match cursor.read_exact(&mut options_bytes) {
+                Ok(()) => Some(options_bytes),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        let payload_start = cursor.position() as usize;
+        let payload_bytes = &data[payload_start..];
+
         let payload = match packet_type {
             1 => {
                 if payload_bytes.len() < 8 {
@@ -120,12 +136,13 @@ impl From<&[u8]> for IPv4Packet {
         };
 
         IPv4Packet {
-            length: header_length as u16,
+            length: ihl as u16,
             ttl,
             src,
             dst,
             payload,
             identifier,
+            options,
         }
     }
 }
@@ -140,8 +157,19 @@ impl From<&IPv4Packet> for Vec<u8> {
             PacketPayload::Unimplemented => (0, vec![]),
         };
 
-        let mut wtr = vec![];
-        wtr.write_u8(0x45)
+        // Pad options to a multiple of 4 bytes if they exist
+        let mut options = packet.options.clone().unwrap_or_default();
+        while !options.len().is_multiple_of(4) {
+            options.push(1); // Padding with NOP (1)
+        }
+
+        // Calculate header length (IHL) including options if they exist
+        let options_length = options.len();
+        let total_header_length = 20 + options_length; // Base header length (20 bytes) + options length
+        let ihl = (total_header_length / 4) as u8;
+
+        let mut wtr = Vec::with_capacity(total_header_length);
+        wtr.write_u8((4 << 4) | ihl)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
         wtr.write_u8(0x00)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Type of Service
@@ -162,20 +190,58 @@ impl From<&IPv4Packet> for Vec<u8> {
         wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
+        // Write options (will be empty if none)
+        wtr.write_all(&options)
+            .expect("Unable to write to byte buffer for IPv4 packet");
+
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr); // Calculate checksum
         let mut cursor = Cursor::new(wtr);
-        cursor.set_position(10); // Skip version (1 byte) and header length (1 byte)
+        cursor.set_position(10); // Checksum position
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
+        cursor.set_position(total_header_length as u64); // Skip the IP header
+
         // Add the payload
-        cursor.set_position(20); // Skip the header
         cursor
             .write_all(&payload)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Payload
 
         cursor.into_inner()
     }
+}
+
+/// Create a Record Route option for IPv4 packets (maximum 9 addresses).
+fn record_route_option() -> Vec<u8> {
+    let mut option = vec![1]; // Start with NOP for 4-byte alignment, then Record Route option
+    option.push(7); // Option type: Record Route
+    option.push(39); // Option length: 39 bytes (maximum for Record Route)
+    option.push(4); // Pointer: starts at 4 (first address)
+    option.extend(vec![0; 36]); // 9 addresses (4 bytes each) initialized to zero
+    option
+}
+
+/// Convert a record route option byte array into a vector of IP addresses.
+pub fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
+    if data.len() < 3 || data[0] != 7 {
+        return vec![]; // Not a valid Record Route option
+    }
+
+    let mut addresses = vec![];
+    let mut cursor = Cursor::new(data);
+    // Skip the first 3 bytes (option type, length, pointer)
+    cursor.set_position(3);
+    while cursor.position() < data.len() as u64 {
+        if let Ok(addr) = cursor.read_u32::<NetworkEndian>() {
+            if addr != 0 {
+                addresses.push(Address::from(addr));
+            }
+        } else {
+            break;
+        }
+    }
+
+    addresses
 }
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -439,7 +505,7 @@ pub struct ICMPPacket {
     pub checksum: u16,
     pub icmp_identifier: u16,
     pub sequence_number: u16,
-    pub body: Vec<u8>,
+    pub payload: Vec<u8>,
 }
 
 /// Parsing from bytes to ICMPPacket
@@ -452,7 +518,7 @@ impl From<&[u8]> for ICMPPacket {
             checksum: data.read_u16::<NetworkEndian>().unwrap(),
             icmp_identifier: data.read_u16::<NetworkEndian>().unwrap(),
             sequence_number: data.read_u16::<NetworkEndian>().unwrap(),
-            body: data.into_inner()[8..].to_vec(),
+            payload: data.into_inner()[8..].to_vec(),
         }
     }
 }
@@ -471,7 +537,7 @@ impl From<&ICMPPacket> for Vec<u8> {
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr.write_u16::<NetworkEndian>(packet.sequence_number)
             .expect("Unable to write to byte buffer for ICMP packet");
-        wtr.write_all(&packet.body)
+        wtr.write_all(&packet.payload)
             .expect("Unable to write to byte buffer for ICMP packet");
         wtr
     }
@@ -481,20 +547,12 @@ impl ICMPPacket {
     /// Create a basic ICMPv4 ECHO_REQUEST (8.0) packet with checksum.
     ///
     /// # Arguments
-    ///
-    /// * 'identifier' - the identifier for the ICMP header
-    ///
+    /// * 'icmp_identifier' - the identifier for the ICMP header
     /// * 'sequence_number' - the sequence number for the ICMP header
-    ///
     /// * 'body' - the ICMP payload
-    ///
     /// * 'src' - the source address of the packet
-    ///
     /// * 'dst' - the destination address of the packet
-    ///
     /// * 'ttl' - the time to live of the packet
-    ///
-    /// * 'info_url' - the URL to be added to the packet payload (e.g., opt-out URL)
     pub fn echo_request(
         icmp_identifier: u16,
         sequence_number: u16,
@@ -502,7 +560,6 @@ impl ICMPPacket {
         src: u32,
         dst: u32,
         ttl: u8,
-        info_url: &str,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -511,27 +568,61 @@ impl ICMPPacket {
             checksum: 0,
             icmp_identifier,
             sequence_number,
-            body,
+            payload: body,
         };
 
         // Turn everything into a vec of bytes and calculate checksum
-        let mut icmp_bytes: Vec<u8> = (&packet).into();
-        icmp_bytes.extend(info_url.bytes());
+        let icmp_bytes: Vec<u8> = (&packet).into();
         packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
         let v4_packet = IPv4Packet {
-            length: 20 + 8 + body_len + info_url.len() as u16,
+            length: 20 + 8 + body_len,
             identifier: 15037,
             ttl,
             src,
             dst,
             payload: PacketPayload::Icmp { value: packet },
+            options: None,
         };
 
-        let mut bytes: Vec<u8> = (&v4_packet).into();
-        bytes.extend(info_url.bytes());
+        (&v4_packet).into()
+    }
 
-        bytes
+    /// Create an ICMPv4 packet with Record Route option and checksum.
+    pub fn record_route_icmpv4(
+        icmp_identifier: u16,
+        sequence_number: u16,
+        payload: Vec<u8>,
+        src: u32,
+        dst: u32,
+        ttl: u8,
+    ) -> Vec<u8> {
+        let body_len = payload.len() as u16;
+        let mut packet = ICMPPacket {
+            icmp_type: 8, // Echo Request
+            code: 0,
+            checksum: 0,
+            icmp_identifier,
+            sequence_number,
+            payload,
+        };
+
+        // Turn everything into a vec of bytes and calculate checksum
+        let icmp_bytes: Vec<u8> = (&packet).into();
+        packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
+
+        let options = record_route_option();
+        let v4_packet = IPv4Packet {
+            length: 20 + 8 + body_len + options.len() as u16, // IP header (20) + ICMP header (8) + body length + options length
+            identifier: 15037,
+            ttl,
+            src,
+            dst,
+            options: Some(options),
+            payload: PacketPayload::Icmp { value: packet },
+        };
+
+        (&v4_packet).into()
     }
 
     /// Create an ICMPv6 echo request packet with checksum
@@ -558,7 +649,6 @@ impl ICMPPacket {
         src: u128,
         dst: u128,
         hop_limit: u8,
-        info_url: &str,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
         let mut packet = ICMPPacket {
@@ -567,7 +657,7 @@ impl ICMPPacket {
             checksum: 0,
             icmp_identifier,
             sequence_number,
-            body,
+            payload: body,
         };
         let icmp_bytes: Vec<u8> = (&packet).into();
 
@@ -580,18 +670,17 @@ impl ICMPPacket {
             .write_u128::<NetworkEndian>(dst)
             .expect("Unable to write to byte buffer for PseudoHeader");
         psuedo_header
-            .write_u32::<NetworkEndian>((8 + body_len + info_url.len() as u16) as u32) // ICMP length
+            .write_u32::<NetworkEndian>((8 + body_len) as u32) // ICMP length
             .expect("Unable to write to byte buffer for PseudoHeader"); // Length of ICMP header + body
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(0).unwrap(); // zeroes
         psuedo_header.write_u8(58).unwrap(); // next header (58 => ICMPv6)
         psuedo_header.extend(icmp_bytes); // Add the ICMP packet bytes
-        psuedo_header.extend(info_url.bytes()); // Add the INFO_URL bytes
         packet.checksum = ICMPPacket::calc_checksum(psuedo_header.as_slice()); // Calculate the checksum
 
         let v6_packet = IPv6Packet {
-            payload_length: 8 + body_len + info_url.len() as u16, // ICMP header (8 bytes) + body length
+            payload_length: 8 + body_len, // ICMP header (8 bytes) + body length
             flow_label: 15037,
             next_header: 58, // ICMPv6
             hop_limit,
@@ -600,10 +689,7 @@ impl ICMPPacket {
             payload: PacketPayload::Icmp { value: packet },
         };
 
-        let mut bytes: Vec<u8> = (&v6_packet).into();
-        bytes.extend(info_url.bytes());
-
-        bytes
+        (&v6_packet).into()
     }
 
     /// Calculate the ICMP Checksum.
@@ -901,6 +987,7 @@ impl UDPPacket {
                 src: src.get_v4(),
                 dst: dst.get_v4(),
                 payload: PacketPayload::Udp { value: udp_packet },
+                options: None,
             })
                 .into()
         }
@@ -1012,6 +1099,7 @@ impl UDPPacket {
                 src: src.get_v4(),
                 dst: dst.get_v4(),
                 payload: PacketPayload::Udp { value: udp_packet },
+                options: None,
             };
             (&v4_packet).into()
         }
@@ -1176,6 +1264,7 @@ impl TCPPacket {
                 src: src.get_v4(),
                 dst: dst.get_v4(),
                 payload: PacketPayload::Tcp { value: packet },
+                options: None,
             };
 
             (&v4_packet).into()

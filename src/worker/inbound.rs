@@ -10,7 +10,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
 use crate::custom_module::Separated;
 use crate::net::{
-    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
+    parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet,
+    PacketPayload, TXTRecord,
 };
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
@@ -23,24 +24,20 @@ use pnet::datalink::DataLinkReceiver;
 pub struct InboundConfig {
     /// The unique ID of the measurement.
     pub m_id: u32,
-
     /// The unique ID of this specific worker.
     pub worker_id: u16,
-
     /// The type of measurement being performed (e.g., ICMP, DNS, TCP).
     pub m_type: u8,
-
     /// A map of valid source addresses and port values (`Origin`) to verify incoming packets against.
     pub origin_map: Vec<Origin>,
-
     /// A shared signal that can be used to gracefully shut down the worker.
     pub abort_s: Arc<AtomicBool>,
-
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
-
     /// Indicates if the measurement is using IPv6 (true) or IPv4 (false).
     pub is_ipv6: bool,
+    /// Indicates if the measurement is a Record Route measurement.
+    pub is_record: bool,
 }
 
 /// Listen for incoming packets
@@ -97,6 +94,21 @@ pub fn inbound(
                     );
                     // If we got a trace reply, add it to the queue and continue to the next packet
                     if let Some(reply) = trace_reply {
+                        received += 1;
+                        let mut buffer = rq_c.lock().unwrap();
+                        buffer.push((reply, false));
+                        continue; // Continue to next packet
+                    }
+                } else if config.is_record {
+                    // Try to parse Record Route packets
+                    let rr_reply = parse_record_route(
+                        &packet[14..],
+                        config.m_id,
+                        &config.origin_map,
+                        config.is_ipv6,
+                    );
+                    // If we got a Record Route reply, add it to the queue and continue to the next packet
+                    if let Some(reply) = rr_reply {
                         received += 1;
                         let mut buffer = rq_c.lock().unwrap();
                         buffer.push((reply, false));
@@ -265,9 +277,9 @@ fn parse_time_exceeded(
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(icmp_header.body.as_bytes()))
+        IPPacket::V6(IPv6Packet::from(icmp_header.payload.as_bytes()))
     } else {
-        IPPacket::V4(IPv4Packet::from(icmp_header.body.as_bytes()))
+        IPPacket::V4(IPv4Packet::from(icmp_header.payload.as_bytes()))
     };
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
@@ -293,8 +305,8 @@ fn parse_time_exceeded(
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
     // Attempt to get tx_time from payload (not guaranteed depending on router implementation)
-    let tx_time: u64 = if original_icmp_header.body.len() >= 12 {
-        u64::from_be_bytes(original_icmp_header.body[4..12].try_into().unwrap())
+    let tx_time: u64 = if original_icmp_header.payload.len() >= 12 {
+        u64::from_be_bytes(original_icmp_header.payload[4..12].try_into().unwrap())
     } else {
         0
     };
@@ -312,6 +324,87 @@ fn parse_time_exceeded(
         chaos: None,
         trace_dst: Some(original_ip_header.dst()), // original destination address
         trace_ttl: Some(trace_ttl),                // TTL
+        recorded_hops: vec![],
+    })
+}
+
+/// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
+///
+/// # Arguments
+/// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
+/// * `m_id` - the ID of the current measurement
+/// * `worker_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+/// # Returns
+/// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
+fn parse_record_route(
+    packet_bytes: &[u8],
+    m_id: u32,
+    worker_map: &Vec<Origin>,
+    is_ipv6: bool,
+) -> Option<Reply> {
+    // Check for Record Route option and minimum length
+    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 7)) // TODO fix ipv6 filter
+        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 7))
+    {
+        return None;
+    }
+
+    if is_ipv6 {
+        panic!("IPv6 Record Route not implemented") // TODO
+    }
+
+    // Parse IP header
+    let ip_header = IPv4Packet::from(packet_bytes);
+
+    // Get options (if any)
+    let recorded_hops = if let Some(ip_option) = ip_header.options {
+        parse_record_route_option(&ip_option)
+    } else {
+        return None; // No options, cannot be a RR packet
+    };
+
+    // Parse ICMP header
+    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload else {
+        return None;
+    };
+
+    // Make sure that this packet belongs to this measurement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
+    if u32::from_be_bytes(pkt_measurement_id) != m_id {
+        return None;
+    }
+
+    let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
+    let tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());
+    let probe_src = Address::from(u32::from_be_bytes(
+        icmp_packet.payload[16..20].try_into().unwrap(),
+    ));
+    let probe_dst = Address::from(u32::from_be_bytes(
+        icmp_packet.payload[20..24].try_into().unwrap(),
+    ));
+    if (probe_src.get_v4() != ip_header.dst) || (probe_dst.get_v4() != ip_header.src) {
+        return None; // spoofed reply
+    }
+
+    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map)?;
+    let rx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+
+    // Create a Reply for the received ping reply
+    Some(Reply {
+        tx_time,
+        tx_id,
+        src: Some(Address::from(ip_header.src)),
+        ttl: ip_header.ttl as u32,
+        rx_time,
+        origin_id,
+        chaos: None,
+        trace_dst: None,
+        trace_ttl: None,
+        recorded_hops,
     })
 }
 
@@ -354,29 +447,29 @@ fn parse_icmp(
     };
 
     // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.body[0..4].try_into().ok()?; // TODO move to initial if statement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
         return None;
     }
 
-    let tx_time = u64::from_be_bytes(icmp_packet.body[4..12].try_into().unwrap());
-    let mut tx_id = u32::from_be_bytes(icmp_packet.body[12..16].try_into().unwrap());
+    let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
+    let mut tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());
     let (probe_src, probe_dst) = if is_ipv6 {
         (
             Address::from(u128::from_be_bytes(
-                icmp_packet.body[16..32].try_into().unwrap(),
+                icmp_packet.payload[16..32].try_into().unwrap(),
             )),
             Address::from(u128::from_be_bytes(
-                icmp_packet.body[32..48].try_into().unwrap(),
+                icmp_packet.payload[32..48].try_into().unwrap(),
             )),
         )
     } else {
         (
             Address::from(u32::from_be_bytes(
-                icmp_packet.body[16..20].try_into().unwrap(),
+                icmp_packet.payload[16..20].try_into().unwrap(),
             )),
             Address::from(u32::from_be_bytes(
-                icmp_packet.body[20..24].try_into().unwrap(),
+                icmp_packet.payload[20..24].try_into().unwrap(),
             )),
         )
     };
@@ -411,6 +504,7 @@ fn parse_icmp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
+            recorded_hops: vec![],
         },
         is_discovery,
     ))
@@ -512,6 +606,7 @@ fn parse_dns(
             chaos,
             trace_dst: None,
             trace_ttl: None,
+            recorded_hops: vec![],
         },
         is_discovery,
     ))
@@ -678,6 +773,7 @@ fn parse_tcp(
             chaos: None,
             trace_dst: None,
             trace_ttl: None,
+            recorded_hops: vec![],
         },
         is_discovery,
     ))
