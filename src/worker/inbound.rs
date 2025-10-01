@@ -371,7 +371,7 @@ fn parse_reverse_trace(
 
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
-    if u32::from_be_bytes(pkt_measurement_id) != m_id as u32 {
+    if u32::from_be_bytes(pkt_measurement_id) != m_id {
         return None;
     }
 

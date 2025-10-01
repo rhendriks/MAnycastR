@@ -9,6 +9,7 @@ use crate::orchestrator::result_handler::{
 };
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
+    TaskDistributorConfig,
 };
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
@@ -429,47 +430,32 @@ impl Controller for ControllerService {
                 .collect::<Vec<Task>>()
         };
 
+        let task_config = TaskDistributorConfig {
+            tasks,
+            active_workers,
+            tx_t,
+            probing_rate,
+            probing_rate_interval,
+            number_of_probing_workers,
+            worker_interval,
+        };
+
         // Spawn appropriate task distributor thread
         if is_divide {
             // Distribute tasks round-robin
-            round_robin_distributor(
-                probing_worker_ids,
-                tasks,
-                active_workers,
-                tx_t.clone(),
-                probing_rate,
-                probing_rate_interval,
-                number_of_probing_workers,
-                worker_interval,
-            )
-            .await;
+            round_robin_distributor(task_config, probing_worker_ids).await;
         } else if is_responsive || is_latency || is_traceroute {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(
+                task_config,
                 self.worker_stacks.clone(),
                 probing_worker_ids,
-                tasks,
-                active_workers,
-                tx_t.clone(),
-                probing_rate,
-                probing_rate_interval,
-                number_of_probing_workers,
-                worker_interval,
                 is_responsive,
             )
             .await;
         } else {
             // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
-            broadcast_distributor(
-                tasks,
-                probing_rate,
-                active_workers,
-                tx_t.clone(),
-                probing_rate_interval,
-                number_of_probing_workers,
-                worker_interval,
-            )
-            .await;
+            broadcast_distributor(task_config).await;
         }
 
         let rx = CLIReceiver {
