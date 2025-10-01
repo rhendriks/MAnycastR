@@ -12,6 +12,23 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::{Instant, Interval};
 use tonic::Status;
 
+pub struct TaskDistributorConfig {
+    /// Vector of tasks to distribute
+    pub tasks: Vec<Task>,
+    /// Active workers (None if no measurement is active)
+    pub active_workers: Arc<Mutex<Option<u32>>>,
+    /// Channel to send tasks to the TaskDistributor
+    pub tx_t: Sender<(u32, Instruction, bool)>,
+    /// Number of tasks to send per interval (equal to probing rate)
+    pub probing_rate: u32,
+    /// Interval at which to send tasks
+    pub probing_rate_interval: Interval,
+    /// Number of probing workers
+    pub number_of_probing_workers: usize,
+    /// Inter-worker interval between workers
+    pub worker_interval: u64,
+}
+
 /// Broadcast task distributor.
 /// Distributes tasks from the hitlist in broadcast fashion to all probing workers.
 /// Ends the measurement when all probes have been sent.
@@ -19,80 +36,73 @@ use tonic::Status;
 /// Used for --unicast and regular anycast measurements.
 ///
 /// # Arguments
-/// * 'dst_addresses' - vector of tasks to distribute
-/// * 'probing_rate' - number of tasks to send per interval
-/// * 'active_workers' - number of active workers (None if no measurement is active)
-/// * 'tx_t' - channel to send tasks to the TaskDistributor
-/// * 'probing_rate_interval' - interval at which to send tasks
-/// * 'number_of_probing_workers' - number of probing workers
-/// * 'worker_interval' - inter-client interval between workers
-pub async fn broadcast_distributor(
-    tasks: Vec<Task>,
-    probing_rate: u32,
-    active_workers: Arc<Mutex<Option<u32>>>,
-    tx_t: Sender<(u32, Instruction, bool)>,
-    mut probing_rate_interval: Interval,
-    number_of_probing_workers: usize,
-    worker_interval: u64,
-) {
+/// * 'config' - TaskDistributorConfig with all necessary parameters.
+pub async fn broadcast_distributor(config: TaskDistributorConfig) {
     info!("[Orchestrator] Starting Broadcast Task Distributor.");
+    let mut probing_rate_interval = config.probing_rate_interval;
     spawn(async move {
         // Iterate over the hitlist in chunks of the specified probing rate.
-        for chunk in tasks.chunks(probing_rate as usize) {
-            if active_workers.lock().unwrap().is_none() {
+        for chunk in config.tasks.chunks(config.probing_rate as usize) {
+            if config.active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] Measurement no longer active");
                 break;
             }
 
-            tx_t.send((
-                ALL_WORKERS_INTERVAL,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                        tasks: chunk.to_vec(),
-                    })),
-                },
-                true,
-            ))
-            .await
-            .expect("Failed to send task to TaskDistributor");
+            config
+                .tx_t
+                .send((
+                    ALL_WORKERS_INTERVAL,
+                    Instruction {
+                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                            tasks: chunk.to_vec(),
+                        })),
+                    },
+                    true,
+                ))
+                .await
+                .expect("Failed to send task to TaskDistributor");
 
             probing_rate_interval.tick().await;
         }
 
         // Wait for the workers to finish their tasks
         tokio::time::sleep(Duration::from_secs(
-            (number_of_probing_workers as u64 * worker_interval) + 1,
+            (config.number_of_probing_workers as u64 * config.worker_interval) + 1,
         ))
         .await;
 
         info!("[Orchestrator] Task distribution finished");
 
         // Send end instruction to all workers directly to let them know the measurement is finished
-        tx_t.send((
-            ALL_WORKERS_DIRECT,
-            Instruction {
-                instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                ALL_WORKERS_DIRECT,
+                Instruction {
+                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while active_workers.lock().unwrap().is_some() {
+        while config.active_workers.lock().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         // Close the TaskDistributor channel
-        tx_t.send((
-            BREAK_SIGNAL,
-            Instruction {
-                instruction_type: None,
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                BREAK_SIGNAL,
+                Instruction {
+                    instruction_type: None,
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
     });
 }
 
@@ -104,25 +114,11 @@ pub async fn broadcast_distributor(
 /// Used for --divide and --reverse measurements.
 ///
 /// # Arguments
+/// * 'config' - TaskDistributorConfig with all necessary parameters.
 /// * 'probing_worker_ids' - IDs of the probing workers
-/// * 'tasks' - Vector of tasks to distribute
-/// * 'active_workers' - number of active workers (None if no measurement is active)
-/// * 'tx_t' - channel to send tasks to the TaskDistributor
-/// * 'probing_rate' - number of tasks to send per interval
-/// * 'probing_rate_interval' - interval at which to send tasks
-/// * 'number_of_probing_workers' - number of probing workers
-/// * 'worker_interval' - inter-client interval between workers
-pub async fn round_robin_distributor(
-    probing_worker_ids: Vec<u32>,
-    tasks: Vec<Task>,
-    active_workers: Arc<Mutex<Option<u32>>>,
-    tx_t: Sender<(u32, Instruction, bool)>,
-    probing_rate: u32,
-    mut probing_rate_interval: Interval,
-    number_of_probing_workers: usize,
-    worker_interval: u64,
-) {
+pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_worker_ids: Vec<u32>) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
+    let mut probing_rate_interval = config.probing_rate_interval;
 
     spawn(async move {
         // This cycler gives us the next worker to assign a task to
@@ -130,8 +126,8 @@ pub async fn round_robin_distributor(
         // TODO update cycler if a worker disconnects
         // TODO update probing_rate_interval if a worker disconnects
 
-        for chunk in tasks.chunks(probing_rate as usize) {
-            if active_workers.lock().unwrap().is_none() {
+        for chunk in config.tasks.chunks(config.probing_rate as usize) {
+            if config.active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
@@ -140,55 +136,61 @@ pub async fn round_robin_distributor(
             let worker_id = sender_cycler.next().expect("No probing workers available");
 
             // Send the instruction to the current round-robin worker
-            tx_t.send((
-                worker_id,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                        tasks: chunk.to_vec(),
-                    })),
-                },
-                true,
-            ))
-            .await
-            .expect("Failed to send task to TaskDistributor");
+            config
+                .tx_t
+                .send((
+                    worker_id,
+                    Instruction {
+                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                            tasks: chunk.to_vec(),
+                        })),
+                    },
+                    true,
+                ))
+                .await
+                .expect("Failed to send task to TaskDistributor");
 
             probing_rate_interval.tick().await;
         } // end of round-robin loop
 
         // Wait for the workers to finish their tasks
         tokio::time::sleep(Duration::from_secs(
-            (number_of_probing_workers as u64 * worker_interval) + 1,
+            (config.number_of_probing_workers as u64 * config.worker_interval) + 1,
         ))
         .await;
 
         info!("[Orchestrator] Task distribution finished");
 
         // Send end message to all workers directly to let them know the measurement is finished
-        tx_t.send((
-            ALL_WORKERS_DIRECT,
-            Instruction {
-                instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                ALL_WORKERS_DIRECT,
+                Instruction {
+                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while active_workers.lock().unwrap().is_some() {
+        while config.active_workers.lock().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         // Close the TaskDistributor channel
-        tx_t.send((
-            BREAK_SIGNAL,
-            Instruction {
-                instruction_type: None,
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                BREAK_SIGNAL,
+                Instruction {
+                    instruction_type: None,
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
     });
 }
 
@@ -199,30 +201,19 @@ pub async fn round_robin_distributor(
 /// Used for --responsive, --latency, and --traceroute measurements.
 ///
 /// # Arguments
+/// * 'config' - TaskDistributorConfig with all necessary parameters.
 /// * 'worker_stacks' - stacks of follow-up tasks for each worker
 /// * 'probing_worker_ids' - IDs of the probing workers
-/// * 'task' - vector of tasks to distribute
-/// * 'active_workers' - number of active workers (None if no measurement is active)
-/// * 'tx_t' - channel to send tasks to the TaskDistributor
-/// * 'probing_rate' - number of tasks to send per interval
-/// * 'probing_rate_interval' - interval at which to send tasks
-/// * 'number_of_probing_workers' - number of probing workers
-/// * 'worker_interval' - inter-client interval between workers
 /// * 'is_responsive' - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
 pub async fn round_robin_discovery(
+    config: TaskDistributorConfig,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     probing_worker_ids: Vec<u32>,
-    tasks: Vec<Task>,
-    active_workers: Arc<Mutex<Option<u32>>>,
-    tx_t: Sender<(u32, Instruction, bool)>,
-    probing_rate: u32,
-    mut probing_rate_interval: Interval,
-    number_of_probing_workers: usize,
-    worker_interval: u64,
     is_responsive: bool,
 ) {
     info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
+    let mut probing_rate_interval = config.probing_rate_interval;
 
     spawn(async move {
         // This cycler gives us the next worker to assign a task to
@@ -231,11 +222,11 @@ pub async fn round_robin_discovery(
         // TODO update probing_rate_interval if a worker disconnects
 
         // We create a manual iterator over the general hitlist.
-        let mut hitlist_iter = tasks.into_iter();
+        let mut hitlist_iter = config.tasks.into_iter();
         let mut hitlist_is_empty = false;
 
         loop {
-            if active_workers.lock().unwrap().is_none() {
+            if config.active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
@@ -257,7 +248,8 @@ pub async fn round_robin_discovery(
                 let mut stacks = worker_stacks.lock().unwrap();
                 // Fill up till the probing rate for 'f_worker_id'
                 if let Some(follow_up_tasks) = stacks.get_mut(&f_worker_id) {
-                    let num_to_take = std::cmp::min(probing_rate as usize, follow_up_tasks.len());
+                    let num_to_take =
+                        std::cmp::min(config.probing_rate as usize, follow_up_tasks.len());
 
                     follow_up_tasks.drain(..num_to_take).collect::<Vec<Task>>()
                 } else {
@@ -276,7 +268,9 @@ pub async fn round_robin_discovery(
                 };
 
                 // Send the instruction to the follow-up worker
-                tx_t.send((f_worker_id, instruction, true))
+                config
+                    .tx_t
+                    .send((f_worker_id, instruction, true))
                     .await
                     .expect("Failed to send task to TaskDistributor");
             }
@@ -284,10 +278,10 @@ pub async fn round_robin_discovery(
             // Get discovery targets
             let remainder_needed = if is_responsive {
                 // In responsive mode, we always send a full batch of discovery probes
-                probing_rate as usize
+                config.probing_rate as usize
             } else {
                 // In non-responsive modes, we limit the batch size to the remaining slots
-                (probing_rate as usize).saturating_sub(follow_up_count)
+                (config.probing_rate as usize).saturating_sub(follow_up_count)
             };
 
             let discovery_tasks = if remainder_needed > 0 && !hitlist_is_empty {
@@ -316,7 +310,9 @@ pub async fn round_robin_discovery(
                 };
 
                 // Send the instruction to the current round-robin worker
-                tx_t.send((worker_id, instruction, false))
+                config
+                    .tx_t
+                    .send((worker_id, instruction, false))
                     .await
                     .expect("Failed to send task to TaskDistributor");
             }
@@ -326,7 +322,7 @@ pub async fn round_robin_discovery(
                 if let Some(start_time) = cooldown_timer {
                     if start_time.elapsed()
                         >= Duration::from_secs(
-                            number_of_probing_workers as u64 * worker_interval + 5,
+                            config.number_of_probing_workers as u64 * config.worker_interval + 5,
                         )
                     {
                         info!("[Orchestrator] Task distribution finished.");
@@ -341,7 +337,7 @@ pub async fn round_robin_discovery(
                     if all_stacks_empty {
                         info!(
                             "[Orchestrator] No more tasks. Waiting {} seconds for cooldown.",
-                            number_of_probing_workers as u64 * worker_interval + 5
+                            config.number_of_probing_workers as u64 * config.worker_interval + 5
                         );
                         cooldown_timer = Some(Instant::now());
                     }
@@ -352,18 +348,20 @@ pub async fn round_robin_discovery(
         } // end of round-robin loop
 
         // Send end message to all workers directly to let them know the measurement is finished
-        tx_t.send((
-            ALL_WORKERS_DIRECT,
-            Instruction {
-                instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                ALL_WORKERS_DIRECT,
+                Instruction {
+                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while active_workers.lock().unwrap().is_some() {
+        while config.active_workers.lock().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
@@ -374,15 +372,17 @@ pub async fn round_robin_discovery(
         }
 
         // Close the TaskDistributor channel
-        tx_t.send((
-            BREAK_SIGNAL,
-            Instruction {
-                instruction_type: None,
-            },
-            false,
-        ))
-        .await
-        .expect("Failed to send end task to TaskDistributor");
+        config
+            .tx_t
+            .send((
+                BREAK_SIGNAL,
+                Instruction {
+                    instruction_type: None,
+                },
+                false,
+            ))
+            .await
+            .expect("Failed to send end task to TaskDistributor");
     });
 }
 
