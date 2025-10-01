@@ -216,7 +216,7 @@ impl From<&IPv4Packet> for Vec<u8> {
 
 /// Create a Record Route option for IPv4 packets (maximum 9 addresses).
 fn record_route_option() -> Vec<u8> {
-    let mut option = vec![];
+    let mut option = vec![1]; // Option type: No Operation (NOP) for padding (4-byte alignment)
     option.push(7); // Option type: Record Route
     option.push(39); // Option length: 39 bytes (maximum for Record Route)
     option.push(4); // Pointer: starts at 4 (first address)
