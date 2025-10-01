@@ -38,7 +38,7 @@ const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 /// The measurement types that result in different result handling behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeasurementType {
-    /// Targets are probed for responsiveness from one worker, follow-up probes are sent from all workers.
+    /// Targets are probed for responsiveness from any worker, follow-up probes are sent from all workers.
     Responsive,
     /// Targets are probed to determine the catching worker, follow-up probes are sent from the catching worker.
     Latency,
@@ -57,8 +57,6 @@ pub struct ControllerService {
     active_workers: Arc<Mutex<Option<u32>>>,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
-    /// Indicates if a measurement is currently active
-    // is_active: Arc<Mutex<bool>>,
     /// Indicates the type of measurement currently active
     m_type: Arc<Mutex<Option<MeasurementType>>>,
     /// Optional static mapping of hostnames to worker IDs
