@@ -9,7 +9,7 @@ i) Measuring anycast infrastructure itself
 * Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
 * Optimal deployment (measuring 'best' deployment inferred from unicast latencies from all PoPs)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
-* [Site flipping]() (detecting network regions experiencing anycast site flipping)
+* [Site flipping](https://arxiv.org/abs/2503.14351) (detecting network regions experiencing anycast site flipping)
 
 ii) Measuring external anycast infrastructure
 * [LACeS](https://arxiv.org/abs/2503.20554) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
@@ -241,7 +241,7 @@ Issues and pull requests are welcome
 
 
 ## Citation
-MAnycastR as a tool for anycast censuses was developed for the following paper. Please cite this when using this tool to perform anycast censuses.
+MAnycastR as a tool for anycast censuses was developed for the following paper. Please cite this when using MAnycastR to perform anycast censuses.
 ```
 @misc{hendriks2025lacesopenfastresponsible,
       title={LACeS: an Open, Fast, Responsible and Efficient Longitudinal Anycast Census System}, 
@@ -253,3 +253,20 @@ MAnycastR as a tool for anycast censuses was developed for the following paper. 
       url={https://arxiv.org/abs/2503.20554}, 
 }
 ```
+* Use `--latency` to perform GCD measurements (for iGreedy).
+* Use 'default' anycast measurements to perform anycast-based measurements.
+---
+MAnycastR as a tool for detecting networks experiencing anycast site flipping was used for the following paper. Please cite this when using MAnycastR to detect anycast site flipping.
+```
+@misc{hendriks2025loadbalancingversusanycastlook,
+      title={Load-Balancing versus Anycast: A First Look at Operational Challenges}, 
+      author={Remi Hendriks and Mattijs Jonker and Roland van Rijswijk-Deij and Raffaele Sommese},
+      year={2025},
+      eprint={2503.14351},
+      archivePrefix={arXiv},
+      primaryClass={cs.NI},
+      url={https://arxiv.org/abs/2503.14351}, 
+}
+```
+* Use `--config` configuration-based probing to send probes with varied flow header fields (thus triggering load-balancers).
+* Use `--traceroute` to perform anycast Paris traceroute measurements to determine where load-balancers (causing anycast site flipping) reside
