@@ -70,12 +70,12 @@ impl Worker {
             let interface = interfaces
                 .iter()
                 .find(|iface| &iface.name == iface_name)
-                .expect("Failed to find specified interface");
+                .expect("Failed to find forced interface");
             info!(
                 "[Worker] Using forced interface: {}, for address {addr}",
                 interface.name
             );
-            interface // Return the specified interface
+            interface
         } else if let Some(interface) = interfaces
             .iter()
             .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(&addr, ip)))
@@ -84,7 +84,7 @@ impl Worker {
                 "[Worker] Found interface: {}, for address {addr}",
                 interface.name
             );
-            interface // Return the found interface
+            interface
         } else {
             // Use the default interface (first non-loopback interface)
             let interface = interfaces
