@@ -33,6 +33,12 @@ impl Worker {
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
             .await
             .expect("Unable to connect to orchestrator");
+        
+        let interface = if args.contains_id("interface") {
+            args.get_one::<String>("interface").map(|i| i.to_string())
+        } else {
+            None
+        };
 
         // Initialize a worker instance
         let mut worker = Worker {
@@ -41,6 +47,7 @@ impl Worker {
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
             abort_s: Arc::new(AtomicBool::new(false)),
+            interface,
         };
 
         worker.connect_to_server().await?;
