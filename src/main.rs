@@ -327,6 +327,13 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
                 )
+                .arg(Arg::new("interface")
+                    .long("interface")
+                    .short('i')
+                    .action(ArgAction::SetTrue)
+                    .required(false)
+                    .help("Force interface to use for sending/receiving probes")
+                )
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
