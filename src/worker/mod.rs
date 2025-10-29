@@ -33,7 +33,7 @@ impl Worker {
         let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
             .await
             .expect("Unable to connect to orchestrator");
-        
+
         let interface = if args.contains_id("interface") {
             args.get_one::<String>("interface").map(|i| i.to_string())
         } else {
