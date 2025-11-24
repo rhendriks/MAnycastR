@@ -65,7 +65,18 @@ impl Worker {
 
         // Look for the interface that uses the listening IP address
         let addr = rx_origins[0].src.unwrap().to_string();
-        let interface = if let Some(interface) = interfaces
+        let interface = if self.interface.is_some() {
+            let iface_name = self.interface.as_ref().unwrap();
+            let interface = interfaces
+                .iter()
+                .find(|iface| &iface.name == iface_name)
+                .unwrap_or_else(|| panic!("Failed to find forced interface: {}", iface_name));
+            info!(
+                "[Worker] Using forced interface: {}, for address {addr}",
+                interface.name
+            );
+            interface
+        } else if let Some(interface) = interfaces
             .iter()
             .find(|iface| iface.ips.iter().any(|ip| is_in_prefix(&addr, ip)))
         {
@@ -73,7 +84,7 @@ impl Worker {
                 "[Worker] Found interface: {}, for address {addr}",
                 interface.name
             );
-            interface // Return the found interface
+            interface
         } else {
             // Use the default interface (first non-loopback interface)
             let interface = interfaces
