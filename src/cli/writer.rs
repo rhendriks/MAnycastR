@@ -85,11 +85,8 @@ pub struct MetadataArgs<'a> {
 /// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
 pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
     // CSV writer to command-line interface
-    let mut wtr_cli = if config.print_to_cli {
-        Some(Writer::from_writer(io::stdout()))
-    } else {
-        None
-    };
+    let mut wtr_cli = config.print_to_cli.then(|| Writer::from_writer(io::stdout()));
+
 
     let buffered_file_writer = BufWriter::new(config.output_file);
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
@@ -714,11 +711,8 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: if result.origin_id != 0 && result.origin_id != u32::MAX {
-            Some(result.origin_id as u8)
-        } else {
-            None
-        },
+        origin_id: (result.origin_id != 0 && result.origin_id != u32::MAX)
+            .then_some(result.origin_id as u8),
     };
 
     if is_symmetric {
