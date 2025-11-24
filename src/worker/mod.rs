@@ -34,11 +34,7 @@ impl Worker {
             .await
             .expect("Unable to connect to orchestrator");
 
-        let interface = if args.contains_id("interface") {
-            args.get_one::<String>("interface").map(|i| i.to_string())
-        } else {
-            None
-        };
+        let interface = args.get_one::<String>("interface").map(|i| i.to_string());
 
         // Initialize a worker instance
         let mut worker = Worker {
