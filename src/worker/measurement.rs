@@ -70,7 +70,7 @@ impl Worker {
             let interface = interfaces
                 .iter()
                 .find(|iface| &iface.name == iface_name)
-                .expect("Failed to find forced interface");
+                .unwrap_or_else(|| panic!("Failed to find forced interface: {}", iface_name));
             info!(
                 "[Worker] Using forced interface: {}, for address {addr}",
                 interface.name
