@@ -196,9 +196,9 @@
 //!
 //! # Future
 //!
-//! * Unicast traceroute / Record Route measurements
+//! * Unicast traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Synchronous unicast and anycast measurements
+//! * Allow for simultaneous/mixed unicast and anycast measurements
 
 use clap::builder::PossibleValuesParser;
 use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
