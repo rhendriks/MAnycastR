@@ -10,6 +10,8 @@
 //! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
 //! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+//! * Anycast traceroute (measuring the path from Anycast deployment to targets using traceroute with an anycast source address)
+//! * Traceroute catchment mapping (utilizing anycast traceroute to infer catchments for intermediate routers/ASes that send `TTL Time Exceeded` replies)
 //!
 //! ii) Measuring external anycast infrastructure
 //! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
