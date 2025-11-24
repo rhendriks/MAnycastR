@@ -148,7 +148,7 @@ message Start {
   bool is_traceroute = 9; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 10; // whether the measurement is for IPv6
   bool is_record = 11; // whether the measurement is a Record Route measurement
-  bool is_tr_map = 12; // whether the measurement is a traceroute catchment mapping
+  bool is_tracemap = 12; // whether the measurement is a traceroute catchment mapping
 }
 
 // An end message, indicates the worker should stop sending out probes

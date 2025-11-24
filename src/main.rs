@@ -486,6 +486,13 @@ fn parse_cmd() -> ArgMatches {
                         .help("Perform a traceroute from the receiving anycast site for each target [NOTE: violates probing rate]")
                         .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "config"]) // TODO support unicast traceroute
                     )
+                    .arg(Arg::new("tracemap")
+                        .long("tracemap")
+                        .action(ArgAction::SetTrue)
+                        .required(false)
+                        .help("Perform a traceroute catchment mapping.")
+                        .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "traceroute"])
+                    )
                     .arg(Arg::new("record")
                         .long("record")
                         .action(ArgAction::SetTrue)
@@ -570,7 +577,7 @@ fn parse_cmd() -> ArgMatches {
                     )
                     .group(
                         ArgGroup::new("measurement_type")
-                            .args(["latency", "traceroute", "record", "unicast", "divide", "responsive"])
+                            .args(["latency", "traceroute", "record", "unicast", "divide", "responsive", "tracemap"])
                             .multiple(true)
                             .required(false)
                     )
