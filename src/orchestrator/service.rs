@@ -207,6 +207,7 @@ impl Controller for ControllerService {
         let number_of_probes = m_definition.number_of_probes as u8;
         let is_traceroute = m_definition.is_traceroute;
         let is_record = m_definition.is_record;
+        let is_tracemap = m_definition.is_tracemap;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Instruction, Status>>> = {
@@ -352,6 +353,7 @@ impl Controller for ControllerService {
                     is_traceroute,
                     is_ipv6: m_definition.is_ipv6,
                     is_record,
+                    is_tracemap,
                 })),
             };
 
