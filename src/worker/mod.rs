@@ -34,6 +34,8 @@ impl Worker {
             .await
             .expect("Unable to connect to orchestrator");
 
+        let interface = args.get_one::<String>("interface").map(|i| i.to_string());
+
         // Initialize a worker instance
         let mut worker = Worker {
             grpc_client: client,
@@ -41,6 +43,7 @@ impl Worker {
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
             abort_s: Arc::new(AtomicBool::new(false)),
+            interface,
         };
 
         worker.connect_to_server().await?;
