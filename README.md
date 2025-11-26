@@ -5,14 +5,15 @@ MAnycastR (Measure Anycast Routing) is a tool designed to measure anycast infras
 This includes:
 
 i) Measuring anycast infrastructure itself
-* [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
+* Mapping catchments using [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf)
 * Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
 * Optimal deployment (measuring 'best' deployment inferred from unicast latencies from all PoPs)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
-* [Site flipping](https://arxiv.org/abs/2503.14351) (detecting network regions experiencing anycast site flipping)
+* [Site flipping](https://doi.org/10.1109/TNSM.2025.3636785) (detecting network regions experiencing anycast site flipping)
+* Measuring [anycast routing stability](https://doi.org/10.1007/978-3-031-85960-1_16)
 
 ii) Measuring external anycast infrastructure
-* [LACeS](https://arxiv.org/abs/2503.20554) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
+* [LACeS](https://doi.org/10.1145/3730567.3764484) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
 
 Full documenation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
 
