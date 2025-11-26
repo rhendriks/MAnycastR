@@ -1,6 +1,8 @@
 cff-version: 1.2.0
-message: "If you use this code, please cite the following paper."
-title: "LACeS: an Open, Fast, Responsible and Efficient Longitudinal Anycast Census System"
+message: "If you use this code, please cite the appropriate paper below."
+
+title: "MAnycastR"
+
 authors:
   - family-names: Hendriks
     given-names: Remi
@@ -12,16 +14,19 @@ authors:
     given-names: Raffaele
   - family-names: van Rijswijk-Deij
     given-names: Roland
+
 date-released: 2025-03-27
-url: "https://arxiv.org/abs/2503.20554"
+url: "https://doi.org/10.1145/3730567.3764484"
+
 identifiers:
-  - type: url
-    value: "https://arxiv.org/abs/2503.20554"
-  - type: other
-    description: "arXiv eprint"
-    value: "arXiv:2503.20554"
+  - type: doi
+    value: "10.1145/3730567.3764484"
+
+# -----------------------------------------------------
+# MAIN CITATION - LACeS IMC'25
+# -----------------------------------------------------
 preferred-citation:
-  type: article
+  type: conference-paper
   authors:
     - family-names: Hendriks
       given-names: Remi
@@ -33,7 +38,33 @@ preferred-citation:
       given-names: Raffaele
     - family-names: van Rijswijk-Deij
       given-names: Roland
-  title: "LACeS: an Open, Fast, Responsible and Efficient Longitudinal Anycast Census System"
+  title: "LACeS: An Open, Fast, Responsible and Efficient Longitudinal Anycast Census System"
   year: 2025
-  notes: "arXiv preprint arXiv:2503.20554"
-  url: "https://arxiv.org/abs/2503.20554"
+  conference:
+    name: "Proceedings of the 2025 ACM Internet Measurement Conference"
+    location: "USA"
+  collection-title: "IMC '25"
+  pages: "445–461"
+  doi: "10.1145/3730567.3764484"
+  url: "https://doi.org/10.1145/3730567.3764484"
+
+# -----------------------------------------------------
+# OTHER CITATIONS - Detecting anycast site flipping
+# -----------------------------------------------------
+references:
+  - type: article
+    authors:
+      - family-names: Hendriks
+        given-names: Remi
+      - family-names: Jonker
+        given-names: Mattijs
+      - family-names: van Rijswijk-Deij
+        given-names: Roland
+      - family-names: Sommese
+        given-names: Raffaele
+    title: "Load-Balancing Versus Anycast: A First Look at Operational Challenges"
+    journal: "IEEE Transactions on Network and Service Management"
+    year: 2025
+    pages: "1–1"
+    doi: "10.1109/TNSM.2025.3636785"
+    notes: "Cite this paper when using MAnycastR to detect anycast site flipping or analyze load-balancing vs anycast behavior."
