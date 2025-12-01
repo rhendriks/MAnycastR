@@ -525,6 +525,7 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
+                // TODO non discovery replies should go to this handler as well
                 trace_discovery_handler(&task_result, &mut self.worker_stacks.lock().unwrap());
                 // Continue to forward the result to the CLI as well
             } else {
