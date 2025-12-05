@@ -77,8 +77,8 @@ pub fn responsive_handler(
 /// Also instruct the catching Worker to send a `Trace` with TTL = 1.
 pub fn trace_discovery_handler(
     task_result: &TaskResult,
-    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    session_tracker: Arc<Mutex<SessionTracker>>,
+    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    session_tracker: &mut SessionTracker,
 ) {
     // Get catcher that received the anycast probe reply
     let catcher = task_result.worker_id;
@@ -107,11 +107,7 @@ pub fn trace_discovery_handler(
             last_updated: Instant::now(),
         };
 
-        {
-            // Track Trace session
-            let mut session_tracker = session_tracker.lock().unwrap();
-            session_tracker.sessions.insert(identifier, session);
-        }
+        session_tracker.sessions.insert(identifier, session);
 
         tasks_to_send.push(Task {
             task_type: Some(task::TaskType::Trace(Trace {
@@ -124,8 +120,7 @@ pub fn trace_discovery_handler(
 
     // Put tasks in worker stacks
     if !tasks_to_send.is_empty() {
-        let mut stacks = worker_stacks.lock().unwrap();
-        let stack = stacks.entry(catcher).or_default();
+        let stack = worker_stacks.entry(catcher).or_default();
         for task in tasks_to_send {
             stack.push_back(task);
         }
@@ -139,8 +134,8 @@ pub fn trace_discovery_handler(
 /// If a regular reply (from the target) is received, it closes the `TraceSession`.
 pub fn trace_replies_handler(
     task_result: &TaskResult,
-    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    session_tracker: Arc<Mutex<SessionTracker>>,
+    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    session_tracker: &mut SessionTracker,
 ) {
     for result in &task_result.result_list {
         todo!()
