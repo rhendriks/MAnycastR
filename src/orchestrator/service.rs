@@ -529,9 +529,8 @@ impl Controller for ControllerService {
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                // TODO start pub fn check_trace_timeouts( as thread when starting a traceroute measurement
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
-                trace_discovery_handler(&task_result, &mut self.worker_stacks.lock().unwrap());
+                trace_discovery_handler(&task_result, self.worker_stacks.clone(), self.trace_session_tracker.clone());
                 // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
