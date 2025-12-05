@@ -23,9 +23,9 @@ ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.5" # compression
 bimap = "0.6.3"
 tonic-prost = "0.14.2"
-parquet = { version = "57.0.0", features = ["snap"]}
+parquet = { version = "57.1.0", features = ["snap"]}
 serde_json = "1.0.145"
-log = "0.4.28"
+log = "0.4.29"
 pretty_env_logger = "0.5.0"
 # bpf = "0.1.4" # TODO use bpf filters with sockets (attached in kernel), ensure this can be statically linked
 
