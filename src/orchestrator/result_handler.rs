@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::{task, Ack, Address, Probe, Task, TaskResult, Trace};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tonic::{Response, Status};
 
@@ -70,6 +71,36 @@ pub fn responsive_handler(
     }))
 }
 
+#[derive(Debug)]
+pub struct TraceSession { // TODO move to appropriate place
+    /// Worker from which the traceroute is being performed
+    pub worker_id: u32,
+    /// Target destination address to which the traceroute is being performed
+    pub target: Option<Address>,
+    /// Origin used for the traceroute (source address, port mappings)
+    pub origin_id: u32,
+    /// Current TTL being traced
+    pub current_ttl: u8,
+    /// Consecutive failures counter
+    pub consecutive_failures: u8,
+    /// Time at which last trace was performed
+    pub last_updated: Instant,
+}
+
+// TODO as we keep state for traceroutes, we can avoid encoding the TTL in traceroute probes (and re-use the field)
+/// Identify unique TraceSession TODO encode a unique ID in traceroute packets instead?
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+pub struct TraceIdentifier { // TODO move to appropriate place
+    pub worker_id: u32,
+    pub target: Address,
+    pub origin_id: u32,
+}
+
+/// Traceroute parameters
+const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
+const HOP_TIMEOUT: Duration = Duration::from_secs(1); // 1-second timeout
+const MAX_TTL: u8 = 30; // Prevent routing loops
+
 /// Handles discovery replies for traceroute measurements.
 /// Initializes a `TraceSession` for a traceroute from the catching worker to the target.
 /// Also instruct the catching Worker to send a `Trace` with TTL = 1.
@@ -121,37 +152,6 @@ pub fn trace_discovery_handler(
     }
 }
 
-#[derive(Debug)]
-pub struct TraceSession { // TODO move to appropriate place
-    /// Worker from which the traceroute is being performed
-    pub worker_id: u32,
-    /// Target destination address to which the traceroute is being performed
-    pub target: Option<Address>,
-    /// Origin used for the traceroute (source address, port mappings)
-    pub origin_id: u32,
-    /// Current TTL being traced
-    pub current_ttl: u8,
-    /// Consecutive failures counter
-    pub consecutive_failures: u8,
-    /// Time at which last trace was performed
-    pub last_updated: Instant,
-}
-
-/// Identify unique TraceSession TODO encode a unique ID in traceroute packets instead?
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
-pub struct TraceIdentifier { // TODO move to appropriate place
-    pub worker_id: u32,
-    pub target: Address,
-    pub origin_id: u32,
-}
-
-/// Traceroute parameters
-const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
-const HOP_TIMEOUT: Duration = Duration::from_secs(1); // 1-second timeout
-const MAX_TTL: u8 = 30; // Prevent routing loops
-
-// TODO as we keep state for traceroutes, we can avoid encoding the TTL in traceroute probes (and re-use the field)
-
 /// Awaits `Trace` replies (i.e., ICMP Time Exceeded).
 /// Follows up with Time exceeded with the next `Trace` using TTL + 1.
 /// Updates the corresponding `TraceSession`.
@@ -167,12 +167,18 @@ pub fn trace_replies_handler(
 /// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond for a full second)
 /// If the last successful hop was more than 3 hops ago, terminate the Trace task
 /// Else follow up the Trace task for TTL + 1
+///
+/// # Arguments
+/// * 'worker_stacks' - Shared stack to put Trace tasks in for workers.
+/// * 'sessions' - Shared map that tracks ongoing sessions.
 pub fn check_trace_timeouts(
-    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-    sessions: &mut HashMap<TraceIdentifier, TraceSession>,
+    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
+    sessions: Arc<Mutex<HashMap<TraceIdentifier, TraceSession>>>,
 ) {
     let now = Instant::now();
     let mut finished_sessions = Vec::new();
+    let mut tasks_to_send: Vec<(u32, Task)> = Vec::new();
+
 
     // TODO do stack-based? (oldest session on top) -> sleep if timeout has not occurred
 
