@@ -71,20 +71,8 @@ pub fn responsive_handler(
 }
 
 /// Handles discovery replies for traceroute measurements.
-/// Initializes a `trace_session` for a traceroute from the catching worker to the target.
+/// Initializes a `TraceSession` for a traceroute from the catching worker to the target.
 /// Also instruct the catching Worker to send a `Trace` with TTL = 1.
-///
-///
-/// Below are the steps after the initial trace
-/// It awaits Trace replies and instructs the next Trace with TTL + 1.
-/// If a hop does not reply, it will wait 1 second and proceed with TTL + 1 for this Trace.
-/// If three consecutive hops do not reply, it terminates the Trace task (unreachable)
-/// If the target replies, it terminates the Trace task (successful, reachable)
-///
-/// Handles traceroute discovery probe replies, used to determine the catching worker.
-/// Instructs that worker to perform an initial TraceTask towards that target.
-///
-///
 pub fn trace_discovery_handler(
     task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
@@ -134,7 +122,7 @@ pub fn trace_discovery_handler(
 }
 
 #[derive(Debug)]
-pub struct TraceSession {
+pub struct TraceSession { // TODO move to appropriate place
     /// Worker from which the traceroute is being performed
     pub worker_id: u32,
     /// Target destination address to which the traceroute is being performed
@@ -149,9 +137,9 @@ pub struct TraceSession {
     pub last_updated: Instant,
 }
 
-/// Identify unique TraceSession
+/// Identify unique TraceSession TODO encode a unique ID in traceroute packets instead?
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
-pub struct TraceIdentifier {
+pub struct TraceIdentifier { // TODO move to appropriate place
     pub worker_id: u32,
     pub target: Address,
     pub origin_id: u32,
@@ -161,6 +149,19 @@ pub struct TraceIdentifier {
 const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
 const HOP_TIMEOUT: Duration = Duration::from_secs(1); // 1-second timeout
 const MAX_TTL: u8 = 30; // Prevent routing loops
+
+// TODO as we keep state for traceroutes, we can avoid encoding the TTL in traceroute probes (and re-use the field)
+
+/// Awaits `Trace` replies (i.e., ICMP Time Exceeded).
+/// Follows up with Time exceeded with the next `Trace` using TTL + 1.
+/// Updates the corresponding `TraceSession`.
+///
+/// If a regular reply (from the target) is received, it closes the `TraceSession`.
+pub fn trace_replies_handler(
+
+) {
+    todo!()
+}
 
 
 /// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond for a full second)
@@ -172,6 +173,8 @@ pub fn check_trace_timeouts(
 ) {
     let now = Instant::now();
     let mut finished_sessions = Vec::new();
+
+    // TODO do stack-based? (oldest session on top) -> sleep if timeout has not occurred
 
     for (identifier, session) in sessions.iter_mut() {
         // Check for hop timeout
