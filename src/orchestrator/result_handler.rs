@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tonic::{Response, Status};
-use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
+pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 
 /// Takes a TaskResult from a worker containing discovery results and inserts it into the
 /// 'catcher' (i.e., receiving worker) stack for follow-up probing.
