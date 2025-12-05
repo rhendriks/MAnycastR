@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tonic::{Response, Status};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
+use crate::orchestrator::trace::MAX_TTL;
 
 /// Takes a TaskResult from a worker containing discovery results and inserts it into the
 /// 'catcher' (i.e., receiving worker) stack for follow-up probing.
@@ -132,12 +133,68 @@ pub fn trace_discovery_handler(
 /// Updates the corresponding `TraceSession`.
 ///
 /// If a regular reply (from the target) is received, it closes the `TraceSession`.
+///
+/// # Arguments
+/// * 'task_result' - Non-discovery TraceTask replies (either probe replies or trace replies)
+/// * 'worker_stacks' - Stacks for workers to put follow-up trace tasks into
+/// * 'session_tracker' - Tracker for ongoing trace tasks, to update based on replies received
 pub fn trace_replies_handler(
     task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,
 ) {
+    let catcher_worker_id = task_result.worker_id;
+
     for result in &task_result.result_list {
-        todo!()
+        if let Some(trace_dst) = result.trace_dst {
+            // ICMP TTL exceeded
+            // Get identifier of corresponding trace
+            let identifier = TraceIdentifier {
+                worker_id: catcher_worker_id,
+                target: trace_dst,
+                origin_id: result.origin_id,
+            };
+            let mut remove = false;
+
+            // Find session of corresponding trace
+            if let Some(session) = session_tracker.sessions.get_mut(&identifier) {
+                // Update the corresponding trace session TODO
+                session.current_ttl += 1;
+                session.last_updated = Instant::now();
+                session.consecutive_failures = 0;
+
+                if session.current_ttl > MAX_TTL {
+                    // Routing loop suspected -> close session
+                    remove = true;
+                } else {
+                    // Send tracetask for the next hop TODO
+                    worker_stacks
+                        .entry(catcher_worker_id)
+                        .or_default()
+                        .push_back(Task {
+                            task_type: Some(task::TaskType::Trace(Trace {
+                                dst: session.target,
+                                ttl: session.current_ttl as u32,
+                                origin_id: session.origin_id,
+                            })),
+                        });
+                }
+            }
+
+            if remove {
+                session_tracker.sessions.remove(&identifier);
+            }
+        } else {
+            // Probe reply
+            let identifier = TraceIdentifier {
+                worker_id: catcher_worker_id,
+                target: result.src.unwrap(), // Target source address is the traceroute target
+                origin_id: result.origin_id,
+            };
+
+            // Close session (destination reached)
+            session_tracker.sessions.remove(&identifier);
+            // Expiration queue will time out as it gets popped and no associated session is found
+        }
     }
 }

@@ -6,7 +6,7 @@ use crate::custom_module::manycastr::{task, Address, Task, Trace};
 /// Traceroute parameters
 const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
 const HOP_TIMEOUT: Duration = Duration::from_secs(1); // 1-second timeout
-const MAX_TTL: u8 = 30; // Prevent routing loops
+pub const MAX_TTL: u8 = 30; // Prevent routing loops
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
