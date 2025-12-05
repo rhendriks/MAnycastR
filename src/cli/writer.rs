@@ -85,8 +85,9 @@ pub struct MetadataArgs<'a> {
 /// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
 pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
     // CSV writer to command-line interface
-    let mut wtr_cli = config.print_to_cli.then(|| Writer::from_writer(io::stdout()));
-
+    let mut wtr_cli = config
+        .print_to_cli
+        .then(|| Writer::from_writer(io::stdout()));
 
     let buffered_file_writer = BufWriter::new(config.output_file);
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
