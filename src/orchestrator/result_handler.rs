@@ -70,10 +70,12 @@ pub fn responsive_handler(
     }))
 }
 
-/// Handles traceroute replies.
-/// First, determine the Worker that performs the traceroute by awaiting discovery probe replies.
-/// These discovery probes are pings to determine the catching Worker.
-/// Next, it instructs the catching Worker to send Trace with TTL = 1.
+/// Handles discovery replies for traceroute measurements.
+/// Initializes a `trace_session` for a traceroute from the catching worker to the target.
+/// Also instruct the catching Worker to send a `Trace` with TTL = 1.
+///
+///
+/// Below are the steps after the initial trace
 /// It awaits Trace replies and instructs the next Trace with TTL + 1.
 /// If a hop does not reply, it will wait 1 second and proceed with TTL + 1 for this Trace.
 /// If three consecutive hops do not reply, it terminates the Trace task (unreachable)
@@ -86,12 +88,10 @@ pub fn responsive_handler(
 pub fn trace_discovery_handler(
     task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-    sessions: &mut HashMap<TraceIdentifier, TraceSession>,
+    trace_sessions: &mut HashMap<TraceIdentifier, TraceSession>,
 ) {
     // Get catcher that received the anycast probe reply
     let catcher = task_result.worker_id;
-
-    // TODO create Mapping of (timestamp, worker_id, Target, current_TTL)
 
     // Discovery replies
     for result in &task_result.result_list {
@@ -117,7 +117,7 @@ pub fn trace_discovery_handler(
         };
 
         // Track Trace session
-        sessions.insert(identifier, session);
+        trace_sessions.insert(identifier, session);
 
         // Perform first Trace (TTL = 1) TODO send as batch of tasks (instead of individual tasks)
         worker_stacks
