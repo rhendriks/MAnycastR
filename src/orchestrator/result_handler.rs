@@ -1,10 +1,10 @@
 use crate::custom_module::manycastr::{task, Ack, Probe, Task, TaskResult, Trace};
+use crate::orchestrator::trace::MAX_TTL;
+pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use tonic::{Response, Status};
-pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
-use crate::orchestrator::trace::MAX_TTL;
 
 /// Takes a TaskResult from a worker containing discovery results and inserts it into the
 /// 'catcher' (i.e., receiving worker) stack for follow-up probing.
