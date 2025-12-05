@@ -378,8 +378,8 @@ impl Controller for ControllerService {
             // Start `TraceSession` timeout handler
             check_trace_timeouts(
                 self.worker_stacks.clone(),
-
-            )
+                self.trace_session_tracker.clone(),
+            );
 
             self.m_type
                 .lock()

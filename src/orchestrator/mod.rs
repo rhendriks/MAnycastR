@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
 use tonic::{transport::Server, Status};
+use crate::orchestrator::result_handler::SessionTracker;
 
 type ResultMessage = Result<TaskResult, Status>;
 type CliSender = Sender<ResultMessage>;
@@ -63,6 +64,8 @@ pub struct ControllerService {
     worker_config: Option<HashMap<String, u32>>,
     /// Stacks of tasks coupled to workers, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
+    /// Session tracker for Trace Tasks
+    trace_session_tracker: Arc<Mutex<SessionTracker>>
 }
 
 impl ControllerService {

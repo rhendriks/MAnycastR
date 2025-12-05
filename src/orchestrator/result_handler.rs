@@ -72,6 +72,7 @@ pub fn responsive_handler(
 }
 
 /// Session Tracker for fast lookups (based on expiration queue)
+#[derive(Debug)]
 pub struct SessionTracker {
     pub sessions: HashMap<TraceIdentifier, TraceSession>,
     pub expiration_queue: VecDeque<(TraceIdentifier, Instant)>,
@@ -219,7 +220,7 @@ pub fn check_trace_timeouts(
                 break; // release lock and exit
             }
             // Pop candidate
-            let (id, _old_deadline) = session_tracker.expiration_queue.front().unwrap();
+            let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
             // Get session belonging to identifier
             let should_recycle = if let Some(session) = session_tracker.sessions.get_mut(&id) {
@@ -262,6 +263,7 @@ pub fn check_trace_timeouts(
                 // Session removed during process (drop from tracker)
                 None
             };
+
 
             // If we need to keep tracking the current session, put it in the end of the queue
             if let Some(item) = should_recycle {
