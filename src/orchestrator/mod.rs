@@ -4,6 +4,7 @@ mod result_handler;
 mod service;
 mod task_distributor;
 mod worker;
+mod trace;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
