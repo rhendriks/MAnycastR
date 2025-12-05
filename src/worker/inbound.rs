@@ -92,7 +92,7 @@ pub fn inbound(
                         &config.origin_map,
                         config.is_ipv6,
                     );
-                    
+
                     // TODO if we get a ping reply it will look different than other ping replies (payload is different for traceroute probes -> TODO verify this first)
                     // TODO and as such they should be parsed differently
                     // If we got a trace reply, add it to the queue and continue to the next packet

@@ -4,11 +4,14 @@ use crate::custom_module::manycastr::{
     Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{responsive_handler, symmetric_handler, trace_discovery_handler, trace_replies_handler};
+use crate::orchestrator::result_handler::{
+    responsive_handler, symmetric_handler, trace_discovery_handler, trace_replies_handler,
+};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
 };
+use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, MeasurementType};
@@ -22,7 +25,6 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
-use crate::orchestrator::trace::check_trace_timeouts;
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -531,8 +533,12 @@ impl Controller for ControllerService {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
-                trace_discovery_handler(&task_result, &mut self.worker_stacks.lock().unwrap(), &mut self.trace_session_tracker.lock().unwrap()); // TODO expensive clones? -> get lock instead?
-                // Continue to forward the result to the CLI as well
+                trace_discovery_handler(
+                    &task_result,
+                    &mut self.worker_stacks.lock().unwrap(),
+                    &mut self.trace_session_tracker.lock().unwrap(),
+                ); // TODO expensive clones? -> get lock instead?
+                   // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }

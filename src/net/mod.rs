@@ -90,10 +90,12 @@ impl From<&[u8]> for IPv4Packet {
         }
 
         // If the header length is greater than 20 bytes, read the options field
-        let options = (ihl > 20).then(|| {
-            let mut bytes = vec![0; ihl - 20];
-            cursor.read_exact(&mut bytes).ok().map(|_| bytes)
-        }).flatten();
+        let options = (ihl > 20)
+            .then(|| {
+                let mut bytes = vec![0; ihl - 20];
+                cursor.read_exact(&mut bytes).ok().map(|_| bytes)
+            })
+            .flatten();
 
         let payload_start = cursor.position() as usize;
         let payload_bytes = &data[payload_start..];

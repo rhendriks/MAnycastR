@@ -1,7 +1,7 @@
+use crate::custom_module::manycastr::{task, Address, Task, Trace};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use crate::custom_module::manycastr::{task, Address, Task, Trace};
 
 /// Traceroute parameters
 const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
@@ -94,7 +94,8 @@ pub fn check_trace_timeouts(
 
                     // Check termination conditions
                     if session.consecutive_failures >= MAX_CONSECUTIVE_FAILURES
-                        || session.current_ttl > MAX_TTL {
+                        || session.current_ttl > MAX_TTL
+                    {
                         // Remove from tracker
                         session_tracker.sessions.remove(&id);
                         None // Nothing to update
@@ -108,7 +109,7 @@ pub fn check_trace_timeouts(
                                     ttl: session.current_ttl as u32,
                                     origin_id: session.origin_id,
                                 })),
-                            }
+                            },
                         ));
 
                         // Update deadline for current session
@@ -119,7 +120,6 @@ pub fn check_trace_timeouts(
                 // Session removed during process (drop from tracker)
                 None
             };
-
 
             // If we need to keep tracking the current session, put it in the end of the queue
             if let Some(item) = should_recycle {

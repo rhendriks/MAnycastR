@@ -3,8 +3,8 @@ mod config;
 mod result_handler;
 mod service;
 mod task_distributor;
-mod worker;
 mod trace;
+mod worker;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -15,6 +15,7 @@ use std::time::Duration;
 use crate::custom_module;
 use crate::orchestrator::config::{load_tls, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
+use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
@@ -25,7 +26,6 @@ use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
 use tonic::{transport::Server, Status};
-use crate::orchestrator::result_handler::SessionTracker;
 
 type ResultMessage = Result<TaskResult, Status>;
 type CliSender = Sender<ResultMessage>;
@@ -66,7 +66,7 @@ pub struct ControllerService {
     /// Stacks of tasks coupled to workers, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     /// Session tracker for Trace Tasks
-    trace_session_tracker: Arc<Mutex<SessionTracker>>
+    trace_session_tracker: Arc<Mutex<SessionTracker>>,
 }
 
 impl ControllerService {
