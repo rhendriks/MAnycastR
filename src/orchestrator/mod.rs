@@ -148,6 +148,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
+        trace_session_tracker: Arc::new(Mutex::new(SessionTracker::new())), // TODO unused when not performing traceroute -> make it Option ?
     };
 
     let svc = ControllerServer::new(controller)
