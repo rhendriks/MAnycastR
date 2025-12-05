@@ -531,7 +531,7 @@ impl Controller for ControllerService {
                 return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
-                trace_discovery_handler(&task_result, self.worker_stacks.clone(), self.trace_session_tracker.clone()); // TODO expensive clones? -> get lock instead?
+                trace_discovery_handler(&task_result, &mut self.worker_stacks.lock().unwrap(), &mut self.trace_session_tracker.lock().unwrap()); // TODO expensive clones? -> get lock instead?
                 // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
@@ -540,8 +540,8 @@ impl Controller for ControllerService {
             // Handle traceroute replies (and target replies) TODO expensive clones?
             trace_replies_handler(
                 &task_result,
-                self.worker_stacks.clone(),
-                self.trace_session_tracker.clone(),
+                &mut self.worker_stacks.lock().unwrap(),
+                &mut self.trace_session_tracker.lock().unwrap(),
             );
         }
 
