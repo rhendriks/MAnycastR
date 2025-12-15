@@ -82,7 +82,6 @@ pub fn check_trace_timeouts(
         {
             // Lock tracker
             let mut session_tracker = session_tracker.lock().unwrap();
-            println!("{:?}", session_tracker);
 
 
             // Iteratively check top of the stack (oldest sessions) to see if they timed out
