@@ -107,7 +107,9 @@ pub fn trace_discovery_handler(
             last_updated: Instant::now(),
         };
 
+        println!("added to session tracker");
         session_tracker.sessions.insert(identifier, session);
+        println!("{:?}", session_tracker);
 
         println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
 

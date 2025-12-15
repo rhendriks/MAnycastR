@@ -64,12 +64,13 @@ pub fn check_trace_timeouts(
     active_workers:  Arc<Mutex<Option<u32>>>,
 ) {
     loop {
-        println!("checking trace timeouts");
+        println!("[x] checking trace timeouts");
 
         // Check if we are finished
         {
             let worker_guard = active_workers.lock().unwrap();
             if worker_guard.is_none() {
+                println!("[x] FINISHED");
                 break;
             }
         }
@@ -81,15 +82,17 @@ pub fn check_trace_timeouts(
         {
             // Lock tracker
             let mut session_tracker = session_tracker.lock().unwrap();
+            println!("{:?}", session_tracker);
+
 
             // Iteratively check top of the stack (oldest sessions) to see if they timed out
             while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
                 if *deadline > now {
                     // Deadline is in the future
-                    println!("deadline in the future");
+                    println!("[x] deadline in the future");
                     break; // release lock and exit
                 }
-                println!("expired!!!!");
+                println!("[x] expired!!!!");
                 // Pop candidate
                 let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
@@ -117,7 +120,7 @@ pub fn check_trace_timeouts(
                         } else {
                             // Measure the next hop (current hop timed out)
 
-                            println!("Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
+                            println!("[x] Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
 
                             tasks_to_send.push((
                                 session.worker_id,
@@ -158,5 +161,5 @@ pub fn check_trace_timeouts(
         thread::sleep(HOP_TIMEOUT);
     }
 
-    println!("[Orchestrator] Finished trace timeout thread")
+    println!("[x] [Orchestrator] Finished trace timeout thread")
 }
