@@ -113,6 +113,7 @@ pub fn check_trace_timeouts(
                         if session.consecutive_failures >= MAX_CONSECUTIVE_FAILURES
                             || session.current_ttl > MAX_TTL
                         {
+                            println!("[xxx] trace failed for dst {} with failures {} and current_ttl {}", session.target.unwrap(), session.consecutive_failures, session.current_ttl);
                             // Remove from tracker
                             session_tracker.sessions.remove(&id);
                             None // Nothing to update
