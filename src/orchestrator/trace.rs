@@ -1,7 +1,6 @@
 use crate::custom_module::manycastr::{task, Address, Task, Trace};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
