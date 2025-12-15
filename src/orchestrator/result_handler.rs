@@ -108,7 +108,7 @@ pub fn trace_discovery_handler(
         };
 
         session_tracker.sessions.insert(identifier, session);
-        
+
         println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
 
         tasks_to_send.push(Task {
@@ -144,6 +144,7 @@ pub fn trace_replies_handler(
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,
 ) {
+    println!("Received ICMP time exceeded");
     let catcher_worker_id = task_result.worker_id;
 
     for result in &task_result.result_list {
@@ -169,9 +170,9 @@ pub fn trace_replies_handler(
                     remove = true;
                 } else {
                     // Send tracetask for the next hop TODO
-                    
+
                     println!("succesful hop discovered; discovering next hop from worker {} to dst {} with TTL {}", catcher_worker_id, trace_dst, session.current_ttl);
-                    
+
                     worker_stacks
                         .entry(catcher_worker_id)
                         .or_default()
