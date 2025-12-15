@@ -101,6 +101,9 @@ pub fn check_trace_timeouts(
                         None // Nothing to update
                     } else {
                         // Measure the next hop (current hop timed out)
+
+                        println!("Hop timed out performing follow-up trace from {} to {:?} with TTL {}", session.worker_id, session.target, session.current_ttl);
+
                         tasks_to_send.push((
                             session.worker_id,
                             Task {

@@ -108,6 +108,8 @@ pub fn trace_discovery_handler(
         };
 
         session_tracker.sessions.insert(identifier, session);
+        
+        println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
 
         tasks_to_send.push(Task {
             task_type: Some(task::TaskType::Trace(Trace {
@@ -167,6 +169,9 @@ pub fn trace_replies_handler(
                     remove = true;
                 } else {
                     // Send tracetask for the next hop TODO
+                    
+                    println!("succesful hop discovered; discovering next hop from worker {} to dst {} with TTL {}", catcher_worker_id, trace_dst, session.current_ttl);
+                    
                     worker_stacks
                         .entry(catcher_worker_id)
                         .or_default()

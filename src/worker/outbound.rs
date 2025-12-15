@@ -321,6 +321,9 @@ pub fn send_trace(
         payload_fields,
         trace_task.ttl as u8,
     ));
+
+    println!("Sending traceroute with dst {} and ttl {}", target, trace_task.ttl);
+
     match socket_tx.send_to(&packet, None) {
         Some(Ok(())) => return (1, 0),
         Some(Err(e)) => {
