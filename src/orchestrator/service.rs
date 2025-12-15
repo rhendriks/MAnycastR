@@ -21,7 +21,6 @@ use log::{error, info, warn};
 use rand::Rng;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -380,12 +379,18 @@ impl Controller for ControllerService {
 
         if is_traceroute {
             // Start `TraceSession` timeout handler
-            let running = Arc::new(AtomicBool::new(true));
-            check_trace_timeouts(
-                self.worker_stacks.clone(),
-                self.trace_session_tracker.clone(),
-                self.active_workers.clone(),
-            );
+
+            let stacks_clone = self.worker_stacks.clone();
+            let tracker_clone = self.trace_session_tracker.clone();
+            let active_workers_clone = self.active_workers.clone();
+            
+            std::thread::spawn(move || {
+                check_trace_timeouts(
+                    stacks_clone,
+                    tracker_clone,
+                    active_workers_clone,
+                );
+            });
 
             self.m_type
                 .lock()
