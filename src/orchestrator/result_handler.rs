@@ -112,7 +112,6 @@ pub fn trace_discovery_handler(
         // Add deadline
         let deadline = Instant::now() + HOP_TIMEOUT;
         session_tracker.expiration_queue.push_back((identifier, deadline));
-        println!("{:?}", session_tracker);
 
         println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
 
