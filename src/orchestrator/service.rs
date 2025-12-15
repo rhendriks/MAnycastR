@@ -402,7 +402,7 @@ impl Controller for ControllerService {
             self.m_type.lock().unwrap().take(); // Set to None
         }
 
-        let probing_rate_interval = if is_latency || is_divide {
+        let probing_rate_interval = if is_latency || is_divide || is_traceroute {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
             tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32)
         } else {
@@ -544,7 +544,7 @@ impl Controller for ControllerService {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
         } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-            println!("received discovery traceroute replies");
+            println!("received non-discovery traceroute replies");
             // Handle traceroute replies (and target replies)
             trace_replies_handler(
                 &task_result,
