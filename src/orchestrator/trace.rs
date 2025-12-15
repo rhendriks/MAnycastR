@@ -86,8 +86,10 @@ pub fn check_trace_timeouts(
             while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
                 if *deadline > now {
                     // Deadline is in the future
+                    println!("deadline in the future");
                     break; // release lock and exit
                 }
+                println!("expired!!!!");
                 // Pop candidate
                 let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
