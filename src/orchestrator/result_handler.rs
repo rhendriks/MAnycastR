@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{task, Ack, Probe, Task, TaskResult, Trace};
-use crate::orchestrator::trace::MAX_TTL;
+use crate::orchestrator::trace::{HOP_TIMEOUT, MAX_TTL};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
@@ -108,7 +108,10 @@ pub fn trace_discovery_handler(
         };
 
         println!("added to session tracker");
-        session_tracker.sessions.insert(identifier, session);
+        session_tracker.sessions.insert(identifier.clone(), session);
+        // Add deadline
+        let deadline = Instant::now() + HOP_TIMEOUT;
+        session_tracker.expiration_queue.push_back((identifier, deadline));
         println!("{:?}", session_tracker);
 
         println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
@@ -133,7 +136,7 @@ pub fn trace_discovery_handler(
 
 /// Awaits `Trace` replies (i.e., ICMP Time Exceeded).
 /// Follows up with Time exceeded with the next `Trace` using TTL + 1.
-/// Updates the corresponding `TraceSession`.
+/// Updates the corresponding `TraceSession`, including the timeout.
 ///
 /// If a regular reply (from the target) is received, it closes the `TraceSession`.
 ///
@@ -173,7 +176,7 @@ pub fn trace_replies_handler(
                 } else {
                     // Send tracetask for the next hop TODO
 
-                    println!("succesful hop discovered; discovering next hop from worker {} to dst {} with TTL {}", catcher_worker_id, trace_dst, session.current_ttl);
+                    println!("successful hop discovered; discovering next hop from worker {} to dst {} with TTL {}", catcher_worker_id, trace_dst, session.current_ttl);
 
                     worker_stacks
                         .entry(catcher_worker_id)
