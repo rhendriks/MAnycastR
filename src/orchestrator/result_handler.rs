@@ -216,7 +216,11 @@ pub fn trace_replies_handler(
 
             // Close session (destination reached)
             println!("removing trace from session tracker {:?}", identifier);
+            println!("session_tracker: {:?}", session_tracker);
             session_tracker.sessions.remove(&identifier);
+            println!("session_tracker: {:?}", session_tracker);
+            println!("FINISHED!!!!!!!!!")
+
             // Expiration queue will time out as it gets popped and no associated session is found
         }
     }
