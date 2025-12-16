@@ -155,6 +155,7 @@ message TraceOptions {
   uint32 max_failures = 1; // Maximum number of consecutive timeouts before terminating the traceroute
   uint32 max_hops = 2; // Maximum number of hops to discover (to avoid routing loops)
   uint32 timeout = 3; // Maximum time to wait for trace replies before triggering timeout (in seconds)
+  uint32 initial_hop = 4; // Initial TTL value for traceroute measurements
 }
 
 // An end message, indicates the worker should stop sending out probes

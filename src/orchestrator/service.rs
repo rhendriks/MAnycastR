@@ -376,12 +376,12 @@ impl Controller for ControllerService {
 
         if is_traceroute {
             // Start `TraceSession` timeout handler
-
             let stacks_clone = self.worker_stacks.clone();
             let tracker_clone = self.trace_session_tracker.clone();
             let active_workers_clone = self.active_workers.clone();
             self.trace_max_hops.lock().unwrap().replace(trace_options.unwrap().max_hops);
             self.trace_timeout.lock().unwrap().replace(trace_options.unwrap().timeout as u64);
+            self.inital_hop.lock().unwrap().replace(trace_options.unwrap().initial_hop);
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
@@ -550,6 +550,7 @@ impl Controller for ControllerService {
                     &mut self.worker_stacks.lock().unwrap(),
                     &mut self.trace_session_tracker.lock().unwrap(),
                     self.trace_timeout.lock().unwrap().unwrap(),
+                    self.inital_hop.lock().unwrap().unwrap()
                 );
                    // Continue to forward the result to the CLI as well
             } else {
