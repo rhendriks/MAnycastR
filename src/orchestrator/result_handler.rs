@@ -173,7 +173,7 @@ pub fn trace_replies_handler(
 
             // Find session of corresponding trace
             if let Some(session) = session_tracker.sessions.get_mut(&identifier) {
-                // Update the corresponding trace session TODO
+                // Update the corresponding trace session
                 session.current_ttl += 1;
                 session.last_updated = Instant::now();
                 session.consecutive_failures = 0;
@@ -182,9 +182,8 @@ pub fn trace_replies_handler(
                     // Routing loop suspected -> close session
                     remove = true;
                 } else {
-                    // Send tracetask for the next hop TODO
-
-                    println!("successful hop discovered; discovering next hop from worker {} to dst {} with TTL {}", catcher_worker_id, trace_dst, session.current_ttl);
+                    // Send tracetask for the next hop
+                    println!("successful hop discovered {} ; discovering next hop from worker {} to dst {} with TTL {}", result.src.unwrap(), catcher_worker_id, trace_dst, session.current_ttl);
 
                     worker_stacks
                         .entry(catcher_worker_id)
