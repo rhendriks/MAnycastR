@@ -180,6 +180,7 @@ pub fn trace_replies_handler(
 
                 if session.current_ttl > max_hops as u8 || result.src.unwrap() == result.trace_dst.unwrap() {
                     // Routing loop or destination reached -> close session
+                    println!("closing trace session after hop {}", result.src.unwrap());
                     remove = true;
                 } else {
                     // Send tracetask for the next hop
