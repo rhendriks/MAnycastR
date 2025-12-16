@@ -2,7 +2,7 @@ use crate::cli::client::CliClient;
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::address::Value::Unicast;
-use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement};
+use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ScheduleMeasurement, TraceOptions};
 use crate::custom_module::Separated;
 use crate::{ALL_ID, ALL_WORKERS, ANY_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use bimap::BiHashMap;
@@ -244,6 +244,22 @@ pub async fn handle(
     let path = matches.get_one::<String>("out").unwrap().to_string();
     validate_path_perms(&path)?;
 
+    let trace_options = if is_traceroute {
+        Some(TraceOptions {
+            max_failures: *matches
+                .get_one::<u32>("trace-max-failures")
+                .expect("defaulted"),
+            max_hops: *matches
+                .get_one::<u32>("trace-max-hops")
+                .expect("defaulted"),
+            timeout: *matches
+                .get_one::<u32>("trace-timeout")
+                .expect("defaulted"),
+        })
+    } else {
+        None
+    };
+
     // Create the measurement definition and send it to the orchestrator
     let m_definition = ScheduleMeasurement {
         probing_rate,
@@ -261,6 +277,7 @@ pub async fn handle(
         is_traceroute,
         is_ipv6,
         is_record,
+        trace_options,
     };
 
     let args = MeasurementExecutionArgs {

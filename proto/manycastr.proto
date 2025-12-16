@@ -73,6 +73,7 @@ message ScheduleMeasurement {
   bool is_traceroute = 13; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 14; // whether the measurement is for IPv6
   bool is_record = 15; // whether the measurement is a Record Route measurement
+  optional TraceOptions trace_options = 16; // Optional traceroute options
 }
 
 // A list of workers
