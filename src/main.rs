@@ -492,7 +492,7 @@ fn parse_cmd() -> ArgMatches {
                         .long("tracemap")
                         .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("Perform a traceroute catchment mapping.")
+                        .help("Perform a traceroute catchment mapping [UNIMPLEMENTED].")
                         .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "traceroute"])
                     )
                     .arg(Arg::new("record")

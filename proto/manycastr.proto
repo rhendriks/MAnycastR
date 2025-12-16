@@ -73,7 +73,6 @@ message ScheduleMeasurement {
   bool is_traceroute = 13; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 14; // whether the measurement is for IPv6
   bool is_record = 15; // whether the measurement is a Record Route measurement
-  bool is_tracemap = 16; // whether the measurement is a TraceMap measurement
 }
 
 // A list of workers
@@ -149,7 +148,6 @@ message Start {
   bool is_traceroute = 9; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 10; // whether the measurement is for IPv6
   bool is_record = 11; // whether the measurement is a Record Route measurement
-  bool is_tracemap = 12; // whether the measurement is a traceroute catchment mapping
 }
 
 // An end message, indicates the worker should stop sending out probes

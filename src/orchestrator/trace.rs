@@ -110,7 +110,7 @@ pub fn check_trace_timeouts(
                         session.current_ttl += 1;
 
                         // Check termination conditions
-                        if session.consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+                        if session.consecutive_failures > MAX_CONSECUTIVE_FAILURES
                             || session.current_ttl > MAX_TTL
                         {
                             println!("[xxx] trace failed for dst {} with failures {} and current_ttl {}", session.target.unwrap(), session.consecutive_failures, session.current_ttl);
