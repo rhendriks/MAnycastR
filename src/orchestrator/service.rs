@@ -350,7 +350,6 @@ impl Controller for ControllerService {
                     is_traceroute,
                     is_ipv6: m_definition.is_ipv6,
                     is_record,
-                    trace_options: m_definition.trace_options,
                 })),
             };
 
@@ -373,18 +372,26 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
+        let trace_options = m_definition.trace_options;
+
         if is_traceroute {
             // Start `TraceSession` timeout handler
 
             let stacks_clone = self.worker_stacks.clone();
             let tracker_clone = self.trace_session_tracker.clone();
             let active_workers_clone = self.active_workers.clone();
+            self.trace_max_hops.lock().unwrap().replace(trace_options.unwrap().max_hops);
+            self.trace_timeout.lock().unwrap().replace(trace_options.unwrap().timeout as u64);
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
                     stacks_clone,
                     tracker_clone,
                     active_workers_clone,
+                    trace_options.unwrap().timeout as u64,
+                    trace_options.unwrap().max_failures,
+                    trace_options.unwrap().max_hops,
+
                 );
             });
 
@@ -542,6 +549,7 @@ impl Controller for ControllerService {
                     &task_result,
                     &mut self.worker_stacks.lock().unwrap(),
                     &mut self.trace_session_tracker.lock().unwrap(),
+                    self.trace_timeout.lock().unwrap().unwrap(),
                 );
                    // Continue to forward the result to the CLI as well
             } else {
@@ -554,6 +562,7 @@ impl Controller for ControllerService {
                 &task_result,
                 &mut self.worker_stacks.lock().unwrap(),
                 &mut self.trace_session_tracker.lock().unwrap(),
+                self.trace_max_hops.lock().unwrap().unwrap(),
             );
         }
         println!("handled traceroute replies");
