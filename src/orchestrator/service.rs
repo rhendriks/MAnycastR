@@ -1,8 +1,5 @@
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
-    Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
-};
+use crate::custom_module::manycastr::{instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, Record, ScheduleMeasurement, Start, Task, TaskResult, Worker};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     responsive_handler, symmetric_handler, trace_discovery_handler, trace_replies_handler,
@@ -353,6 +350,7 @@ impl Controller for ControllerService {
                     is_traceroute,
                     is_ipv6: m_definition.is_ipv6,
                     is_record,
+                    trace_options: m_definition.trace_options,
                 })),
             };
 
