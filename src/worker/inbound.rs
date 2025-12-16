@@ -314,7 +314,12 @@ fn parse_time_exceeded(
         0
     };
 
-    println!("received trace reply from target {}. hop {} replied with addr {}", original_ip_header.dst(), trace_ttl, hop_addr);
+    println!(
+        "received trace reply from target {}. hop {} replied with addr {}",
+        original_ip_header.dst(),
+        trace_ttl,
+        hop_addr
+    );
 
     Some(Reply {
         tx_time, // not available for trace replies

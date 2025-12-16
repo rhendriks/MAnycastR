@@ -72,7 +72,7 @@ pub struct ControllerService {
     /// Optional max hop count for traceroute measurements (default 30)
     trace_max_hops: Arc<Mutex<Option<u32>>>,
     /// Hop count to start traceroute measurements with (default 1)
-    inital_hop: Arc<Mutex<Option<u32>>>
+    inital_hop: Arc<Mutex<Option<u32>>>,
 }
 
 impl ControllerService {
