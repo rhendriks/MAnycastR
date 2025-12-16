@@ -38,7 +38,7 @@ pub struct MeasurementExecutionArgs<'a> {
 /// # Arguments
 ///
 /// * `matches` - The parsed command-line arguments specific to the start command.
-/// * `cli_client` - A mutable reference to the GRPC client used to communicate with the orchestrator.
+/// * `grpc_client` - A mutable reference to the gRPC client used to communicate with the orchestrator.
 /// * `worker_map` - A bidirectional map of worker IDs to hostnames for selective probing.
 /// # Returns
 /// * `Result<(), Box<dyn std::error::Error>>` - Ok(()) if the measurement was successfully started, or an error if something went wrong.
