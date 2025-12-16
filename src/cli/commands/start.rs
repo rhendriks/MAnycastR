@@ -255,6 +255,9 @@ pub async fn handle(
             timeout: *matches
                 .get_one::<u32>("trace-timeout")
                 .expect("defaulted"),
+            initial_hop: *matches
+                .get_one::<u32>("trace-initial-hop")
+                .expect("defaulted"),
         })
     } else {
         None

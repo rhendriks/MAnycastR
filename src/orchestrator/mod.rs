@@ -71,6 +71,8 @@ pub struct ControllerService {
     trace_timeout: Arc<Mutex<Option<u64>>>,
     /// Optional max hop count for traceroute measurements (default 30)
     trace_max_hops: Arc<Mutex<Option<u32>>>,
+    /// Hop count to start traceroute measurements with (default 1)
+    inital_hop: Arc<Mutex<Option<u32>>>
 }
 
 impl ControllerService {
@@ -155,6 +157,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         trace_session_tracker: Arc::new(Mutex::new(SessionTracker::new())), // TODO unused when not performing traceroute -> make it Option ?
         trace_timeout: Arc::new(Mutex::new(None)),
         trace_max_hops: Arc::new(Mutex::new(None)),
+        inital_hop: Arc::new(Mutex::new(None)),
     };
 
     let svc = ControllerServer::new(controller)

@@ -79,6 +79,7 @@ pub fn trace_discovery_handler(
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,
     hop_timeout: u64,
+    initial_hop: u32,
 ) {
     // Get catcher that received the anycast probe reply
     let catcher = task_result.worker_id;
@@ -102,7 +103,7 @@ pub fn trace_discovery_handler(
             worker_id: catcher,
             target,
             origin_id,
-            current_ttl: 1,
+            current_ttl: initial_hop as u8,
             consecutive_failures: 0,
             last_updated: Instant::now(),
         };
