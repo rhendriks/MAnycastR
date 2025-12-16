@@ -178,7 +178,7 @@ pub fn trace_replies_handler(
                 session.last_updated = Instant::now();
                 session.consecutive_failures = 0;
 
-                if session.current_ttl > max_hops as u8 {
+                if session.current_ttl > max_hops as u8 || result.src.unwrap() == result.trace_dst.unwrap() {
                     // Routing loop suspected -> close session
                     remove = true;
                 } else {
