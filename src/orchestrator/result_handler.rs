@@ -181,6 +181,7 @@ pub fn trace_replies_handler(
                 if session.current_ttl > max_hops as u8 || result.src.unwrap() == result.trace_dst.unwrap() {
                     // Routing loop or destination reached -> close session
                     println!("closing trace session after hop {}", result.src.unwrap());
+
                     remove = true;
                 } else {
                     // Send tracetask for the next hop
@@ -204,6 +205,8 @@ pub fn trace_replies_handler(
                 session_tracker.sessions.remove(&identifier);
             }
         } else {
+            println!("closing trace session after hop {}", result.src.unwrap());
+
             // Probe reply
             let identifier = TraceIdentifier {
                 worker_id: catcher_worker_id,
@@ -212,6 +215,7 @@ pub fn trace_replies_handler(
             };
 
             // Close session (destination reached)
+            println!("removing trace from session tracker {:?}", identifier);
             session_tracker.sessions.remove(&identifier);
             // Expiration queue will time out as it gets popped and no associated session is found
         }
