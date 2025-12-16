@@ -65,8 +65,6 @@ pub fn check_trace_timeouts(
     max_hops: u32,
 ) {
     loop {
-        println!("[x] checking trace timeouts");
-
         // Check if we are finished
         {
             let worker_guard = active_workers.lock().unwrap();
@@ -91,7 +89,6 @@ pub fn check_trace_timeouts(
                     println!("[x] deadline in the future");
                     break; // release lock and exit
                 }
-                println!("[x] expired!!!!");
                 // Pop candidate
                 let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
