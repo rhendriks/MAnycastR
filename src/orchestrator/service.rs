@@ -1,5 +1,8 @@
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, Record, ScheduleMeasurement, Start, Task, TaskResult, Worker};
+use crate::custom_module::manycastr::{
+    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
+    Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
+};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     responsive_handler, symmetric_handler, trace_discovery_handler, trace_replies_handler,
@@ -379,9 +382,18 @@ impl Controller for ControllerService {
             let stacks_clone = self.worker_stacks.clone();
             let tracker_clone = self.trace_session_tracker.clone();
             let active_workers_clone = self.active_workers.clone();
-            self.trace_max_hops.lock().unwrap().replace(trace_options.unwrap().max_hops);
-            self.trace_timeout.lock().unwrap().replace(trace_options.unwrap().timeout as u64);
-            self.inital_hop.lock().unwrap().replace(trace_options.unwrap().initial_hop);
+            self.trace_max_hops
+                .lock()
+                .unwrap()
+                .replace(trace_options.unwrap().max_hops);
+            self.trace_timeout
+                .lock()
+                .unwrap()
+                .replace(trace_options.unwrap().timeout as u64);
+            self.inital_hop
+                .lock()
+                .unwrap()
+                .replace(trace_options.unwrap().initial_hop);
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
@@ -391,7 +403,6 @@ impl Controller for ControllerService {
                     trace_options.unwrap().timeout as u64,
                     trace_options.unwrap().max_failures,
                     trace_options.unwrap().max_hops,
-
                 );
             });
 
@@ -550,9 +561,9 @@ impl Controller for ControllerService {
                     &mut self.worker_stacks.lock().unwrap(),
                     &mut self.trace_session_tracker.lock().unwrap(),
                     self.trace_timeout.lock().unwrap().unwrap(),
-                    self.inital_hop.lock().unwrap().unwrap()
+                    self.inital_hop.lock().unwrap().unwrap(),
                 );
-                   // Continue to forward the result to the CLI as well
+                // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }

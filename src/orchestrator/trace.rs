@@ -59,7 +59,7 @@ pub struct TraceIdentifier {
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     session_tracker: Arc<Mutex<SessionTracker>>,
-    active_workers:  Arc<Mutex<Option<u32>>>,
+    active_workers: Arc<Mutex<Option<u32>>>,
     timeout: u64,
     max_failures: u32,
     max_hops: u32,
@@ -83,7 +83,6 @@ pub fn check_trace_timeouts(
         {
             // Lock tracker
             let mut session_tracker = session_tracker.lock().unwrap();
-
 
             // Iteratively check top of the stack (oldest sessions) to see if they timed out
             while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
@@ -114,7 +113,12 @@ pub fn check_trace_timeouts(
                         if session.consecutive_failures > max_failures as u8
                             || session.current_ttl > max_hops as u8
                         {
-                            println!("[xxx] trace failed for dst {} with failures {} and current_ttl {}", session.target.unwrap(), session.consecutive_failures, session.current_ttl);
+                            println!(
+                                "[xxx] trace failed for dst {} with failures {} and current_ttl {}",
+                                session.target.unwrap(),
+                                session.consecutive_failures,
+                                session.current_ttl
+                            );
                             // Remove from tracker
                             session_tracker.sessions.remove(&id);
                             None // Nothing to update
