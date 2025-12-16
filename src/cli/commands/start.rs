@@ -53,7 +53,6 @@ pub async fn handle(
     let is_responsive = matches.get_flag("responsive");
     let is_latency = matches.get_flag("latency");
     let is_traceroute = matches.get_flag("traceroute");
-    let is_tracemap = matches.get_flag("tracemap");
 
     // Get optional opt-out URL
     let url = matches.get_one::<String>("url").unwrap().clone();
@@ -262,7 +261,6 @@ pub async fn handle(
         is_traceroute,
         is_ipv6,
         is_record,
-        is_tracemap,
     };
 
     let args = MeasurementExecutionArgs {
