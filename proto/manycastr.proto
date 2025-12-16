@@ -148,6 +148,13 @@ message Start {
   bool is_traceroute = 9; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 10; // whether the measurement is for IPv6
   bool is_record = 11; // whether the measurement is a Record Route measurement
+  optional TraceOptions trace_options = 12; // Optional configuration for traceroute measurements
+}
+
+message TraceOptions {
+  uint32 max_failures = 1; // Maximum number of consecutive timeouts before terminating the traceroute
+  uint32 max_hops = 2; // Maximum number of hops to discover (to avoid routing loops)
+  uint32 timeout = 3; // Maximum time to wait for trace replies before triggering timeout (in seconds)
 }
 
 // An end message, indicates the worker should stop sending out probes
