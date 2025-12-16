@@ -125,7 +125,7 @@ pub fn trace_discovery_handler(
         tasks_to_send.push(Task {
             task_type: Some(task::TaskType::Trace(Trace {
                 dst: target,
-                ttl: 1,
+                ttl: initial_hop,
                 origin_id,
             })),
         });
