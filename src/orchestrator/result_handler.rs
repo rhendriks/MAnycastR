@@ -199,6 +199,7 @@ pub fn trace_replies_handler(
             }
 
             if remove {
+                println!("removing trace from session tracker {:?}", identifier);
                 session_tracker.sessions.remove(&identifier);
             }
         } else {
