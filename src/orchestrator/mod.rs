@@ -67,6 +67,10 @@ pub struct ControllerService {
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     /// Session tracker for Trace Tasks
     trace_session_tracker: Arc<Mutex<SessionTracker>>,
+    /// Optional timeout value for traceroute measurements (default 1s)
+    trace_timeout: Arc<Mutex<Option<u64>>>,
+    /// Optional max hop count for traceroute measurements (default 30)
+    trace_max_hops: Arc<Mutex<Option<u32>>>,
 }
 
 impl ControllerService {
@@ -149,6 +153,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
         trace_session_tracker: Arc::new(Mutex::new(SessionTracker::new())), // TODO unused when not performing traceroute -> make it Option ?
+        trace_timeout: Arc::new(Mutex::new(None)),
+        trace_max_hops: Arc::new(Mutex::new(None)),
     };
 
     let svc = ControllerServer::new(controller)

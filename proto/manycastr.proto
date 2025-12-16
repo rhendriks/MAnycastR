@@ -149,7 +149,6 @@ message Start {
   bool is_traceroute = 9; // whether the measurement is a traceroute measurement
   bool is_ipv6 = 10; // whether the measurement is for IPv6
   bool is_record = 11; // whether the measurement is a Record Route measurement
-  optional TraceOptions trace_options = 12; // Optional configuration for traceroute measurements
 }
 
 message TraceOptions {

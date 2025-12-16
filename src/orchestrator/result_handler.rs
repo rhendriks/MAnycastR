@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::{task, Ack, Probe, Task, TaskResult, Trace};
-use crate::orchestrator::trace::{HOP_TIMEOUT, MAX_TTL};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tonic::{Response, Status};
 
 /// Takes a TaskResult from a worker containing discovery results and inserts it into the
@@ -79,6 +78,7 @@ pub fn trace_discovery_handler(
     task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,
+    hop_timeout: u64,
 ) {
     // Get catcher that received the anycast probe reply
     let catcher = task_result.worker_id;
@@ -110,7 +110,7 @@ pub fn trace_discovery_handler(
         println!("added to session tracker");
         session_tracker.sessions.insert(identifier.clone(), session);
         // Add deadline
-        let deadline = Instant::now() + HOP_TIMEOUT;
+        let deadline = Instant::now() + Duration::from_secs(hop_timeout);
         session_tracker.expiration_queue.push_back((identifier, deadline));
 
         println!("worker {} started a traceroute towards {} with TTL 1", catcher, target.unwrap());
@@ -143,10 +143,12 @@ pub fn trace_discovery_handler(
 /// * 'task_result' - Non-discovery TraceTask replies (either probe replies or trace replies)
 /// * 'worker_stacks' - Stacks for workers to put follow-up trace tasks into
 /// * 'session_tracker' - Tracker for ongoing trace tasks, to update based on replies received
+/// * 'max_hops' - Maximum hop count before terminating trace sessions (default 30)
 pub fn trace_replies_handler(
     task_result: &TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,
+    max_hops: u32,
 ) {
     println!("Received ICMP time exceeded");
     let catcher_worker_id = task_result.worker_id;
@@ -169,7 +171,7 @@ pub fn trace_replies_handler(
                 session.last_updated = Instant::now();
                 session.consecutive_failures = 0;
 
-                if session.current_ttl > MAX_TTL {
+                if session.current_ttl > max_hops as u8 {
                     // Routing loop suspected -> close session
                     remove = true;
                 } else {

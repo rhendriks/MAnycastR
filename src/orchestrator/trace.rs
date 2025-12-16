@@ -4,11 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Traceroute parameters
-const MAX_CONSECUTIVE_FAILURES: u8 = 3; // Unreachable identifier
-pub const HOP_TIMEOUT: Duration = Duration::from_secs(1); // 1-second timeout
-pub const MAX_TTL: u8 = 30; // Prevent routing loops
-
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
 pub struct SessionTracker {
@@ -58,10 +53,16 @@ pub struct TraceIdentifier {
 /// * 'worker_stacks' - Shared stack to put Trace tasks in for workers.
 /// * 'sessions' - Shared map that tracks ongoing sessions.
 /// * 'active_workers' - Break signal that is set to None when measurement is finished
+/// * 'hop_timeout' - Maximum waiting time before determining a hop to be unresponsive (default 1s)
+/// * 'max_failures' - Maximum number of consecutive non-responding hops before terminating a traceroute (default 3)
+/// * 'max_ttl' - Maximum hop count before terminating a traceroute (default 30)
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     session_tracker: Arc<Mutex<SessionTracker>>,
     active_workers:  Arc<Mutex<Option<u32>>>,
+    timeout: u64,
+    max_failures: u32,
+    max_hops: u32,
 ) {
     loop {
         println!("[x] checking trace timeouts");
@@ -98,7 +99,7 @@ pub fn check_trace_timeouts(
                 // Get session belonging to identifier
                 let should_recycle = if let Some(session) = session_tracker.sessions.get_mut(&id) {
                     // Verify the session is still timed out (might have been updated)
-                    let expiration = session.last_updated + HOP_TIMEOUT;
+                    let expiration = session.last_updated + Duration::from_secs(timeout);
 
                     if expiration > now {
                         // Still alive (received update during check) -> update deadline
@@ -110,8 +111,8 @@ pub fn check_trace_timeouts(
                         session.current_ttl += 1;
 
                         // Check termination conditions
-                        if session.consecutive_failures > MAX_CONSECUTIVE_FAILURES
-                            || session.current_ttl > MAX_TTL
+                        if session.consecutive_failures > max_failures as u8
+                            || session.current_ttl > max_hops as u8
                         {
                             println!("[xxx] trace failed for dst {} with failures {} and current_ttl {}", session.target.unwrap(), session.consecutive_failures, session.current_ttl);
                             // Remove from tracker
@@ -134,7 +135,7 @@ pub fn check_trace_timeouts(
                             ));
 
                             // Update deadline for current session
-                            Some((id.clone(), now + HOP_TIMEOUT))
+                            Some((id.clone(), now + Duration::from_secs(timeout)))
                         }
                     }
                 } else {
@@ -158,7 +159,7 @@ pub fn check_trace_timeouts(
         }
 
         // Sleep for the timeout interval before checking timeouts again
-        thread::sleep(HOP_TIMEOUT);
+        thread::sleep(Duration::from_secs(timeout));
     }
 
     println!("[x] [Orchestrator] Finished trace timeout thread")
