@@ -394,6 +394,7 @@ impl Controller for ControllerService {
                 .lock()
                 .unwrap()
                 .replace(trace_options.unwrap().initial_hop);
+            let cli_sender_clone = self.cli_sender.clone();
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
@@ -403,6 +404,7 @@ impl Controller for ControllerService {
                     trace_options.unwrap().timeout as u64,
                     trace_options.unwrap().max_failures,
                     trace_options.unwrap().max_hops,
+                    cli_sender_clone, // send '*' results
                 );
             });
 

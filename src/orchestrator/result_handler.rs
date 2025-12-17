@@ -206,7 +206,7 @@ pub fn trace_replies_handler(
             }
         } else {
             println!("closing trace session after hop {}", result.src.unwrap());
-
+            
             // Probe reply
             let identifier = TraceIdentifier {
                 worker_id: catcher_worker_id,
