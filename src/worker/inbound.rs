@@ -505,7 +505,7 @@ fn parse_icmp(
     } else {
         false
     };
-
+    
     // Create a Reply for the received ping reply
     Some((
         Reply {

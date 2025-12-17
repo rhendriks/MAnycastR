@@ -3,6 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use crate::orchestrator::CliHandle;
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
@@ -55,7 +56,8 @@ pub struct TraceIdentifier {
 /// * 'active_workers' - Break signal that is set to None when measurement is finished
 /// * 'hop_timeout' - Maximum waiting time before determining a hop to be unresponsive (default 1s)
 /// * 'max_failures' - Maximum number of consecutive non-responding hops before terminating a traceroute (default 3)
-/// * 'max_ttl' - Maximum hop count before terminating a traceroute (default 30)
+/// * 'max_hops' - Maximum hop count before terminating a traceroute (default 30)
+/// * 'cli_sender' - Forward '*' results for timed out hops to CLI
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     session_tracker: Arc<Mutex<SessionTracker>>,
@@ -63,6 +65,7 @@ pub fn check_trace_timeouts(
     timeout: u64,
     max_failures: u32,
     max_hops: u32,
+    cli_sender: CliHandle,
 ) {
     loop {
         // Check if we are finished
@@ -123,6 +126,26 @@ pub fn check_trace_timeouts(
                             // Measure the next hop (current hop timed out)
 
                             println!("[x] Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
+
+                            {
+                                // TODO forward result to CLI for unknown result
+                                // let cli_sender = cli_sender.lock().unwrap().unwrap();
+                                //
+                                // let result = Reply {
+                                //     src: None,
+                                //     ttl: 0,
+                                //     rx_time: 0,
+                                //     tx_time: 0,
+                                //     tx_id: session.worker_id,
+                                //     origin_id: session.origin_id,
+                                //     chaos: None,
+                                //     trace_dst: session.target,
+                                //     trace_ttl: Some((session.current_ttl - 1) as u32),
+                                //     recorded_hops: vec![],
+                                // };
+                                //
+                                // cli_sender.send(result);
+                            }
 
                             tasks_to_send.push((
                                 session.worker_id,
