@@ -145,6 +145,10 @@ pub fn inbound(
                     continue;
                 }
 
+                if result.clone().unwrap().1 == true {
+                    println!("received from final destination {:?}", result.clone().unwrap().0)
+                }
+
                 // Put result in transmission queue
                 {
                     received += 1;
