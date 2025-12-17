@@ -138,7 +138,7 @@ impl ControllerService {
 /// * 'args' - the parsed command-line arguments
 pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     let port = *args.get_one::<u16>("port").unwrap();
-    let addr: SocketAddr = format!("[::]:{port}").parse().unwrap();
+    let addr: SocketAddr = format!("[::]:{port}").parse()?;
 
     // Get optional configuration file
     let (current_worker_id, worker_config) = args
