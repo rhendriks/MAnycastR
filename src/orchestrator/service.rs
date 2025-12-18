@@ -5,7 +5,7 @@ use crate::custom_module::manycastr::{
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
-    responsive_handler, symmetric_handler, trace_discovery_handler, trace_replies_handler,
+    discovery_handler, trace_discovery_handler, trace_replies_handler,
 };
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
@@ -552,9 +552,9 @@ impl Controller for ControllerService {
             // Sleep 1 second to avoid rate-limiting issues
             tokio::time::sleep(Duration::from_secs(1)).await;
             if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
-                return responsive_handler(task_result, &mut self.worker_stacks.lock().unwrap());
+                return discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap(), false);
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
-                return symmetric_handler(task_result, &mut self.worker_stacks.lock().unwrap());
+                return discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap(), true);
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 println!("received discovery traceroute replies");
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
