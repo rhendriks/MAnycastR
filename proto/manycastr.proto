@@ -237,8 +237,8 @@ message LatencyReply {
   Address src = 1;
   fixed32 ttl = 2;
   optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
-  uint64 rx_time = 1;
-  uint64 tx_time = 2;
+  uint64 rx_time = 4;
+  uint64 tx_time = 5;
 }
 
 // Used for LACeS (sending from all PoPs)
@@ -246,11 +246,11 @@ message LacesReply {
   Address src = 1;
   fixed32 ttl = 2;
   optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
-  uint64 rx_time = 1;
-  optional uint64 tx_time = 2; // not available for TCP
-  fixed32 tx_id = 3;
-  optional string chaos = 8;
-  optional RecordedHops recorded_hops = 9;
+  uint64 rx_time = 4;
+  optional uint64 tx_time = 5; // not available for TCP
+  fixed32 tx_id = 6;
+  optional string chaos = 7;
+  optional RecordedHops recorded_hops = 8;
 }
 
 // ICMP Time Exceeded
@@ -258,11 +258,11 @@ message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;
   optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
-  uint32 rx_time = 1; // 32 bit microseconds time
-  uint32 tx_time = 2; // 16 bit microseconds time
-  fixed32 tx_id = 3;
-  Address trace_dst = 4;
-  uint32 hop_count = 5; // TTL used to trigger this reply
+  uint32 rx_time = 4; // 32 bit microseconds time
+  uint32 tx_time = 5; // 16 bit microseconds time
+  fixed32 tx_id = 6;
+  Address trace_dst = 7;
+  uint32 hop_count = 8; // TTL used to trigger this reply
 }
 
 // Record Route hops found
