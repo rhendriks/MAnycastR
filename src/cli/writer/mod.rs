@@ -20,8 +20,11 @@ use std::io::BufWriter;
 use std::sync::Arc;
 use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
 use crate::cli::writer::csv_writer::{get_csv_metadata};
+use crate::cli::writer::latency_row::get_latency_row;
 use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
+use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
+use crate::custom_module::manycastr::reply::ResultData;
 
 pub mod parquet_writer;
 pub mod csv_writer;
@@ -51,7 +54,7 @@ pub struct WriteConfig<'a> {
     /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true),
     /// to simplify certain result interpretations.
     pub is_symmetric: bool,
-    /// A bidirectional map used to convert worker IDs (u32) to their corresponding hostnames (String).
+    /// A bidirectional map used to convert worker IDs (u16) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
     /// Indicate whether it is a traceroute measurement
     pub is_traceroute: bool,
@@ -129,41 +132,67 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
         .expect("Failed to write header to file");
 
     tokio::spawn(async move {
-        // Receive tasks from the outbound channel
+        // Receive task results from the outbound channel
         while let Some(task_result) = rx.recv().await {
             if task_result == TaskResult::default() {
                 break;
             }
-            let results: Vec<Reply> = task_result.replies;
-            for result in results {
-                let result = if config.is_traceroute {
-                    get_trace_row(
-                        result,
-                        &task_result.rx_id,
-                        config.m_type as u8,
-                        &config.worker_map,
-                    )
-                } else {
-                    get_row(
-                        result,
-                        &task_result.rx_id,
-                        config.m_type as u8,
-                        config.is_symmetric,
-                        &config.worker_map,
-                        config.is_record,
-                    )
-                };
+            let results: Vec<Reply> = task_result.replies;;
+            let rx_id = task_result.rx_id;
 
+            for result in results {
+                let src = result.src.expect("no address");
+                let ttl = result.ttl as u8;
+                let chaos_data = result.chaos;
+                let origin_id = result.origin_id;
+                let row = match result.result_data {
+                    Some(data) => match data {
+                        ResultData::VerfploeterReply(_) => {
+                            get_verfploeter_csv_row(
+                                &rx_id,
+                                &config.worker_map,
+                                origin_id,
+                                ttl,
+                                src,
+                                chaos_data,
+                            )
+                        },
+                        ResultData::LatencyReply(reply) => {
+                            get_latency_row(
+                                reply,
+                                &rx_id,
+                                &config.worker_map,
+                                chaos_data,
+                                origin_id,
+                                src,
+                                config.m_type as u8,
+                                ttl,
+                            )
+                        },
+                        ResultData::LacesReply(reply) => {
+                            // ...
+                        },
+                        ResultData::TraceReply(reply) => {
+                            // ...
+                        },
+                        ResultData::RecordReply(reply) => {
+                            // ...
+                        },
+                    },
+                    None => {
+                        eprintln!("Reply contained no result data!");
+                    }
+                };
                 // Write to command-line
                 if let Some(ref mut wtr) = wtr_cli {
-                    wtr.write_record(&result)
+                    wtr.write_record(&row)
                         .expect("Failed to write payload to CLI");
                     wtr.flush().expect("Failed to flush stdout");
                 }
 
                 // Write to file
                 wtr_file
-                    .write_record(result)
+                    .write_record(row)
                     .expect("Failed to write payload to file");
             }
             wtr_file.flush().expect("Failed to flush file");
@@ -316,7 +345,6 @@ pub fn get_header(
     header
 }
 
-// TODO calculate RTT for trace replies
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         let rx_time_ms = rx_time / 1_000;
@@ -327,3 +355,19 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
         (rx_time - tx_time) as f64 / 1_000.0
     }
 }
+
+// rx_time (microsends timestamp) tx_time (microseconds timestamp)
+pub fn calculate_rtt_trace(rx_time: u32, tx_time: u32) -> f64 {
+    // Treat timestamps as wrapping 16-bit values
+    const MODULUS: u32 = u16::MAX as u32 + 1;
+
+    let rtt_ms = if rx_time >= tx_time {
+        rx_time - tx_time
+    } else {
+        // Handle wrap-around
+        (MODULUS - tx_time) + rx_time
+    };
+
+    rtt_ms as f64
+}
+
