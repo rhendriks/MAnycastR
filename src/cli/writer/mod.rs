@@ -19,12 +19,16 @@ use parquet::schema::types::{Type as SchemaType, TypePtr};
 use std::io::BufWriter;
 use std::sync::Arc;
 use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
-use crate::cli::writer::csv_writer::{get_csv_metadata, get_row, get_trace_row};
-use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, reply_to_parquet_row, write_batch_to_parquet, ParquetDataRow};
+use crate::cli::writer::csv_writer::{get_csv_metadata};
+use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
+use crate::cli::writer::trace_row::get_trace_row;
 
 pub mod parquet_writer;
 pub mod csv_writer;
-
+mod laces_row;
+mod latency_row;
+mod verfploeter_row;
+mod trace_row;
 
 /// Configuration for the results writing process.
 ///
@@ -312,6 +316,7 @@ pub fn get_header(
     header
 }
 
+// TODO calculate RTT for trace replies
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         let rx_time_ms = rx_time / 1_000;
