@@ -1,3 +1,8 @@
+use bimap::BiHashMap;
+use crate::cli::writer::{calculate_rtt, MetadataArgs};
+use crate::custom_module::manycastr::Reply;
+use crate::{ALL_WORKERS, TCP_ID};
+
 /// Get the result (csv row) from a Reply message
 ///
 /// # Arguments
@@ -11,7 +16,7 @@
 /// # Returns
 ///
 /// A vector of strings representing the row in the CSV file
-fn get_row( // TODO split into multiple 'get_row' functions based on result/measurement type
+pub fn get_row( // TODO split into multiple 'get_row' functions based on result/measurement type
             result: Reply,
             rx_worker_id: &u32,
             m_type: u8,
@@ -75,7 +80,7 @@ fn get_row( // TODO split into multiple 'get_row' functions based on result/meas
 
 /// Get traceroute row
 /// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt
-fn get_trace_row(
+pub fn get_trace_row(
     trace_result: Reply,
     rx_worker_id: &u32,
     _m_type: u8, // TODO ICMP only for now
