@@ -200,11 +200,11 @@ message TaskResult {
   repeated Reply replies = 2;
 }
 
-// Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, --responsive [no RTT, no rx/tx times], --latency [RTT], other)
+// Probe reply message
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
-  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
   oneof result_data {
     VerfploeterReply verfploeter_reply = 4;
     LatencyReply latency_reply = 5;
@@ -213,7 +213,6 @@ message Reply {
     RecordReply record_reply = 8;
   }
   optional string chaos = 9;
-
 }
 
 // Used for --traceroute, --responsive, --latency, --divide to determine i) catchment, and ii) responsiveness
@@ -237,9 +236,10 @@ message LacesReply {
 message TraceReply {
   uint32 rx_time = 1; // 32 bit microseconds time
   uint32 tx_time = 2; // 16 bit microseconds time
-  uint32 trace_id = 3; // 8 bit trace identifier (coupled with trace destination)
-  Address trace_dst = 4;
-  uint32 hop_count = 5; // TTL used to trigger this reply
+  fixed32 tx_id = 3;
+  uint32 trace_id = 4; // 8 bit trace identifier (coupled with trace destination)
+  Address trace_dst = 5;
+  uint32 hop_count = 6; // TTL used to trigger this reply
 }
 
 // Record Route reply

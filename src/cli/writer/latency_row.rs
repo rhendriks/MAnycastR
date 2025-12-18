@@ -16,7 +16,7 @@ pub struct LatencyParquetDataRow {
     ttl: u8,
     /// Origin ID for multi-origin measurements (source address, ports).
     origin_id: Option<u8>,
-    
+
     chaos_data: Option<String>,
 }
 
@@ -61,7 +61,7 @@ pub fn get_latency_row(
                 rx_worker_id: &u32,
                 worker_map: &BiHashMap<u32, String>,
                 chaos_data: Option<String>,
-                origin_id: Option<u8>,
+                origin_id: Option<u32>,
                 src: Address,
                 m_type: u8,
                 ttl: u8,
@@ -75,7 +75,7 @@ pub fn get_latency_row(
     let rtt = calculate_rtt(result.rx_time, result.tx_time, m_type == TCP_ID);
 
     let mut row = vec![rx_hostname, rtt.to_string(), src.to_string(), ttl.to_string()];
-    
+
     // Optional fields
     if let Some(chaos) = chaos_data {
         row.push(chaos);

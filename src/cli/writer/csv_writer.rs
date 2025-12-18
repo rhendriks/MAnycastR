@@ -2,6 +2,7 @@ use bimap::BiHashMap;
 use crate::cli::writer::{calculate_rtt, MetadataArgs};
 use crate::custom_module::manycastr::Reply;
 use crate::{ALL_WORKERS, TCP_ID};
+use crate::custom_module::Separated;
 
 /// Returns a vector of lines containing the metadata of the measurement
 ///
