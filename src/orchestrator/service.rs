@@ -25,6 +25,7 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
+use crate::custom_module::manycastr::reply::ResultData;
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -545,7 +546,29 @@ impl Controller for ControllerService {
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
-        let is_discovery = task_result.is_discovery;
+        let rx_id = task_result.rx_id;
+
+        // TODO loop over results and handle each result individually based on type
+
+        for reply in task_result.replies {
+            let src = reply.src;
+            let ttl = reply.ttl;
+            match reply.result_data { // TODO
+                Some(ResultData::LatencyReply(latency_data)) => {
+
+                },
+                Some(ResultData::TraceReply(trace_data)) => {
+
+                },
+                Some(ResultData::VerfploeterReply(vp_data)) => {
+                },
+                Some(ResultData::LacesReply(laces_data)) => {
+                },
+                None => {
+                    eprintln!("Received reply with no data variant set from {:?}", src);
+                }
+            }
+        }
 
         // if self.r_prober is not None and equals this task's worker_id
         if is_discovery {
