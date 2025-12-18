@@ -7,7 +7,7 @@ use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult};
+use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult, TraceReply};
 use crate::custom_module::Separated;
 use crate::net::{
     parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet,
@@ -251,9 +251,8 @@ fn parse_trace(
     m_id: u16,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<Reply> {
+) -> Option<TraceReply> {
     // Check for ICMP Time Exceeded code
-    // TODO match with m_id early
     if is_ipv6 {
         if packet_bytes.len() < 88 {
             return None;
@@ -294,29 +293,24 @@ fn parse_trace(
         PacketPayload::Icmp { value } => value,
         _ => return None,
     };
-    // Get first 8 bits of measurement ID (last 8 bits of sequence number field)
-    let pkt_m_id_part = (original_icmp_header.sequence_number & 0xFF) as u32;
-    if pkt_m_id_part != (m_id as u32 & 0xFF) {
-        // TODO move up
-        return None;
-    }
 
-    // Get sender worker ID and TTL  (ICMP identifier field)
-    let tx_id = original_icmp_header.icmp_identifier as u32;
-    // Get original probe TTL (first 8 bits of sequence number field)
+    // Get original probe TTL (first 8 bits of seq field)
     let trace_ttl = (original_icmp_header.sequence_number >> 8) as u32;
+    // Get trace ID (last 8 bits of seq field)
+    let trace_id = (original_icmp_header.sequence_number & 0xFF) as u32;
+
     // get hop address
     let hop_addr = ip_header.src();
 
+    // get trace dst address
+    let trace_dst = Some(original_ip_header.dst());
+
     // get origin ID to which this probe is targeted
+    // TODO do origin_id mapping at orchestrator
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
-    // Attempt to get tx_time from payload (not guaranteed depending on router implementation)
-    let tx_time: u64 = if original_icmp_header.payload.len() >= 12 {
-        u64::from_be_bytes(original_icmp_header.payload[4..12].try_into().unwrap())
-    } else {
-        0
-    };
+    // 16 bit tx_time (microseconds) as u16 in identifier field
+    let tx_time = icmp_header.icmp_identifier as u32;
 
     println!(
         "received trace reply from target {}. hop {} replied with addr {}",
@@ -325,20 +319,17 @@ fn parse_trace(
         hop_addr
     );
 
-    Some(Reply {
-        tx_time, // not available for trace replies
-        tx_id,
-        src: Some(hop_addr),
-        ttl: ip_header.ttl() as u32, // TTL of the ICMP Time Exceeded packet
+    Some(TraceReply {
+        hop_addr: None,
         rx_time: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_micros() as u64,
+            .as_millis() as u32,
+        tx_time,
+        trace_id,
+        trace_dst,
+        hop_count: trace_ttl,
         origin_id,
-        chaos: None,
-        trace_dst: Some(original_ip_header.dst()), // original destination address
-        trace_ttl: Some(trace_ttl),                // TTL
-        recorded_hops: vec![],
     })
 }
 
@@ -505,7 +496,7 @@ fn parse_icmp(
     } else {
         false
     };
-    
+
     // Create a Reply for the received ping reply
     Some((
         Reply {
