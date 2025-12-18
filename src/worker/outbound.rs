@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
@@ -282,7 +282,7 @@ pub fn send_probe(
 pub fn send_trace(
     ethernet_header: &[u8],
     worker_id: u32,
-    m_id: u32,
+    trace_id: u8,
     info_url: &str,
     trace_task: &Trace,
     socket_tx: &mut Box<dyn DataLinkSender>,
@@ -304,21 +304,26 @@ pub fn send_trace(
 
     let mut packet = ethernet_header.to_owned();
 
-    // Encode TTL and first 8 bits of measurement ID in the ICMP sequence number
-    let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | ((m_id & 0xFF) as u16);
+    // Encode TTL and trace ID
+    let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | (trace_id as u16);
 
     let payload_fields = ProbePayload {
         worker_id,
-        m_id,
+        m_id: trace_id as u32,
         info_url,
     };
+
+    let tx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u16;
 
     // Create the appropriate traceroute packet based on the trace_type
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
-        worker_id as u16, // encoding worker ID in ICMP identifier TODO state kept at Orchestrator -> encode timestamp instead ?
-        sequence_number,  // encoding TTL and first 8 bits of m_id in ICMP sequence number
+        tx_time, // encode timestamp into identifier field
+        sequence_number,  // encode TTL (8 bits) and trace ID (8 bits) into seq number
         payload_fields,
         trace_task.ttl as u8,
     ));
