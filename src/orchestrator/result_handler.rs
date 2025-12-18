@@ -5,27 +5,23 @@ use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 use tonic::{Response, Status};
 
-/// Takes a TaskResult from a worker containing discovery results and inserts it into the
-/// 'catcher' (i.e., receiving worker) stack for follow-up probing.
-///
-/// # Arguments
-///
-/// * 'task_result' - The TaskResult received from a worker containing anycast discovery probe replies.
-/// * 'worker_stacks' - A mutable reference to the HashMap containing stacks of addresses for each worker.
-///
-/// # Returns
-///
-/// * 'Result<Response<Ack>, Status>' - An acknowledgment response indicating success or failure.
-pub fn symmetric_handler(
+/// Takes a TaskResult containing discovery probe replies for --responsive probes.
+/// Puts the responsive targets in the worker stack for all workers. TODO update rustdoc
+pub fn discovery_handler(
     task_result: TaskResult,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    is_symmetric: bool, // probe from catching PoP (True) or all PoPs (false)
 ) -> Result<Response<Ack>, Status> {
     // Get 'catcher' that received the anycast probes
-    let catcher = task_result.worker_id;
+    let worker_id = if is_symmetric {
+        task_result.rx_id // send from catcher PoP only
+    } else {
+        ALL_WORKERS_INTERVAL // send from all PoPs
+    };
 
     // Get the target addresses from the results
     let responsive_targets: Vec<Task> = task_result
-        .result_list
+        .replies
         .iter()
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
@@ -34,34 +30,7 @@ pub fn symmetric_handler(
 
     // Assign follow-up probes to the 'catcher' stack
     worker_stacks
-        .entry(catcher)
-        .or_default()
-        .extend(responsive_targets);
-
-    Ok(Response::new(Ack {
-        is_success: true,
-        error_message: "".to_string(),
-    }))
-}
-
-/// Takes a TaskResult containing discovery probe replies for --responsive probes.
-/// Puts the responsive targets in the worker stack for all workers.
-pub fn responsive_handler(
-    task_result: TaskResult,
-    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-) -> Result<Response<Ack>, Status> {
-    // Get the target addresses from the results
-    let responsive_targets: Vec<Task> = task_result
-        .result_list
-        .iter()
-        .map(|result| Task {
-            task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
-        })
-        .collect();
-
-    // Assign follow-up probes to the 'all workers' stack
-    worker_stacks
-        .entry(ALL_WORKERS_INTERVAL)
+        .entry(worker_id)
         .or_default()
         .extend(responsive_targets);
 
@@ -82,11 +51,11 @@ pub fn trace_discovery_handler(
     initial_hop: u32,
 ) {
     // Get catcher that received the anycast probe reply
-    let catcher = task_result.worker_id;
+    let catcher = task_result.rx_id;
     let mut tasks_to_send = Vec::new();
 
     // Discovery replies
-    for result in &task_result.result_list {
+    for result in &task_result.replies {
         // Create an ongoing TraceSession for each discovery reply
         let target = result.src;
         let origin_id = result.origin_id;
