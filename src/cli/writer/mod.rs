@@ -18,8 +18,13 @@ use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
 use std::io::BufWriter;
 use std::sync::Arc;
-
 use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
+use crate::cli::writer::csv_writer::{get_csv_metadata, get_row, get_trace_row};
+use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, reply_to_parquet_row, write_batch_to_parquet, ParquetDataRow};
+
+pub mod parquet_writer;
+pub mod csv_writer;
+
 
 /// Configuration for the results writing process.
 ///
@@ -161,6 +166,94 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
         }
         rx.close();
         wtr_file.flush().expect("Failed to flush file");
+    });
+}
+
+const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
+const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
+
+/// Write results to a Parquet file as they are received from the channel.
+/// This function processes the results in batches to optimize writing performance.
+///
+/// # Arguments
+///
+/// * `rx` - The receiver channel that receives the results.
+///
+/// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
+pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+    let schema = build_parquet_schema(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+        config.is_record,
+    );
+
+    // Get metadata key-value pairs for the Parquet file
+    let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
+
+    // Configure writer properties, including compression and metadata
+    let key_value_metadata: Vec<parquet::file::metadata::KeyValue> = key_value_tuples
+        .into_iter()
+        .map(|(key, value)| parquet::file::metadata::KeyValue::new(key, value))
+        .collect();
+
+    let props = Arc::new(
+        WriterProperties::builder()
+            .set_compression(ParquetCompression::SNAPPY)
+            .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
+            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
+            .build(),
+    );
+
+    let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props)
+        .expect("Failed to create parquet writer");
+
+    // Get the appropriate header for the Parquet file based on the measurement type and configuration
+    let headers = get_header(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+        config.is_record,
+    );
+
+    tokio::spawn(async move {
+        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
+
+        while let Some(task_result) = rx.recv().await {
+            if task_result == TaskResult::default() {
+                break; // End of stream
+            }
+
+            let worker_id = task_result.worker_id;
+            for reply in task_result.result_list {
+                let parquet_row = reply_to_parquet_row(
+                    reply,
+                    worker_id,
+                    config.m_type as u8,
+                    config.is_symmetric,
+                    &config.worker_map,
+                );
+                row_buffer.push(parquet_row);
+            }
+
+            // If the buffer is full, write the batch to the file
+            if row_buffer.len() >= ROW_BUFFER_CAPACITY {
+                write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+                    .expect("Failed to write batch to Parquet file");
+                row_buffer.clear();
+            }
+        }
+
+        // Write any remaining rows in the buffer
+        if !row_buffer.is_empty() {
+            write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+                .expect("Failed to write final batch to Parquet file");
+        }
+
+        writer.close().expect("Failed to close Parquet writer");
+        rx.close();
     });
 }
 
