@@ -1,5 +1,5 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
-use crate::cli::writer::{write_results, write_results_parquet, MetadataArgs, WriteConfig};
+use crate::cli::writer::{write_results, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
 use crate::custom_module::Separated;
@@ -45,7 +45,7 @@ impl CliClient {
         let is_divide = m_definition.is_divide;
         let probing_rate = m_definition.probing_rate;
         let worker_interval = m_definition.worker_interval;
-        let m_type = m_definition.m_type;
+        let m_type = m_definition.m_type as u8;
         let is_latency = m_definition.is_latency;
         let is_responsive = m_definition.is_responsive;
 
@@ -221,7 +221,8 @@ impl CliClient {
 
         // Start thread that writes results to file
         if is_parquet {
-            write_results_parquet(rx_r, config);
+            todo!()
+            // write_results_parquet(rx_r, config);
         } else {
             write_results(rx_r, config);
         }

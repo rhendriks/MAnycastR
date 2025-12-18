@@ -1,6 +1,6 @@
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
-use crate::cli::writer::parquet_writer::ParquetDataRow;
+// use crate::cli::writer::parquet_writer::ParquetDataRow;
 use crate::custom_module::manycastr::{Address, LacesReply, LatencyReply, Reply};
 use crate::{CHAOS_ID, TCP_ID};
 
