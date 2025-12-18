@@ -199,15 +199,19 @@ message TaskResult {
   uint32 worker_id = 1; // TODO rename to rx_id
   repeated Reply result_list = 2;
   bool is_discovery = 3; // whether the reply is part of a discovery measurement TODO introduce separate result type
-  oneof result_data {
-    TraceReply traceroute = 10;
-    Reply reply = 11;
-    // TODO other types
-  }
+  repeated Reply replies = 4;
 }
 
 // Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, --responsive [no RTT, no rx/tx times], --latency [RTT], other)
 message Reply {
+  oneof result_data {
+    TraceReply traceroute = 1;
+    Reply reply = 2;
+    // TODO other types
+  }
+}
+
+message VerfploeterReply {
   Address src = 1;
   fixed32 ttl = 2;
   uint64 rx_time = 3;
