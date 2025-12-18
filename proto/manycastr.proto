@@ -56,7 +56,7 @@ message Finished {
   uint32 worker_id = 2;
 }
 
-// Schedule a measurement with the orchestrator
+// Schedule a measurement with the orchestrator // TODO spli into different measurement types
 message ScheduleMeasurement {
   uint32 probing_rate = 1; // Probing rate (probes per second)
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
@@ -136,7 +136,7 @@ message Init {
   uint32 worker_id = 1;
 }
 
-// A start control instruction, forwards the configuration to the worker
+// A start control instruction, forwards the configuration to the worker TODO split into different measurement types
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
@@ -201,7 +201,7 @@ message TaskResult {
   bool is_discovery = 3; // whether the reply is part of a discovery measurement
 }
 
-// Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, other)
+// Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, --responsive [no RTT, no rx/tx times], --latency [RTT], other)
 message Reply {
   Address src = 1;
   fixed32 ttl = 2;
@@ -213,4 +213,15 @@ message Reply {
   optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
   optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
   repeated Address recorded_hops = 10; // if this reply is part of a Record Route measurement, the hops discovered
+}
+
+message TraceReply {
+  Address hop_addr = 1;
+  uint32 rx_time = 2;
+  uint32 tx_time = 3; // Sender time encoded as u32 (milliseconds)
+  uint32 trace_id = 4; // 8 bit trace identifier (coupled with trace destination)
+  Address trace_dst = 5;
+  uint32 hop_count = 6; // TTL used to trigger this reply
+
+
 }

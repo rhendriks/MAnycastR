@@ -291,15 +291,16 @@ pub fn send_trace(
     let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
     let origin_id = trace_task.origin_id;
     // Get the matching origin for this trace task
-    let tx_origin = origins.iter().find(|o| o.origin_id == origin_id);
-    if tx_origin.is_none() {
+    let tx_origin = if let Some(origin) = origins.iter().find(|o| o.origin_id == origin_id) {
+        origin
+    } else {
         warn!(
-            "[Worker outbound] No matching origin found for trace task with origin ID {}",
-            origin_id
-        );
+        "[Worker outbound] No matching origin found for trace task with origin ID {}",
+        origin_id
+    );
         return (0, 1);
-    }
-    let tx_origin = tx_origin.unwrap();
+    };
+
 
     let mut packet = ethernet_header.to_owned();
 
@@ -316,7 +317,7 @@ pub fn send_trace(
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
-        worker_id as u16, // encoding worker ID in ICMP identifier
+        worker_id as u16, // encoding worker ID in ICMP identifier TODO state kept at Orchestrator -> encode timestamp instead ?
         sequence_number,  // encoding TTL and first 8 bits of m_id in ICMP sequence number
         payload_fields,
         trace_task.ttl as u8,
