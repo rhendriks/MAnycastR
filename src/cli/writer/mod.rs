@@ -281,18 +281,23 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     }
 }
 
-// rx_time (microsends timestamp) tx_time (microseconds timestamp)
+/// Calculates RTT handling the 14-bit timestamp wrap-around.
+///
+/// * `rx_time_us`: Receive time in milliseconds
+/// * `tx_time_ms_14b`: Transmit time in milliseconds (masked to 14 bits).
 pub fn calculate_rtt_trace(rx_time: u32, tx_time: u32) -> f64 {
-    // Treat timestamps as wrapping 16-bit values
-    const MODULUS: u32 = u16::MAX as u32 + 1;
+    // 14-bit Modulus (2^14 = 16384)
+    const MODULUS: u32 = 1 << 14;
+    const MASK: u32 = MODULUS - 1; // 0x3FFF
 
-    let rtt_ms = if rx_time >= tx_time {
-        rx_time - tx_time
+    let rx_14b = rx_time & MASK;
+
+    let rtt_ms = if rx_14b >= tx_time {
+        rx_14b - tx_time
     } else {
-        // Handle wrap-around
-        (MODULUS - tx_time) + rx_time
+        // wrap around
+        (rx_14b + MODULUS) - tx_time
     };
 
     rtt_ms as f64
 }
-

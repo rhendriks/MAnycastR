@@ -301,11 +301,24 @@ pub fn send_trace(
         return (0, 1);
     };
 
-
     let mut packet = ethernet_header.to_owned();
 
-    // Encode TTL and trace ID
-    let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | (trace_id as u16);
+    // Store 14 bits of timestamp
+    let tx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let timestamp_14b = (tx_time & 0x3FFF) as u16; // store as u14
+
+    // store worker_id as 10bit number (up to 1,024 PoPs)
+    let worker_lo_8 = (worker_id & 0xFF) as u16;
+    let worker_hi_2 = ((worker_id >> 8) & 0x03) as u16;
+
+    // encode ttl (8 bit) + 8 least significant bits of worker_id
+    let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | worker_lo_8;
+
+    // encode 2 most significant bits of worker id and timestamp (14 bits)
+    let identifier: u16 = (worker_hi_2 << 14) | timestamp_14b;
 
     let payload_fields = ProbePayload {
         worker_id,
@@ -313,16 +326,11 @@ pub fn send_trace(
         info_url,
     };
 
-    let tx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u16;
-
     // Create the appropriate traceroute packet based on the trace_type
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
-        tx_time, // encode timestamp into identifier field
+        identifier, // encode timestamp into identifier field
         sequence_number,  // encode TTL (8 bits) and trace ID (8 bits) into seq number
         payload_fields,
         trace_task.ttl as u8,
