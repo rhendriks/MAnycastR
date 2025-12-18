@@ -1,0 +1,100 @@
+/// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
+/// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
+///
+/// From Wikipedia: IP header and first 64 bit of the original payload are used by the source host to match the time exceeded message to the discarded datagram.
+/// For higher-level protocols such as UDP and TCP the 64-bit payload will include the source and destination ports of the discarded packet.
+///
+/// # Arguments
+/// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
+/// * `m_id` - the ID of the current measurement
+/// * `worker_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+///
+/// # Returns
+/// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
+fn parse_trace(
+    packet_bytes: &[u8],
+    m_id: u16,
+    worker_map: &Vec<Origin>,
+    is_ipv6: bool,
+) -> Option<TraceReply> {
+    // Check for ICMP Time Exceeded code
+    if is_ipv6 {
+        if packet_bytes.len() < 88 {
+            return None;
+        }
+        if packet_bytes[40] != 3 {
+            return None;
+        } // ICMPv6 type != Time Exceeded
+    } else {
+        if packet_bytes.len() < 56 {
+            return None;
+        }
+        if packet_bytes[20] != 11 {
+            return None;
+        } // ICMPv4 type != Time Exceeded
+    }
+
+    let ip_header = if is_ipv6 {
+        IPPacket::V6(IPv6Packet::from(packet_bytes))
+    } else {
+        IPPacket::V4(IPv4Packet::from(packet_bytes))
+    };
+
+    // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
+    let icmp_header = match &ip_header.payload() {
+        PacketPayload::Icmp { value } => value,
+        _ => return None,
+    };
+
+    // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
+    let original_ip_header = if is_ipv6 {
+        IPPacket::V6(IPv6Packet::from(icmp_header.payload.as_bytes()))
+    } else {
+        IPPacket::V4(IPv4Packet::from(icmp_header.payload.as_bytes()))
+    };
+
+    // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
+    let original_icmp_header = match &original_ip_header.payload() {
+        PacketPayload::Icmp { value } => value,
+        _ => return None,
+    };
+
+    // Get original probe TTL (first 8 bits of seq field)
+    let trace_ttl = (original_icmp_header.sequence_number >> 8) as u32;
+    // Get trace ID (last 8 bits of seq field)
+    let trace_id = (original_icmp_header.sequence_number & 0xFF) as u32;
+
+    // get hop address
+    let hop_addr = ip_header.src();
+
+    // get trace dst address
+    let trace_dst = Some(original_ip_header.dst());
+
+    // get origin ID to which this probe is targeted
+    // TODO do origin_id mapping at orchestrator
+    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
+
+    // 16 bit tx_time (microseconds) as u16 in identifier field
+    let tx_time = icmp_header.icmp_identifier as u32;
+
+    println!(
+        "received trace reply from target {}. hop {} replied with addr {}",
+        original_ip_header.dst(),
+        trace_ttl,
+        hop_addr
+    );
+
+    Some(TraceReply {
+        hop_addr: None,
+        rx_time: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u32,
+        tx_time,
+        trace_id,
+        trace_dst,
+        hop_count: trace_ttl,
+        origin_id,
+    })
+}
