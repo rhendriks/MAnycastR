@@ -217,11 +217,10 @@ message Reply {
 
 message TraceReply {
   Address hop_addr = 1;
-  uint32 rx_time = 2;
-  uint32 tx_time = 3; // Sender time encoded as u32 (milliseconds)
+  uint32 rx_time = 2; // 32 bit microseconds time
+  uint32 tx_time = 3; // 16 bit microseconds time
   uint32 trace_id = 4; // 8 bit trace identifier (coupled with trace destination)
   Address trace_dst = 5;
   uint32 hop_count = 6; // TTL used to trigger this reply
-
-
+  uint32 origin_id = 7;
 }
