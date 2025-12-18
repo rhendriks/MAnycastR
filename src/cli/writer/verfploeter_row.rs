@@ -51,16 +51,16 @@ pub fn latency_reply_to_parquet_row(
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_verfploeter_csv_row(
-    rx_worker_id: &u32,
+    rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
-                                origin_id: Option<u8>,
-                                ttl: u8,
-                                src: Address,
-                                chaos_data: Option<String>,
+    origin_id: Option<u32>,
+    ttl: u8,
+    src: Address,
+    chaos_data: Option<String>,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
-        .get_by_left(rx_worker_id)
+        .get_by_left(rx_id)
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
