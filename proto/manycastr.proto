@@ -196,38 +196,54 @@ message Trace {
 
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
-  uint32 worker_id = 1; // TODO rename to rx_id
-  repeated Reply result_list = 2;
-  bool is_discovery = 3; // whether the reply is part of a discovery measurement TODO introduce separate result type
-  repeated Reply replies = 4;
+  uint32 rx_id = 1;
+  repeated Reply replies = 2;
 }
 
 // Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, --responsive [no RTT, no rx/tx times], --latency [RTT], other)
 message Reply {
-  oneof result_data {
-    TraceReply traceroute = 1;
-    Reply reply = 2;
-    // TODO other types
-  }
-}
-
-message VerfploeterReply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3;
-  uint64 tx_time = 4;
-  fixed32 tx_id = 5;
-  fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
-  optional string chaos = 7;
-  repeated Address recorded_hops = 10; // if this reply is part of a Record Route measurement, the hops discovered
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  oneof result_data {
+    VerfploeterReply verfploeter_reply = 4;
+    LatencyReply latency_reply = 5;
+    LacesReply laces_reply = 6;
+    TraceReply trace_reply = 7;
+    RecordReply record_reply = 8;
+  }
+  optional string chaos = 9;
+
 }
 
+// Used for --traceroute, --responsive, --latency, --divide to determine i) catchment, and ii) responsiveness
+message VerfploeterReply {
+}
+
+// --latency reply (rx == tx)
+message LatencyReply {
+  uint64 rx_time = 1;
+  uint64 tx_time = 2;
+}
+
+// Used for LACeS (sending from all PoPs)
+message LacesReply {
+  uint64 rx_time = 1;
+  uint64 tx_time = 2;
+  fixed32 tx_id = 3;
+}
+
+// ICMP Time Exceeded
 message TraceReply {
-  Address hop_addr = 1;
-  uint32 rx_time = 2; // 32 bit microseconds time
-  uint32 tx_time = 3; // 16 bit microseconds time
-  uint32 trace_id = 4; // 8 bit trace identifier (coupled with trace destination)
-  Address trace_dst = 5;
-  uint32 hop_count = 6; // TTL used to trigger this reply
-  uint32 origin_id = 7;
+  uint32 rx_time = 1; // 32 bit microseconds time
+  uint32 tx_time = 2; // 16 bit microseconds time
+  uint32 trace_id = 3; // 8 bit trace identifier (coupled with trace destination)
+  Address trace_dst = 4;
+  uint32 hop_count = 5; // TTL used to trigger this reply
+}
+
+// Record Route reply
+message RecordReply {
+  fixed32 tx_id = 1;
+  repeated Address recorded_hops = 2;
 }
