@@ -4,9 +4,7 @@ use crate::custom_module::manycastr::{
     Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{
-    discovery_handler, trace_discovery_handler, trace_replies_handler,
-};
+use crate::orchestrator::result_handler::{discovery_handler, discovery_handler_v2, trace_discovery_handler, trace_replies_handler};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
@@ -548,27 +546,8 @@ impl Controller for ControllerService {
         let task_result = request.into_inner();
         let rx_id = task_result.rx_id;
 
-        // TODO loop over results and handle each result individually based on type
-
-        for reply in task_result.replies {
-            let src = reply.src;
-            let ttl = reply.ttl;
-            match reply.result_data { // TODO
-                Some(ResultData::LatencyReply(latency_data)) => {
-
-                },
-                Some(ResultData::TraceReply(trace_data)) => {
-
-                },
-                Some(ResultData::VerfploeterReply(vp_data)) => {
-                },
-                Some(ResultData::LacesReply(laces_data)) => {
-                },
-                None => {
-                    eprintln!("Received reply with no data variant set from {:?}", src);
-                }
-            }
-        }
+        // TODO infer result type and handle appropiately
+        
 
         // if self.r_prober is not None and equals this task's worker_id
         if is_discovery {
