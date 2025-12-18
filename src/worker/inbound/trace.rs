@@ -60,10 +60,19 @@ fn parse_trace(
         _ => return None,
     };
 
-    // Get original probe TTL (first 8 bits of seq field)
-    let trace_ttl = (original_icmp_header.sequence_number >> 8) as u32;
-    // Get trace ID (last 8 bits of seq field)
-    let trace_id = (original_icmp_header.sequence_number & 0xFF) as u32;
+    let seq = original_icmp_header.sequence_number;
+    let id = original_icmp_header.identifier; // MUST be the identifier from the original packet!
+
+    // ttl (first 8 bits of seq)
+    let trace_ttl = (seq >> 8) as u32;
+
+    // get worker_id (10 bits) (lower 8 bits seq, highest 2 bits of identifier)
+    let worker_lo = (seq & 0xFF) as u32;
+    let worker_hi = ((id >> 14) & 0x03) as u32;
+    let tx_id = (worker_hi << 8) | worker_lo;
+
+    // get milliseconds (last 14 bits of identifier field
+    let tx_time = (id & 0x3FFF) as u32;
 
     // get hop address
     let hop_addr = ip_header.src();
@@ -74,9 +83,6 @@ fn parse_trace(
     // get origin ID to which this probe is targeted
     // TODO do origin_id mapping at orchestrator
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
-
-    // 16 bit tx_time (microseconds) as u16 in identifier field
-    let tx_time = icmp_header.icmp_identifier as u32;
 
     println!(
         "received trace reply from target {}. hop {} replied with addr {}",
@@ -92,7 +98,7 @@ fn parse_trace(
             .unwrap()
             .as_millis() as u32,
         tx_time,
-        trace_id,
+        trace_id: tx_id,
         trace_dst,
         hop_count: trace_ttl,
         origin_id,
