@@ -245,7 +245,7 @@ impl CliClient {
                 break;
             }
 
-            replies_count += task_result.result_list.len();
+            replies_count += task_result.replies.len();
             // Send the results to the file channel
             tx_r.send(task_result).unwrap();
         }

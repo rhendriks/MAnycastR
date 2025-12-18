@@ -1,0 +1,231 @@
+use std::fs::File;
+use std::io;
+use std::io::Write;
+
+use bimap::BiHashMap;
+use csv::Writer;
+use tokio::sync::mpsc::UnboundedReceiver;
+
+use custom_module::manycastr::{Configuration, Reply, TaskResult};
+use custom_module::Separated;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use log::error;
+use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
+use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
+use parquet::file::properties::WriterProperties;
+use parquet::file::writer::SerializedFileWriter;
+use parquet::schema::types::{Type as SchemaType, TypePtr};
+use std::io::BufWriter;
+use std::sync::Arc;
+
+use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
+
+/// Configuration for the results writing process.
+///
+/// This struct bundles all the necessary parameters for `write_results`
+/// to determine where and how to output measurement results,
+/// including formatting options and contextual metadata.
+pub struct WriteConfig<'a> {
+    /// Determines whether the results should also be printed to the command-line interface.
+    pub print_to_cli: bool,
+    /// The file handle to which the measurement results should be written.
+    pub output_file: File,
+    /// Metadata for the measurement, to be written at the beginning of the output file.
+    pub metadata_args: MetadataArgs<'a>,
+    /// The type of measurement being performed, influencing how results are processed or formatted.
+    /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
+    pub m_type: u32,
+    /// Indicates whether the measurement involves multiple origins, which affects
+    /// how results are written.
+    pub is_multi_origin: bool,
+    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true),
+    /// to simplify certain result interpretations.
+    pub is_symmetric: bool,
+    /// A bidirectional map used to convert worker IDs (u32) to their corresponding hostnames (String).
+    pub worker_map: BiHashMap<u32, String>,
+    /// Indicate whether it is a traceroute measurement
+    pub is_traceroute: bool,
+    /// Indicate whether Record Route is used
+    pub is_record: bool,
+}
+
+/// Holds all the arguments required to metadata for the output file.
+pub struct MetadataArgs<'a> {
+    /// Divide-and-conquer measurement flag.
+    pub is_divide: bool,
+    /// Path to the hitlist used.
+    pub hitlist: &'a str,
+    /// Whether the hitlist was shuffled.
+    pub is_shuffle: bool,
+    /// A string representation of the measurement type (e.g., "ICMP", "DNS").
+    pub m_type_str: String,
+    /// The probing rate used.
+    pub probing_rate: u32,
+    /// The interval between subsequent workers.
+    pub interval: u32,
+    /// A bidirectional map of all possible worker IDs to their hostnames.
+    pub all_workers: &'a BiHashMap<u32, String>,
+    /// Optional configuration file used.
+    pub configurations: &'a Vec<Configuration>,
+    /// Whether this is a configuration-based measurement.
+    pub is_config: bool,
+    /// Whether this is a latency-based measurement.
+    pub is_latency: bool,
+    /// Whether this is a responsiveness-based measurement.
+    pub is_responsive: bool,
+}
+
+/// Writes the results to a file (and optionally to the command-line)
+///
+/// # Arguments
+///
+/// * 'rx' - The receiver channel that receives the results
+///
+/// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
+pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+    // CSV writer to command-line interface
+    let mut wtr_cli = config
+        .print_to_cli
+        .then(|| Writer::from_writer(io::stdout()));
+
+    let buffered_file_writer = BufWriter::new(config.output_file);
+    let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
+
+    // Write metadata to file
+    let md_lines = get_csv_metadata(config.metadata_args, &config.worker_map);
+    for line in md_lines {
+        if let Err(e) = writeln!(gz_encoder, "{line}") {
+            error!("Failed to write metadata line to Gzip stream: {e}");
+        }
+    }
+
+    // .gz writer
+    let mut wtr_file = Writer::from_writer(gz_encoder);
+
+    // Write header
+    let header = get_header(
+        config.m_type,
+        config.is_multi_origin,
+        config.is_symmetric,
+        config.is_traceroute,
+        config.is_record,
+    );
+    if let Some(wtr) = wtr_cli.as_mut() {
+        wtr.write_record(&header)
+            .expect("Failed to write header to stdout")
+    };
+    wtr_file
+        .write_record(header)
+        .expect("Failed to write header to file");
+
+    tokio::spawn(async move {
+        // Receive tasks from the outbound channel
+        while let Some(task_result) = rx.recv().await {
+            if task_result == TaskResult::default() {
+                break;
+            }
+            let results: Vec<Reply> = task_result.replies;
+            for result in results {
+                let result = if config.is_traceroute {
+                    get_trace_row(
+                        result,
+                        &task_result.rx_id,
+                        config.m_type as u8,
+                        &config.worker_map,
+                    )
+                } else {
+                    get_row(
+                        result,
+                        &task_result.rx_id,
+                        config.m_type as u8,
+                        config.is_symmetric,
+                        &config.worker_map,
+                        config.is_record,
+                    )
+                };
+
+                // Write to command-line
+                if let Some(ref mut wtr) = wtr_cli {
+                    wtr.write_record(&result)
+                        .expect("Failed to write payload to CLI");
+                    wtr.flush().expect("Failed to flush stdout");
+                }
+
+                // Write to file
+                wtr_file
+                    .write_record(result)
+                    .expect("Failed to write payload to file");
+            }
+            wtr_file.flush().expect("Failed to flush file");
+        }
+        rx.close();
+        wtr_file.flush().expect("Failed to flush file");
+    });
+}
+
+/// Creates the appropriate CSV header for the results file (based on the measurement type)
+///
+/// # Arguments
+///
+/// * 'measurement_type' - The type of measurement being performed
+///
+/// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
+///
+/// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+///
+/// * 'is_traceroute' - A boolean that determines whether the measurement is a traceroute
+///
+/// * 'is_record' - A boolean that determines whether Record Route is used
+pub fn get_header(
+    m_type: u32,
+    is_multi_origin: bool,
+    is_symmetric: bool,
+    is_traceroute: bool,
+    is_record: bool,
+) -> Vec<&'static str> {
+    let mut header = if is_traceroute {
+        vec![
+            "rx",
+            "hop_addr",
+            "ttl",
+            "tx",
+            "trace_dst",
+            "trace_ttl",
+            "rtt",
+        ]
+    } else if is_symmetric {
+        vec!["rx", "addr", "ttl", "rtt"]
+    } else {
+        // TCP anycast does not have tx_time
+        if m_type == TCP_ID as u32 {
+            vec!["rx", "rx_time", "addr", "ttl", "tx"]
+        } else {
+            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
+        }
+    };
+
+    // Optional fields
+    if m_type == CHAOS_ID as u32 {
+        header.push("chaos_data");
+    }
+    if is_multi_origin {
+        header.push("origin_id");
+    }
+    if is_record {
+        header.push("record_route");
+    }
+
+    header
+}
+
+pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
+    if is_tcp {
+        let rx_time_ms = rx_time / 1_000;
+        let rx_time_adj = rx_time_ms as u32;
+
+        (rx_time_adj - tx_time as u32) as f64
+    } else {
+        (rx_time - tx_time) as f64 / 1_000.0
+    }
+}
