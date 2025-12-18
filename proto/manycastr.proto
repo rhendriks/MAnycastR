@@ -196,9 +196,14 @@ message Trace {
 
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
-  uint32 worker_id = 1;
+  uint32 worker_id = 1; // TODO rename to rx_id
   repeated Reply result_list = 2;
-  bool is_discovery = 3; // whether the reply is part of a discovery measurement
+  bool is_discovery = 3; // whether the reply is part of a discovery measurement TODO introduce separate result type
+  oneof result_data {
+    TraceReply traceroute = 10;
+    Reply reply = 11;
+    // TODO other types
+  }
 }
 
 // Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, --responsive [no RTT, no rx/tx times], --latency [RTT], other)
@@ -210,8 +215,6 @@ message Reply {
   fixed32 tx_id = 5;
   fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
   optional string chaos = 7;
-  optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
-  optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
   repeated Address recorded_hops = 10; // if this reply is part of a Record Route measurement, the hops discovered
 }
 
