@@ -165,7 +165,7 @@ pub fn trace_replies_handler(
             // ICMP TTL exceeded
             // Get identifier of corresponding trace
             let identifier = TraceIdentifier {
-                worker_id: catcher_worker_id,
+                worker_id: result.tx_id,
                 target: trace_dst,
                 origin_id: result.origin_id,
             };
@@ -206,7 +206,7 @@ pub fn trace_replies_handler(
             }
         } else {
             println!("closing trace session after hop {}", result.src.unwrap());
-            
+
             // Probe reply
             let identifier = TraceIdentifier {
                 worker_id: catcher_worker_id,
