@@ -27,8 +27,8 @@ pub struct TraceSession {
     pub worker_id: u32,
     /// Target destination address to which the traceroute is being performed
     pub target: Option<Address>,
-    /// Origin used for the traceroute (source address, port mappings)
-    pub origin_id: u32,
+    /// Origin used for the traceroute (source address, port mappings) [None if a single origin is used]
+    pub origin_id: Option<u32>,
     /// Current TTL being traced
     pub current_ttl: u8,
     /// Consecutive failures counter
@@ -37,13 +37,12 @@ pub struct TraceSession {
     pub last_updated: Instant,
 }
 
-// TODO as we keep state for traceroutes, we can avoid encoding the TTL in traceroute probes (and re-use the field)
-/// Identify unique TraceSession TODO encode a unique ID in traceroute packets instead?
+/// Identify unique TraceSession
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct TraceIdentifier {
     pub worker_id: u32,
     pub target: Address,
-    pub origin_id: u32,
+    pub origin_id: Option<u32>,
 }
 
 /// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond for a full second)

@@ -127,9 +127,9 @@ pub fn trace_replies_handler(
     max_hops: u32,
 ) {
     println!("Received ICMP time exceeded");
-    let catcher_worker_id = task_result.worker_id;
+    let catcher_worker_id = task_result.rx_id;
 
-    for result in &task_result.result_list {
+    for result in &task_result.replies {
         if let Some(trace_dst) = result.trace_dst {
             // ICMP TTL exceeded
             // Get identifier of corresponding trace

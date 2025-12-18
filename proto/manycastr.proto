@@ -191,7 +191,7 @@ message Record {
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  uint32 origin_id = 3; // Origin to send the traceroute probe from
+  optional uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
