@@ -1,6 +1,6 @@
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
-use crate::cli::writer::parquet_writer::ParquetDataRow;
+// use crate::cli::writer::parquet_writer::ParquetDataRow;
 use crate::custom_module::manycastr::{Address, LacesReply, Reply};
 use crate::{CHAOS_ID, TCP_ID};
 
@@ -59,7 +59,7 @@ pub fn laces_reply_to_parquet_row(
 /// # Returns
 ///
 /// A vector of strings representing the row in the CSV file
-pub fn get_row(
+pub fn get_laces_row(
                 result: LacesReply,
                 rx_worker_id: &u32,
                 m_type: u8,
@@ -67,7 +67,7 @@ pub fn get_row(
                 ttl: u8,
                 src: Address,
                 chaos_data: Option<String>,
-                origin_id: Option<u8>,
+                origin_id: Option<u32>,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -79,7 +79,7 @@ pub fn get_row(
         .get_by_left(&result.tx_id)
         .unwrap_or(&String::from("Unknown"))
         .to_string();
-    
+
     let mut row = if m_type == TCP_ID {
         // TCP has no tx_time
         vec![rx_hostname, result.rx_time.to_string(), src.to_string(), ttl.to_string(), tx_hostname]
