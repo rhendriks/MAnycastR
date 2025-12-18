@@ -12,7 +12,6 @@ mod config;
 mod inbound;
 mod measurement;
 mod outbound;
-mod inbound;
 
 impl Worker {
     /// Create a worker instance, which includes establishing a connection with the orchestrator.
