@@ -7,7 +7,7 @@ use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 use parquet::file::writer::SerializedFileWriter;
 use crate::{ALL_WORKERS, TCP_ID};
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs};
-use crate::custom_module::manycastr::Reply;
+use crate::custom_module::manycastr::{LatencyReply, Reply};
 
 /// Returns a vector of key-value pairs containing the metadata of the measurement.
 pub fn get_parquet_metadata(
@@ -134,7 +134,7 @@ pub fn build_parquet_schema(
             "rx" | "addr" | "tx" | "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(parquet::basic::LogicalType::String))
+                    .with_logical_type(Some(LogicalType::String))
                     .build()
                     .unwrap()
             }
@@ -173,45 +173,6 @@ pub fn build_parquet_schema(
             .build()
             .unwrap(),
     )
-}
-
-/// Converts a Reply message into a ParquetDataRow for writing to a Parquet file.
-pub fn reply_to_parquet_row(
-    result: Reply,
-    rx_worker_id: u32,
-    m_type: u8,
-    is_symmetric: bool,
-    worker_map: &BiHashMap<u32, String>,
-) -> ParquetDataRow {
-    let mut row = ParquetDataRow {
-        rx: worker_map.get_by_left(&rx_worker_id).cloned(),
-        rx_time: Some(result.rx_time),
-        addr: result.src.map(|s| s.to_string()),
-        ttl: Some(result.ttl as u8),
-        tx_time: Some(result.tx_time),
-        tx: None,
-        rtt: None,
-        chaos_data: result.chaos,
-        origin_id: (result.origin_id != 0 && result.origin_id != u32::MAX)
-            .then_some(result.origin_id as u8),
-    };
-
-    if is_symmetric {
-        row.rtt = Some(calculate_rtt(
-            result.rx_time,
-            result.tx_time,
-            m_type == TCP_ID,
-        ));
-        row.rx_time = None;
-        row.tx_time = None;
-    } else {
-        row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-        if m_type == TCP_ID {
-            row.tx_time = None;
-        }
-    }
-
-    row
 }
 
 /// Writes a batch of ParquetDataRow to the Parquet file using the provided writer.

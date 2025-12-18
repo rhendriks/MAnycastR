@@ -229,7 +229,7 @@ message LatencyReply {
 // Used for LACeS (sending from all PoPs)
 message LacesReply {
   uint64 rx_time = 1;
-  uint64 tx_time = 2;
+  optional uint64 tx_time = 2; // not available for TCP
   fixed32 tx_id = 3;
 }
 
