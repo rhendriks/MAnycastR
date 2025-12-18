@@ -4,6 +4,7 @@ use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 use tonic::{Response, Status};
+use crate::custom_module::manycastr::reply::ResultData;
 
 /// Takes a TaskResult containing discovery probe replies for --responsive probes.
 /// Puts the responsive targets in the worker stack for all workers. TODO update rustdoc
@@ -130,12 +131,12 @@ pub fn trace_replies_handler(
     let catcher_worker_id = task_result.rx_id;
 
     for result in &task_result.replies {
-        if let Some(trace_dst) = result.trace_dst {
+        if let Some(ResultData::TraceReply(trace_reply)) = &result.result_data {
             // ICMP TTL exceeded
             // Get identifier of corresponding trace
             let identifier = TraceIdentifier {
-                worker_id: result.tx_id,
-                target: trace_dst,
+                worker_id: trace_reply.tx_id,
+                target: trace_reply.trace_dst.unwrap(),
                 origin_id: result.origin_id,
             };
             let mut remove = false;
@@ -147,14 +148,14 @@ pub fn trace_replies_handler(
                 session.last_updated = Instant::now();
                 session.consecutive_failures = 0;
 
-                if session.current_ttl > max_hops as u8 || result.src.unwrap() == result.trace_dst.unwrap() {
+                if session.current_ttl > max_hops as u8 || result.src.unwrap() == trace_reply.trace_dst.unwrap() {
                     // Routing loop or destination reached -> close session
                     println!("closing trace session after hop {}", result.src.unwrap());
 
                     remove = true;
                 } else {
                     // Send tracetask for the next hop
-                    println!("successful hop discovered {} ; discovering next hop from worker {} to dst {} with TTL {}", result.src.unwrap(), catcher_worker_id, trace_dst, session.current_ttl);
+                    println!("successful hop discovered {} ; discovering next hop from worker {} to dst {} with TTL {}", result.src.unwrap(), catcher_worker_id, trace_reply.trace_dst.unwrap(), session.current_ttl);
 
                     worker_stacks
                         .entry(catcher_worker_id)
@@ -174,6 +175,7 @@ pub fn trace_replies_handler(
                 session_tracker.sessions.remove(&identifier);
             }
         } else {
+            // TODO what kind of reply is sent if not tracereply
             println!("closing trace session after hop {}", result.src.unwrap());
 
             // Probe reply
@@ -185,9 +187,6 @@ pub fn trace_replies_handler(
 
             // Close session (destination reached)
             session_tracker.sessions.remove(&identifier);
-
-
-            // Expiration queue will time out as it gets popped and no associated session is found
         }
     }
 }
