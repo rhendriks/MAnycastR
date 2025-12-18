@@ -86,7 +86,7 @@ pub fn inbound(
 
                 if config.is_traceroute {
                     // Try to parse ICMP Time Exceeded first
-                    let trace_reply = parse_time_exceeded(
+                    let trace_reply = parse_trace(
                         &packet[14..],
                         config.m_id as u16,
                         &config.origin_map,
@@ -246,7 +246,7 @@ fn handle_results(
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-fn parse_time_exceeded(
+fn parse_trace(
     packet_bytes: &[u8],
     m_id: u16,
     worker_map: &Vec<Origin>,

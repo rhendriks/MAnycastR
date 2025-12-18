@@ -187,19 +187,12 @@ pub struct ProbePayload<'a> {
 /// # Arguments
 ///
 /// * 'src' - the source address for the ping packet
-///
 /// * 'dst' - the destination address for the ping packet
-///
 /// * 'identifier' - the identifier to use in the ICMP header
-///
 /// * 'seq' - the sequence number to use in the ICMP header
-///
 /// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
-///
 /// * 'm_id' - the unique ID of the current measurement (encoded in payload)
-///
 /// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
-///
 /// * 'ttl' - the time-to-live (TTL) value to set in the IP header
 ///
 /// # Returns
