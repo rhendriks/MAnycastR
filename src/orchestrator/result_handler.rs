@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{task, Ack, Probe, Task, TaskResult, Trace};
+use crate::custom_module::manycastr::{task, Ack, Address, Probe, Reply, Task, TaskResult, Trace, VerfploeterReply};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
@@ -39,6 +39,16 @@ pub fn discovery_handler(
         is_success: true,
         error_message: "".to_string(),
     }))
+}
+
+/// Receives a discovery probe result
+/// Returns a follow-up task
+pub fn discovery_handler_v2(
+    src: Option<Address>,
+) -> Task {
+    return Task {
+        task_type: Some(task::TaskType::Probe(Probe {dst: src}))
+    }
 }
 
 /// Handles discovery replies for traceroute measurements.
