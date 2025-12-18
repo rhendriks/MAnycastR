@@ -20,8 +20,9 @@ use std::io::BufWriter;
 use std::sync::Arc;
 use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
 use crate::cli::writer::csv_writer::{get_csv_metadata};
+use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
-use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
+// use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
 use crate::custom_module::manycastr::reply::ResultData;
@@ -47,7 +48,7 @@ pub struct WriteConfig<'a> {
     pub metadata_args: MetadataArgs<'a>,
     /// The type of measurement being performed, influencing how results are processed or formatted.
     /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
-    pub m_type: u32,
+    pub m_type: u8,
     /// Indicates whether the measurement involves multiple origins, which affects
     /// how results are written.
     pub is_multi_origin: bool,
@@ -170,17 +171,29 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
                             )
                         },
                         ResultData::LacesReply(reply) => {
-                            // ...
+                            get_laces_row(
+                                reply,
+                                &rx_id,
+                                config.m_type,
+                                &config.worker_map,
+                                ttl,
+                                src,
+                                chaos_data,
+                                origin_id,
+                            )
                         },
                         ResultData::TraceReply(reply) => {
-                            // ...
-                        },
-                        ResultData::RecordReply(reply) => {
-                            // ...
+                            get_trace_row(
+                                reply,
+                                &rx_id,
+                                &config.worker_map,
+                                src,
+                                ttl,
+                            )
                         },
                     },
                     None => {
-                        eprintln!("Reply contained no result data!");
+                        panic!("Reply contained no result data!");
                     }
                 };
                 // Write to command-line
@@ -202,94 +215,6 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     });
 }
 
-const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
-const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
-
-/// Write results to a Parquet file as they are received from the channel.
-/// This function processes the results in batches to optimize writing performance.
-///
-/// # Arguments
-///
-/// * `rx` - The receiver channel that receives the results.
-///
-/// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
-pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
-    let schema = build_parquet_schema(
-        config.m_type,
-        config.is_multi_origin,
-        config.is_symmetric,
-        config.is_traceroute,
-        config.is_record,
-    );
-
-    // Get metadata key-value pairs for the Parquet file
-    let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
-
-    // Configure writer properties, including compression and metadata
-    let key_value_metadata: Vec<parquet::file::metadata::KeyValue> = key_value_tuples
-        .into_iter()
-        .map(|(key, value)| parquet::file::metadata::KeyValue::new(key, value))
-        .collect();
-
-    let props = Arc::new(
-        WriterProperties::builder()
-            .set_compression(ParquetCompression::SNAPPY)
-            .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
-            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
-            .build(),
-    );
-
-    let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props)
-        .expect("Failed to create parquet writer");
-
-    // Get the appropriate header for the Parquet file based on the measurement type and configuration
-    let headers = get_header(
-        config.m_type,
-        config.is_multi_origin,
-        config.is_symmetric,
-        config.is_traceroute,
-        config.is_record,
-    );
-
-    tokio::spawn(async move {
-        let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
-
-        while let Some(task_result) = rx.recv().await {
-            if task_result == TaskResult::default() {
-                break; // End of stream
-            }
-
-            let worker_id = task_result.worker_id;
-            for reply in task_result.result_list {
-                let parquet_row = reply_to_parquet_row(
-                    reply,
-                    worker_id,
-                    config.m_type as u8,
-                    config.is_symmetric,
-                    &config.worker_map,
-                );
-                row_buffer.push(parquet_row);
-            }
-
-            // If the buffer is full, write the batch to the file
-            if row_buffer.len() >= ROW_BUFFER_CAPACITY {
-                write_batch_to_parquet(&mut writer, &row_buffer, &headers)
-                    .expect("Failed to write batch to Parquet file");
-                row_buffer.clear();
-            }
-        }
-
-        // Write any remaining rows in the buffer
-        if !row_buffer.is_empty() {
-            write_batch_to_parquet(&mut writer, &row_buffer, &headers)
-                .expect("Failed to write final batch to Parquet file");
-        }
-
-        writer.close().expect("Failed to close Parquet writer");
-        rx.close();
-    });
-}
-
 /// Creates the appropriate CSV header for the results file (based on the measurement type)
 ///
 /// # Arguments
@@ -304,7 +229,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
 ///
 /// * 'is_record' - A boolean that determines whether Record Route is used
 pub fn get_header(
-    m_type: u32,
+    m_type: u8,
     is_multi_origin: bool,
     is_symmetric: bool,
     is_traceroute: bool,
@@ -324,7 +249,7 @@ pub fn get_header(
         vec!["rx", "addr", "ttl", "rtt"]
     } else {
         // TCP anycast does not have tx_time
-        if m_type == TCP_ID as u32 {
+        if m_type == TCP_ID {
             vec!["rx", "rx_time", "addr", "ttl", "tx"]
         } else {
             vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
@@ -332,7 +257,7 @@ pub fn get_header(
     };
 
     // Optional fields
-    if m_type == CHAOS_ID as u32 {
+    if m_type == CHAOS_ID {
         header.push("chaos_data");
     }
     if is_multi_origin {

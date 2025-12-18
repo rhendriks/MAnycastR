@@ -210,9 +210,14 @@ message Reply {
     LatencyReply latency_reply = 5;
     LacesReply laces_reply = 6;
     TraceReply trace_reply = 7;
-    RecordReply record_reply = 8;
   }
-  optional string chaos = 9;
+  optional string chaos = 8;
+  optional RecordedHops recorded_hops = 9;
+}
+
+// Record Route hops found
+message RecordedHops {
+  repeated Address hops = 1;
 }
 
 // Used for --traceroute, --responsive, --latency, --divide to determine i) catchment, and ii) responsiveness
@@ -240,10 +245,4 @@ message TraceReply {
   uint32 trace_id = 4; // 8 bit trace identifier (coupled with trace destination)
   Address trace_dst = 5;
   uint32 hop_count = 6; // TTL used to trigger this reply
-}
-
-// Record Route reply
-message RecordReply {
-  fixed32 tx_id = 1;
-  repeated Address recorded_hops = 2;
 }
