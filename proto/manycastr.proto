@@ -200,24 +200,12 @@ message TaskResult {
   repeated Result results = 2; // forwarded to CLI by the Orchestrator
 }
 
-// Forwarded to CLI as result
 message Result {
   oneof result_data {
-    VerfploeterReply verfploeter = 1; // result
-    LatencyReply latency = 2; // result
-    LacesReply laces = 3; // result
-    TraceReply trace = 4; // result + follow-up
-    ProbeDiscovery discovery = 5; // follow-up
+    ProbeMeasurement measurement = 1; // result
+    ProbeDiscovery discovery = 2; // follow-up
+    TraceReply trace = 3; // result + follow-up
   }
-}
-
-// Used for --divide to measure catchment
-message VerfploeterReply {
-  Address src = 1;
-  fixed32 ttl = 2;
-  optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
-  optional string chaos = 8;
-  optional RecordedHops recorded_hops = 9;
 }
 
 // Used for --latency, --traceroute (determine catcher for target), and --responsive (determine responsiveness)
@@ -226,17 +214,8 @@ message ProbeDiscovery {
   optional fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
 }
 
-// --latency and --unicast result (rx == tx)
-message LatencyReply {
-  Address src = 1;
-  fixed32 ttl = 2;
-  optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
-  uint64 rx_time = 4;
-  uint64 tx_time = 5;
-}
-
 // Used for LACeS (sending from all PoPs)
-message LacesReply {
+message ProbeMeasurement {
   Address src = 1;
   fixed32 ttl = 2;
   optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply

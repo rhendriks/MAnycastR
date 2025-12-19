@@ -7,7 +7,7 @@
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
-fn parse_record_route(
+pub fn parse_record_route(
     packet_bytes: &[u8],
     m_id: u32,
     worker_map: &Vec<Origin>,
