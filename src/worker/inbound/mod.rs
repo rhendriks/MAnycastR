@@ -16,6 +16,17 @@ use crate::net::{
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
+use crate::worker::inbound::dns::parse_dns;
+use crate::worker::inbound::ping::parse_icmp;
+use crate::worker::inbound::record_route::parse_record_route;
+use crate::worker::inbound::tcp::parse_tcp;
+use crate::worker::inbound::trace::parse_trace;
+
+mod dns;
+mod ping;
+mod record_route;
+mod tcp;
+mod trace;
 
 /// Configuration for an inbound packet listening worker.
 ///

@@ -12,7 +12,7 @@
 ///
 /// # Remarks
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
-fn parse_icmp(
+pub fn parse_icmp(
     packet_bytes: &[u8],
     m_id: u32,
     origin_map: &Vec<Origin>,
