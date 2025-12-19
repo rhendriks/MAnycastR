@@ -1,11 +1,11 @@
-use std::thread::sleep;
-use std::time::Duration;
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use crate::custom_module::manycastr::Address;
 use crate::net::packet::{create_record_route_icmp, ProbePayload};
 use crate::worker::outbound::OutboundConfig;
+use log::{error, warn};
+use pnet::datalink::DataLinkSender;
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use std::thread::sleep;
+use std::time::Duration;
 
 /// Send a Record Route ICMP probe to the specified destination.
 ///

@@ -1,6 +1,13 @@
 use crate::custom_module::manycastr::controller_server::Controller;
+use crate::custom_module::manycastr::{
+    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
+    ProbeDiscovery, Record, Result as ProtoResult, ScheduleMeasurement, Start, Task, TaskResult,
+    TraceReply, Worker,
+};
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{discovery_handler, trace_discovery_handler, trace_replies_handler};
+use crate::orchestrator::result_handler::{
+    discovery_handler, trace_discovery_handler, trace_replies_handler,
+};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
@@ -19,14 +26,9 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
-use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, ProbeDiscovery, Record, ScheduleMeasurement, Start, Task, TaskResult, TraceReply, Worker,
-    Result as ProtoResult
-};
 
 // Add the Enum import separately
 use crate::custom_module::manycastr::result::ResultData;
-
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -576,10 +578,18 @@ impl Controller for ControllerService {
         if !discovery_bucket.is_empty() {
             if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
                 // Perform follow-up tasks from all workers
-                discovery_handler(discovery_bucket, ALL_WORKERS, &mut self.worker_stacks.lock().unwrap());
+                discovery_handler(
+                    discovery_bucket,
+                    ALL_WORKERS,
+                    &mut self.worker_stacks.lock().unwrap(),
+                );
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
                 // Perform follow-up tasks from the catching worker
-                discovery_handler(discovery_bucket, catcher_id, &mut self.worker_stacks.lock().unwrap());
+                discovery_handler(
+                    discovery_bucket,
+                    catcher_id,
+                    &mut self.worker_stacks.lock().unwrap(),
+                );
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 println!("received discovery traceroute replies");
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
@@ -618,7 +628,9 @@ impl Controller for ControllerService {
             tx.send(Ok(TaskResult {
                 rx_id: catcher_id,
                 results: results_bucket,
-            })).await.expect("failed to send results to CLI");
+            }))
+            .await
+            .expect("failed to send results to CLI");
         }
 
         Ok(Response::new(Ack {

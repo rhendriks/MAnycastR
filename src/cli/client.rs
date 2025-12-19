@@ -1,4 +1,5 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
+use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
@@ -17,7 +18,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
-use crate::cli::writer::parquet_writer::write_results_parquet;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -132,7 +132,7 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get measurement type
-        let type_str = match m_type as u8 {
+        let type_str = match m_type {
             ICMP_ID => "icmp",
             A_ID => "dns",
             TCP_ID => "tcp",
@@ -160,7 +160,7 @@ impl CliClient {
         let mut is_parquet = args.is_parquet;
 
         // traceroute only supported for ICMP
-        if is_traceroute && m_type as u8 != ICMP_ID {
+        if is_traceroute && m_type != ICMP_ID {
             panic!("Traceroute measurements are only supported for ICMP!");
         }
 
@@ -253,9 +253,7 @@ impl CliClient {
 
         is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
 
-        let end = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_secs();
+        let end = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let length = (end - start) as f32 / 60.0; // Measurement length in minutes
         info!(
             "[CLI] Waited {length:.2} minutes for results. Captured {} replies",

@@ -1,9 +1,9 @@
-use crate::custom_module::manycastr::{task, Address, Result, Task, Trace};
+use crate::custom_module::manycastr::{task, Address, Task, Trace};
+use crate::orchestrator::CliHandle;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::orchestrator::{CliHandle, ResultMessage};
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]

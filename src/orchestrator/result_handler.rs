@@ -1,10 +1,9 @@
-use crate::custom_module::manycastr::{task, Ack, Address, Probe, ProbeDiscovery, Result, Task, TaskResult, Trace, TraceReply};
+use crate::custom_module::manycastr::{
+    task, Probe, ProbeDiscovery, Task, Trace, TraceReply,
+};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
-use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
-use tonic::{Response, Status};
-use crate::custom_module::manycastr::result::ResultData;
 
 /// Takes a TaskResult containing discovery probe replies for --responsive or --latency probes.
 ///
@@ -143,9 +142,14 @@ pub fn trace_replies_handler(
             session.last_updated = Instant::now();
             session.consecutive_failures = 0;
 
-            if session.current_ttl > max_hops as u8 || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap() {
+            if session.current_ttl > max_hops as u8
+                || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
+            {
                 // Routing loop or destination reached -> close session
-                println!("closing trace session after hop {}", trace_reply.hop_addr.unwrap());
+                println!(
+                    "closing trace session after hop {}",
+                    trace_reply.hop_addr.unwrap()
+                );
 
                 remove = true;
             } else {

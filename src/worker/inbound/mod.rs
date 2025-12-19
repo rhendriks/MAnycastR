@@ -1,27 +1,20 @@
 use log::info;
-use parquet::data_type::AsBytes;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Address, Origin, Result, TaskResult, TraceReply};
+use crate::custom_module::manycastr::{Origin, Result, TaskResult};
 use crate::custom_module::Separated;
-use crate::net::{
-    parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet,
-    PacketPayload, TXTRecord,
-};
-use crate::worker::config::get_origin_id;
-use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
-use pnet::datalink::DataLinkReceiver;
-use crate::custom_module::manycastr::result::ResultData;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
 use crate::worker::inbound::trace::parse_trace;
+use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use pnet::datalink::DataLinkReceiver;
 
 mod dns;
 mod ping;
@@ -98,11 +91,8 @@ pub fn inbound(
 
                 if config.is_traceroute {
                     // Try to parse ICMP Time Exceeded first
-                    let trace_reply = parse_trace(
-                        &packet[14..],
-                        &config.origin_map,
-                        config.is_ipv6,
-                    );
+                    let trace_reply =
+                        parse_trace(&packet[14..], &config.origin_map, config.is_ipv6);
 
                     // TODO if we get a ping reply it will look different than other ping replies (payload is different for traceroute probes -> TODO verify this first)
                     // TODO and as such they should be parsed differently
@@ -213,7 +203,7 @@ fn handle_results(
                 rx_id: worker_id as u32,
                 results: rq,
             })
-                .expect("Failed to send TaskResult to worker handler");
+            .expect("Failed to send TaskResult to worker handler");
         }
 
         // Exit the thread if worker sends us the signal it's finished

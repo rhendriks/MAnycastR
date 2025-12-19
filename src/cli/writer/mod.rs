@@ -6,33 +6,26 @@ use bimap::BiHashMap;
 use csv::Writer;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::cli::writer::csv_writer::get_csv_metadata;
+use crate::cli::writer::laces_row::get_laces_row;
+use crate::cli::writer::latency_row::get_latency_row;
+use crate::{custom_module, CHAOS_ID, TCP_ID};
 use custom_module::manycastr::{Configuration, Result, TaskResult};
-use custom_module::Separated;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
-use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
-use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
-use parquet::file::properties::WriterProperties;
-use parquet::file::writer::SerializedFileWriter;
-use parquet::schema::types::{Type as SchemaType, TypePtr};
 use std::io::BufWriter;
-use std::sync::Arc;
-use crate::{custom_module, ALL_WORKERS, CHAOS_ID, TCP_ID};
-use crate::cli::writer::csv_writer::{get_csv_metadata};
-use crate::cli::writer::laces_row::get_laces_row;
-use crate::cli::writer::latency_row::get_latency_row;
 // use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
 use crate::custom_module::manycastr::result::ResultData;
 
-pub mod parquet_writer;
 pub mod csv_writer;
 mod laces_row;
 mod latency_row;
-mod verfploeter_row;
+pub mod parquet_writer;
 mod trace_row;
+mod verfploeter_row;
 
 /// Configuration for the results writing process.
 ///
@@ -138,7 +131,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
             if task_result == TaskResult::default() {
                 break;
             }
-            let results: Vec<Result> = task_result.results;;
+            let results: Vec<Result> = task_result.results;
             let rx_id = task_result.rx_id;
 
             for result in results {
@@ -146,34 +139,17 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
                     Some(data) => match data {
                         ResultData::Measurement(reply) => {
                             if config.is_symmetric {
-                                get_latency_row(
-                                    reply,
-                                    &rx_id,
-                                    &config.worker_map,
-                                    config.m_type,
-                                )
-                            }  else if true { // TODO when to write a LACeS row, when to write a Verfploeter row
-                                get_laces_row(
-                                    reply,
-                                    &rx_id,
-                                    config.m_type,
-                                    &config.worker_map,
-                                )
+                                get_latency_row(reply, &rx_id, &config.worker_map, config.m_type)
+                            } else if true {
+                                // TODO when to write a LACeS row, when to write a Verfploeter row
+                                get_laces_row(reply, &rx_id, config.m_type, &config.worker_map)
                             } else {
-                                get_verfploeter_csv_row(
-                                    reply,
-                                    &rx_id,
-                                    &config.worker_map,
-                                )
+                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
                             }
-                        },
+                        }
                         ResultData::Trace(reply) => {
-                            get_trace_row(
-                                reply,
-                                &rx_id,
-                                &config.worker_map,
-                            )
-                        },
+                            get_trace_row(reply, &rx_id, &config.worker_map)
+                        }
                         ResultData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
@@ -257,7 +233,7 @@ pub fn get_header(
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         // 21 bit millisecond timestamp
-        const MODULUS: u64 = 1 << 21;  // 2,097,152
+        const MODULUS: u64 = 1 << 21; // 2,097,152
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
 
         // convert rx_time to milliseconds

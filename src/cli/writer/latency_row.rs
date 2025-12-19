@@ -1,8 +1,8 @@
-use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
+use bimap::BiHashMap;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, ProbeMeasurement, Result};
-use crate::{CHAOS_ID, TCP_ID};
+use crate::custom_module::manycastr::ProbeMeasurement;
+use crate::TCP_ID;
 
 /// Get the result (csv row) from a Reply message
 ///
@@ -19,9 +19,9 @@ use crate::{CHAOS_ID, TCP_ID};
 /// A vector of strings representing the row in the CSV file
 pub fn get_latency_row(
     reply: ProbeMeasurement,
-                rx_worker_id: &u32,
-                worker_map: &BiHashMap<u32, String>,
-                m_type: u8,
+    rx_worker_id: &u32,
+    worker_map: &BiHashMap<u32, String>,
+    m_type: u8,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -31,10 +31,15 @@ pub fn get_latency_row(
 
     let rtt = calculate_rtt(reply.rx_time, reply.tx_time, m_type == TCP_ID);
 
-    let mut row = vec![rx_hostname, rtt.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string()];
+    let mut row = vec![
+        rx_hostname,
+        rtt.to_string(),
+        reply.src.unwrap().to_string(),
+        reply.ttl.to_string(),
+    ];
 
     // Optional fields
-    if reply.origin_id != 0  {
+    if reply.origin_id != 0 {
         row.push(reply.origin_id.to_string());
     }
 

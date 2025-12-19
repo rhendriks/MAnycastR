@@ -237,9 +237,7 @@ pub fn parse_record_route_option(data: &[u8]) -> Option<RecordedHops> {
         }
     }
 
-    Some(RecordedHops {
-        hops: addresses,
-    })
+    Some(RecordedHops { hops: addresses })
 }
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>

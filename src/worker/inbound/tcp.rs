@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse TCP packets into a Reply result.
 /// Only accepts packets with the RST flag set.
@@ -17,11 +17,7 @@ use crate::worker::config::get_origin_id;
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(
-    packet_bytes: &[u8],
-    origin_map: &Vec<Origin>,
-    is_ipv6: bool,
-) -> Option<Result> {
+pub fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -> Option<Result> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
@@ -59,11 +55,10 @@ pub fn parse_tcp(
 
     if is_discovery {
         Some(Result {
-            result_data:         Some(ResultData::Discovery(ProbeDiscovery {
+            result_data: Some(ResultData::Discovery(ProbeDiscovery {
                 src: Some(ip_header.src()),
                 origin_id,
-            }
-            ))
+            })),
         })
     } else {
         Some(Result {
@@ -76,7 +71,7 @@ pub fn parse_tcp(
                 tx_id,
                 chaos: None,
                 recorded_hops: None,
-            }))
+            })),
         })
     }
 }

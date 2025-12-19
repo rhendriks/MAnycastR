@@ -1,14 +1,14 @@
-mod trace;
-mod record_route;
 mod probe;
+mod record_route;
+mod trace;
 
-use log::{error, info, warn};
+use log::{info, warn};
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
 use crate::custom_module;
@@ -18,16 +18,12 @@ use pnet::datalink::DataLinkSender;
 
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
-use crate::custom_module::manycastr::{Address, Trace};
 use crate::custom_module::Separated;
-use crate::net::packet::{
-    create_dns, create_icmp, create_record_route_icmp, create_tcp, get_ethernet_header,
-    ProbePayload,
-};
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use crate::net::packet::get_ethernet_header;
 use crate::worker::outbound::probe::send_probe;
 use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 

@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP ping packets into a Reply result.
 /// Filters out spoofed packets and only parses ICMP echo replies valid for the current measurement.
