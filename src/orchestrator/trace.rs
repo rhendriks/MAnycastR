@@ -1,9 +1,10 @@
-use crate::custom_module::manycastr::{task, Address, Task, Trace};
-use crate::orchestrator::CliHandle;
+use crate::custom_module::manycastr::{task, Address, Task, ReplyBatch, Trace, TraceReply, Result};
+use crate::orchestrator::{CliHandle};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use crate::custom_module::manycastr::result::ResultData;
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
@@ -126,25 +127,30 @@ pub fn check_trace_timeouts(
 
                             println!("[x] Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
 
-                            // {
-                            //     // TODO forward result to CLI for unknown result
-                            //     let cli_sender = cli_sender.lock().unwrap().unwrap();
-                            //
-                            //     let result = Reply {
-                            //         src: None,
-                            //         ttl: 0,
-                            //         rx_time: 0,
-                            //         tx_time: 0,
-                            //         tx_id: session.worker_id,
-                            //         origin_id: session.origin_id,
-                            //         chaos: None,
-                            //         trace_dst: session.target,
-                            //         trace_ttl: Some((session.current_ttl - 1) as u32),
-                            //         recorded_hops: vec![],
-                            //     };
-                            //
-                            //     cli_sender.try_send(result).expect("Cli send failed");
-                            // }
+                            {
+                                // TODO forward result to CLI for unknown result
+                                let cli_sender = cli_sender.lock().unwrap();
+
+                                let result = TraceReply {
+                                    hop_addr: None,
+                                    ttl: 0,
+                                    origin_id: session.origin_id,
+                                    rx_time: 0,
+                                    tx_time: 0,
+                                    tx_id: session.worker_id,
+                                    trace_dst: session.target,
+                                    hop_count: (session.current_ttl - 1) as u32, // result was incremented
+                                };
+
+                                let task_result = ReplyBatch {
+                                    rx_id: 0, // Noone received a reply
+                                    results: vec![Result {
+                                        result_data: Some(ResultData::Trace(result)),
+                                    }],
+                                };
+
+                                cli_sender.as_ref().expect("Sender missing").try_send(Ok(task_result)).expect("Trying to send TaskResult");
+                            }
 
                             tasks_to_send.push((
                                 session.worker_id,

@@ -1,7 +1,7 @@
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Finished, TaskResult};
+use crate::custom_module::manycastr::{Address, End, Finished, ReplyBatch};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -202,7 +202,7 @@ impl Worker {
     /// Send a TaskResult to the orchestrator
     pub(crate) async fn send_result_to_server(
         &mut self,
-        task_result: TaskResult,
+        task_result: ReplyBatch,
     ) -> Result<(), Box<dyn Error>> {
         self.grpc_client
             .send_result(Request::new(task_result))

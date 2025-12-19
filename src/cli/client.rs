@@ -2,7 +2,7 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{ScheduleMeasurement, TaskResult};
+use crate::custom_module::manycastr::{ScheduleMeasurement, ReplyBatch};
 use crate::custom_module::Separated;
 use crate::{ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use chrono::Local;
@@ -240,7 +240,7 @@ impl CliClient {
             }
         } {
             // A default result notifies the CLI that it should not expect any more results
-            if task_result == TaskResult::default() {
+            if task_result == ReplyBatch::default() {
                 tx_r.send(task_result)?; // Let the results channel know that we are done
                 graceful = true;
                 break;
@@ -262,7 +262,7 @@ impl CliClient {
 
         // If the stream closed during a measurement
         if !graceful {
-            tx_r.send(TaskResult::default())?; // Let the results channel know that we are done
+            tx_r.send(ReplyBatch::default())?; // Let the results channel know that we are done
             warn!("[CLI] Measurement ended prematurely!");
         }
 

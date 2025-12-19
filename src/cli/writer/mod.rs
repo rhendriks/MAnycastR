@@ -10,7 +10,7 @@ use crate::cli::writer::csv_writer::get_csv_metadata;
 use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::{custom_module, CHAOS_ID, TCP_ID};
-use custom_module::manycastr::{Configuration, Result, TaskResult};
+use custom_module::manycastr::{Configuration, Result, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
@@ -85,11 +85,12 @@ pub struct MetadataArgs<'a> {
 /// Writes the results to a file (and optionally to the command-line)
 ///
 /// # Arguments
-///
 /// * 'rx' - The receiver channel that receives the results
-///
 /// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
-pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+pub fn write_results(
+    mut rx: UnboundedReceiver<ReplyBatch>,
+    config: WriteConfig
+) {
     // CSV writer to command-line interface
     let mut wtr_cli = config
         .print_to_cli
@@ -128,7 +129,7 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
     tokio::spawn(async move {
         // Receive task results from the outbound channel
         while let Some(task_result) = rx.recv().await {
-            if task_result == TaskResult::default() {
+            if task_result == ReplyBatch::default() {
                 break;
             }
             let results: Vec<Result> = task_result.results;

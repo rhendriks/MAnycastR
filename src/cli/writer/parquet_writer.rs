@@ -1,6 +1,6 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{ProbeMeasurement, TaskResult};
+use crate::custom_module::manycastr::{ProbeMeasurement, ReplyBatch};
 use crate::{ALL_WORKERS, TCP_ID};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
@@ -23,7 +23,7 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// * `rx` - The receiver channel that receives the results.
 ///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
-pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     // TODO implement parquet writer for TraceResults
     let schema = build_parquet_schema(
         config.m_type,
@@ -66,7 +66,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: Writ
         let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
 
         while let Some(task_result) = rx.recv().await {
-            if task_result == TaskResult::default() {
+            if task_result == ReplyBatch::default() {
                 break; // End of stream
             }
 

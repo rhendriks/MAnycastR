@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Finished, Instruction, Origin, TaskResult};
+use crate::custom_module::manycastr::{Finished, Instruction, Origin, ReplyBatch};
 use crate::net::packet::is_in_prefix;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
@@ -183,7 +183,7 @@ impl Worker {
                     // Obtain TaskResults from the unbounded channel and send them to the orchestrator
                     while let Some(packet) = rx.recv().await {
                         // A default TaskResult notifies this sender that there will be no more results
-                        if packet == TaskResult::default() {
+                        if packet == ReplyBatch::default() {
                             self_clone
                                 .measurement_finish_to_server(Finished {
                                     m_id,

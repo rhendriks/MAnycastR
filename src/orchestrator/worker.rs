@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Address, TaskResult};
+use crate::custom_module::manycastr::{Address, ReplyBatch};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::CliHandle;
 use futures_core::Stream;
@@ -95,7 +95,7 @@ impl<T> Drop for WorkerReceiver<T> {
                     .unwrap()
                     .clone()
                     .unwrap()
-                    .try_send(Ok(TaskResult::default()))
+                    .try_send(Ok(ReplyBatch::default()))
                 {
                     Ok(_) => (),
                     Err(_) => {

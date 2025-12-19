@@ -19,7 +19,7 @@ use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
-    controller_server::ControllerServer, Instruction, Task, TaskResult,
+    controller_server::ControllerServer, Instruction, Task, ReplyBatch,
 };
 use log::{info, warn};
 use tokio::sync::mpsc;
@@ -27,7 +27,7 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
 use tonic::{transport::Server, Status};
 
-type ResultMessage = Result<TaskResult, Status>;
+type ResultMessage = Result<ReplyBatch, Status>;
 type CliSender = Sender<ResultMessage>;
 type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
