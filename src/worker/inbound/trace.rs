@@ -1,9 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use parquet::data_type::AsBytes;
-use crate::custom_module::manycastr::{Origin, TraceReply, Result, ProbeDiscovery};
 use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::{Origin, Result, TraceReply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
+use parquet::data_type::AsBytes;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
 /// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
@@ -19,11 +19,7 @@ use crate::worker::config::get_origin_id;
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-pub fn parse_trace(
-    packet_bytes: &[u8],
-    worker_map: &Vec<Origin>,
-    is_ipv6: bool,
-) -> Option<Result> {
+pub fn parse_trace(packet_bytes: &[u8], worker_map: &Vec<Origin>, is_ipv6: bool) -> Option<Result> {
     // Check for ICMP Time Exceeded code
     if is_ipv6 {
         if packet_bytes.len() < 88 {
@@ -98,20 +94,18 @@ pub fn parse_trace(
     );
 
     Some(Result {
-        result_data:    Some(ResultData::Trace(
-            TraceReply {
-                hop_addr: Some(hop_addr),
-                ttl: ip_header.ttl() as u32,
-                origin_id,
-                rx_time: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u32,
-                tx_time,
-                tx_id,
-                trace_dst,
-                hop_count: trace_ttl,
-            }
-        ))
+        result_data: Some(ResultData::Trace(TraceReply {
+            hop_addr: Some(hop_addr),
+            ttl: ip_header.ttl() as u32,
+            origin_id,
+            rx_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u32,
+            tx_time,
+            tx_id,
+            trace_dst,
+            hop_count: trace_ttl,
+        })),
     })
 }

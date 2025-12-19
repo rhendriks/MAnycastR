@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
 use crate::custom_module::manycastr::{Origin, Trace};
 use crate::net::packet::{create_icmp, ProbePayload};
+use log::{error, warn};
+use pnet::datalink::DataLinkSender;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Sends a traceroute probe based on the provided trace task and configuration.
 /// Only ICMP traceroute is currently implemented.
@@ -30,9 +30,9 @@ pub fn send_trace(
         origin
     } else {
         warn!(
-        "[Worker outbound] No matching origin found for trace task with origin ID {}",
-        origin_id
-    );
+            "[Worker outbound] No matching origin found for trace task with origin ID {}",
+            origin_id
+        );
         return (0, 1);
     };
 
@@ -65,8 +65,8 @@ pub fn send_trace(
     packet.extend_from_slice(&create_icmp(
         tx_origin.src.as_ref().unwrap(),
         target,
-        identifier, // encode timestamp into identifier field
-        sequence_number,  // encode TTL (8 bits) and trace ID (8 bits) into seq number
+        identifier,      // encode timestamp into identifier field
+        sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number
         payload_fields,
         trace_task.ttl as u8,
     ));
