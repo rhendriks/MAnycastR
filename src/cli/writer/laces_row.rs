@@ -4,48 +4,6 @@ use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::{Address, ProbeMeasurement};
 use crate::{CHAOS_ID, TCP_ID};
 
-/// Represents a row of LACeS data in the Parquet file format.
-pub struct LacesParquetDataRow {
-    /// Hostname of the probe receiver.
-    rx: String,
-    /// UNIX timestamp in microseconds when the reply was received.
-    rx_time: u64,
-    /// Source address of the reply (as a string).
-    addr: String,
-    /// Time-to-live (TTL) value of the reply.
-    ttl: u8,
-    /// UNIX timestamp in microseconds when the request was sent.
-    tx_time: u64,
-    /// Hostname of the probe sender.
-    tx: String,
-    /// DNS TXT CHAOS record value.
-    chaos_data: Option<String>,
-    /// Origin ID for multi-origin measurements (source address, ports).
-    origin_id: Option<u8>,
-}
-
-/// Converts a Reply message into a ParquetDataRow for writing to a Parquet file.
-pub fn laces_reply_to_parquet_row(
-    src: Address,
-    ttl: u8,
-    result: ProbeMeasurement,
-    rx_id: u16,
-    worker_map: &BiHashMap<u16, String>,
-    chaos_data: Option<String>,
-    origin_id: Option<u8>, // Only set when multiple origins are used (i.e., origin_id != 0) [or when origin_id == U32::MAX] TODO when is u32 max used for origin id?
-) -> LacesParquetDataRow {
-    LacesParquetDataRow {
-        rx: worker_map.get_by_left(&rx_id).expect("Unknown worker ID").clone(),
-        rx_time: result.rx_time,
-        addr: src.to_string(),
-        ttl,
-        tx_time: result.tx_time,
-        tx: worker_map.get_by_left(&(result.tx_id as u16)).expect("Unknown worker ID").clone(),
-        chaos_data,
-        origin_id,
-    }
-}
-
 /// Get the result (csv row) from a Reply message
 ///
 /// # Arguments
