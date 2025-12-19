@@ -220,7 +220,7 @@ message ProbeMeasurement {
   fixed32 ttl = 2;
   optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
   uint64 rx_time = 4;
-  optional uint64 tx_time = 5; // not available for TCP
+  uint64 tx_time = 5;
   fixed32 tx_id = 6;
   optional string chaos = 7;
   optional RecordedHops recorded_hops = 8;
