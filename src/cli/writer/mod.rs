@@ -144,28 +144,28 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
             for result in results {
                 let row = match result.result_data {
                     Some(data) => match data {
-                        ResultData::Verfploeter(reply) => {
-                            get_verfploeter_csv_row(
-                                reply,
-                                &rx_id,
-                                &config.worker_map,
-                            )
-                        },
-                        ResultData::Latency(reply) => {
-                            get_latency_row(
-                                reply,
-                                &rx_id,
-                                &config.worker_map,
-                                config.m_type,
-                            )
-                        },
-                        ResultData::Laces(reply) => {
-                            get_laces_row(
-                                reply,
-                                &rx_id,
-                                config.m_type,
-                                &config.worker_map,
-                            )
+                        ResultData::Measurement(reply) => {
+                            if config.is_symmetric {
+                                get_latency_row(
+                                    reply,
+                                    &rx_id,
+                                    &config.worker_map,
+                                    config.m_type,
+                                )
+                            }  else if true { // TODO when to write a LACeS row, when to write a Verfploeter row
+                                get_laces_row(
+                                    reply,
+                                    &rx_id,
+                                    config.m_type,
+                                    &config.worker_map,
+                                )
+                            } else {
+                                get_verfploeter_csv_row(
+                                    reply,
+                                    &rx_id,
+                                    &config.worker_map,
+                                )
+                            }
                         },
                         ResultData::Trace(reply) => {
                             get_trace_row(
