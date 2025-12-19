@@ -6,7 +6,7 @@ use bimap::BiHashMap;
 use csv::Writer;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use custom_module::manycastr::{Configuration, Reply, TaskResult};
+use custom_module::manycastr::{Configuration, Result, TaskResult};
 use custom_module::Separated;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -25,7 +25,7 @@ use crate::cli::writer::latency_row::get_latency_row;
 // use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
-use crate::custom_module::manycastr::reply::ResultData;
+use crate::custom_module::manycastr::result::ResultData;
 
 pub mod parquet_writer;
 pub mod csv_writer;
@@ -138,59 +138,43 @@ pub fn write_results(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig)
             if task_result == TaskResult::default() {
                 break;
             }
-            let results: Vec<Reply> = task_result.replies;;
+            let results: Vec<Result> = task_result.results;;
             let rx_id = task_result.rx_id;
 
             for result in results {
-                let src = result.src.expect("no address");
-                let ttl = result.ttl as u8;
-                let chaos_data = result.chaos;
-                let origin_id = result.origin_id;
                 let row = match result.result_data {
                     Some(data) => match data {
-                        ResultData::VerfploeterReply(_) => {
+                        ResultData::Verfploeter(reply) => {
                             get_verfploeter_csv_row(
+                                reply,
                                 &rx_id,
                                 &config.worker_map,
-                                origin_id,
-                                ttl,
-                                src,
-                                chaos_data,
                             )
                         },
-                        ResultData::LatencyReply(reply) => {
+                        ResultData::Latency(reply) => {
                             get_latency_row(
                                 reply,
                                 &rx_id,
                                 &config.worker_map,
-                                chaos_data,
-                                origin_id,
-                                src,
-                                config.m_type as u8,
-                                ttl,
+                                config.m_type,
                             )
                         },
-                        ResultData::LacesReply(reply) => {
+                        ResultData::Laces(reply) => {
                             get_laces_row(
                                 reply,
                                 &rx_id,
                                 config.m_type,
                                 &config.worker_map,
-                                ttl,
-                                src,
-                                chaos_data,
-                                origin_id,
                             )
                         },
-                        ResultData::TraceReply(reply) => {
+                        ResultData::Trace(reply) => {
                             get_trace_row(
                                 reply,
                                 &rx_id,
                                 &config.worker_map,
-                                src,
-                                ttl,
                             )
                         },
+                        ResultData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
                         panic!("Reply contained no result data!");

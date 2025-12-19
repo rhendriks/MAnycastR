@@ -1,6 +1,6 @@
 use bimap::BiHashMap;
 use crate::cli::writer::{calculate_rtt, MetadataArgs};
-use crate::custom_module::manycastr::Reply;
+use crate::custom_module::manycastr::Result;
 use crate::{ALL_WORKERS, TCP_ID};
 use crate::custom_module::Separated;
 
