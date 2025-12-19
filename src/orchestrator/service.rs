@@ -20,7 +20,7 @@ use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
 use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, Finished, Init, Instruction, LatencyReply, LiveMeasurementMessage, Probe, ProbeDiscovery, Record, ScheduleMeasurement, Start, Task, TaskResult, TraceReply, VerfploeterReply, Worker,
+    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, ProbeDiscovery, Record, ScheduleMeasurement, Start, Task, TaskResult, TraceReply, Worker,
     Result as ProtoResult
 };
 
