@@ -50,7 +50,7 @@ pub fn parse_tcp(
         tcp_packet.sport,
         tcp_packet.dport,
         origin_map,
-    );
+    )?;
 
     let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
     let is_discovery = (identifier >> 31) & 1 == 1;
