@@ -17,7 +17,7 @@ use crate::net::packet::{create_icmp, ProbePayload};
 pub fn send_trace(
     ethernet_header: &[u8],
     worker_id: u32,
-    trace_id: u8,
+    m_id: u32,
     info_url: &str,
     trace_task: &Trace,
     socket_tx: &mut Box<dyn DataLinkSender>,
@@ -57,7 +57,7 @@ pub fn send_trace(
 
     let payload_fields = ProbePayload {
         worker_id,
-        m_id: trace_id as u32,
+        m_id,
         info_url,
     };
 
