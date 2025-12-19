@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use crate::cli::writer::parquet_writer::write_results_parquet;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -221,8 +222,7 @@ impl CliClient {
 
         // Start thread that writes results to file
         if is_parquet {
-            todo!()
-            // write_results_parquet(rx_r, config);
+            write_results_parquet(rx_r, config);
         } else {
             write_results(rx_r, config);
         }

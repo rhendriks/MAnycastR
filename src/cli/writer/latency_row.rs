@@ -4,45 +4,6 @@ use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::{Address, ProbeMeasurement, Result};
 use crate::{CHAOS_ID, TCP_ID};
 
-/// Represents a row of LACeS data in the Parquet file format.
-pub struct LatencyParquetDataRow {
-    /// Hostname of the probe receiver.
-    rx: String,
-    /// Measured RTT (milliseconds)
-    rtt: f64,
-    /// Source address of the reply (as a string).
-    addr: String,
-    /// Time-to-live (TTL) value of the reply.
-    ttl: u8,
-    /// Origin ID for multi-origin measurements (source address, ports).
-    origin_id: Option<u8>,
-
-    chaos_data: Option<String>,
-}
-
-/// Converts a Reply message into a ParquetDataRow for writing to a Parquet file.
-pub fn latency_reply_to_parquet_row(
-    src: Address,
-    ttl: u8,
-    result: ProbeMeasurement,
-    rx_id: u16,
-    m_type: u8,
-    worker_map: &BiHashMap<u16, String>,
-    origin_id: Option<u8>, // Only set when multiple origins are used (i.e., origin_id != 0) [or when origin_id == U32::MAX] TODO when is u32 max used for origin id?
-    chaos_data: Option<String>,
-) -> LatencyParquetDataRow {
-    let rtt = calculate_rtt(result.rx_time, result.tx_time, m_type == TCP_ID);
-
-    LatencyParquetDataRow {
-        rx: worker_map.get_by_left(&rx_id).expect("Unknown worker ID").clone(),
-        addr: src.to_string(),
-        ttl,
-        rtt,
-        origin_id,
-        chaos_data,
-    }
-}
-
 /// Get the result (csv row) from a Reply message
 ///
 /// # Arguments

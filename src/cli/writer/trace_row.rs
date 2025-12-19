@@ -2,8 +2,6 @@ use bimap::BiHashMap;
 use crate::cli::writer::{calculate_rtt, calculate_rtt_trace};
 use crate::custom_module::manycastr::{Address, Result, TraceReply};
 
-// TODO trace parquet
-
 /// Get traceroute row
 /// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt
 pub fn get_trace_row(
