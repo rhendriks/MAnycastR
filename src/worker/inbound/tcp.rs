@@ -1,5 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement};
+use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::custom_module::manycastr::result::ResultData;
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
@@ -21,7 +21,7 @@ pub fn parse_tcp(
     packet_bytes: &[u8],
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<ResultData> {
+) -> Option<Result> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
@@ -58,21 +58,25 @@ pub fn parse_tcp(
     let tx_time_21b = identifier & 0x1FFFFF;
 
     if is_discovery {
-        Some(ResultData::Discovery(ProbeDiscovery {
-            src: Some(ip_header.src()),
-            origin_id,
-        }
-        ))
+        Some(Result {
+            result_data:         Some(ResultData::Discovery(ProbeDiscovery {
+                src: Some(ip_header.src()),
+                origin_id,
+            }
+            ))
+        })
     } else {
-        Some(ResultData::Measurement(ProbeMeasurement {
-            src: Some(ip_header.src()),
-            ttl: ip_header.ttl() as u32,
-            origin_id,
-            rx_time,
-            tx_time: tx_time_21b as u64,
-            tx_id,
-            chaos: None,
-            recorded_hops: None,
-        }))
+        Some(Result {
+            result_data: Some(ResultData::Measurement(ProbeMeasurement {
+                src: Some(ip_header.src()),
+                ttl: ip_header.ttl() as u32,
+                origin_id,
+                rx_time,
+                tx_time: tx_time_21b as u64,
+                tx_id,
+                chaos: None,
+                recorded_hops: None,
+            }))
+        })
     }
 }

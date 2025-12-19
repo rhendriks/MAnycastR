@@ -16,6 +16,7 @@ use crate::net::{
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
+use crate::custom_module::manycastr::result::ResultData;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
@@ -153,10 +154,6 @@ pub fn inbound(
                 // Invalid packets have value None
                 if result.is_none() {
                     continue;
-                }
-
-                if result.clone().unwrap().1 == true {
-                    println!("received from final destination {:?}", result.clone().unwrap().0)
                 }
 
                 // Put result in transmission queue
