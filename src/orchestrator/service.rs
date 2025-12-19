@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::{
     instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
-    ProbeDiscovery, Record, Result as ProtoResult, ScheduleMeasurement, Start, Task, TaskResult,
+    ProbeDiscovery, Record, Result as ProtoResult, ScheduleMeasurement, Start, Task, ReplyBatch,
     TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
@@ -75,7 +75,7 @@ impl Controller for ControllerService {
         // Notify the CLI if this was the last worker
         if should_notify {
             cli_tx
-                .send(Ok(TaskResult::default()))
+                .send(Ok(ReplyBatch::default()))
                 .await
                 .expect("Unable to send task result");
         }
@@ -159,27 +159,19 @@ impl Controller for ControllerService {
         Ok(Response::new(worker_rx))
     }
 
-    type DoMeasurementStream = CLIReceiver<Result<TaskResult, Status>>;
+    type DoMeasurementStream = CLIReceiver<Result<ReplyBatch, Status>>;
     /// Handles the do_measurement command from the CLI.
-    ///
     /// Instructs all workers to perform the measurement and returns the receiver side of a stream in which TaskResults will be streamed.
-    ///
     /// Will lock active to true, such that no other measurement can start.
-    ///
     /// Makes sure all workers are still connected, removes their senders if not.
-    ///
     /// Assigns a unique ID to the measurement.
-    ///
     /// Streams tasks to the workers, in a round-robin fashion, with 1-second delays between clients.
-    ///
     /// Furthermore, lets the workers know of the desired probing rate (defined by the CLI).
     ///
     /// # Arguments
-    ///
     /// * 'request' - a ScheduleMeasurement message containing information about the measurement that the CLI wants to perform
     ///
     /// # Errors
-    ///
     /// Returns an error if there is already an active measurement, or if there are no connected workers to perform the measurement.
     async fn do_measurement(
         &self,
@@ -300,7 +292,7 @@ impl Controller for ControllerService {
         info!("[Orchestrator] {number_of_active_workers} participating workers, {number_of_probing_workers} will probe ({worker_interval} seconds between probing workers)");
 
         // Establish a stream with the CLI to return the TaskResults through
-        let (tx, rx) = mpsc::channel::<Result<TaskResult, Status>>(1000);
+        let (tx, rx) = mpsc::channel::<Result<ReplyBatch, Status>>(1000);
         // Store the CLI sender
         let _ = self.cli_sender.lock().unwrap().insert(tx);
 
@@ -505,7 +497,7 @@ impl Controller for ControllerService {
 
     // Live measurement stream type
     type LiveMeasurementStream =
-        Pin<Box<dyn Stream<Item = Result<TaskResult, Status>> + Send + Sync + 'static>>;
+        Pin<Box<dyn Stream<Item = Result<ReplyBatch, Status>> + Send + Sync + 'static>>;
     async fn live_measurement(
         &self,
         _request: Request<Streaming<LiveMeasurementMessage>>,
@@ -537,16 +529,14 @@ impl Controller for ControllerService {
         Ok(Response::new(status))
     }
 
-    /// Receive a TaskResult from the worker and put it in the stream towards the CLI
+    /// Receive a batch of results from a worker and put it in the stream towards the CLI. TODO update rustdoc
     ///
     /// # Arguments
-    ///
-    /// * 'request' - a TaskResult message containing the results of a task
+    /// * 'request' - a ReplyBatch containing results from a worker
     ///
     /// # Errors
-    ///
     /// Returns an error if the CLI has disconnected.
-    async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
+    async fn send_result(&self, request: Request<ReplyBatch>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let catcher_id = task_result.rx_id;
@@ -625,7 +615,7 @@ impl Controller for ControllerService {
                 sender.clone().unwrap()
             };
 
-            tx.send(Ok(TaskResult {
+            tx.send(Ok(ReplyBatch {
                 rx_id: catcher_id,
                 results: results_bucket,
             }))

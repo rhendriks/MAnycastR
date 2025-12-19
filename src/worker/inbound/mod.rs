@@ -6,7 +6,7 @@ use std::thread::{sleep, Builder};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Origin, Result, TaskResult};
+use crate::custom_module::manycastr::{Origin, Result, ReplyBatch};
 use crate::custom_module::Separated;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
@@ -62,7 +62,7 @@ pub struct InboundConfig {
 /// Panics if the measurement type is invalid
 pub fn inbound(
     config: InboundConfig,
-    tx: UnboundedSender<TaskResult>,
+    tx: UnboundedSender<ReplyBatch>,
     mut socket_rx: Box<dyn DataLinkReceiver>,
 ) {
     info!("[Worker inbound] Started listener");
@@ -182,7 +182,7 @@ pub fn inbound(
 ///
 /// * `rq_sender` - contains a vector of all received replies as Reply results
 fn handle_results(
-    tx: &UnboundedSender<TaskResult>,
+    tx: &UnboundedSender<ReplyBatch>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
     rq_sender: Arc<Mutex<Vec<Result>>>,
@@ -199,7 +199,7 @@ fn handle_results(
 
         // Send the result to the worker handler
         if !rq.is_empty() {
-            tx.send(TaskResult {
+            tx.send(ReplyBatch {
                 rx_id: worker_id as u32,
                 results: rq,
             })
@@ -209,7 +209,7 @@ fn handle_results(
         // Exit the thread if worker sends us the signal it's finished
         if rx_f.load(Ordering::SeqCst) {
             // Send default value to let the orchestrator know we are finished
-            tx.send(TaskResult::default())
+            tx.send(ReplyBatch::default())
                 .expect("Failed to send 'finished' signal to orchestrator");
             break;
         }
