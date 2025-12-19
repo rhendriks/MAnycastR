@@ -73,8 +73,8 @@ pub fn get_latency_row(
     let mut row = vec![rx_hostname, rtt.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string()];
 
     // Optional fields
-    if let Some(id) = reply.origin_id {
-        row.push(id.to_string());
+    if reply.origin_id != 0  {
+        row.push(reply.origin_id.to_string());
     }
 
     row

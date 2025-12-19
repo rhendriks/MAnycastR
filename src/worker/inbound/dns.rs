@@ -87,7 +87,7 @@ pub fn parse_dns(
         panic!("Invalid measurement type");
     };
 
-    let origin_id = get_origin_id(ip_header.dst(), reply_sport, reply_dport, origin_map);
+    let origin_id = get_origin_id(ip_header.dst(), reply_sport, reply_dport, origin_map)?;
 
     if is_discovery {
         Some(Result {

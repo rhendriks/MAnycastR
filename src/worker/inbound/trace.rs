@@ -88,7 +88,7 @@ pub fn parse_trace(
 
     // get origin ID to which this probe is targeted
     // TODO do origin_id mapping at orchestrator
-    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map);
+    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
     println!(
         "received trace reply from target {}. hop {} replied with addr {}",
