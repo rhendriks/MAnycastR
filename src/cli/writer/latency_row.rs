@@ -1,7 +1,6 @@
 use crate::cli::writer::calculate_rtt;
 use bimap::BiHashMap;
-// use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::ProbeMeasurement;
+use crate::custom_module::manycastr::MeasurementReply;
 use crate::TCP_ID;
 
 /// Get the result (csv row) from a Reply message
@@ -18,7 +17,7 @@ use crate::TCP_ID;
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_latency_row(
-    reply: ProbeMeasurement,
+    reply: MeasurementReply,
     rx_worker_id: &u32,
     worker_map: &BiHashMap<u32, String>,
     m_type: u8,

@@ -1,6 +1,6 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
-use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{ProbeMeasurement, ReplyBatch};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{MeasurementReply, ReplyBatch};
 use crate::{ALL_WORKERS, TCP_ID};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
@@ -73,7 +73,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             let rx_id = task_result.rx_id;
             for reply in task_result.results {
                 // todo cast to ProbeMeasurement
-                let Some(ResultData::Measurement(measurement)) = reply.result_data else {
+                let Some(ReplyData::Measurement(measurement)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };
 
@@ -211,7 +211,7 @@ pub struct ParquetDataRow {
 
 /// Converts a Result message into a ParquetDataRow for writing to a Parquet file.
 fn reply_to_parquet_row(
-    result: ProbeMeasurement,
+    result: MeasurementReply,
     rx_worker_id: u32,
     m_type: u8,
     is_symmetric: bool,

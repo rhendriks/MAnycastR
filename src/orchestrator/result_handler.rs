@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{
-    task, Probe, ProbeDiscovery, Task, Trace, TraceReply,
+    task, Probe, DiscoveryReply, Task, Trace, TraceReply,
 };
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use std::collections::{HashMap, VecDeque};
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 /// * 'worker_id' - worker that will perform the follow-up tasks
 /// * 'worker_stacks' - shared stack to put worker tasks in
 pub fn discovery_handler(
-    discovery_results: Vec<ProbeDiscovery>,
+    discovery_results: Vec<DiscoveryReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
 ) {
@@ -43,7 +43,7 @@ pub fn discovery_handler(
 /// * 'hop_timeout' - Hop timeout interval before being considered unresponsive
 /// * 'initial_hop' - TTL value to start traceroutes with
 pub fn trace_discovery_handler(
-    discovery_results: Vec<ProbeDiscovery>,
+    discovery_results: Vec<DiscoveryReply>,
     catcher_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     session_tracker: &mut SessionTracker,

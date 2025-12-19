@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{Address, Origin, ProbeMeasurement, Result};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{Address, Origin, MeasurementReply, Reply};
 use crate::net::{parse_record_route_option, IPv4Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +18,7 @@ pub fn parse_record_route(
     m_id: u32,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<Result> {
+) -> Option<Reply> {
     // Check for Record Route option and minimum length
     if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 7)) // TODO fix ipv6 filter
         || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 7))
@@ -69,8 +69,8 @@ pub fn parse_record_route(
         .unwrap()
         .as_micros() as u64;
 
-    Some(Result {
-        result_data: Some(ResultData::Measurement(ProbeMeasurement {
+    Some(Reply {
+        reply_data: Some(ReplyData::Measurement(MeasurementReply {
             src: Some(Address::from(ip_header.src)),
             ttl: ip_header.ttl as u32,
             origin_id,

@@ -6,7 +6,7 @@ use std::thread::{sleep, Builder};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Origin, Result, ReplyBatch};
+use crate::custom_module::manycastr::{Origin, Reply, ReplyBatch};
 use crate::custom_module::Separated;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
@@ -185,7 +185,7 @@ fn handle_results(
     tx: &UnboundedSender<ReplyBatch>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
-    rq_sender: Arc<Mutex<Vec<Result>>>,
+    rq_sender: Arc<Mutex<Vec<Reply>>>,
 ) {
     loop {
         // Every second, forward the ping results to the orchestrator

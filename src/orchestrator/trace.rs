@@ -1,10 +1,10 @@
-use crate::custom_module::manycastr::{task, Address, Task, ReplyBatch, Trace, TraceReply, Result};
+use crate::custom_module::manycastr::{task, Address, Task, ReplyBatch, Trace, TraceReply, Reply};
 use crate::orchestrator::{CliHandle};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::reply::ReplyData;
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
@@ -144,8 +144,8 @@ pub fn check_trace_timeouts(
 
                                 let task_result = ReplyBatch {
                                     rx_id: 0, // Noone received a reply
-                                    results: vec![Result {
-                                        result_data: Some(ResultData::Trace(result)),
+                                    results: vec![Reply {
+                                        reply_data: Some(ReplyData::Trace(result)),
                                     }],
                                 };
 
