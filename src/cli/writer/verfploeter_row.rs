@@ -63,8 +63,8 @@ pub fn get_verfploeter_csv_row(
     if let Some(chaos) = reply.chaos {
         row.push(chaos.to_string());
     }
-    if let Some(id) = reply.origin_id {
-        row.push(id.to_string());
+    if reply.origin_id != 0 {
+        row.push(reply.origin_id.to_string());
     }
 
     row

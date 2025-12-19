@@ -28,7 +28,7 @@ pub struct TraceSession {
     /// Target destination address to which the traceroute is being performed
     pub target: Option<Address>,
     /// Origin used for the traceroute (source address, port mappings) [None if a single origin is used]
-    pub origin_id: Option<u32>,
+    pub origin_id: u32,
     /// Current TTL being traced
     pub current_ttl: u8,
     /// Consecutive failures counter
@@ -42,7 +42,7 @@ pub struct TraceSession {
 pub struct TraceIdentifier {
     pub worker_id: u32,
     pub target: Address,
-    pub origin_id: Option<u32>,
+    pub origin_id: u32,
 }
 
 /// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond for a full second)

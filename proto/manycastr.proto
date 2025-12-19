@@ -191,7 +191,7 @@ message Record {
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  optional uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
+  uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
 }
 
 // A TaskResult, contains the worker that executed the task, and a list of results
@@ -211,14 +211,14 @@ message Result {
 // Used for --latency, --traceroute (determine catcher for target), and --responsive (determine responsiveness)
 message ProbeDiscovery {
   Address src = 1;
-  optional fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
 }
 
 // Used for LACeS (sending from all PoPs)
 message ProbeMeasurement {
   Address src = 1;
   fixed32 ttl = 2;
-  optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
   uint64 rx_time = 4;
   uint64 tx_time = 5;
   fixed32 tx_id = 6;
@@ -230,7 +230,7 @@ message ProbeMeasurement {
 message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;
-  optional fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
   uint32 rx_time = 4; // 32 bit microseconds time
   uint32 tx_time = 5; // 16 bit microseconds time
   fixed32 tx_id = 6;

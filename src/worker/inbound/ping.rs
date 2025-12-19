@@ -74,7 +74,7 @@ pub fn parse_icmp(
         return None; // spoofed reply
     }
 
-    let origin_id = get_origin_id(ip_header.dst(), 0, 0, origin_map);
+    let origin_id = get_origin_id(ip_header.dst(), 0, 0, origin_map)?;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)

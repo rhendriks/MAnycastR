@@ -63,7 +63,7 @@ pub fn parse_record_route(
         return None; // spoofed reply
     }
 
-    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map);
+    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map)?;
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
