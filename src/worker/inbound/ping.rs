@@ -100,7 +100,7 @@ pub fn parse_icmp(
             ttl: ip_header.ttl() as u32,
             origin_id,
             rx_time,
-            tx_time: Some(tx_time),
+            tx_time,
             tx_id,
             chaos: None,
             recorded_hops: None,
