@@ -256,10 +256,28 @@ pub fn get_header(
 
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
-        let rx_time_ms = rx_time / 1_000;
-        let rx_time_adj = rx_time_ms as u32;
+        // 21 bit millisecond timestamp
+        const MODULUS: u64 = 1 << 21;  // 2,097,152
+        const MASK: u64 = MODULUS - 1; // 0x1FFFFF
 
-        (rx_time_adj - tx_time as u32) as f64
+        // convert rx_time to milliseconds
+        let rx_time_ms = rx_time / 1_000;
+
+        // match tx_time format (21 bits)
+        let rx_21b = rx_time_ms & MASK;
+
+        // ensure tx_time is masked
+        let tx_21b = tx_time & MASK;
+
+        // calculate difference
+        let rtt_ms = if rx_21b >= tx_21b {
+            rx_21b - tx_21b
+        } else {
+            // wrap-around case
+            (rx_21b + MODULUS) - tx_21b
+        };
+
+        rtt_ms as f64
     } else {
         (rx_time - tx_time) as f64 / 1_000.0
     }

@@ -369,19 +369,19 @@ pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    is_symmetric: bool,
+    is_discovery: bool,
     info_url: &str,
 ) -> Vec<u8> {
-    let ack = if !is_symmetric || worker_id > u16::MAX as u32 {
-        // Catchment mapping (or discovery probe for latency measurement)
-        worker_id
-    } else {
-        // Latency measurement
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u32
-    };
+    let tx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u32;
+
+    let timestamp_21b = tx_time & 0x1FFFFF;
+    let worker_10b = worker_id & 0x3FF;
+
+    let discovery_bit = if is_discovery { 1u32 << 31 } else { 0 };
+    let ack = discovery_bit | (worker_10b << 21) | timestamp_21b;
 
     TCPPacket::tcp_syn_ack(
         &origin.src.unwrap(),

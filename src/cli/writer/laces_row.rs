@@ -14,8 +14,8 @@ pub struct LacesParquetDataRow {
     addr: String,
     /// Time-to-live (TTL) value of the reply.
     ttl: u8,
-    /// UNIX timestamp in microseconds when the request was sent. [unavailable for TCP]
-    tx_time: Option<u64>,
+    /// UNIX timestamp in microseconds when the request was sent.
+    tx_time: u64,
     /// Hostname of the probe sender.
     tx: String,
     /// DNS TXT CHAOS record value.

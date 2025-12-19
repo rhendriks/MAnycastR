@@ -35,7 +35,6 @@ pub fn parse_tcp(
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
-    // cannot filter out spoofed packets as the probe_dst is unknown
 
     let PacketPayload::Tcp { value: tcp_packet } = ip_header.payload() else {
         return None;
@@ -53,18 +52,10 @@ pub fn parse_tcp(
         origin_map,
     );
 
-    // Discovery probes have bit 16 set and higher bits unset
-    let bit_16_mask = 1 << 16;
-    let higher_bits_mask = !0u32 << 17;
-
-    // TODO encode both worker ID (10 bits), is_discovery (1bit) and millisecond timestamp (21bit)
-
-    let (tx_id, is_discovery) =
-        if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
-            (tcp_packet.seq - u16::MAX as u32, true)
-        } else {
-            (tcp_packet.seq, false)
-        };
+    let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
+    let is_discovery = (identifier >> 31) & 1 == 1;
+    let tx_id = (identifier >> 21) & 0x3FF;
+    let tx_time_21b = identifier & 0x1FFFFF;
 
     if is_discovery {
         Some(ResultData::Discovery(ProbeDiscovery {
@@ -78,7 +69,7 @@ pub fn parse_tcp(
             ttl: ip_header.ttl() as u32,
             origin_id,
             rx_time,
-            tx_time: None,
+            tx_time: tx_time_21b as u64,
             tx_id,
             chaos: None,
             recorded_hops: None,
