@@ -197,33 +197,21 @@ message Trace {
 // A TaskResult, contains the worker that executed the task, and a list of results
 message TaskResult {
   uint32 rx_id = 1;
+  repeated Result results = 2; // forwarded to CLI by the Orchestrator
+}
 
-  oneof task_batch {
-    LatencyBatch latency_batch = 2;
-    TraceBatch trace_batch = 3;
-    VerfploeterBatch verfploeter_batch = 4;
-    LacesBatch laces_batch = 5;
+// Forwarded to CLI as result
+message Result {
+  oneof result_data {
+    VerfploeterReply verfploeter = 1; // result
+    LatencyReply latency = 2; // result
+    LacesReply laces = 3; // result
+    TraceReply trace = 4; // result + follow-up
+    ProbeDiscovery discovery = 5; // follow-up
   }
 }
 
-message LatencyBatch {
-  repeated LatencyReply results = 1;
-}
-
-message TraceBatch {
-  repeated TraceReply results = 1;
-}
-
-message VerfploeterBatch {
-  repeated VerfploeterReply results = 1;
-}
-
-message LacesBatch {
-  repeated LacesReply results = 1;
-}
-
-
-// Used for --traceroute, --responsive, --latency, --divide to determine i) catchment, and ii) responsiveness
+// Used for --divide to measure catchment
 message VerfploeterReply {
   Address src = 1;
   fixed32 ttl = 2;
@@ -232,7 +220,13 @@ message VerfploeterReply {
   optional RecordedHops recorded_hops = 9;
 }
 
-// --latency reply (rx == tx)
+// Used for --latency, --traceroute (determine catcher for target), and --responsive (determine responsiveness)
+message ProbeDiscovery {
+  Address src = 1;
+  optional fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
+}
+
+// --latency and --unicast result (rx == tx)
 message LatencyReply {
   Address src = 1;
   fixed32 ttl = 2;

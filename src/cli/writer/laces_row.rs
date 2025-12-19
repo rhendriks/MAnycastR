@@ -1,7 +1,7 @@
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, LacesReply, Reply};
+use crate::custom_module::manycastr::{Address, LacesReply, Result};
 use crate::{CHAOS_ID, TCP_ID};
 
 /// Represents a row of LACeS data in the Parquet file format.
@@ -60,14 +60,10 @@ pub fn laces_reply_to_parquet_row(
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_laces_row(
-                result: LacesReply,
+    reply: LacesReply,
                 rx_worker_id: &u32,
                 m_type: u8,
                 worker_map: &BiHashMap<u32, String>,
-                ttl: u8,
-                src: Address,
-                chaos_data: Option<String>,
-                origin_id: Option<u32>,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -76,23 +72,23 @@ pub fn get_laces_row(
         .to_string();
 
     let tx_hostname = worker_map
-        .get_by_left(&result.tx_id)
+        .get_by_left(&reply.tx_id)
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
     let mut row = if m_type == TCP_ID {
         // TCP has no tx_time
-        vec![rx_hostname, result.rx_time.to_string(), src.to_string(), ttl.to_string(), tx_hostname]
+        vec![rx_hostname, reply.rx_time.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string(), tx_hostname]
     } else {
-        vec![rx_hostname, result.rx_time.to_string(), src.to_string(), ttl.to_string(), result.tx_time.expect("no tx_time").to_string(), tx_hostname]
+        vec![rx_hostname, reply.rx_time.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string(), reply.tx_time.expect("no tx_time").to_string(), tx_hostname]
     };
 
 
     // Optional fields
-    if let Some(chaos) = chaos_data {
+    if let Some(chaos) = reply.chaos {
         row.push(chaos);
     }
-    if let Some(id) = origin_id {
+    if let Some(id) = reply.origin_id {
         row.push(id.to_string());
     }
 

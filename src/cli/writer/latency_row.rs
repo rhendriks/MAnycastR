@@ -1,7 +1,7 @@
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, LacesReply, LatencyReply, Reply};
+use crate::custom_module::manycastr::{Address, LacesReply, LatencyReply, Result};
 use crate::{CHAOS_ID, TCP_ID};
 
 /// Represents a row of LACeS data in the Parquet file format.
@@ -57,14 +57,10 @@ pub fn latency_reply_to_parquet_row(
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_latency_row(
-                result: LatencyReply,
+    reply: LatencyReply,
                 rx_worker_id: &u32,
                 worker_map: &BiHashMap<u32, String>,
-                chaos_data: Option<String>,
-                origin_id: Option<u32>,
-                src: Address,
                 m_type: u8,
-                ttl: u8,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -72,15 +68,12 @@ pub fn get_latency_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let rtt = calculate_rtt(result.rx_time, result.tx_time, m_type == TCP_ID);
+    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, m_type == TCP_ID);
 
-    let mut row = vec![rx_hostname, rtt.to_string(), src.to_string(), ttl.to_string()];
+    let mut row = vec![rx_hostname, rtt.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string()];
 
     // Optional fields
-    if let Some(chaos) = chaos_data {
-        row.push(chaos);
-    }
-    if let Some(id) = origin_id {
+    if let Some(id) = reply.origin_id {
         row.push(id.to_string());
     }
 

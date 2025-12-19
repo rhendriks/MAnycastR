@@ -7,7 +7,7 @@ use std::thread::{sleep, Builder};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Address, Origin, Reply, TaskResult, TraceReply};
+use crate::custom_module::manycastr::{Address, Origin, Result, TaskResult, TraceReply};
 use crate::custom_module::Separated;
 use crate::net::{
     parse_record_route_option, DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet,
@@ -188,7 +188,7 @@ fn handle_results(
     tx: &UnboundedSender<TaskResult>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
-    rq_sender: Arc<Mutex<Vec<(Reply, bool)>>>,
+    rq_sender: Arc<Mutex<Vec<Result>>>,
 ) {
     loop {
         // Every second, forward the ping results to the orchestrator
@@ -199,25 +199,12 @@ fn handle_results(
             let mut guard = rq_sender.lock().unwrap();
             mem::take(&mut *guard)
         };
-        // Split on discovery and non-discovery replies
-        let (discovery_rq, follow_rq): (Vec<_>, Vec<_>) = rq.into_iter().partition(|&(_, b)| b);
-        let discovery_rq: Vec<Reply> = discovery_rq.into_iter().map(|(r, _)| r).collect();
-        let follow_rq: Vec<Reply> = follow_rq.into_iter().map(|(r, _)| r).collect();
 
         // Send the result to the worker handler
-        if !discovery_rq.is_empty() {
+        if !rq.is_empty() {
             tx.send(TaskResult {
-                worker_id: worker_id as u32,
-                result_list: discovery_rq,
-                is_discovery: true,
-            })
-                .expect("Failed to send TaskResult to worker handler");
-        }
-        if !follow_rq.is_empty() {
-            tx.send(TaskResult {
-                worker_id: worker_id as u32,
-                result_list: follow_rq,
-                is_discovery: false,
+                rx_id: worker_id as u32,
+                results: rq,
             })
                 .expect("Failed to send TaskResult to worker handler");
         }

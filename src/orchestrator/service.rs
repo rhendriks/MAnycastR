@@ -1,10 +1,6 @@
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
-    Record, ScheduleMeasurement, Start, Task, TaskResult, Worker,
-};
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{discovery_handler, discovery_handler_v2, trace_discovery_handler, trace_replies_handler};
+use crate::orchestrator::result_handler::{discovery_handler, trace_discovery_handler, trace_replies_handler};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
@@ -23,7 +19,14 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
-use crate::custom_module::manycastr::reply::ResultData;
+use crate::custom_module::manycastr::{
+    instruction, task, Ack, Empty, Finished, Init, Instruction, LatencyReply, LiveMeasurementMessage, Probe, ProbeDiscovery, Record, ScheduleMeasurement, Start, Task, TaskResult, TraceReply, VerfploeterReply, Worker,
+    Result as ProtoResult
+};
+
+// Add the Enum import separately
+use crate::custom_module::manycastr::result::ResultData;
+
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -544,60 +547,83 @@ impl Controller for ControllerService {
     async fn send_result(&self, request: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
-        let rx_id = task_result.rx_id;
+        let catcher_id = task_result.rx_id;
 
-        // TODO infer result type and handle appropiately
-        
+        // Split replies into buckets
+        let mut results_bucket: Vec<ProtoResult> = Vec::new();
+        let mut trace_bucket: Vec<TraceReply> = Vec::new();
+        let mut discovery_bucket: Vec<ProbeDiscovery> = Vec::new();
 
-        // if self.r_prober is not None and equals this task's worker_id
-        if is_discovery {
-            // Sleep 1 second to avoid rate-limiting issues
-            tokio::time::sleep(Duration::from_secs(1)).await;
+        for result_wrapper in task_result.results {
+            match result_wrapper.result_data {
+                Some(ResultData::Trace(t)) => {
+                    trace_bucket.push(t);
+                }
+                Some(ResultData::Discovery(d)) => {
+                    discovery_bucket.push(d);
+                }
+                Some(inner_data) => {
+                    // We must RE-WRAP the enum back into the struct
+                    results_bucket.push(ProtoResult {
+                        result_data: Some(inner_data),
+                    });
+                }
+
+                None => {}
+            }
+        }
+
+        if !discovery_bucket.is_empty() {
             if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
-                return discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap(), false);
+                // Perform follow-up tasks from all workers
+                discovery_handler(discovery_bucket, ALL_WORKERS, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
-                return discovery_handler(task_result, &mut self.worker_stacks.lock().unwrap(), true);
+                // Perform follow-up tasks from the catching worker
+                discovery_handler(discovery_bucket, catcher_id, &mut self.worker_stacks.lock().unwrap());
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 println!("received discovery traceroute replies");
                 // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
                 trace_discovery_handler(
-                    &task_result,
+                    discovery_bucket,
+                    catcher_id,
                     &mut self.worker_stacks.lock().unwrap(),
                     &mut self.trace_session_tracker.lock().unwrap(),
                     self.trace_timeout.lock().unwrap().unwrap(),
                     self.inital_hop.lock().unwrap().unwrap(),
                 );
-                // Continue to forward the result to the CLI as well
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
-        } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
+        }
+
+        if !trace_bucket.is_empty() {
             println!("received non-discovery traceroute replies");
             // Handle traceroute replies (and target replies)
             trace_replies_handler(
-                &task_result,
+                trace_bucket,
                 &mut self.worker_stacks.lock().unwrap(),
                 &mut self.trace_session_tracker.lock().unwrap(),
                 self.trace_max_hops.lock().unwrap().unwrap(),
             );
+            println!("handled traceroute replies");
         }
-        println!("handled traceroute replies");
 
-        // Default case: just forward the result to the CLI
-        let tx = {
-            let sender = self.cli_sender.lock().unwrap();
-            sender.clone().unwrap()
-        };
+        if !results_bucket.is_empty() {
+            // Forward results to the CLI
+            let tx = {
+                let sender = self.cli_sender.lock().unwrap();
+                sender.clone().unwrap()
+            };
 
-        match tx.send(Ok(task_result)).await {
-            Ok(_) => Ok(Response::new(Ack {
-                is_success: true,
-                error_message: "".to_string(),
-            })),
-            Err(_) => Ok(Response::new(Ack {
-                is_success: false,
-                error_message: "CLI disconnected".to_string(),
-            })),
+            tx.send(Ok(TaskResult {
+                rx_id: catcher_id,
+                results: results_bucket,
+            })).await.expect("failed to send results to CLI");
         }
+
+        Ok(Response::new(Ack {
+            is_success: true,
+            error_message: "".to_string(),
+        }))
     }
 }

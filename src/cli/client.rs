@@ -241,21 +241,20 @@ impl CliClient {
         } {
             // A default result notifies the CLI that it should not expect any more results
             if task_result == TaskResult::default() {
-                tx_r.send(task_result).unwrap(); // Let the results channel know that we are done
+                tx_r.send(task_result)?; // Let the results channel know that we are done
                 graceful = true;
                 break;
             }
 
-            replies_count += task_result.replies.len();
+            replies_count += task_result.results.len();
             // Send the results to the file channel
-            tx_r.send(task_result).unwrap();
+            tx_r.send(task_result)?;
         }
 
         is_done.store(true, Ordering::Relaxed); // Signal the progress bar to stop
 
         let end = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .duration_since(UNIX_EPOCH)?
             .as_secs();
         let length = (end - start) as f32 / 60.0; // Measurement length in minutes
         info!(
@@ -265,7 +264,7 @@ impl CliClient {
 
         // If the stream closed during a measurement
         if !graceful {
-            tx_r.send(TaskResult::default()).unwrap(); // Let the results channel know that we are done
+            tx_r.send(TaskResult::default())?; // Let the results channel know that we are done
             warn!("[CLI] Measurement ended prematurely!");
         }
 

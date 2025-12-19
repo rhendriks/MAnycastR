@@ -12,7 +12,7 @@
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-fn parse_trace(
+pub fn parse_trace(
     packet_bytes: &[u8],
     m_id: u16,
     worker_map: &Vec<Origin>,

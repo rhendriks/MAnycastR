@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{task, Address, Reply, Task, Trace};
+use crate::custom_module::manycastr::{task, Address, Result, Task, Trace};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
