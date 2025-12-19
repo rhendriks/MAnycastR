@@ -1,5 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement};
+use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::custom_module::manycastr::result::ResultData;
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
@@ -23,7 +23,7 @@ pub fn parse_icmp(
     m_id: u32,
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<ResultData> {
+) -> Option<Result> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
@@ -89,21 +89,24 @@ pub fn parse_icmp(
     };
 
     if is_discovery {
-        Some(ResultData::Discovery(ProbeDiscovery {
-            src: Some(ip_header.src()),
-            origin_id,
-        }
-        ))
+        Some(Result {
+            result_data: Some(ResultData::Discovery(ProbeDiscovery {
+                src: Some(ip_header.src()),
+                origin_id,
+            })),
+        })
     } else {
-        Some(ResultData::Measurement(ProbeMeasurement {
-            src: Some(ip_header.src()),
-            ttl: ip_header.ttl() as u32,
-            origin_id,
-            rx_time,
-            tx_time,
-            tx_id,
-            chaos: None,
-            recorded_hops: None,
-        }))
+        Some(Result {
+            result_data: Some(ResultData::Measurement(ProbeMeasurement {
+                src: Some(ip_header.src()),
+                ttl: ip_header.ttl() as u32,
+                origin_id,
+                rx_time,
+                tx_time, // Ensure this uses your calculated 21-bit logic if TCP
+                tx_id,
+                chaos: None,
+                recorded_hops: None,
+            })),
+        })
     }
 }
