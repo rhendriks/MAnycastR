@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::ProbeMeasurement;
+use crate::custom_module::manycastr::MeasurementReply;
 use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
@@ -15,7 +15,7 @@ use bimap::BiHashMap;
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_verfploeter_csv_row(
-    reply: ProbeMeasurement,
+    reply: MeasurementReply,
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {

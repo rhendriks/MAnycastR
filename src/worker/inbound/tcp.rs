@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement, Result};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{Origin, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -> Option<Result> {
+pub fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -> Option<Reply> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
@@ -54,15 +54,15 @@ pub fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -
     let tx_time_21b = identifier & 0x1FFFFF;
 
     if is_discovery {
-        Some(Result {
-            result_data: Some(ResultData::Discovery(ProbeDiscovery {
+        Some(Reply {
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
                 src: Some(ip_header.src()),
                 origin_id,
             })),
         })
     } else {
-        Some(Result {
-            result_data: Some(ResultData::Measurement(ProbeMeasurement {
+        Some(Reply {
+            reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(ip_header.src()),
                 ttl: ip_header.ttl() as u32,
                 origin_id,

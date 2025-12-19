@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{
     DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
 };
@@ -31,7 +31,7 @@ pub fn parse_dns(
     measurement_type: u8,
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<Result> {
+) -> Option<Reply> {
     // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
     if (is_ipv6 && (packet_bytes.len() < 48 || packet_bytes[6] != 17))
@@ -92,15 +92,15 @@ pub fn parse_dns(
     let origin_id = get_origin_id(ip_header.dst(), reply_sport, reply_dport, origin_map)?;
 
     if is_discovery {
-        Some(Result {
-            result_data: Some(ResultData::Discovery(ProbeDiscovery {
+        Some(Reply {
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
                 src: Some(ip_header.src()),
                 origin_id,
             })),
         })
     } else {
-        Some(Result {
-            result_data: Some(ResultData::Measurement(ProbeMeasurement {
+        Some(Reply {
+            reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(ip_header.src()),
                 ttl: ip_header.ttl() as u32,
                 origin_id,
