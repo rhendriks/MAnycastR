@@ -8,13 +8,13 @@ service Controller {
   // Worker connects with the orchestrator, which returns a stream for future instructions
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
   // CLI instructs orchestrator to perform a measurement
-  rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
+  rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
   // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
-  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream TaskResult) {}
+  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream ReplyBatch) {}
   // CLI asks orchestrator its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends TaskResult to orchestrator
-  rpc SendResult(TaskResult) returns (Ack) {}
+  rpc SendResult(ReplyBatch) returns (Ack) {}
 }
 
 // Metadata for the measurement session (sent once at the start)
@@ -194,8 +194,8 @@ message Trace {
   uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
 }
 
-// A TaskResult, contains the worker that executed the task, and a list of results
-message TaskResult {
+// A ReplyBatch, contains the worker that received the measurement replies, and the replies themselves
+message ReplyBatch {
   uint32 rx_id = 1;
   repeated Result results = 2; // forwarded to CLI by the Orchestrator
 }
