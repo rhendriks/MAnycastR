@@ -1,3 +1,9 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+use parquet::data_type::AsBytes;
+use crate::custom_module::manycastr::{Origin, TraceReply};
+use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::worker::config::get_origin_id;
+
 /// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
 /// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
 ///
@@ -61,7 +67,7 @@ pub fn parse_trace(
     };
 
     let seq = original_icmp_header.sequence_number;
-    let id = original_icmp_header.identifier; // MUST be the identifier from the original packet!
+    let id = original_icmp_header.icmp_identifier; // MUST be the identifier from the original packet!
 
     // ttl (first 8 bits of seq)
     let trace_ttl = (seq >> 8) as u32;
@@ -82,7 +88,7 @@ pub fn parse_trace(
 
     // get origin ID to which this probe is targeted
     // TODO do origin_id mapping at orchestrator
-    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
+    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map);
 
     println!(
         "received trace reply from target {}. hop {} replied with addr {}",
@@ -92,15 +98,16 @@ pub fn parse_trace(
     );
 
     Some(TraceReply {
-        hop_addr: None,
+        hop_addr: Some(hop_addr),
         rx_time: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u32,
         tx_time,
-        trace_id: tx_id,
+        tx_id,
         trace_dst,
         hop_count: trace_ttl,
         origin_id,
+        ttl: ip_header.ttl() as u32
     })
 }
