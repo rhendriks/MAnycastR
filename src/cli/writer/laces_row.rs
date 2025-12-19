@@ -76,13 +76,19 @@ pub fn get_laces_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let mut row = if m_type == TCP_ID {
-        // TCP has no tx_time
-        vec![rx_hostname, reply.rx_time.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string(), tx_hostname]
+    let rx_time = if m_type == TCP_ID {
+        // convert to milliseconds
+        let rx_ms = reply.rx_time / 1000;
+
+        // mask to 21 bits
+        let rx_wrapped = rx_ms & 0x1FFFFF;
+
+        rx_wrapped.to_string()
     } else {
-        vec![rx_hostname, reply.rx_time.to_string(), reply.src.unwrap().to_string(), reply.ttl.to_string(), reply.tx_time.expect("no tx_time").to_string(), tx_hostname]
+        reply.rx_time.to_string()
     };
 
+    let mut row = vec![rx_hostname, rx_time, reply.src.unwrap().to_string(), reply.ttl.to_string(), reply.tx_time.to_string(), tx_hostname];
 
     // Optional fields
     if let Some(chaos) = reply.chaos {
