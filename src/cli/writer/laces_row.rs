@@ -1,8 +1,7 @@
 use bimap::BiHashMap;
-use crate::cli::writer::calculate_rtt;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, ProbeMeasurement};
-use crate::{CHAOS_ID, TCP_ID};
+use crate::custom_module::manycastr::ProbeMeasurement;
+use crate::TCP_ID;
 
 /// Get the result (csv row) from a Reply message
 ///
@@ -19,9 +18,9 @@ use crate::{CHAOS_ID, TCP_ID};
 /// A vector of strings representing the row in the CSV file
 pub fn get_laces_row(
     reply: ProbeMeasurement,
-                rx_worker_id: &u32,
-                m_type: u8,
-                worker_map: &BiHashMap<u32, String>,
+    rx_worker_id: &u32,
+    m_type: u8,
+    worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -46,7 +45,14 @@ pub fn get_laces_row(
         reply.rx_time.to_string()
     };
 
-    let mut row = vec![rx_hostname, rx_time, reply.src.unwrap().to_string(), reply.ttl.to_string(), reply.tx_time.to_string(), tx_hostname];
+    let mut row = vec![
+        rx_hostname,
+        rx_time,
+        reply.src.unwrap().to_string(),
+        reply.ttl.to_string(),
+        reply.tx_time.to_string(),
+        tx_hostname,
+    ];
 
     // Optional fields
     if let Some(chaos) = reply.chaos {

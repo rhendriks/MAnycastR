@@ -1,9 +1,5 @@
-use std::ops::Add;
+use crate::custom_module::manycastr::ProbeMeasurement;
 use bimap::BiHashMap;
-use crate::cli::writer::calculate_rtt;
-// use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, ProbeMeasurement, Result};
-use crate::{CHAOS_ID, TCP_ID};
 
 /// Get the result (csv row) from a Reply message
 ///
@@ -29,7 +25,11 @@ pub fn get_verfploeter_csv_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let mut row = vec![rx_hostname, reply.src.unwrap().to_string(), reply.ttl.to_string()];
+    let mut row = vec![
+        rx_hostname,
+        reply.src.unwrap().to_string(),
+        reply.ttl.to_string(),
+    ];
 
     // Optional fields
     if let Some(chaos) = reply.chaos {

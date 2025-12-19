@@ -1,11 +1,11 @@
-use std::thread::sleep;
-use std::time::Duration;
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use crate::custom_module::manycastr::Address;
 use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
 use crate::worker::outbound::{OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
+use log::{error, warn};
+use pnet::datalink::DataLinkSender;
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use std::thread::sleep;
+use std::time::Duration;
 
 /// Sends probes to the specified destination using the provided measurement configuration.
 /// This function constructs the appropriate packet based on the measurement type

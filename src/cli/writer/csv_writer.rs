@@ -1,8 +1,7 @@
-use bimap::BiHashMap;
-use crate::cli::writer::{calculate_rtt, MetadataArgs};
-use crate::custom_module::manycastr::Result;
-use crate::{ALL_WORKERS, TCP_ID};
+use crate::cli::writer::MetadataArgs;
 use crate::custom_module::Separated;
+use crate::ALL_WORKERS;
+use bimap::BiHashMap;
 
 /// Returns a vector of lines containing the metadata of the measurement
 ///

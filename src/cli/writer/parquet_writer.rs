@@ -1,16 +1,16 @@
-use std::fs::File;
-use std::sync::Arc;
+use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
+use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::{ProbeMeasurement, TaskResult};
+use crate::{ALL_WORKERS, TCP_ID};
 use bimap::BiHashMap;
-use parquet::schema::types::{Type as SchemaType, TypePtr};
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
+use parquet::schema::types::{Type as SchemaType, TypePtr};
+use std::fs::File;
+use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
-use crate::{ALL_WORKERS, TCP_ID};
-use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
-use crate::custom_module::manycastr::{TaskResult, ProbeMeasurement};
-use crate::custom_module::manycastr::result::ResultData;
 
 const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
@@ -23,7 +23,8 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// * `rx` - The receiver channel that receives the results.
 ///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
-pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) { // TODO implement parquet writer for TraceResults
+pub fn write_results_parquet(mut rx: UnboundedReceiver<TaskResult>, config: WriteConfig) {
+    // TODO implement parquet writer for TraceResults
     let schema = build_parquet_schema(
         config.m_type,
         config.is_multi_origin,
@@ -249,7 +250,6 @@ fn reply_to_parquet_row(
 
     row
 }
-
 
 /// Creates a parquet data schema from the headers based on the measurement type and configuration.
 pub fn build_parquet_schema(

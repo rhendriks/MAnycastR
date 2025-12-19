@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
 use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::{Address, Origin, ProbeMeasurement, Result};
 use crate::net::{parse_record_route_option, IPv4Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
 ///
@@ -79,6 +79,6 @@ pub fn parse_record_route(
             tx_id,
             chaos: None,
             recorded_hops,
-        }))
+        })),
     })
 }
