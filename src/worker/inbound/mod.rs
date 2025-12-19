@@ -99,7 +99,6 @@ pub fn inbound(
                     // Try to parse ICMP Time Exceeded first
                     let trace_reply = parse_trace(
                         &packet[14..],
-                        config.m_id as u16,
                         &config.origin_map,
                         config.is_ipv6,
                     );
@@ -110,7 +109,7 @@ pub fn inbound(
                     if let Some(reply) = trace_reply {
                         received += 1;
                         let mut buffer = rq_c.lock().unwrap();
-                        buffer.push((reply, false));
+                        buffer.push(reply);
                         continue; // Continue to next packet
                     }
                 } else if config.is_record {
@@ -125,7 +124,7 @@ pub fn inbound(
                     if let Some(reply) = rr_reply {
                         received += 1;
                         let mut buffer = rq_c.lock().unwrap();
-                        buffer.push((reply, false));
+                        buffer.push(reply);
                         continue; // Continue to next packet
                     }
                 }

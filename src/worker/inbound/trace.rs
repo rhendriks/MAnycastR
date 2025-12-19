@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use parquet::data_type::AsBytes;
 use crate::custom_module::manycastr::{Origin, TraceReply};
+use crate::custom_module::manycastr::result::ResultData;
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 
@@ -20,10 +21,9 @@ use crate::worker::config::get_origin_id;
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
 pub fn parse_trace(
     packet_bytes: &[u8],
-    m_id: u16,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<TraceReply> {
+) -> Option<ResultData> {
     // Check for ICMP Time Exceeded code
     if is_ipv6 {
         if packet_bytes.len() < 88 {
@@ -97,17 +97,19 @@ pub fn parse_trace(
         hop_addr
     );
 
-    Some(TraceReply {
-        hop_addr: Some(hop_addr),
-        rx_time: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u32,
-        tx_time,
-        tx_id,
-        trace_dst,
-        hop_count: trace_ttl,
-        origin_id,
-        ttl: ip_header.ttl() as u32
-    })
+    Some(ResultData::Trace(
+        TraceReply {
+            hop_addr: Some(hop_addr),
+            ttl: ip_header.ttl() as u32,
+            origin_id,
+            rx_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u32,
+            tx_time,
+            tx_id,
+            trace_dst,
+            hop_count: trace_ttl,
+        }
+    ))
 }
