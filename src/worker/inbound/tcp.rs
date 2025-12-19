@@ -11,7 +11,7 @@
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-fn parse_tcp(
+pub fn parse_tcp(
     packet_bytes: &[u8],
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
