@@ -1,3 +1,9 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement};
+use crate::custom_module::manycastr::result::ResultData;
+use crate::net::{parse_record_route_option, IPv4Packet, PacketPayload};
+use crate::worker::config::get_origin_id;
+
 /// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
 ///
 /// # Arguments
@@ -12,7 +18,7 @@ pub fn parse_record_route(
     m_id: u32,
     worker_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<Reply> {
+) -> Option<ResultData> {
     // Check for Record Route option and minimum length
     if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 7)) // TODO fix ipv6 filter
         || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 7))
@@ -57,23 +63,20 @@ pub fn parse_record_route(
         return None; // spoofed reply
     }
 
-    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map)?;
+    let origin_id = get_origin_id(Address::from(ip_header.dst), 0, 0, worker_map);
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
 
-    // Create a Reply for the received ping reply
-    Some(Reply {
-        tx_time,
-        tx_id,
+    Some(ResultData::Measurement(ProbeMeasurement {
         src: Some(Address::from(ip_header.src)),
         ttl: ip_header.ttl as u32,
-        rx_time,
         origin_id,
+        rx_time,
+        tx_time: Some(tx_time),
+        tx_id,
         chaos: None,
-        trace_dst: None,
-        trace_ttl: None,
         recorded_hops,
-    })
+    }))
 }

@@ -1,7 +1,7 @@
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, LacesReply, Result};
+use crate::custom_module::manycastr::{Address, ProbeMeasurement};
 use crate::{CHAOS_ID, TCP_ID};
 
 /// Represents a row of LACeS data in the Parquet file format.
@@ -28,7 +28,7 @@ pub struct LacesParquetDataRow {
 pub fn laces_reply_to_parquet_row(
     src: Address,
     ttl: u8,
-    result: LacesReply,
+    result: ProbeMeasurement,
     rx_id: u16,
     worker_map: &BiHashMap<u16, String>,
     chaos_data: Option<String>,
@@ -60,7 +60,7 @@ pub fn laces_reply_to_parquet_row(
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_laces_row(
-    reply: LacesReply,
+    reply: ProbeMeasurement,
                 rx_worker_id: &u32,
                 m_type: u8,
                 worker_map: &BiHashMap<u32, String>,

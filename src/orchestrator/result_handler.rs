@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{task, Ack, Address, Probe, ProbeDiscovery, Result, Task, TaskResult, Trace, TraceReply, VerfploeterReply};
+use crate::custom_module::manycastr::{task, Ack, Address, Probe, ProbeDiscovery, Result, Task, TaskResult, Trace, TraceReply};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::ALL_WORKERS_INTERVAL;
 use std::collections::{HashMap, VecDeque};

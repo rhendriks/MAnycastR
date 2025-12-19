@@ -2,7 +2,7 @@ use std::ops::Add;
 use bimap::BiHashMap;
 use crate::cli::writer::calculate_rtt;
 // use crate::cli::writer::parquet_writer::ParquetDataRow;
-use crate::custom_module::manycastr::{Address, LacesReply, LatencyReply, Result, VerfploeterReply};
+use crate::custom_module::manycastr::{Address, ProbeMeasurement, Result};
 use crate::{CHAOS_ID, TCP_ID};
 
 /// Represents a row of LACeS data in the Parquet file format.
@@ -47,7 +47,7 @@ pub fn latency_reply_to_parquet_row(
 ///
 /// A vector of strings representing the row in the CSV file
 pub fn get_verfploeter_csv_row(
-    reply: VerfploeterReply,
+    reply: ProbeMeasurement,
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {

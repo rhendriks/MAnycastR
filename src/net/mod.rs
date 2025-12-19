@@ -1,7 +1,7 @@
 extern crate byteorder;
 use std::io::{Cursor, Read, Write};
 
-use crate::custom_module::manycastr::Address;
+use crate::custom_module::manycastr::{Address, RecordedHops};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 
@@ -218,9 +218,9 @@ fn record_route_option() -> Vec<u8> {
 }
 
 /// Convert a record route option byte array into a vector of IP addresses.
-pub fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
+pub fn parse_record_route_option(data: &[u8]) -> Option<RecordedHops> {
     if data.len() < 3 || data[0] != 7 {
-        return vec![]; // Not a valid Record Route option
+        return None; // Not a valid Record Route option
     }
 
     let mut addresses = vec![];
@@ -237,7 +237,9 @@ pub fn parse_record_route_option(data: &[u8]) -> Vec<Address> {
         }
     }
 
-    addresses
+    Some(RecordedHops {
+        hops: addresses,
+    })
 }
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>

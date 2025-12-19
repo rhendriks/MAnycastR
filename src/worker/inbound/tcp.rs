@@ -1,3 +1,9 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+use crate::custom_module::manycastr::{Origin, ProbeDiscovery, ProbeMeasurement};
+use crate::custom_module::manycastr::result::ResultData;
+use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::worker::config::get_origin_id;
+
 /// Parse TCP packets into a Reply result.
 /// Only accepts packets with the RST flag set.
 ///
@@ -7,7 +13,7 @@
 /// * `is_ipv6` - whether to parse the packet as IPv6 or IPv4
 ///
 /// # Returns
-/// * `Option<(Reply, bool)>` - the received TCP reply and whether it is a discovery packet
+/// * `Option<ResultData>` - the received TCP reply
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
@@ -15,7 +21,7 @@ pub fn parse_tcp(
     packet_bytes: &[u8],
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<(Reply, bool)> {
+) -> Option<ResultData> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
@@ -45,11 +51,13 @@ pub fn parse_tcp(
         tcp_packet.sport,
         tcp_packet.dport,
         origin_map,
-    )?;
+    );
 
     // Discovery probes have bit 16 set and higher bits unset
     let bit_16_mask = 1 << 16;
     let higher_bits_mask = !0u32 << 17;
+
+    // TODO encode both worker ID (10 bits), is_discovery (1bit) and millisecond timestamp (21bit)
 
     let (tx_id, is_discovery) =
         if (tcp_packet.seq & bit_16_mask) != 0 && (tcp_packet.seq & higher_bits_mask) == 0 {
@@ -58,19 +66,22 @@ pub fn parse_tcp(
             (tcp_packet.seq, false)
         };
 
-    Some((
-        Reply {
-            tx_time: tx_id as u64,
-            tx_id,
+    if is_discovery {
+        Some(ResultData::Discovery(ProbeDiscovery {
+            src: Some(ip_header.src()),
+            origin_id,
+        }
+        ))
+    } else {
+        Some(ResultData::Measurement(ProbeMeasurement {
             src: Some(ip_header.src()),
             ttl: ip_header.ttl() as u32,
-            rx_time,
             origin_id,
+            rx_time,
+            tx_time: None,
+            tx_id,
             chaos: None,
-            trace_dst: None,
-            trace_ttl: None,
-            recorded_hops: vec![],
-        },
-        is_discovery,
-    ))
+            recorded_hops: None,
+        }))
+    }
 }
