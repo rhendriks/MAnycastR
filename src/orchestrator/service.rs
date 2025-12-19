@@ -1,9 +1,5 @@
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{
-    instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe,
-    ProbeDiscovery, Record, Result as ProtoResult, ScheduleMeasurement, Start, Task, ReplyBatch,
-    TraceReply, Worker,
-};
+use crate::custom_module::manycastr::{instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, DiscoveryReply, Record, ScheduleMeasurement, Start, Task, ReplyBatch, TraceReply, Worker, Reply};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     discovery_handler, trace_discovery_handler, trace_replies_handler,
@@ -28,7 +24,7 @@ use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
 
 // Add the Enum import separately
-use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::reply::ReplyData;
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -542,22 +538,21 @@ impl Controller for ControllerService {
         let catcher_id = task_result.rx_id;
 
         // Split replies into buckets
-        let mut results_bucket: Vec<ProtoResult> = Vec::new();
+        let mut results_bucket: Vec<Reply> = Vec::new();
         let mut trace_bucket: Vec<TraceReply> = Vec::new();
-        let mut discovery_bucket: Vec<ProbeDiscovery> = Vec::new();
+        let mut discovery_bucket: Vec<DiscoveryReply> = Vec::new();
 
         for result_wrapper in task_result.results {
-            match result_wrapper.result_data {
-                Some(ResultData::Trace(t)) => {
+            match result_wrapper.reply_data {
+                Some(ReplyData::Trace(t)) => {
                     trace_bucket.push(t);
                 }
-                Some(ResultData::Discovery(d)) => {
+                Some(ReplyData::Discovery(d)) => {
                     discovery_bucket.push(d);
                 }
                 Some(inner_data) => {
-                    // We must RE-WRAP the enum back into the struct
-                    results_bucket.push(ProtoResult {
-                        result_data: Some(inner_data),
+                    results_bucket.push(Reply {
+                        reply_data: Some(inner_data),
                     });
                 }
 

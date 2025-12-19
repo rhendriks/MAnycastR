@@ -10,7 +10,7 @@ use crate::cli::writer::csv_writer::get_csv_metadata;
 use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::{custom_module, CHAOS_ID, TCP_ID};
-use custom_module::manycastr::{Configuration, Result, ReplyBatch};
+use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
@@ -18,7 +18,7 @@ use std::io::BufWriter;
 // use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
-use crate::custom_module::manycastr::result::ResultData;
+use crate::custom_module::manycastr::reply::ReplyData;
 
 pub mod csv_writer;
 mod laces_row;
@@ -132,13 +132,13 @@ pub fn write_results(
             if task_result == ReplyBatch::default() {
                 break;
             }
-            let results: Vec<Result> = task_result.results;
+            let results: Vec<Reply> = task_result.results;
             let rx_id = task_result.rx_id;
 
             for result in results {
-                let row = match result.result_data {
+                let row = match result.reply_data {
                     Some(data) => match data {
-                        ResultData::Measurement(reply) => {
+                        ReplyData::Measurement(reply) => {
                             if config.is_symmetric {
                                 get_latency_row(reply, &rx_id, &config.worker_map, config.m_type)
                             } else if true {
@@ -148,10 +148,10 @@ pub fn write_results(
                                 get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
                             }
                         }
-                        ResultData::Trace(reply) => {
+                        ReplyData::Trace(reply) => {
                             get_trace_row(reply, &rx_id, &config.worker_map)
                         }
-                        ResultData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
+                        ReplyData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
                         panic!("Reply contained no result data!");

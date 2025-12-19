@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::result::ResultData;
-use crate::custom_module::manycastr::{Address, Origin, ProbeDiscovery, ProbeMeasurement, Result};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -23,7 +23,7 @@ pub fn parse_icmp(
     m_id: u32,
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-) -> Option<Result> {
+) -> Option<Reply> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
@@ -89,15 +89,15 @@ pub fn parse_icmp(
     };
 
     if is_discovery {
-        Some(Result {
-            result_data: Some(ResultData::Discovery(ProbeDiscovery {
+        Some(Reply {
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
                 src: Some(ip_header.src()),
                 origin_id,
             })),
         })
     } else {
-        Some(Result {
-            result_data: Some(ResultData::Measurement(ProbeMeasurement {
+        Some(Reply {
+            reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(ip_header.src()),
                 ttl: ip_header.ttl() as u32,
                 origin_id,

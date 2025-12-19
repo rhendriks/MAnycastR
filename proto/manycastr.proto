@@ -197,25 +197,25 @@ message Trace {
 // A ReplyBatch, contains the worker that received the measurement replies, and the replies themselves
 message ReplyBatch {
   uint32 rx_id = 1;
-  repeated Result results = 2; // forwarded to CLI by the Orchestrator
+  repeated Reply results = 2; // forwarded to CLI by the Orchestrator
 }
 
-message Result {
-  oneof result_data {
-    ProbeMeasurement measurement = 1; // result
-    ProbeDiscovery discovery = 2; // follow-up
+message Reply {
+  oneof reply_data {
+    MeasurementReply measurement = 1; // result
+    DiscoveryReply discovery = 2; // follow-up
     TraceReply trace = 3; // result + follow-up
   }
 }
 
 // Used for --latency, --traceroute (determine catcher for target), and --responsive (determine responsiveness)
-message ProbeDiscovery {
+message DiscoveryReply {
   Address src = 1;
   fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
 }
 
 // Used for LACeS (sending from all PoPs)
-message ProbeMeasurement {
+message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
   fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
