@@ -1,8 +1,9 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, Reply};
 use crate::net::{
-    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
+    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord
 };
+use crate::DNS_IDENTIFIER;
 use crate::worker::config::get_origin_id;
 use crate::{A_ID, CHAOS_ID};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,11 +27,21 @@ pub fn parse_dns(
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
 ) -> Option<Reply> {
-    // DNSv6 48 length (IPv6 header (40) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
-    // DNSv4 28 minimum (IPv4 header (20) + UDP header (8)) + check next protocol is UDP TODO incorporate minimum payload size
-    if (is_ipv6 && (packet_bytes.len() < 48 || packet_bytes[6] != 17))
-        || (!is_ipv6 && (packet_bytes.len() < 28 || packet_bytes[9] != 17))
+    // DNS header offset
+    let dns_offset = if is_ipv6 { 48 } else { 28 };
+
+    // Verify minimum length + protocol (minimum length = IP header + UDP header + 2 transaction ID)
+    if (is_ipv6 && (packet_bytes.len() < 50 || packet_bytes[6] != 17))
+        || (!is_ipv6 && (packet_bytes.len() < 30 || packet_bytes[9] != 17))
     {
+        return None;
+    }
+
+    // Verify 6 leftmost bits of transaction ID
+    let first_tx_byte = packet_bytes[dns_offset];
+    let dns_identifier = first_tx_byte >> 2; // Shift right by 2 to isolate the top 6 bits
+
+    if dns_identifier != DNS_IDENTIFIER {
         return None;
     }
 
@@ -45,7 +56,6 @@ pub fn parse_dns(
     };
 
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    // TODO use 'get_domain_length'
     if ((measurement_type == A_ID) & (udp_packet.body.len() < 66))
         | ((measurement_type == CHAOS_ID) & (udp_packet.body.len() < 10))
     {
@@ -179,8 +189,8 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
 fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
     let record = DNSRecord::from(packet_bytes);
 
-    // sender worker ID encoded in the transaction ID
-    let tx_worker_id = record.transaction_id as u32;
+    // 10 rightmost bits have the sender worker ID encoded
+    let tx_worker_id = (record.transaction_id & 0x03FF) as u32;
 
     if record.answer == 0 {
         return Some((0u64, tx_worker_id, "Not implemented".to_string()));
