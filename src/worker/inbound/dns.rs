@@ -8,23 +8,17 @@ use crate::{A_ID, CHAOS_ID};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse DNS packets into a Reply result.
-///
 /// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
 ///
 /// # Arguments
-///
 /// * 'packet_bytes' - the bytes of the packet to parse
-///
 /// * 'measurement_type' - the type of measurement being performed
-///
 /// * 'origin_map' - mapping of origin to origin ID
 ///
 /// # Returns
-///
 /// * `Option<Result>` - the received DNS reply (None if invalid)
 ///
 /// # Remarks
-///
 /// The function returns None if the packet is too short to contain a UDP header.
 pub fn parse_dns(
     packet_bytes: &[u8],
@@ -126,15 +120,12 @@ struct DnsResult {
 /// Attempts to parse the DNS A record from a DNS payload body.
 ///
 /// # Arguments
-///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// # Returns
-///
 /// * `Option<DnsResult>` - the DNS result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet
 ///
 /// # Remarks
-///
 /// The function returns None if the packet is too short to contain a DNS A record.
 fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
     let record = DNSRecord::from(packet_bytes);
