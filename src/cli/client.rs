@@ -30,11 +30,8 @@ impl CliClient {
     /// # Arguments
     ///
     /// * 'm_definition' - measurement definition  for the orchestrator created from the command-line arguments
-    ///
     /// * 'args' - contains additional arguments for the measurement execution
-    ///
     /// * 'is_ipv6' - boolean whether the measurement is IPv6 or not
-    ///
     /// * 'is_unicast' - boolean whether the measurement is unicast or anycast
     pub(crate) async fn do_measurement_to_server(
         &mut self,
@@ -277,16 +274,11 @@ impl CliClient {
     /// # Arguments
     ///
     /// * 'address' - the address of the orchestrator (e.g., 10.10.10.10:50051)
-    ///
     /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Returns
     ///
     /// A gRPC client that is connected to the orchestrator
-    ///
-    /// # Panics
-    ///
-    /// If the connection to the orchestrator fails
     ///
     /// # Remarks
     ///

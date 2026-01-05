@@ -7,8 +7,10 @@ use std::path::Path;
 /// Validate the provided path for writing permissions.
 /// # Arguments
 /// * 'path_str' - Path to validate
+/// 
 /// # Returns
 /// * Ok(()) if the path is valid and writable, Err with a message otherwise
+/// 
 /// # Panics
 /// * If unable to get path metadata
 /// * If unable to create or remove file/directory
