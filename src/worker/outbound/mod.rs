@@ -37,9 +37,7 @@ pub struct OutboundConfig {
     pub worker_id: u16,
     /// A list of source addresses and port values (`Origin`) to send probes from.
     pub tx_origins: Vec<Origin>,
-    /// A shared signal that can be used to forcefully shut down the worker.
-    ///
-    /// E.g., when the CLI has abruptly disconnected.
+    /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
     pub abort_s: Arc<AtomicBool>,
     /// Indicates if this is a latency measurement.
     pub is_latency: bool,
