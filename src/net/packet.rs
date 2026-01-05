@@ -177,13 +177,13 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
 pub struct ProbePayload<'a> {
     pub worker_id: u32,
     pub m_id: u32,
+    pub trace_ttl: Option<u8>,
     pub info_url: &'a str,
 }
 
 /// Creates a ping packet to send.
 ///
 /// # Arguments
-///
 /// * 'src' - the source address for the ping packet
 /// * 'dst' - the destination address for the ping packet
 /// * 'identifier' - the identifier to use in the ICMP header
@@ -194,7 +194,6 @@ pub struct ProbePayload<'a> {
 /// * 'ttl' - the time-to-live (TTL) value to set in the IP header
 ///
 /// # Returns
-///
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_icmp(
     src: &Address,
@@ -218,6 +217,11 @@ pub fn create_icmp(
     // Add addresses to payload (used for spoofing detection)
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
+    
+    // Optional, add trace TTL (traceroute measurements)
+    if let Some(trace_ttl) = payload.trace_ttl {
+        payload_bytes.extend_from_slice(&trace_ttl.to_be_bytes()); // Byte 52 (v6) or 24 (v4)
+    }
 
     // Add info URL to payload
     payload_bytes.extend(payload.info_url.bytes());

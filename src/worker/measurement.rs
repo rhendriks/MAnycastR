@@ -171,8 +171,7 @@ impl Worker {
             info!("[Worker] Not sending probes");
         }
 
-        let mut self_clone = self.clone(); // TODO can we avoid this clone?
-                                           // Thread that listens for task results from inbound and forwards them to the orchestrator
+        let mut self_clone = self.clone();
         thread::Builder::new()
             .name("forwarder_thread".to_string())
             .spawn(move || {

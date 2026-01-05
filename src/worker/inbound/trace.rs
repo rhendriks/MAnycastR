@@ -2,6 +2,7 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Origin, Reply, TraceReply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
+use crate::worker::inbound::ping::parse_icmp;
 use parquet::data_type::AsBytes;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,28 +14,29 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
+/// * `m_id` - measurement ID encoded in ICMP payload.
 /// * `worker_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-pub fn parse_trace(packet_bytes: &[u8], worker_map: &Vec<Origin>, is_ipv6: bool) -> Option<Reply> {
+pub fn parse_trace(
+    packet_bytes: &[u8],
+    m_id: u32,
+    worker_map: &Vec<Origin>,
+    is_ipv6: bool,
+) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
     // TODO handle traceroute replies from the target (will be ping echo replies rather than time exceeded)
-    if is_ipv6 {
-        if packet_bytes.len() < 88 {
-            return None;
-        }
-        if packet_bytes[40] != 3 {
-            return None;
-        } // ICMPv6 type != Time Exceeded
+    let (min_len, type_idx, expected_type) = if is_ipv6 {
+        (88, 40, 3) // IPv6: Min length 88, ICMP at index 40, Type 3
     } else {
-        if packet_bytes.len() < 56 {
-            return None;
-        }
-        if packet_bytes[20] != 11 {
-            return None;
-        } // ICMPv4 type != Time Exceeded
+        (56, 20, 11) // IPv4: Min length 56, ICMP at index 20, Type 11
+    };
+
+    if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
+        // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
+        return parse_icmp(packet_bytes, m_id, worker_map, is_ipv6);
     }
 
     let ip_header = if is_ipv6 {
@@ -63,7 +65,7 @@ pub fn parse_trace(packet_bytes: &[u8], worker_map: &Vec<Origin>, is_ipv6: bool)
     };
 
     let seq = original_icmp_header.sequence_number;
-    let id = original_icmp_header.icmp_identifier; // MUST be the identifier from the original packet!
+    let id = original_icmp_header.icmp_identifier;
 
     // ttl (first 8 bits of seq)
     let trace_ttl = (seq >> 8) as u32;

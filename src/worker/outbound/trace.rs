@@ -58,6 +58,7 @@ pub fn send_trace(
     let payload_fields = ProbePayload {
         worker_id,
         m_id,
+        trace_ttl: Some(trace_task.ttl as u8),
         info_url,
     };
 

@@ -7,6 +7,11 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::A_ID;
+use crate::CHAOS_ID;
+use crate::ICMP_ID;
+use crate::TCP_ID;
+
 /// Sends probes to the specified destination using the provided measurement configuration.
 /// This function constructs the appropriate packet based on the measurement type
 /// and sends it through the provided socket.
@@ -18,6 +23,7 @@ use std::time::Duration;
 /// * 'socket_tx' - The socket sender to use for sending the packet.
 /// * 'limiter' - A rate limiter to control the sending rate of packets.
 /// * 'is_discovery' - A boolean indicating whether the probes are for discovery purposes.
+///
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_probe(
@@ -35,7 +41,7 @@ pub fn send_probe(
         config.worker_id as u32
     };
     let m_type = config.m_type;
-    let is_symmetric = config.is_latency; // For TCP, use the is_latency flag
+    let is_latency = config.is_latency; // For TCP, use the is_latency flag
     let m_id = config.m_id;
     let info_url = &config.info_url;
     let mut sent = 0;
@@ -44,38 +50,30 @@ pub fn send_probe(
     for origin in origins {
         let mut packet = ethernet_header.to_owned();
         match m_type {
-            1 => {
+            ICMP_ID => {
                 let payload_fields = ProbePayload {
                     worker_id,
                     m_id,
+                    trace_ttl: None, // not a traceroute task
                     info_url,
                 };
-                // ICMP
                 packet.extend_from_slice(&create_icmp(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2,                   // ICMP sequence number
+                    2, // ICMP seq
                     payload_fields,
                     255,
                 ));
             }
-            2 | 4 => {
-                // DNS A record or CHAOS
+            A_ID | CHAOS_ID => {
                 packet.extend_from_slice(&create_dns(origin, dst, worker_id, m_type, qname));
             }
-            3 => {
-                // TCP
-                packet.extend_from_slice(&create_tcp(
-                    origin,
-                    dst,
-                    worker_id,
-                    is_symmetric, // is_symmetric
-                    info_url,
-                ));
+            TCP_ID => {
+                packet.extend_from_slice(&create_tcp(origin, dst, worker_id, is_latency, info_url));
             }
             255 => {
-                panic!("Invalid measurement type)") // TODO all, any, tracemap
+                panic!("Invalid measurement type)") // TODO all, any
             }
             _ => panic!("Invalid measurement type"), // Invalid measurement
         }

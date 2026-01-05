@@ -19,7 +19,6 @@ impl Worker {
     /// Extracts the parameters of the command-line arguments.
     ///
     /// # Arguments
-    ///
     /// * 'args' - contains the parsed command-line arguments
     pub async fn new(args: &ArgMatches) -> Result<Worker, Box<dyn Error>> {
         // Get hostname from command line arguments or use the system hostname

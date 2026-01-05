@@ -37,6 +37,7 @@ pub fn send_record_route_probe(
         let payload_fields = ProbePayload {
             worker_id,
             m_id,
+            trace_ttl: None,
             info_url,
         };
 

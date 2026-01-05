@@ -91,7 +91,12 @@ pub fn inbound(
 
                 // Parse the packet based on the measurement type (skip Ethernet header)
                 let result = if config.is_traceroute {
-                    parse_trace(&packet[14..], &config.origin_map, config.is_ipv6)
+                    parse_trace(
+                        &packet[14..],
+                        config.m_id,
+                        &config.origin_map,
+                        config.is_ipv6,
+                    )
                 } else if config.is_record {
                     parse_record_route(
                         &packet[14..],
