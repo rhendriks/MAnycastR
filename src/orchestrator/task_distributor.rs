@@ -4,7 +4,7 @@ use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use log::{info, warn};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -214,25 +214,37 @@ pub async fn round_robin_discovery(
     info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
     let mut probing_rate_interval = config.probing_rate_interval;
+    let probing_workers = Arc::new(RwLock::new(probing_worker_ids));
+    // TODO store in self
+    // TODO update when a worker disconnects
+    let probing_workers_c = probing_workers.clone();
 
     spawn(async move {
-        // This cycler gives us the next worker to assign a task to
-        let mut sender_cycler = probing_worker_ids.into_iter().cycle();
-        // TODO update cycler if a worker disconnects
-        // TODO update probing_rate_interval if a worker disconnects
+        // Cycle over the active workers
+        let mut current_index = 0;
 
         // We create a manual iterator over the general hitlist.
         let mut hitlist_iter = config.tasks.into_iter();
         let mut hitlist_is_empty = false;
 
         loop {
+            let worker_id = {
+                let workers = probing_workers_c.read().unwrap();
+                if workers.is_empty() {
+                    warn!("[Orchestrator] No more probing workers available");
+                    break;
+                }
+
+                current_index %= workers.len();
+                let id = workers[current_index];
+                current_index = (current_index + 1) % workers.len();
+                id
+            };
+
             if config.active_workers.lock().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
-
-            // Get the current worker ID to send tasks to.
-            let worker_id = sender_cycler.next().expect("No probing workers available");
 
             // Worker to send follow-up tasks to
             let f_worker_id = if is_responsive {
