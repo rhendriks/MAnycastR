@@ -234,17 +234,9 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
         // 21 bit millisecond timestamp
         const MODULUS: u64 = 1 << 21; // 2,097,152
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
-
-        // convert rx_time to milliseconds
         let rx_time_ms = rx_time / 1_000;
-
-        // match tx_time format (21 bits)
         let rx_21b = rx_time_ms & MASK;
-
-        // ensure tx_time is masked
         let tx_21b = tx_time & MASK;
-
-        // calculate difference
         let rtt_ms = if rx_21b >= tx_21b {
             rx_21b - tx_21b
         } else {
