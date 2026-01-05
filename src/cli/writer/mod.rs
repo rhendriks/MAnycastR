@@ -9,15 +9,15 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::cli::writer::csv_writer::get_csv_metadata;
 use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
+use crate::cli::writer::trace_row::get_trace_row;
+use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
+use crate::custom_module::manycastr::reply::ReplyData;
 use crate::{custom_module, CHAOS_ID};
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
 use std::io::BufWriter;
-use crate::cli::writer::trace_row::get_trace_row;
-use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
-use crate::custom_module::manycastr::reply::ReplyData;
 
 pub mod csv_writer;
 mod laces_row;
@@ -108,10 +108,7 @@ impl<W1: Write, W2: Write> DualWriter<W1, W2> {
 /// # Arguments
 /// * `rx` - The receiver channel that receives the results
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type
-pub fn write_results_csv(
-    mut rx: UnboundedReceiver<ReplyBatch>,
-    config: WriteConfig
-) {
+pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     // Create writers (file writer and optional CLI writer)
     let buffered_file_writer = BufWriter::new(config.output_file);
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
@@ -126,7 +123,9 @@ pub fn write_results_csv(
 
     let mut dual_wtr = DualWriter {
         file: Writer::from_writer(gz_encoder),
-        cli: config.print_to_cli.then(|| Writer::from_writer(io::stdout())),
+        cli: config
+            .print_to_cli
+            .then(|| Writer::from_writer(io::stdout())),
     };
 
     // Write header
@@ -138,7 +137,9 @@ pub fn write_results_csv(
         config.is_record,
         config.is_verfploeter,
     );
-    dual_wtr.write_record(header).expect("Failed to write header to file");
+    dual_wtr
+        .write_record(header)
+        .expect("Failed to write header to file");
 
     tokio::spawn(async move {
         // Receive task results from the outbound channel
@@ -161,9 +162,7 @@ pub fn write_results_csv(
                                 get_laces_row(reply, &rx_id, config.m_type, &config.worker_map)
                             }
                         }
-                        ReplyData::Trace(reply) => {
-                            get_trace_row(reply, &rx_id, &config.worker_map)
-                        }
+                        ReplyData::Trace(reply) => get_trace_row(reply, &rx_id, &config.worker_map),
                         ReplyData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
@@ -171,7 +170,9 @@ pub fn write_results_csv(
                     }
                 };
                 // Write to command-line
-                dual_wtr.write_record(row).expect("Failed to write record to file");
+                dual_wtr
+                    .write_record(row)
+                    .expect("Failed to write record to file");
             }
             dual_wtr.flush().expect("Failed to flush file");
         }
@@ -209,7 +210,7 @@ pub fn get_header(
         ]
     } else if is_latency {
         vec!["rx", "addr", "ttl", "rtt"]
-    }else if is_verfploeter {
+    } else if is_verfploeter {
         vec!["rx", "addr", "ttl"]
     } else {
         vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]

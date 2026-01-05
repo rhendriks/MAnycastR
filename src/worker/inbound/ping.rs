@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply, RecordedHops};
+use crate::custom_module::manycastr::{
+    Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply,
+};
 use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -63,8 +65,8 @@ pub fn parse_icmp_inner(
     m_id: u32,
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
-    recorded_hops: Option<RecordedHops>
-) -> Option<Reply>{
+    recorded_hops: Option<RecordedHops>,
+) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
