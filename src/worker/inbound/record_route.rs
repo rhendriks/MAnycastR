@@ -8,7 +8,6 @@ use crate::worker::inbound::ping::parse_icmp_inner;
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - the ID of the current measurement
 /// * `worker_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
@@ -16,17 +15,10 @@ pub fn parse_record_route(
     packet_bytes: &[u8],
     m_id: u32,
     worker_map: &Vec<Origin>,
-    is_ipv6: bool,
 ) -> Option<Reply> {
     // Check for Record Route option and minimum length
-    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 7)) // TODO fix ipv6 filter
-        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 7))
-    {
+    if packet_bytes.len() < 52 || packet_bytes[20] != 7 {
         return None;
-    }
-
-    if is_ipv6 {
-        panic!("IPv6 Record Route not implemented") // TODO
     }
 
     // Parse IP header
@@ -51,7 +43,7 @@ pub fn parse_record_route(
         &ip_header,
         m_id,
         worker_map,
-        is_ipv6,
+        false,
         recorded_hops,
         false,
     )

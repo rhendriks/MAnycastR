@@ -102,7 +102,6 @@ pub fn inbound(
                         &packet[14..],
                         config.m_id,
                         &config.origin_map,
-                        config.is_ipv6,
                     )
                 } else if config.m_type == ICMP_ID {
                     parse_icmp(
