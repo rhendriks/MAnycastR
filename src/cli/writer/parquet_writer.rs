@@ -237,6 +237,7 @@ fn reply_to_parquet_row(
             result.rx_time,
             result.tx_time,
             m_type == TCP_ID,
+            false
         ));
     } else if is_verfploeter {
         // no additional fields
