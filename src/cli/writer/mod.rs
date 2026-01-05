@@ -261,7 +261,7 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
 
 /// Calculates RTT handling the 14-bit timestamp wrap-around.
 ///
-/// * `rx_time_us`: Receive time in milliseconds
+/// * `rx_time_us`: Receive time in microseconds
 /// * `tx_time_ms_14b`: Transmit time in milliseconds (masked to 14 bits).
 pub fn calculate_rtt_trace(rx_time: u32, tx_time: u32) -> f64 {
     // 14-bit Modulus (2^14 = 16,384)
