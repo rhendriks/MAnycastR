@@ -27,7 +27,6 @@ pub fn parse_trace(
     is_ipv6: bool,
 ) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
-    // TODO handle traceroute replies from the target (will be ping echo replies rather than time exceeded)
     let (min_len, type_idx, expected_type) = if is_ipv6 {
         (88, 40, 3) // IPv6: Min length 88, ICMP at index 40, Type 3
     } else {
@@ -85,7 +84,6 @@ pub fn parse_trace(
     let trace_dst = Some(original_ip_header.dst());
 
     // get origin ID to which this probe is targeted
-    // TODO do origin_id mapping at orchestrator
     let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
     println!(

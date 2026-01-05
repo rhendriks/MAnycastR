@@ -76,7 +76,6 @@ pub fn parse_dns(
             dns_result.is_discovery,
         )
     } else if measurement_type == CHAOS_ID {
-        // TODO is_discovery for CHAOS
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
         (tx_time, tx_worker_id, Some(chaos), false)
     } else {

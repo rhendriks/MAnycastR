@@ -217,7 +217,7 @@ pub fn create_icmp(
     // Add addresses to payload (used for spoofing detection)
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
-    
+
     // Optional, add trace TTL (traceroute measurements)
     if let Some(trace_ttl) = payload.trace_ttl {
         payload_bytes.extend_from_slice(&trace_ttl.to_be_bytes()); // Byte 52 (v6) or 24 (v4)
@@ -231,14 +231,12 @@ pub fn create_icmp(
 
 /// Create a Record Route ICMP packet to send.
 /// # Arguments
-/// * 'src' - the source address for the ping packet
-/// * 'dst' - the destination address for the ping packet
-/// * 'identifier' - the identifier to use in the ICMP header
-/// * 'seq' - the sequence number to use in the ICMP header
-/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
-/// * 'm_id' - the unique ID of the current measurement (encoded in payload)
-/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
-/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
+/// * `src` - the source address for the ping packet
+/// * `dst` - the destination address for the ping packet
+/// * `identifier` - the identifier to use in the ICMP header
+/// * `seq` - the sequence number to use in the ICMP header
+/// * `payload` - payload data
+/// * `ttl` - the time-to-live (TTL) value to set in the IP header
 /// # Returns
 /// A reverse traceroute ICMP packet (including the IP header) as a byte vector.
 pub fn create_record_route_icmp(

@@ -70,7 +70,7 @@ pub fn parse_icmp_inner(
     is_traceroute: bool,
 ) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
+    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?;
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
         return None;
     }

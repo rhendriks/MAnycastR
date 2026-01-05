@@ -55,6 +55,8 @@ pub async fn handle(
     let is_responsive = matches.get_flag("responsive");
     let is_latency = matches.get_flag("latency");
     let is_traceroute = matches.get_flag("traceroute");
+    let is_record = matches.get_flag("record"); // Record Route flag
+
 
     // Get optional opt-out URL
     let url = matches.get_one::<String>("url").unwrap().clone();
@@ -153,6 +155,10 @@ pub async fn handle(
     let is_shuffle = matches.get_flag("shuffle");
 
     let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
+    
+    if is_record && is_ipv6 {
+        panic!("Record Route is IPv4 only");
+    }
 
     // Record to request in the DNS query (A/CHAOS)
     let dns_record = if m_type == CHAOS_ID {
@@ -169,7 +175,6 @@ pub async fn handle(
 
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
-    let is_record = matches.get_flag("record"); // Record Route flag
     let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
