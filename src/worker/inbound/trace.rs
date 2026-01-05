@@ -13,7 +13,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
-/// * `m_id` - the ID of the current measurement
 /// * `worker_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 ///
