@@ -76,20 +76,43 @@ pub struct MetadataArgs<'a> {
     pub is_responsive: bool,
 }
 
+struct DualWriter<W1: Write, W2: Write> {
+    file: Writer<W1>,
+    cli: Option<Writer<W2>>,
+}
+
+impl<W1: Write, W2: Write> DualWriter<W1, W2> {
+    fn write_record<I, T>(&mut self, record: I) -> csv::Result<()>
+    where
+        I: IntoIterator<Item = T> + Clone,
+        T: AsRef<[u8]>,
+    {
+        if let Some(ref mut cli) = self.cli {
+            cli.write_record(record.clone())?;
+        }
+        self.file.write_record(record)?;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()?;
+        if let Some(ref mut cli) = self.cli {
+            cli.flush()?;
+        }
+        Ok(())
+    }
+}
+
 /// Writes the results to a file (and optionally to the command-line)
 ///
 /// # Arguments
 /// * `rx` - The receiver channel that receives the results
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type
-pub fn write_results(
+pub fn write_results_csv(
     mut rx: UnboundedReceiver<ReplyBatch>,
     config: WriteConfig
 ) {
-    // CSV writer to command-line interface
-    let mut wtr_cli = config
-        .print_to_cli
-        .then(|| Writer::from_writer(io::stdout()));
-
+    // Create writers (file writer and optional CLI writer)
     let buffered_file_writer = BufWriter::new(config.output_file);
     let mut gz_encoder = GzEncoder::new(buffered_file_writer, Compression::default());
 
@@ -101,8 +124,10 @@ pub fn write_results(
         }
     }
 
-    // .gz writer
-    let mut wtr_file = Writer::from_writer(gz_encoder);
+    let mut dual_wtr = DualWriter {
+        file: Writer::from_writer(gz_encoder),
+        cli: config.print_to_cli.then(|| Writer::from_writer(io::stdout())),
+    };
 
     // Write header
     let header = get_header(
@@ -113,13 +138,7 @@ pub fn write_results(
         config.is_record,
         config.is_verfploeter,
     );
-    if let Some(wtr) = wtr_cli.as_mut() {
-        wtr.write_record(&header)
-            .expect("Failed to write header to stdout")
-    };
-    wtr_file
-        .write_record(header)
-        .expect("Failed to write header to file");
+    dual_wtr.write_record(header).expect("Failed to write header to file");
 
     tokio::spawn(async move {
         // Receive task results from the outbound channel
@@ -152,21 +171,12 @@ pub fn write_results(
                     }
                 };
                 // Write to command-line
-                if let Some(ref mut wtr) = wtr_cli {
-                    wtr.write_record(&row)
-                        .expect("Failed to write payload to CLI");
-                    wtr.flush().expect("Failed to flush stdout");
-                }
-
-                // Write to file
-                wtr_file
-                    .write_record(row)
-                    .expect("Failed to write payload to file");
+                dual_wtr.write_record(row).expect("Failed to write record to file");
             }
-            wtr_file.flush().expect("Failed to flush file");
+            dual_wtr.flush().expect("Failed to flush file");
         }
         rx.close();
-        wtr_file.flush().expect("Failed to flush file");
+        dual_wtr.flush().expect("Failed to flush file");
     });
 }
 
