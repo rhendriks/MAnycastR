@@ -69,7 +69,6 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 /// # Arguments
 ///
 /// * 'is_ipv6' - whether we are using IPv6 or not
-///
 /// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
     // Get the source MAC address for the used interface
@@ -224,27 +223,14 @@ pub fn create_icmp(
     // Add info URL to payload
     payload_bytes.extend(payload.info_url.bytes());
 
-    // add the source address
-    if src.is_v6() {
-        ICMPPacket::echo_request_v6(
-            // TODO combine v6 and v4 functions into one
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v6(),
-            dst.get_v6(),
-            ttl,
-        )
-    } else {
-        ICMPPacket::echo_request(
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v4(),
-            dst.get_v4(),
-            ttl,
-        )
-    }
+    ICMPPacket::echo_request(
+        identifier,
+        seq,
+        payload_bytes,
+        src,
+        dst,
+        ttl,
+    )
 }
 
 /// Create a Record Route ICMP packet to send.
