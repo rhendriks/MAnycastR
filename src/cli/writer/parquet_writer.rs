@@ -24,14 +24,16 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 ///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
-    // TODO implement parquet writer for TraceResults
-    let schema = build_parquet_schema(
+    let headers = get_header(
         config.m_type,
         config.is_multi_origin,
         config.is_symmetric,
         config.is_traceroute,
         config.is_record,
+        config.is_verfploeter,
     );
+    // TODO implement parquet writer for TraceResults
+    let schema = build_parquet_schema(headers);
 
     // Get metadata key-value pairs for the Parquet file
     let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
@@ -60,6 +62,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
         config.is_symmetric,
         config.is_traceroute,
         config.is_record,
+        config.is_verfploeter,
     );
 
     tokio::spawn(async move {
@@ -252,20 +255,12 @@ fn reply_to_parquet_row(
 }
 
 /// Creates a parquet data schema from the headers based on the measurement type and configuration.
+///
+/// # Arguments
+/// * `headers` - Used headers (based on measurement type)
 pub fn build_parquet_schema(
-    m_type: u8,
-    is_multi_origin: bool,
-    is_symmetric: bool,
-    is_traceroute: bool,
-    is_record: bool,
+    headers: Vec<&str>
 ) -> TypePtr {
-    let headers = get_header(
-        m_type,
-        is_multi_origin,
-        is_symmetric,
-        is_traceroute,
-        is_record,
-    );
     let mut fields = Vec::new();
 
     for &header in &headers {

@@ -218,6 +218,7 @@ impl CliClient {
             worker_map: args.worker_map.clone(),
             is_traceroute,
             is_record,
+            is_verfploeter: is_divide,
         };
 
         // Start thread that writes results to file

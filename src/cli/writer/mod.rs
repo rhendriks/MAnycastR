@@ -9,7 +9,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::cli::writer::csv_writer::get_csv_metadata;
 use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
-use crate::{custom_module, CHAOS_ID, TCP_ID};
+use crate::{custom_module, CHAOS_ID};
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -28,10 +28,6 @@ mod trace_row;
 mod verfploeter_row;
 
 /// Configuration for the results writing process.
-///
-/// This struct bundles all the necessary parameters for `write_results`
-/// to determine where and how to output measurement results,
-/// including formatting options and contextual metadata.
 pub struct WriteConfig<'a> {
     /// Determines whether the results should also be printed to the command-line interface.
     pub print_to_cli: bool,
@@ -54,6 +50,8 @@ pub struct WriteConfig<'a> {
     pub is_traceroute: bool,
     /// Indicate whether Record Route is used
     pub is_record: bool,
+    /// Indicate whether this is a Verfploeter catchment mapping (single probe per target from any worker)
+    pub is_verfploeter: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -117,6 +115,7 @@ pub fn write_results(
         config.is_symmetric,
         config.is_traceroute,
         config.is_record,
+        config.is_verfploeter,
     );
     if let Some(wtr) = wtr_cli.as_mut() {
         wtr.write_record(&header)
@@ -141,11 +140,10 @@ pub fn write_results(
                         ReplyData::Measurement(reply) => {
                             if config.is_symmetric {
                                 get_latency_row(reply, &rx_id, &config.worker_map, config.m_type)
-                            } else if true {
-                                // TODO when to write a LACeS row, when to write a Verfploeter row
-                                get_laces_row(reply, &rx_id, config.m_type, &config.worker_map)
-                            } else {
+                            } else if config.is_verfploeter {
                                 get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
+                            } else {
+                                get_laces_row(reply, &rx_id, config.m_type, &config.worker_map)
                             }
                         }
                         ReplyData::Trace(reply) => {
@@ -181,20 +179,17 @@ pub fn write_results(
 /// # Arguments
 ///
 /// * 'measurement_type' - The type of measurement being performed
-///
 /// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
-///
 /// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-///
 /// * 'is_traceroute' - A boolean that determines whether the measurement is a traceroute
-///
 /// * 'is_record' - A boolean that determines whether Record Route is used
 pub fn get_header(
     m_type: u8,
     is_multi_origin: bool,
-    is_symmetric: bool,
+    is_latency: bool,
     is_traceroute: bool,
     is_record: bool,
+    is_verfploeter: bool,
 ) -> Vec<&'static str> {
     let mut header = if is_traceroute {
         vec![
@@ -206,15 +201,12 @@ pub fn get_header(
             "trace_ttl",
             "rtt",
         ]
-    } else if is_symmetric {
+    } else if is_latency {
         vec!["rx", "addr", "ttl", "rtt"]
+    }else if is_verfploeter {
+        vec!["rx", "addr", "ttl"]
     } else {
-        // TCP anycast does not have tx_time
-        if m_type == TCP_ID {
-            vec!["rx", "rx_time", "addr", "ttl", "tx"]
-        } else {
-            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
-        }
+        vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
     };
 
     // Optional fields
