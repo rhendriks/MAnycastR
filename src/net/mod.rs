@@ -588,8 +588,8 @@ impl ICMPPacket {
             }
 
             (Some(address::Value::V6(src)), Some(address::Value::V6(dst))) => {
-                let src_u128 = (src.p1 as u128) << 64 | (src.p2 as u128);
-                let dst_u128 = (dst.p1 as u128) << 64 | (dst.p2 as u128);
+                let src_u128 = (src.high as u128) << 64 | (src.low as u128);
+                let dst_u128 = (dst.high as u128) << 64 | (dst.low as u128);
                 let mut packet = ICMPPacket {
                     icmp_type: 128,
                     code: 0,
@@ -625,7 +625,7 @@ impl ICMPPacket {
             _ => panic!("Source and Destination IP versions must match"),
         }
     }
-    
+
     /// Create an ICMPv4 packet with Record Route option and checksum.
     pub fn record_route_icmpv4(
         icmp_identifier: u16,

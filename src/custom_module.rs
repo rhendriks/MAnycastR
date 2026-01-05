@@ -12,14 +12,14 @@ impl Display for Address {
         let str = match &self.value {
             Some(V4(v4)) => Ipv4Addr::from(*v4).to_string(),
             Some(V6(v6)) => Ipv6Addr::new(
-                (v6.p1 >> 48) as u16,
-                (v6.p1 >> 32) as u16,
-                (v6.p1 >> 16) as u16,
-                v6.p1 as u16,
-                (v6.p2 >> 48) as u16,
-                (v6.p2 >> 32) as u16,
-                (v6.p2 >> 16) as u16,
-                v6.p2 as u16,
+                (v6.high >> 48) as u16,
+                (v6.high >> 32) as u16,
+                (v6.high >> 16) as u16,
+                v6.high as u16,
+                (v6.low >> 48) as u16,
+                (v6.low >> 32) as u16,
+                (v6.low >> 16) as u16,
+                v6.low as u16,
             )
             .to_string(),
             None => String::from("None"),
@@ -51,7 +51,7 @@ impl Address {
             }
             Some(V6(v6)) => {
                 // Return the sum of first 48 bits
-                (v6.p1 >> 16) & 0x0000FFFFFFFF
+                (v6.high >> 16) & 0x0000FFFFFFFF
             }
             _ => 0,
         }
@@ -72,7 +72,7 @@ impl Address {
     /// Panic if the address is not IPv6
     pub fn get_v6(&self) -> u128 {
         match &self.value {
-            Some(V6(v6)) => (v6.p1 as u128) << 64 | v6.p2 as u128,
+            Some(V6(v6)) => (v6.high as u128) << 64 | v6.low as u128,
             _ => panic!("Not a v6 address"),
         }
     }
@@ -103,8 +103,8 @@ impl From<&[u8]> for Address {
                 ip.copy_from_slice(bytes);
                 Address {
                     value: Some(V6(IPv6 {
-                        p1: u64::from_be_bytes(ip[0..8].try_into().unwrap()),
-                        p2: u64::from_be_bytes(ip[8..16].try_into().unwrap()),
+                        high: u64::from_be_bytes(ip[0..8].try_into().unwrap()),
+                        low: u64::from_be_bytes(ip[8..16].try_into().unwrap()),
                     })),
                 }
             }
@@ -133,8 +133,8 @@ impl From<u128> for Address {
     fn from(bytes: u128) -> Self {
         Address {
             value: Some(V6(IPv6 {
-                p1: (bytes >> 64) as u64,
-                p2: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
+                high: (bytes >> 64) as u64,
+                low: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
             })),
         }
     }
@@ -144,8 +144,8 @@ impl From<[u8; 16]> for Address {
     fn from(bytes: [u8; 16]) -> Self {
         Address {
             value: Some(V6(IPv6 {
-                p1: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
-                p2: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
+                high: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+                low: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
             })),
         }
     }
@@ -162,8 +162,8 @@ impl From<String> for Address {
                 },
                 IpAddr::V6(v6_addr) => Address {
                     value: Some(V6(IPv6 {
-                        p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
-                        p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
+                        high: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
+                        low: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
                     })),
                 },
             }
@@ -178,8 +178,8 @@ impl From<String> for Address {
                 // IPv6
                 Address {
                     value: Some(V6(IPv6 {
-                        p1: (ip_number >> 64) as u64,                // Most significant 64 bits
-                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
+                        high: (ip_number >> 64) as u64,                // Most significant 64 bits
+                        low: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
                 }
             }
@@ -209,8 +209,8 @@ impl From<IpAddr> for Address {
             },
             IpAddr::V6(v6_addr) => Address {
                 value: Some(V6(IPv6 {
-                    p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
-                    p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
+                    high: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
+                    low: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
                 })),
             },
         }
