@@ -267,14 +267,7 @@ pub fn create_record_route_icmp(
     if src.is_v6() {
         panic!("Reverse traceroute not supported for IPv6 yet"); // TODO
     } else {
-        ICMPPacket::record_route_icmpv4(
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v4(),
-            dst.get_v4(),
-            ttl,
-        )
+        ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
     }
 }
 
