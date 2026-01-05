@@ -201,10 +201,10 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_work
 /// Used for --responsive, --latency, and --traceroute measurements.
 ///
 /// # Arguments
-/// * 'config' - TaskDistributorConfig with all necessary parameters.
-/// * 'worker_stacks' - stacks of follow-up tasks for each worker
-/// * 'probing_worker_ids' - IDs of the probing workers
-/// * 'is_responsive' - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
+/// * `config` - TaskDistributorConfig with all necessary parameters.
+/// * `worker_stacks` - stacks of follow-up tasks for each worker
+/// * `probing_worker_ids` - IDs of the probing workers
+/// * `is_responsive` - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
 pub async fn round_robin_discovery(
     config: TaskDistributorConfig,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,

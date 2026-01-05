@@ -128,7 +128,7 @@ pub fn check_trace_timeouts(
                             println!("[x] Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
 
                             {
-                                // TODO forward result to CLI for unknown result
+                                // Forward unreachable hop result to CLI
                                 let cli_sender = cli_sender.lock().unwrap();
 
                                 let result = TraceReply {
