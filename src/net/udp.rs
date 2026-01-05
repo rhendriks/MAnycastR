@@ -381,7 +381,7 @@ impl UDPPacket {
         }
     }
 
-    /// Creating a DNS TXT record request body for id.orchestrator CHAOS request
+    /// Creating a DNS TXT record request for CHAOS
     fn create_chaos_request(tx_id: u32, chaos: &str) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
@@ -397,7 +397,7 @@ impl UDPPacket {
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of authority RRs
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of additional RRs
 
-        // DNS Question (id.orchestrator)
+        // DNS Question
         for label in chaos.split('.') {
             dns_body.push(label.len() as u8);
             dns_body.write_all(label.as_bytes()).unwrap();
