@@ -70,10 +70,9 @@ message ScheduleMeasurement {
   string url = 10; // URL to encode in probes (e.g., opt-out link)
   uint32 probe_interval = 11; // interval between probes from/to the same origin,dst pair
   uint32 number_of_probes = 12; // number of probes to send per origin,dst pair
-  bool is_traceroute = 13; // whether the measurement is a traceroute measurement
-  bool is_ipv6 = 14; // whether the measurement is for IPv6
-  bool is_record = 15; // whether the measurement is a Record Route measurement
-  optional TraceOptions trace_options = 16; // Optional traceroute options
+  bool is_ipv6 = 13; // whether the measurement is for IPv6
+  bool is_record = 14; // whether the measurement is a Record Route measurement
+  optional TraceOptions trace_options = 15; // Optional traceroute options (if set, this is a traceroute measurement)
 }
 
 // A list of workers

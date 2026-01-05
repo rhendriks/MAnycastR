@@ -44,7 +44,7 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .into_inner()
             .workers
             .into_iter()
-            .map(|worker| (worker.worker_id, worker.hostname)) // .clone() is no longer needed on hostname
+            .map(|worker| (worker.worker_id, worker.hostname))
             .collect();
 
         start::handle(matches, &mut cli_client, worker_map).await?

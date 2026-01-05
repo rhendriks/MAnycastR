@@ -198,7 +198,7 @@ impl Controller for ControllerService {
         let worker_interval = m_definition.worker_interval as u64;
         let probe_interval = m_definition.probe_interval as u64;
         let number_of_probes = m_definition.number_of_probes as u8;
-        let is_traceroute = m_definition.is_traceroute;
+        let is_traceroute = m_definition.trace_options.is_some();
         let is_record = m_definition.is_record;
 
         // Configure and get the senders
