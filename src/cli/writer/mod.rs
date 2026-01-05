@@ -237,7 +237,7 @@ pub fn get_header(
 /// `is_tcp` - whether it is a TCP encoded timestamp
 ///
 /// # Note
-/// TCP timestamps are encoded using 21 bits as millisecond EPOCH
+/// TCP timestamps are masked to 21 bits using millisecond EPOCH
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         // 21 bit millisecond timestamp (2^21 = 2,097,152)
@@ -261,8 +261,8 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
 
 /// Calculates RTT handling the 14-bit timestamp wrap-around.
 ///
-/// * `rx_time_us`: Receive time in microseconds
-/// * `tx_time_ms_14b`: Transmit time in milliseconds (masked to 14 bits).
+/// * `rx_time_us`: Receive time in microseconds EPOCH
+/// * `tx_time_ms_14b`: Transmit time in milliseconds EPOCH (masked to 14 bits).
 pub fn calculate_rtt_trace(rx_time: u32, tx_time: u32) -> f64 {
     // 14-bit Modulus (2^14 = 16,384)
     const MODULUS: u32 = 1 << 14;
