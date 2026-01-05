@@ -67,7 +67,6 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 /// Returns the ethernet header to use for the outbound packets.
 ///
 /// # Arguments
-///
 /// * 'is_ipv6' - whether we are using IPv6 or not
 /// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
@@ -289,26 +288,14 @@ pub fn create_record_route_icmp(
 /// Creates a DNS packet.
 ///
 /// # Arguments
-///
 /// * 'origin' - the source address and port values we use for our probes
-///
 /// * 'worker_id' - the unique worker ID of this worker
-///
 /// * 'dst' - the destination address for the DNS packet
-///
 /// * 'measurement_type' - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
-///
 /// * 'qname' - the DNS record to request
 ///
 /// # Returns
-///
 /// A DNS packet (including the IP header) as a byte vector.
-///
-/// # Panics
-///
-/// If the measurement type is not 2 or 4
 pub fn create_dns(
     origin: &Origin,
     dst: &Address,
@@ -335,21 +322,13 @@ pub fn create_dns(
 /// Creates a TCP packet.
 ///
 /// # Arguments
-///
 /// * 'origin' - the source address and port values we use for our probes
-///
 /// * 'dst' - the destination address for the TCP packet
-///
 /// * 'worker_id' - the unique worker ID of this worker
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
-///
 /// * 'is_symmetric' - whether we are measuring latency
-///
 /// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
-///
 /// A TCP packet (including the IP header) as a byte vector.
 pub fn create_tcp(
     origin: &Origin,
