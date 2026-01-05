@@ -77,7 +77,6 @@ pub fn inbound(
                     break;
                 }
                 let packet = match socket_rx.next() {
-                    // TODO blocking call
                     Ok(packet) => packet,
                     Err(_) => {
                         sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill

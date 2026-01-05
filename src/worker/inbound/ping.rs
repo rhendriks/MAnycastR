@@ -26,8 +26,7 @@ pub fn parse_icmp(
     is_ipv6: bool,
     is_traceroute: bool,
 ) -> Option<Reply> {
-    // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
-    // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
+    // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply
     if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
         || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
     {
