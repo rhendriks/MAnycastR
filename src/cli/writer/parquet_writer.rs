@@ -116,22 +116,25 @@ pub fn get_parquet_metadata(
 ) -> Vec<(String, String)> {
     let mut md = Vec::new();
 
-    if args.is_divide {
+    if args.is_verfploeter {
         md.push((
             "measurement_style".to_string(),
-            "Divide-and-conquer".to_string(),
+            "Verfploeter".to_string(),
         ));
-    }
-    if args.is_latency {
+    } else if args.is_latency {
         md.push((
             "measurement_style".to_string(),
             "Anycast-latency".to_string(),
         ));
-    }
-    if args.is_responsive {
+    } else if args.is_responsive {
         md.push((
             "measurement_style".to_string(),
-            "Responsive-mode".to_string(),
+            "LACeS-Responsive-mode".to_string(),
+        ));
+    } else {
+        md.push((
+            "measurement_style".to_string(),
+            "LACeS-mode".to_string(),
         ));
     }
 
