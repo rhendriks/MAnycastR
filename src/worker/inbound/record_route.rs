@@ -53,5 +53,6 @@ pub fn parse_record_route(
         worker_map,
         is_ipv6,
         recorded_hops,
+        false,
     )
 }

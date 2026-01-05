@@ -36,7 +36,7 @@ pub fn parse_trace(
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, worker_map, is_ipv6);
+        return parse_icmp(packet_bytes, m_id, worker_map, is_ipv6, true);
     }
 
     let ip_header = if is_ipv6 {
@@ -76,7 +76,7 @@ pub fn parse_trace(
     let tx_id = (worker_hi << 8) | worker_lo;
 
     // get milliseconds (last 14 bits of identifier field
-    let tx_time = (id & 0x3FFF) as u32;
+    let tx_time = (id & 0x3FFF) as u64;
 
     // get hop address
     let hop_addr = ip_header.src();
@@ -103,7 +103,7 @@ pub fn parse_trace(
             rx_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_millis() as u32,
+                .as_millis() as u64,
             tx_time,
             tx_id,
             trace_dst,

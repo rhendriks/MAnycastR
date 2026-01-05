@@ -28,7 +28,7 @@ pub fn get_latency_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, m_type == TCP_ID);
+    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, m_type == TCP_ID, false);
 
     let mut row = vec![
         rx_hostname,
