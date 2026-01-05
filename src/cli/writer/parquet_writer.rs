@@ -75,7 +75,6 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
             let rx_id = task_result.rx_id;
             for reply in task_result.results {
-                // todo cast to ProbeMeasurement
                 let Some(ReplyData::Measurement(measurement)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };
@@ -85,6 +84,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                     rx_id,
                     config.m_type,
                     config.is_symmetric,
+                    config.is_verfploeter,
                     &config.worker_map,
                 );
                 row_buffer.push(parquet_row);
@@ -217,15 +217,16 @@ fn reply_to_parquet_row(
     result: MeasurementReply,
     rx_worker_id: u32,
     m_type: u8,
-    is_symmetric: bool,
+    is_latency: bool,
+    is_verfploeter: bool,
     worker_map: &BiHashMap<u32, String>,
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
-        rx_time: Some(result.rx_time),
+        rx_time: None,
         addr: result.src.map(|s| s.to_string()),
         ttl: Some(result.ttl as u8),
-        tx_time: Some(result.tx_time),
+        tx_time: None,
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
@@ -236,19 +237,18 @@ fn reply_to_parquet_row(
         },
     };
 
-    if is_symmetric {
+    if is_latency {
         row.rtt = Some(calculate_rtt(
             result.rx_time,
             result.tx_time,
             m_type == TCP_ID,
         ));
-        row.rx_time = None;
-        row.tx_time = None;
+    } else if is_verfploeter {
+        // no additional fields
     } else {
         row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-        if m_type == TCP_ID {
-            row.tx_time = None;
-        }
+        row.rx_time = Some(result.rx_time);
+        row.tx_time = Some(result.tx_time);
     }
 
     row
