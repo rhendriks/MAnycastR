@@ -12,11 +12,8 @@ use std::str::FromStr;
 /// # Arguments
 ///
 /// * 'hitlist_path' - path to the hitlist file
-///
 /// * 'configurations' - list of configurations to check the source address type
-///
 /// * 'is_unicast' - boolean whether the measurement is unicast or anycast
-///
 /// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
 ///
 /// # Returns
@@ -26,9 +23,7 @@ use std::str::FromStr;
 /// # Panics
 ///
 /// * If the hitlist file cannot be opened.
-///
 /// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
-///
 /// * If the hitlist addresses are of mixed types (v4 and v6).
 pub fn get_hitlist(
     hitlist_path: &String,
@@ -83,30 +78,19 @@ pub fn get_hitlist(
     (ips, is_ipv6)
 }
 
-// TODO implement feed of addresses instead of a hitlist file
-// format: address,tx -> tx optional to specify from which site to probe
-// protocol and ports used are pre-configured when starting a live measurement at the CLI
-
 /// Parse the worker configurations from a file.
 ///
 /// # Arguments
-///
 /// * 'conf_file' - path to the configuration file
-///
 /// * 'worker_map' - a BiHashMap mapping worker IDs to hostnames
 ///
 /// # Returns
-///
 /// * A vector of Configuration objects parsed from the file
 ///
 /// # Panics
-///
 /// * If the configuration file cannot be opened.
-///
 /// * If the configuration file contains invalid formats.
-///
 /// * If the configuration file contains mixed IPv4 and IPv6 addresses.
-///
 /// * If no valid configurations are found in the file.
 pub fn parse_configurations(
     conf_file: &str,
