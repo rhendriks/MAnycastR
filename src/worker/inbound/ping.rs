@@ -1,7 +1,5 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{
-    Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply,
-};
+use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply, TraceReply};
 use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `m_id` - the ID of the current measurement
 /// * `origin_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+/// * `is_traceroute` - handle echo reply as traceroute target reply
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
@@ -25,6 +24,7 @@ pub fn parse_icmp(
     m_id: u32,
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
+    is_traceroute: bool,
 ) -> Option<Reply> {
     // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
     // ICMPv4 52 length (IPv4 header (20) + ICMP header (8) + ICMP body 24 bytes) + check it is an ICMP Echo reply TODO match with exact length (include -u URl length)
@@ -44,7 +44,7 @@ pub fn parse_icmp(
         return None;
     };
 
-    parse_icmp_inner(icmp_packet, &ip_header, m_id, origin_map, is_ipv6, None)
+    parse_icmp_inner(icmp_packet, &ip_header, m_id, origin_map, is_ipv6, None, is_traceroute)
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
@@ -56,6 +56,7 @@ pub fn parse_icmp(
 /// * `origin_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
+/// * `is_traceroute` - handle echo reply as traceroute target reply
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
@@ -66,6 +67,7 @@ pub fn parse_icmp_inner(
     origin_map: &Vec<Origin>,
     is_ipv6: bool,
     recorded_hops: Option<RecordedHops>,
+    is_traceroute: bool,
 ) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
@@ -120,6 +122,28 @@ pub fn parse_icmp_inner(
                 origin_id,
             })),
         })
+    } else if is_traceroute {
+        let trace_ttl: u8 = if is_ipv6 {
+            icmp_packet.payload[49]
+        } else {
+            icmp_packet.payload[25]
+        };
+
+        Some(Reply {
+            reply_data: Some(ReplyData::Trace(TraceReply {
+                hop_addr: Some(ip_header.src()),
+                ttl: ip_header.ttl() as u32,
+                origin_id,
+                rx_time: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+                tx_time,
+                tx_id,
+                trace_dst: Some(ip_header.src()),
+                hop_count: trace_ttl as u32,
+            })),
+        })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
@@ -127,7 +151,7 @@ pub fn parse_icmp_inner(
                 ttl: ip_header.ttl() as u32,
                 origin_id,
                 rx_time,
-                tx_time, // Ensure this uses your calculated 21-bit logic if TCP
+                tx_time,
                 tx_id,
                 chaos: None,
                 recorded_hops,

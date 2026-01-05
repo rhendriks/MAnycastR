@@ -110,6 +110,7 @@ pub fn inbound(
                         config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
+                        false,
                     )
                 } else if config.m_type == A_ID || config.m_type == CHAOS_ID {
                     parse_dns(

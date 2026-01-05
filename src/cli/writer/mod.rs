@@ -239,7 +239,7 @@ pub fn get_header(
 ///
 /// # Note
 /// TCP timestamps are masked to 21 bits using millisecond EPOCH
-pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
+pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
     if is_tcp {
         // 21 bit millisecond timestamp (2^21 = 2,097,152)
         const MODULUS: u64 = 1 << 21;
@@ -255,28 +255,22 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
         };
 
         rtt_ms as f64
+    }  else if is_traceroute {
+        // 14-bit Modulus (2^14 = 16,384)
+        const MODULUS: u64 = 1 << 14;
+        const MASK: u64 = MODULUS - 1; // 0x3FFF
+
+        let rx_14b = rx_time & MASK;
+
+        let rtt_ms = if rx_14b >= tx_time {
+            rx_14b - tx_time
+        } else {
+            // wrap-around case
+            (rx_14b + MODULUS) - tx_time
+        };
+
+        rtt_ms as f64
     } else {
         (rx_time - tx_time) as f64 / 1_000.0
     }
-}
-
-/// Calculates RTT handling the 14-bit timestamp wrap-around.
-///
-/// * `rx_time_us`: Receive time in microseconds EPOCH
-/// * `tx_time_ms_14b`: Transmit time in milliseconds EPOCH (masked to 14 bits).
-pub fn calculate_rtt_trace(rx_time: u32, tx_time: u32) -> f64 {
-    // 14-bit Modulus (2^14 = 16,384)
-    const MODULUS: u32 = 1 << 14;
-    const MASK: u32 = MODULUS - 1; // 0x3FFF
-
-    let rx_14b = rx_time & MASK;
-
-    let rtt_ms = if rx_14b >= tx_time {
-        rx_14b - tx_time
-    } else {
-        // wrap-around case
-        (rx_14b + MODULUS) - tx_time
-    };
-
-    rtt_ms as f64
 }
