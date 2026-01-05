@@ -19,9 +19,7 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// This function processes the results in batches to optimize writing performance.
 ///
 /// # Arguments
-///
 /// * `rx` - The receiver channel that receives the results.
-///
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     let headers = get_header(
@@ -117,10 +115,7 @@ pub fn get_parquet_metadata(
     let mut md = Vec::new();
 
     if args.is_verfploeter {
-        md.push((
-            "measurement_style".to_string(),
-            "Verfploeter".to_string(),
-        ));
+        md.push(("measurement_style".to_string(), "Verfploeter".to_string()));
     } else if args.is_latency {
         md.push((
             "measurement_style".to_string(),
@@ -132,10 +127,7 @@ pub fn get_parquet_metadata(
             "LACeS-Responsive-mode".to_string(),
         ));
     } else {
-        md.push((
-            "measurement_style".to_string(),
-            "LACeS-mode".to_string(),
-        ));
+        md.push(("measurement_style".to_string(), "LACeS-mode".to_string()));
     }
 
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
@@ -261,9 +253,7 @@ fn reply_to_parquet_row(
 ///
 /// # Arguments
 /// * `headers` - Used headers (based on measurement type)
-pub fn build_parquet_schema(
-    headers: Vec<&str>
-) -> TypePtr {
+pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
     let mut fields = Vec::new();
 
     for &header in &headers {

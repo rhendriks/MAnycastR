@@ -1,7 +1,7 @@
 use crate::cli::writer::calculate_rtt;
-use bimap::BiHashMap;
 use crate::custom_module::manycastr::MeasurementReply;
 use crate::TCP_ID;
+use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
 ///

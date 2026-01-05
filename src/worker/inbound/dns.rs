@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply};
+use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, Reply};
 use crate::net::{
     DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
 };

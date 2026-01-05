@@ -178,7 +178,7 @@ impl From<String> for Address {
                 // IPv6
                 Address {
                     value: Some(V6(IPv6 {
-                        high: (ip_number >> 64) as u64,                // Most significant 64 bits
+                        high: (ip_number >> 64) as u64, // Most significant 64 bits
                         low: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
                     })),
                 }

@@ -9,7 +9,7 @@ use crate::worker::inbound::ping::parse_icmp_inner;
 /// * `m_id` - the ID of the current measurement
 /// * `worker_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
-/// 
+///
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
 pub fn parse_record_route(
@@ -38,13 +38,20 @@ pub fn parse_record_route(
     } else {
         return None; // No options, cannot be a RR packet
     };
-    
+
     let ip_header = IPPacket::V4(ipv4_header);
-    
+
     // Parse ICMP header
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
         return None;
     };
-    
-    parse_icmp_inner(&icmp_packet, &ip_header, m_id, worker_map, is_ipv6, recorded_hops)
+
+    parse_icmp_inner(
+        &icmp_packet,
+        &ip_header,
+        m_id,
+        worker_map,
+        is_ipv6,
+        recorded_hops,
+    )
 }

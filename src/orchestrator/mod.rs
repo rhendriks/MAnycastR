@@ -19,7 +19,7 @@ use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
-    controller_server::ControllerServer, Instruction, Task, ReplyBatch,
+    controller_server::ControllerServer, Instruction, ReplyBatch, Task,
 };
 use log::{info, warn};
 use tokio::sync::mpsc;

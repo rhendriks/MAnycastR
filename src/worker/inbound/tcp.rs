@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Origin, DiscoveryReply, MeasurementReply, Reply};
+use crate::custom_module::manycastr::{DiscoveryReply, MeasurementReply, Origin, Reply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};

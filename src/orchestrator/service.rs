@@ -1,5 +1,9 @@
 use crate::custom_module::manycastr::controller_server::Controller;
-use crate::custom_module::manycastr::{instruction, task, Ack, Empty, Finished, Init, Instruction, LiveMeasurementMessage, Probe, DiscoveryReply, Record, ScheduleMeasurement, Start, Task, ReplyBatch, TraceReply, Worker, Reply};
+use crate::custom_module::manycastr::{
+    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction,
+    LiveMeasurementMessage, Probe, Record, Reply, ReplyBatch, ScheduleMeasurement, Start, Task,
+    TraceReply, Worker,
+};
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     discovery_handler, trace_discovery_handler, trace_replies_handler,

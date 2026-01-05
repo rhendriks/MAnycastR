@@ -222,14 +222,7 @@ pub fn create_icmp(
     // Add info URL to payload
     payload_bytes.extend(payload.info_url.bytes());
 
-    ICMPPacket::echo_request(
-        identifier,
-        seq,
-        payload_bytes,
-        src,
-        dst,
-        ttl,
-    )
+    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl)
 }
 
 /// Create a Record Route ICMP packet to send.

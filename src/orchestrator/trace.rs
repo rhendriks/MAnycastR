@@ -1,10 +1,10 @@
-use crate::custom_module::manycastr::{task, Address, Task, ReplyBatch, Trace, TraceReply, Reply};
-use crate::orchestrator::{CliHandle};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
+use crate::orchestrator::CliHandle;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::custom_module::manycastr::reply::ReplyData;
 
 /// Session Tracker for fast lookups (based on expiration queue)
 #[derive(Debug)]
@@ -149,7 +149,11 @@ pub fn check_trace_timeouts(
                                     }],
                                 };
 
-                                cli_sender.as_ref().expect("Sender missing").try_send(Ok(task_result)).expect("Trying to send TaskResult");
+                                cli_sender
+                                    .as_ref()
+                                    .expect("Sender missing")
+                                    .try_send(Ok(task_result))
+                                    .expect("Trying to send TaskResult");
                             }
 
                             tasks_to_send.push((
