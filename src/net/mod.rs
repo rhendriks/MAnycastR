@@ -430,22 +430,28 @@ pub enum PseudoHeader {
 }
 
 impl PseudoHeader {
-    /// Creates a new PseudoHeader (V4 or V6) based on the address types.
     pub fn new(src_addr: &Address, dst_addr: &Address, protocol: u8, packet_length: u32) -> Self {
-        if src_addr.is_v6() {
-            Self::V6(PseudoHeaderV6 {
-                src: src_addr.get_v6(),
-                dst: dst_addr.get_v6(),
-                upper_layer_packet_length: packet_length, // Length field is 32 bits for IPv6
-                next_header: protocol,
-            })
-        } else {
-            Self::V4(PseudoHeaderV4 {
-                src: src_addr.get_v4(),
-                dst: dst_addr.get_v4(),
-                protocol,
-                length: packet_length as u16, // Length field is 16 bits for IPv4
-            })
+        match (&src_addr.value, &dst_addr.value) {
+            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
+                Self::V6(PseudoHeaderV6 {
+                    src: src_addr.into(),
+                    dst: dst_addr.into(),
+                    upper_layer_packet_length: packet_length,
+                    next_header: protocol,
+                })
+            }
+            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
+                Self::V4(PseudoHeaderV4 {
+                    src: src_addr.into(),
+                    dst: dst_addr.into(),
+                    protocol,
+                    length: packet_length as u16,
+                })
+            }
+            (s, d) => panic!(
+                "IP version mismatch or invalid address type: src={:?}, dst={:?}",
+                s, d
+            ),
         }
     }
 }
@@ -932,36 +938,35 @@ impl UDPPacket {
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
 
-        let pseudo_header = PseudoHeader::new(
-            src,
-            dst,
-            17, // UDP protocol
-            udp_length as u32,
-        );
+        let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length as u32);
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        if src.is_v6() {
-            (&IPv6Packet {
-                payload_length: udp_length,
-                flow_label: 15037,
-                next_header: 17, // UDP
-                hop_limit: ttl,
-                src: src.get_v6(),
-                dst: dst.get_v6(),
-                payload: PacketPayload::Udp { value: udp_packet },
-            })
-                .into()
-        } else {
-            (&IPv4Packet {
-                length: 20 + udp_length,
-                identifier: 15037,
-                ttl,
-                src: src.get_v4(),
-                dst: dst.get_v4(),
-                payload: PacketPayload::Udp { value: udp_packet },
-                options: None,
-            })
-                .into()
+        match (&src.value, &dst.value) {
+            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
+                let v6_packet = IPv6Packet {
+                    payload_length: udp_length,
+                    flow_label: 15037,
+                    next_header: 17, // UDP
+                    hop_limit: ttl,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Udp { value: udp_packet },
+                };
+                (&v6_packet).into()
+            }
+            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
+                let v4_packet = IPv4Packet {
+                    length: 20 + udp_length,
+                    identifier: 15037,
+                    ttl,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Udp { value: udp_packet },
+                    options: None,
+                };
+                (&v4_packet).into()
+            }
+            _ => panic!("IP version mismatch or unsupported address type in dns_request"),
         }
     }
 
@@ -974,30 +979,15 @@ impl UDPPacket {
         tx_id: u32,
         sport: u16,
     ) -> Vec<u8> {
+        let src_num = src.to_numeric();
+        let dst_num = dst.to_numeric();
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
-        let subdomain = if src.is_v6() {
-            format!(
-                "{}.{}.{}.{}.{}.{}",
-                tx_time,
-                src.get_v6(),
-                dst.get_v6(),
-                tx_id,
-                sport,
-                domain_name
-            )
-        } else {
-            format!(
-                "{}.{}.{}.{}.{}.{}",
-                tx_time,
-                src.get_v4(),
-                dst.get_v4(),
-                tx_id,
-                sport,
-                domain_name
-            )
-        };
+        let subdomain = format!(
+            "{}.{}.{}.{}.{}.{}",
+            tx_time, src_num, dst_num, tx_id, sport, domain_name
+        );
         let mut dns_body: Vec<u8> = Vec::new();
 
         // DNS Header
@@ -1043,37 +1033,36 @@ impl UDPPacket {
 
         let udp_bytes: Vec<u8> = (&udp_packet).into();
 
-        let pseudo_header = PseudoHeader::new(
-            src, dst, 17, // UDP protocol
-            udp_length,
-        );
+        let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length);
 
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        if src.is_v6() {
-            // Create the IPv6 packet
-            let v6_packet = IPv6Packet {
-                payload_length: udp_length as u16,
-                flow_label: 15037,
-                next_header: 17, // UDP
-                hop_limit: 255,
-                src: src.get_v6(),
-                dst: dst.get_v6(),
-                payload: PacketPayload::Udp { value: udp_packet },
-            };
-            (&v6_packet).into()
-        } else {
-            // Create the IPv4 packet
-            let v4_packet = IPv4Packet {
-                length: 20 + udp_length as u16,
-                identifier: 15037,
-                ttl: 255,
-                src: src.get_v4(),
-                dst: dst.get_v4(),
-                payload: PacketPayload::Udp { value: udp_packet },
-                options: None,
-            };
-            (&v4_packet).into()
+        match (&src.value, &dst.value) {
+            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
+                let v6_packet = IPv6Packet {
+                    payload_length: udp_length as u16,
+                    flow_label: 15037,
+                    next_header: 17, // UDP
+                    hop_limit: 255,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Udp { value: udp_packet },
+                };
+                (&v6_packet).into()
+            }
+            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
+                let v4_packet = IPv4Packet {
+                    length: 20 + udp_length as u16,
+                    identifier: 15037,
+                    ttl: 255,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Udp { value: udp_packet },
+                    options: None,
+                };
+                (&v4_packet).into()
+            }
+            _ => panic!("IP version mismatch or invalid address type in UDP packet construction"),
         }
     }
 
@@ -1191,7 +1180,7 @@ impl TCPPacket {
         ttl: u8,
         info_url: &str,
     ) -> Vec<u8> {
-        let mut packet = Self {
+        let mut tcp_packet = Self {
             sport,
             dport,
             seq: 0, // Sequence number is not reflected
@@ -1205,41 +1194,37 @@ impl TCPPacket {
         };
 
         // Turn everything into a vec of bytes and calculate checksum
-        let bytes: Vec<u8> = (&packet).into();
+        let tcp_bytes: Vec<u8> = (&tcp_packet).into();
 
-        let pseudo_header = PseudoHeader::new(
-            src,
-            dst,
-            6,                  // TCP protocol
-            bytes.len() as u32, // Length of the TCP header and data (measured in octets)
-        );
-        packet.checksum = calculate_checksum(&bytes, &pseudo_header);
+        let pseudo_header = PseudoHeader::new(src, dst, 6, tcp_bytes.len() as u32);
+        tcp_packet.checksum = calculate_checksum(&tcp_bytes, &pseudo_header);
 
-        if src.is_v6() {
-            // Create the IPv6 packet
-            let v6_packet = IPv6Packet {
-                payload_length: bytes.len() as u16,
-                flow_label: 15037,
-                next_header: 6, // TCP
-                hop_limit: ttl,
-                src: src.get_v6(),
-                dst: dst.get_v6(),
-                payload: PacketPayload::Tcp { value: packet },
-            };
-            (&v6_packet).into()
-        } else {
-            // Create the IPv4 packet
-            let v4_packet = IPv4Packet {
-                length: 20 + bytes.len() as u16,
-                identifier: 15037,
-                ttl,
-                src: src.get_v4(),
-                dst: dst.get_v4(),
-                payload: PacketPayload::Tcp { value: packet },
-                options: None,
-            };
-
-            (&v4_packet).into()
+        match (&src.value, &dst.value) {
+            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
+                let v6_packet = IPv6Packet {
+                    payload_length: tcp_bytes.len() as u16,
+                    flow_label: 15037,
+                    next_header: 6, // TCP
+                    hop_limit: ttl,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Tcp { value: tcp_packet },
+                };
+                (&v6_packet).into()
+            }
+            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
+                let v4_packet = IPv4Packet {
+                    length: 20 + tcp_bytes.len() as u16,
+                    identifier: 15037,
+                    ttl,
+                    src: src.into(),
+                    dst: dst.into(),
+                    payload: PacketPayload::Tcp { value: tcp_packet },
+                    options: None,
+                };
+                (&v4_packet).into()
+            }
+            _ => panic!("IP version mismatch or invalid address in tcp_syn_ack"),
         }
     }
 }
