@@ -540,7 +540,6 @@ impl From<&ICMPPacket> for Vec<u8> {
 }
 
 impl ICMPPacket {
-
     /// Create a basic ICMP ECHO_REQUEST (8.0) packet with checksum.
     ///
     /// # Arguments
@@ -604,7 +603,9 @@ impl ICMPPacket {
                 let mut pseudo = Vec::new();
                 pseudo.write_u128::<NetworkEndian>(src_u128).unwrap();
                 pseudo.write_u128::<NetworkEndian>(dst_u128).unwrap();
-                pseudo.write_u32::<NetworkEndian>((8 + packet.payload.len()) as u32).unwrap();
+                pseudo
+                    .write_u32::<NetworkEndian>((8 + packet.payload.len()) as u32)
+                    .unwrap();
                 pseudo.extend_from_slice(&[0, 0, 0, 58]);
                 pseudo.extend(icmp_bytes);
 
@@ -662,7 +663,6 @@ impl ICMPPacket {
 
         (&v4_packet).into()
     }
-
 
     /// Calculate the ICMP Checksum.
     ///

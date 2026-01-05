@@ -2,7 +2,7 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{ScheduleMeasurement, ReplyBatch};
+use crate::custom_module::manycastr::{ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
 use crate::{ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use chrono::Local;
