@@ -52,8 +52,8 @@ pub struct WriteConfig<'a> {
 
 /// Holds all the arguments required to metadata for the output file.
 pub struct MetadataArgs<'a> {
-    /// Divide-and-conquer measurement flag.
-    pub is_divide: bool,
+    /// Verfploeter measurement flag.
+    pub is_verfploeter: bool,
     /// Path to the hitlist used.
     pub hitlist: &'a str,
     /// Whether the hitlist was shuffled.

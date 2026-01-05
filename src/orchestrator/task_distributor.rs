@@ -111,7 +111,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
 /// Also checks the worker stacks for follow-up tasks and sends them to the appropriate workers.
 /// Ends the measurement when all discovery probes have been sent and all stacks are empty.
 ///
-/// Used for --divide and --reverse measurements.
+/// Used for --verfploeter and --reverse measurements.
 ///
 /// # Arguments
 /// * 'config' - TaskDistributorConfig with all necessary parameters.

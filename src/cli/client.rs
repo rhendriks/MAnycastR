@@ -43,7 +43,7 @@ impl CliClient {
         is_ipv6: bool,
         is_unicast: bool,
     ) -> Result<(), Box<dyn Error>> {
-        let is_divide = m_definition.is_divide;
+        let is_verfploeter = m_definition.is_verfploeter;
         let probing_rate = m_definition.probing_rate;
         let worker_interval = m_definition.worker_interval;
         let m_type = m_definition.m_type as u8;
@@ -65,7 +65,7 @@ impl CliClient {
             }
         };
 
-        let m_time = if is_divide || is_latency {
+        let m_time = if is_verfploeter || is_latency {
             ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 1.0)
                 / 60.0
         } else {
@@ -75,8 +75,8 @@ impl CliClient {
                 / 60.0 // Convert to minutes
         };
 
-        if is_divide {
-            info!("[CLI] Divide-and-conquer enabled");
+        if is_verfploeter {
+            info!("[CLI] Performing Verfploeter catchment mapping");
         }
         info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
@@ -184,7 +184,7 @@ impl CliClient {
         let file = File::create(file_path).expect("Unable to create file");
 
         let metadata_args = MetadataArgs {
-            is_divide,
+            is_verfploeter,
             hitlist: args.hitlist_path,
             is_shuffle: args.is_shuffle,
             m_type_str: type_str,
@@ -218,7 +218,7 @@ impl CliClient {
             worker_map: args.worker_map.clone(),
             is_traceroute,
             is_record,
-            is_verfploeter: is_divide,
+            is_verfploeter,
         };
 
         // Start thread that writes results to file
