@@ -229,6 +229,15 @@ pub fn get_header(
     header
 }
 
+/// Calculate RTT
+///
+/// # Arguments
+/// `rx_time` - receive time (64 bit microseconds EPOCH)
+/// `tx_time` - transmit time (64 bit microseconds EPOCH)
+/// `is_tcp` - whether it is a TCP encoded timestamp
+///
+/// # Note
+/// TCP timestamps are encoded using 21 bits as millisecond EPOCH
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool) -> f64 {
     if is_tcp {
         // 21 bit millisecond timestamp
