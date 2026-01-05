@@ -134,10 +134,7 @@ pub fn parse_icmp_inner(
                 hop_addr: Some(ip_header.src()),
                 ttl: ip_header.ttl() as u32,
                 origin_id,
-                rx_time: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
+                rx_time,
                 tx_time,
                 tx_id,
                 trace_dst: Some(ip_header.src()),
