@@ -89,39 +89,17 @@ pub fn inbound(
                     }
                 };
 
-                if config.is_traceroute {
-                    // Try to parse ICMP Time Exceeded first
-                    let trace_reply =
-                        parse_trace(&packet[14..], &config.origin_map, config.is_ipv6);
-
-                    // TODO if we get a ping reply it will look different than other ping replies (payload is different for traceroute probes -> TODO verify this first)
-                    // TODO and as such they should be parsed differently
-                    // If we got a trace reply, add it to the queue and continue to the next packet
-                    if let Some(reply) = trace_reply {
-                        received += 1;
-                        let mut buffer = rq_c.lock().unwrap();
-                        buffer.push(reply);
-                        continue; // Continue to next packet
-                    }
+                // Parse the packet based on the measurement type (skip Ethernet header)
+                let result = if config.is_traceroute {
+                    parse_trace(&packet[14..], &config.origin_map, config.is_ipv6)
                 } else if config.is_record {
-                    // Try to parse Record Route packets
-                    let rr_reply = parse_record_route(
+                    parse_record_route(
                         &packet[14..],
                         config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
-                    );
-                    // If we got a Record Route reply, add it to the queue and continue to the next packet
-                    if let Some(reply) = rr_reply {
-                        received += 1;
-                        let mut buffer = rq_c.lock().unwrap();
-                        buffer.push(reply);
-                        continue; // Continue to next packet
-                    }
-                }
-
-                // Parse the packet based on the measurement type (skip Ethernet header)
-                let result = if config.m_type == ICMP_ID {
+                    )
+                } else if config.m_type == ICMP_ID {
                     parse_icmp(
                         &packet[14..],
                         config.m_id,
