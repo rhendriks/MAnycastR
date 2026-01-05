@@ -169,21 +169,18 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
 /// Attempts to parse the DNS Chaos record from a UDP payload body.
 ///
 /// # Arguments
-///
 /// * `packet_bytes` - the bytes of the packet to parse
 ///
 /// # Returns
-///
 /// * `Option<UdpPayload>` - the UDP payload containing the DNS Chaos record
 ///
 /// # Remarks
-///
 /// The function returns None if the packet is too short to contain a DNS Chaos record.
 fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
     let record = DNSRecord::from(packet_bytes);
 
-    // 8 right most bits are the sender worker_id
-    let tx_worker_id = ((record.transaction_id >> 8) & 0xFF) as u32;
+    // sender worker ID encoded in the transaction ID
+    let tx_worker_id = record.transaction_id as u32;
 
     if record.answer == 0 {
         return Some((0u64, tx_worker_id, "Not implemented".to_string()));

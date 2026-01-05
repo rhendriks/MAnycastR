@@ -50,16 +50,12 @@ pub struct InboundConfig {
 /// Makes sure that the received packets are valid and belong to the current measurement.
 ///
 /// # Arguments
-///
-/// * 'config' - configuration for the inbound worker thread
-///
-/// * 'tx' - sender to put task results in
-///
-/// * 'socket_rx' - the socket to listen on
+/// * `config` - configuration for the inbound worker thread
+/// * `tx` - sender to put task results in
+/// * `socket_rx` - the socket to listen on
 ///
 /// # Panics
-///
-/// Panics if the measurement type is invalid
+/// If the measurement type is invalid
 pub fn inbound(
     config: InboundConfig,
     tx: UnboundedSender<ReplyBatch>,
