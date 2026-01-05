@@ -3,17 +3,17 @@ package manycastr;
 
 // The controller which controls and is responsible for most communication
 service Controller {
-  // Worker lets the orchestrator know the measurement is finished
+  // Worker lets the Orc know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
-  // Worker connects with the orchestrator, which returns a stream for future instructions
+  // Worker connects with the Orc, which returns a stream for future instructions
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
-  // CLI instructs orchestrator to perform a measurement
+  // CLI instructs Orc to perform a measurement and establishes a stream for the Orc to send back replies
   rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
-  // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
+  // CLI instructs Orc to perform a live measurement and establishes a stream for the Orc to send back replies
   rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream ReplyBatch) {}
-  // CLI asks orchestrator its current status (list of connected workers and measurements)
+  // CLI asks Orc its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
-  // Worker sends TaskResult to orchestrator
+  // Worker sends measurement replies to the Orc
   rpc SendResult(ReplyBatch) returns (Ack) {}
 }
 
@@ -208,13 +208,13 @@ message Reply {
   }
 }
 
-// Used for --latency, --traceroute (determine catcher for target), and --responsive (determine responsiveness)
+// Contains discovery reply data (used for follow-up tasks)
 message DiscoveryReply {
   Address src = 1;
   fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
 }
 
-// Used for LACeS (sending from all PoPs)
+// Contains measured reply data (forwarded to the CLI and written to file)
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
@@ -226,7 +226,7 @@ message MeasurementReply {
   optional RecordedHops recorded_hops = 8;
 }
 
-// ICMP Time Exceeded
+// Traceroute reply
 message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;

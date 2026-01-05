@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply};
-use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::custom_module::manycastr::{Address, Origin, DiscoveryReply, MeasurementReply, Reply, RecordedHops};
+use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 ///
 /// # Returns
-/// * `Option<(Reply, bool)>` - the received ping reply and whether it is a discovery packet
+/// * `Option<Reply>` - the received ping reply, None if invalid
 ///
 /// # Remarks
 /// The function returns None if the packet is not an ICMP echo reply or if the packet is too short to contain the necessary information.
@@ -42,6 +42,29 @@ pub fn parse_icmp(
         return None;
     };
 
+    parse_icmp_inner(icmp_packet, &ip_header, m_id, origin_map, is_ipv6, None)
+}
+
+/// Parse ICMP ping packets into a Reply result (excluding the IP header).
+///
+/// # Arguments
+/// * `icmp_packet` - Unparsed ICMP packet
+/// * `ip_header` - Parsed IP header
+/// * `m_id` - the ID of the current measurement
+/// * `origin_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+/// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
+///
+/// # Returns
+/// * `Option<Reply>` - the received ping reply, None if invalid
+pub fn parse_icmp_inner(
+    icmp_packet: &ICMPPacket,
+    ip_header: &IPPacket,
+    m_id: u32,
+    origin_map: &Vec<Origin>,
+    is_ipv6: bool,
+    recorded_hops: Option<RecordedHops>
+) -> Option<Reply>{
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?; // TODO move to initial if statement
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
@@ -105,7 +128,7 @@ pub fn parse_icmp(
                 tx_time, // Ensure this uses your calculated 21-bit logic if TCP
                 tx_id,
                 chaos: None,
-                recorded_hops: None,
+                recorded_hops,
             })),
         })
     }

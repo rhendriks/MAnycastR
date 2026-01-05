@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
 pub fn parse_trace(packet_bytes: &[u8], worker_map: &Vec<Origin>, is_ipv6: bool) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
+    // TODO handle traceroute replies from the target (will be ping echo replies rather than time exceeded)
     if is_ipv6 {
         if packet_bytes.len() < 88 {
             return None;
