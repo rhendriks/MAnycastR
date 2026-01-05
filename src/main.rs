@@ -70,7 +70,7 @@
 //! * **Stream** - stream results to the command-line interface (optional)
 //! * **Shuffle** - shuffle the hitlist
 //! * **Unicast** - perform measurement using the unicast address of each worker
-//! * **Divide** - divide-and-conquer Verfploeter catchment mapping
+//! * **verfploeter** - Verfploeter catchment mapping (hitlist split among probing workers)
 //!
 //! # Usage
 //!
@@ -108,15 +108,15 @@
 //! With this measurement each target receives a probe from each worker.
 //! Filtering on sender == receiver allows for calculating anycast RTTs.
 //!
-//! ### Divide-and-conquer Verfploeter catchment mapping using TCPv4
+//! ### Verfploeter catchment mapping using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --verfploeter
 //! ```
 //!
 //! hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
 //!
-//! Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe each target.
+//! Enabling verfploeter means each target receives a single probe, whereas before each worker would probe each target.
 //! Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
 //! Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
 //!
@@ -458,13 +458,13 @@ fn parse_cmd() -> ArgMatches {
                         .long("unicast")
                         .action(ArgAction::SetTrue)
                         .help("Probe targets using each worker's unicast address")
-                        .conflicts_with_all(["latency", "traceroute", "record", "divide", "address", "configuration"])
+                        .conflicts_with_all(["latency", "traceroute", "record", "verfploeter", "address", "configuration"])
                     )
-                    .arg(Arg::new("divide")
-                        .long("divide")
+                    .arg(Arg::new("verfploeter")
+                        .long("verfploeter")
                         .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("Divide the hitlist into equal separate parts for each worker (divide-and-conquer)")
+                        .help("Perform a Verfploeter catchment mapping")
                         .conflicts_with_all(["latency", "traceroute", "record", "unicast"])
                     )
                     .arg(Arg::new("latency")
@@ -472,21 +472,21 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Measure anycast latencies (first, measure catching PoP; second, measure latency from catching PoP to target)")
-                        .conflicts_with_all(["divide", "unicast", "selective", "traceroute", "record"])
+                        .conflicts_with_all(["verfploeter", "unicast", "selective", "traceroute", "record"])
                     )
                     .arg(Arg::new("responsive")
                         .long("responsive")
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
-                        .conflicts_with_all(["latency", "divide", "traceroute", "record"])
+                        .conflicts_with_all(["latency", "verfploeter", "traceroute", "record"])
                     )
                     .arg(Arg::new("traceroute")
                         .long("traceroute")
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Perform a traceroute from the receiving anycast site for each target [NOTE: violates probing rate]")
-                        .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "config"]) // TODO support unicast traceroute
+                        .conflicts_with_all(["latency", "responsive", "verfploeter", "unicast", "selective", "record", "config"]) // TODO support unicast traceroute
                     )
                     .arg(Arg::new("trace-max-failures")
                         .long("trace-max-failures")
@@ -525,14 +525,14 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Perform a traceroute catchment mapping [UNIMPLEMENTED].")
-                        .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "traceroute"])
+                        .conflicts_with_all(["latency", "responsive", "verfploeter", "unicast", "selective", "record", "traceroute"])
                     )
                     .arg(Arg::new("record")
                         .long("record")
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("Perform a Record Route measurement from the receiving anycast site for each target.")
-                        .conflicts_with_all(["traceroute", "latency", "responsive", "divide", "unicast", "selective"])
+                        .conflicts_with_all(["traceroute", "latency", "responsive", "verfploeter", "unicast", "selective"])
                     )
                     .arg(Arg::new("worker_interval")
                         .long("worker-interval")
@@ -541,7 +541,7 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .default_value("1")
                         .help("Interval between separate worker's probes to the same target")
-                        .conflicts_with_all(["latency", "divide"]) // --latency and --divide send single probes to each address, so no worker interval is needed
+                        .conflicts_with_all(["latency", "verfploeter"]) // --latency and --verfploeter send single probes to each address, so no worker interval is needed
                     )
                     .arg(Arg::new("probe_interval")
                         .long("probe-interval")
@@ -611,7 +611,7 @@ fn parse_cmd() -> ArgMatches {
                     )
                     .group(
                         ArgGroup::new("measurement_type")
-                            .args(["latency", "traceroute", "record", "unicast", "divide", "responsive", "tracemap"])
+                            .args(["latency", "traceroute", "record", "unicast", "verfploeter", "responsive", "tracemap"])
                             .multiple(true)
                             .required(false)
                     )

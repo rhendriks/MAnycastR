@@ -51,7 +51,7 @@ pub async fn handle(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Start a MAnycastR measurement
     let is_unicast = matches.get_flag("unicast");
-    let is_divide = matches.get_flag("divide");
+    let is_verfploeter = matches.get_flag("verfploeter");
     let is_responsive = matches.get_flag("responsive");
     let is_latency = matches.get_flag("latency");
     let is_traceroute = matches.get_flag("traceroute");
@@ -185,11 +185,11 @@ pub async fn handle(
     };
     let hitlist_length = targets.len();
 
-    // Measurement category (unicast, divide, latency, responsive, traceroute, reverse traceroute, anycast (default))
+    // Measurement category (unicast, verfploeter, latency, responsive, traceroute, reverse traceroute, anycast (default))
     let m_cat = if is_unicast {
         "Unicast"
-    } else if is_divide {
-        "Anycast-divide"
+    } else if is_verfploeter {
+        "Anycast-verfploeter"
     } else if is_latency {
         "Anycast-latency"
     } else if is_traceroute {
@@ -265,7 +265,7 @@ pub async fn handle(
         probing_rate,
         configurations,
         m_type: m_type as u32,
-        is_divide,
+        is_verfploeter,
         worker_interval,
         is_responsive,
         is_latency,

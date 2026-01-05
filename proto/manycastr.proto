@@ -62,9 +62,9 @@ message ScheduleMeasurement {
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
   uint32 m_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
   uint32 worker_interval = 4; // interval between probes from different workers
-  bool is_responsive = 5; // whether the measurement is for responsiveness
-  bool is_latency = 6; // whether the measurement is for latency
-  bool is_divide = 7; // whether to divide targets among workers
+  bool is_responsive = 5; // probe for responsiveness first
+  bool is_latency = 6; // latency measurement (involves discovery probes to identify catching PoP)
+  bool is_verfploeter = 7; // verfploeter measurement (single probe per target from any worker)
   repeated Address targets = 8; // target addresses to probe
   string record = 9; // Record to send CHAOS (TXT) or A/AAAA requests for
   string url = 10; // URL to encode in probes (e.g., opt-out link)

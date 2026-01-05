@@ -194,7 +194,7 @@ impl Controller for ControllerService {
         let m_definition = request.into_inner();
         let is_responsive = m_definition.is_responsive;
         let is_latency = m_definition.is_latency;
-        let is_divide = m_definition.is_divide;
+        let is_verfploeter = m_definition.is_verfploeter;
         let worker_interval = m_definition.worker_interval as u64;
         let probe_interval = m_definition.probe_interval as u64;
         let number_of_probes = m_definition.number_of_probes as u8;
@@ -418,7 +418,7 @@ impl Controller for ControllerService {
             self.m_type.lock().unwrap().take(); // Set to None
         }
 
-        let probing_rate_interval = if is_latency || is_divide || is_traceroute {
+        let probing_rate_interval = if is_latency || is_verfploeter || is_traceroute {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
             tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32)
         } else {
@@ -466,7 +466,7 @@ impl Controller for ControllerService {
         };
 
         // Spawn appropriate task distributor thread
-        if is_divide {
+        if is_verfploeter {
             // Distribute tasks round-robin
             round_robin_distributor(task_config, probing_worker_ids).await;
         } else if is_responsive || is_latency || is_traceroute {
