@@ -1,6 +1,6 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
-use crate::cli::writer::{write_results, MetadataArgs, WriteConfig};
+use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{ScheduleMeasurement, ReplyBatch};
 use crate::custom_module::Separated;
@@ -225,7 +225,7 @@ impl CliClient {
         if is_parquet {
             write_results_parquet(rx_r, config);
         } else {
-            write_results(rx_r, config);
+            write_results_csv(rx_r, config);
         }
 
         let mut replies_count = 0;
