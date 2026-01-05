@@ -15,7 +15,6 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
 use std::io::BufWriter;
-// use crate::cli::writer::parquet_writer::{build_parquet_schema, get_parquet_metadata, write_batch_to_parquet, ParquetDataRow};
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
 use crate::custom_module::manycastr::reply::ReplyData;
@@ -35,14 +34,11 @@ pub struct WriteConfig<'a> {
     pub output_file: File,
     /// Metadata for the measurement, to be written at the beginning of the output file.
     pub metadata_args: MetadataArgs<'a>,
-    /// The type of measurement being performed, influencing how results are processed or formatted.
-    /// (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP, 4 for DNS/CHAOS, etc.)
+    /// The type of measurement being performed (1 for ICMP, 2 for DNS/A, 3 for TCP, etc.)
     pub m_type: u8,
-    /// Indicates whether the measurement involves multiple origins, which affects
-    /// how results are written.
+    /// Indicates whether the measurement involves multiple origins
     pub is_multi_origin: bool,
-    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true),
-    /// to simplify certain result interpretations.
+    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true).
     pub is_symmetric: bool,
     /// A bidirectional map used to convert worker IDs (u16) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
@@ -83,8 +79,8 @@ pub struct MetadataArgs<'a> {
 /// Writes the results to a file (and optionally to the command-line)
 ///
 /// # Arguments
-/// * 'rx' - The receiver channel that receives the results
-/// * 'config' - The configuration for writing results, including file handle, metadata, and measurement type
+/// * `rx` - The receiver channel that receives the results
+/// * `config` - The configuration for writing results, including file handle, metadata, and measurement type
 pub fn write_results(
     mut rx: UnboundedReceiver<ReplyBatch>,
     config: WriteConfig
