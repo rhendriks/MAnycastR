@@ -148,15 +148,14 @@ pub async fn handle(
             .collect()
     };
 
-    // Get the target IP addresses TODO allow for a single target
+    // Get the target IP addresses
     let hitlist_path = matches.get_one::<String>("hitlist").unwrap();
     let is_shuffle = matches.get_flag("shuffle");
 
     let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
 
-    // CHAOS value to send in the DNS query
+    // Record to request in the DNS query (A/CHAOS)
     let dns_record = if m_type == CHAOS_ID {
-        // get CHAOS query
         matches
             .get_one::<String>("query")
             .map_or("hostname.bind", |q| q.as_str())
@@ -275,7 +274,6 @@ pub async fn handle(
         url,
         probe_interval,
         number_of_probes,
-        is_traceroute,
         is_ipv6,
         is_record,
         trace_options,
