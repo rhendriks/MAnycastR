@@ -100,8 +100,8 @@ message Address {
 
 // IPv6 address message (protobuf does not support 128 bit values)
 message IPv6 {
-  fixed64 p1 = 1;
-  fixed64 p2 = 2;
+  fixed64 high = 1; // most significant 64 bits
+  fixed64 low = 2; // least significant 64 bits
 }
 
 
