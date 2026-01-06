@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
-use crate::orchestrator::{CliHandle, OngoingMeasurement};
+use crate::orchestrator::{CliHandle, OngoingMeasurement, TracerouteConfig};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -52,29 +52,27 @@ pub struct TraceIdentifier {
 ///
 /// # Arguments
 /// * `worker_stacks` - Shared stack to put Trace tasks in for workers.
-/// * `sessions` - Shared map that tracks ongoing sessions.
 /// * `ongoing_measurement` - Shared variable of the current ongoing measurement
-/// * `hop_timeout` - Maximum waiting time before determining a hop to be unresponsive (default 1s)
-/// * `max_failures` - Maximum number of consecutive non-responding hops before terminating a traceroute (default 3)
-/// * `max_hops` - Maximum hop count before terminating a traceroute (default 30)
 /// * `cli_sender` - Forward '*' results for timed out hops to CLI
+/// * `traceroute_config`
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    session_tracker: Arc<Mutex<SessionTracker>>,
     ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
-    timeout: u64,
-    max_failures: u32,
-    max_hops: u32,
     cli_sender: CliHandle,
+    traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
 ) {
+    // Get traceroute parameters
+    let (timeout, max_hops, max_failures) = {
+        let guard = traceroute_config.read().unwrap();
+        let config = guard.as_ref().expect("TracerouteConfig not initialized");
+        (config.timeout, config.max_hops, config.max_failures)
+    };
+
     loop {
-        // Check if we are finished
-        {
-            let measurement_guard = ongoing_measurement.read().unwrap();
-            if measurement_guard.is_none() {
-                println!("[x] FINISHED");
-                break;
-            }
+        // Check if measurement is finished
+        if ongoing_measurement.read().unwrap().is_none() {
+            println!("[x] FINISHED");
+            break;
         }
 
         // Keep track of tasks to send to the workers
@@ -83,7 +81,10 @@ pub fn check_trace_timeouts(
 
         {
             // Lock tracker
-            let mut session_tracker = session_tracker.lock().unwrap();
+            let mut guard = traceroute_config.write().unwrap();
+            let config = guard.as_mut().expect("TracerouteConfig not initialized");
+
+            let session_tracker = &mut config.session_tracker;
 
             // Iteratively check top of the stack (oldest sessions) to see if they timed out
             while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {

@@ -44,7 +44,7 @@ pub enum MeasurementType {
     Responsive,
     /// Targets are probed to determine the catching worker, measurement probes are sent from the catching worker.
     Latency,
-    /// Targets are probed to determine the catching worker, traceroute probes are sent from the catching worker. TODO will not work with unresponsive targets, and sends an unnecessary discovery probe for unicast traceroute
+    /// Targets are probed to determine the catching worker, traceroute probes are sent from the catching worker.
     Traceroute,
 }
 
@@ -55,6 +55,21 @@ pub struct OngoingMeasurement {
     workers_count: u32,
     /// Worker IDs of connected Workers that are actively probing
     probing_workers: Vec<u32>,
+}
+
+/// Traceroute configuration
+#[derive(Debug)]
+pub struct TracerouteConfig {
+    /// Session tracker for Trace Tasks
+    pub session_tracker: SessionTracker,
+    /// Timeout value for traceroute measurements (default 1s)
+    pub timeout: u64,
+    /// Max hop count for traceroute measurements (default 30)
+    pub max_hops: u32,
+    /// Hop count to start traceroute measurements with (default 1)
+    pub initial_hop: u32,
+    /// Maximum number of unresponsive hops before terminating the traceroute (default 3)
+    pub max_failures: u32,
 }
 
 /// The main orchestrator service struct.
@@ -75,14 +90,8 @@ pub struct ControllerService {
     worker_config: Option<HashMap<String, u32>>,
     /// Stacks of tasks coupled to workers, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    /// Session tracker for Trace Tasks
-    trace_session_tracker: Arc<Mutex<SessionTracker>>,
-    /// Optional timeout value for traceroute measurements (default 1s)
-    trace_timeout: Arc<Mutex<Option<u64>>>,
-    /// Optional max hop count for traceroute measurements (default 30)
-    trace_max_hops: Arc<Mutex<Option<u32>>>,
-    /// Hop count to start traceroute measurements with (default 1)
-    inital_hop: Arc<Mutex<Option<u32>>>,
+    /// Traceroute Configuration
+    trace_config: Arc<RwLock<Option<TracerouteConfig>>>,
 }
 
 impl ControllerService {
@@ -164,10 +173,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         m_type: Arc::new(Mutex::new(None)),
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
-        trace_session_tracker: Arc::new(Mutex::new(SessionTracker::new())), // TODO unused when not performing traceroute -> make it Option ?
-        trace_timeout: Arc::new(Mutex::new(None)),
-        trace_max_hops: Arc::new(Mutex::new(None)),
-        inital_hop: Arc::new(Mutex::new(None)),
+        trace_config: Arc::new(RwLock::new(None)),
     };
 
     let svc = ControllerServer::new(controller)

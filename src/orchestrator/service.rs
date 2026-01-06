@@ -5,9 +5,7 @@ use crate::custom_module::manycastr::{
     TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{
-    discovery_handler, trace_discovery_handler, trace_replies_handler,
-};
+use crate::orchestrator::result_handler::{discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
@@ -15,7 +13,7 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{ControllerService, MeasurementType, OngoingMeasurement};
+use crate::orchestrator::{ControllerService, MeasurementType, OngoingMeasurement, TracerouteConfig};
 use crate::{custom_module, ALL_WORKERS};
 use futures_core::Stream;
 use log::{error, info, warn};
@@ -124,7 +122,6 @@ impl Controller for ControllerService {
 
         if is_reconnect {
             info!("[Orchestrator] Reconnecting worker: {hostname}");
-            // TODO during an active measurement, we need to send the start message such that the worker can participate again
         } else {
             info!("[Orchestrator] New worker connected: {hostname}");
         }
@@ -373,33 +370,29 @@ impl Controller for ControllerService {
         if is_traceroute {
             // Start `TraceSession` timeout handler
             let stacks_clone = self.worker_stacks.clone();
-            let tracker_clone = self.trace_session_tracker.clone();
             let ongoing_measurement = self.ongoing_measurement.clone();
-            let trace_options = m_definition.trace_options;
+            let trace_options = m_definition.trace_options.expect("Tracer options not initialized");
 
-            self.trace_max_hops
-                .lock()
-                .unwrap()
-                .replace(trace_options.unwrap().max_hops);
-            self.trace_timeout
-                .lock()
-                .unwrap()
-                .replace(trace_options.unwrap().timeout as u64);
-            self.inital_hop
-                .lock()
-                .unwrap()
-                .replace(trace_options.unwrap().initial_hop);
+            // Create the traceroute config
+            let mut tr_guard = self.trace_config.write().unwrap();
+
+            *tr_guard = Some(TracerouteConfig {
+                session_tracker: SessionTracker::new(),
+                timeout: trace_options.timeout as u64,
+                max_hops: trace_options.max_hops,
+                initial_hop: trace_options.initial_hop,
+                max_failures: trace_options.max_failures,
+            });
+
             let cli_sender_clone = self.cli_sender.clone();
+            let trace_config_clone = self.trace_config.clone();
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
                     stacks_clone,
-                    tracker_clone,
                     ongoing_measurement,
-                    trace_options.unwrap().timeout as u64,
-                    trace_options.unwrap().max_failures,
-                    trace_options.unwrap().max_hops,
                     cli_sender_clone, // send '*' results
+                    trace_config_clone,
                 );
             });
 
@@ -571,14 +564,15 @@ impl Controller for ControllerService {
                 );
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 println!("received discovery traceroute replies");
-                trace_discovery_handler(
-                    discovery_bucket,
-                    catcher_id,
-                    &mut self.worker_stacks.lock().unwrap(),
-                    &mut self.trace_session_tracker.lock().unwrap(),
-                    self.trace_timeout.lock().unwrap().unwrap(),
-                    self.inital_hop.lock().unwrap().unwrap(),
-                );
+                let mut config_guard = self.trace_config.write().unwrap();
+                if let Some(config) = config_guard.as_mut() {
+                    trace_discovery_handler(
+                        discovery_bucket,
+                        catcher_id,
+                        &mut self.worker_stacks.lock().unwrap(),
+                        config,
+                    );
+                }
             } else {
                 warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
             }
@@ -587,12 +581,14 @@ impl Controller for ControllerService {
         if !trace_bucket.is_empty() {
             println!("received non-discovery traceroute replies");
             // Handle traceroute replies (and target replies)
-            trace_replies_handler(
-                trace_bucket,
-                &mut self.worker_stacks.lock().unwrap(),
-                &mut self.trace_session_tracker.lock().unwrap(),
-                self.trace_max_hops.lock().unwrap().unwrap(),
-            );
+            let mut config_guard = self.trace_config.write().unwrap();
+            if let Some(config) = config_guard.as_mut() {
+                trace_replies_handler(
+                    trace_bucket,
+                    &mut self.worker_stacks.lock().unwrap(),
+                    config,
+                );
+            }
             println!("handled traceroute replies");
         }
 
