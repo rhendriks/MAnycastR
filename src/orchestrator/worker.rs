@@ -161,7 +161,7 @@ impl<T> WorkerSender<T> {
     }
 
     pub(crate) fn cleanup(&self) {
-        // If the worker is disconnected, we set the status to DISCONNECTED
+        // Set the status to DISCONNECTED
         let mut status = self.status.lock().unwrap();
         *status = Disconnected;
 
