@@ -222,7 +222,6 @@ pub const ANY_ID: u8 = 254; // Any measurement type
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
-
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
 ///
 /// Sets up logging, parses the command-line arguments, runs the appropriate initialization function.

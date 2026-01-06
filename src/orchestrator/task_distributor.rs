@@ -1,7 +1,9 @@
 use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{OngoingMeasurement, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
+use crate::orchestrator::{
+    OngoingMeasurement, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL,
+};
 use log::{info, warn};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};

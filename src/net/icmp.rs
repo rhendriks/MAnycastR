@@ -1,7 +1,7 @@
-use std::io::{Cursor, Write};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use crate::custom_module::manycastr::{address, Address};
 use crate::net::{record_route_option, IPv4Packet, IPv6Packet, PacketPayload};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Write};
 
 /// An ICMP Packet (ping packet) <https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol#header_rest>
 #[derive(Debug)]

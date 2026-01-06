@@ -255,7 +255,7 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
         };
 
         rtt_ms as f64
-    }  else if is_traceroute {
+    } else if is_traceroute {
         // 14-bit Modulus (2^14 = 16,384)
         const MODULUS: u64 = 1 << 14;
         const MASK: u64 = MODULUS - 1; // 0x3FFF

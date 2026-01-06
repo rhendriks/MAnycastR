@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply, TraceReply};
+use crate::custom_module::manycastr::{
+    Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply, TraceReply,
+};
 use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -43,7 +45,15 @@ pub fn parse_icmp(
         return None;
     };
 
-    parse_icmp_inner(icmp_packet, &ip_header, m_id, origin_map, is_ipv6, None, is_traceroute)
+    parse_icmp_inner(
+        icmp_packet,
+        &ip_header,
+        m_id,
+        origin_map,
+        is_ipv6,
+        None,
+        is_traceroute,
+    )
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).

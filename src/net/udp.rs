@@ -1,9 +1,9 @@
-use std::io::{Cursor, Read, Write};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use prost::bytes::Buf;
 use crate::custom_module::manycastr::{address, Address};
 use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
 use crate::DNS_IDENTIFIER;
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use prost::bytes::Buf;
+use std::io::{Cursor, Read, Write};
 
 /// An UDPPacket (UDP packet) <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 #[derive(Debug)]
@@ -308,7 +308,9 @@ impl UDPPacket {
         let encoded_tx_id = ((DNS_IDENTIFIER as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
-        dns_body.write_u16::<byteorder::BigEndian>(encoded_tx_id).unwrap(); // Transaction ID
+        dns_body
+            .write_u16::<byteorder::BigEndian>(encoded_tx_id)
+            .unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs
@@ -390,7 +392,9 @@ impl UDPPacket {
         let encoded_tx_id = ((DNS_IDENTIFIER as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
-        dns_body.write_u16::<byteorder::BigEndian>(encoded_tx_id).unwrap(); // Transaction ID
+        dns_body
+            .write_u16::<byteorder::BigEndian>(encoded_tx_id)
+            .unwrap(); // Transaction ID
         dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (Standard query, recursion desired)
         dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // Number of questions
         dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // Number of answer RRs

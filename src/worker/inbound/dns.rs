@@ -1,10 +1,10 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, Reply};
 use crate::net::{
-    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord
+    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
 };
-use crate::DNS_IDENTIFIER;
 use crate::worker::config::get_origin_id;
+use crate::DNS_IDENTIFIER;
 use crate::{A_ID, CHAOS_ID};
 use std::time::{SystemTime, UNIX_EPOCH};
 
