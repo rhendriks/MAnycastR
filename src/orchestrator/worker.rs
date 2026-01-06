@@ -1,11 +1,11 @@
 use crate::custom_module::manycastr::{Address, ReplyBatch};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
-use crate::orchestrator::CliHandle;
+use crate::orchestrator::{CliHandle, OngoingMeasurement};
 use futures_core::Stream;
 use log::{info, warn};
 use std::fmt;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -50,18 +50,19 @@ impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
 }
 
 /// Special Receiver struct that notices when the worker disconnects.
-///
 /// When a worker drops we update the active worker counter such that the orchestrator knows this worker is not participating in any measurements.
 /// Furthermore, we send a message to the CLI if it is currently performing a measurement, to let it know this worker is finished.
 pub struct WorkerReceiver<T> {
     /// The inner receiver that connects to the worker
     pub(crate) inner: mpsc::Receiver<T>,
     /// Shared counter of the number of active workers in the current measurement (None if no measurement is active)
-    pub(crate) active_workers: Arc<Mutex<Option<u32>>>,
+    pub(crate) ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
     /// Sender that connects to the CLI
     pub(crate) cli_sender: CliHandle,
     /// The hostname of the worker
     pub(crate) hostname: String,
+    /// Worker ID
+    pub(crate) worker_id: u32,
     /// The status of the worker, used to determine if it is connected or not
     pub(crate) status: Arc<Mutex<WorkerStatus>>,
 }
@@ -78,58 +79,62 @@ impl<T> Drop for WorkerReceiver<T> {
     fn drop(&mut self) {
         warn!("[Orchestrator] Worker {} lost connection", self.hostname);
 
-        // If this worker is participating, update the active_workers counter
-        if (*self.status.lock().unwrap() == Probing || *self.status.lock().unwrap() == Listening)
-            && self.active_workers.lock().unwrap().is_some()
-        {
-            let mut active_workers = self.active_workers.lock().unwrap();
-            let count = active_workers.unwrap();
-            if count == 1 {
-                // Measurement is over, no more active workers
-                info!("[Orchestrator] Last active worker dropped, measurement is over... Notifying CLI");
-                *active_workers = None;
+        let mut should_notify_cli = false;
+        let worker_id = self.worker_id;
 
-                match self
-                    .cli_sender
-                    .lock()
-                    .unwrap()
-                    .clone()
-                    .unwrap()
-                    .try_send(Ok(ReplyBatch::default()))
-                {
-                    Ok(_) => (),
-                    Err(_) => {
-                        warn!("[Orchestrator] Failed to send measurement finished signal to CLI")
+        {
+            let status = *self.status.lock().unwrap();
+            let is_participating = status == Probing || status == Listening;
+
+            // If this worker is participating, update the active_workers counter
+            if is_participating {
+                let mut measurement_lock = self.ongoing_measurement.write().unwrap();
+
+                if let Some(ref mut measurement) = *measurement_lock {
+                    // Remove from probing list if they were a prober
+                    measurement.probing_workers.retain(|&id| id != worker_id);
+
+                    // Decrement the participating workers counter
+                    if measurement.workers_count <= 1 {
+                        // This was the last worker
+                        info!("[Orchestrator] Last active worker ({}) dropped. Measurement is over.", self.hostname);
+                        *measurement_lock = None; // Reset the state
+                        should_notify_cli = true;
+                    } else {
+                        measurement.workers_count -= 1;
                     }
                 }
-            } else {
-                *active_workers = Some(count - 1);
             }
         }
 
         // Set the status to Disconnected
-        let mut status = self.status.lock().unwrap();
-        *status = Disconnected;
+        *self.status.lock().unwrap() = Disconnected;
+
+        // Notify the CLI if the measurement is finished now
+        if should_notify_cli {
+            if let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref() {
+                if let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default())) {
+                    warn!("[Orchestrator] Failed to send measurement finished signal to CLI: {}", e);
+                }
+            }
+        }
     }
 }
 
 /// Special Sender struct for workers that sends tasks after a delay (based on the Worker interval).
-///
-/// # Fields
-///
-/// * inner - the inner sender that connects to the worker
-/// * worker_id - the unique ID of the worker
-/// * hostname - the hostname of the worker
-/// * status - the status of the worker, used to determine if it is connected or not
-/// * unicast_v4 - the unicast IPv4 address of the worker, if available
-/// * unicast_v6 - the unicast IPv6 address of the worker, if available
 #[derive(Clone)]
 pub struct WorkerSender<T> {
+    /// Inner sender that connects to the orker
     pub(crate) inner: Sender<T>,
+    /// Unique Worker ID
     pub(crate) worker_id: u32,
+    /// Worker hostname
     pub(crate) hostname: String,
+    /// Status of the Worker (e.g., Listening, Probing, Idle, Connected)
     pub(crate) status: Arc<Mutex<WorkerStatus>>,
+    /// Unicast IPv4 address of the Worker (None if unavailable)
     pub(crate) unicast_v4: Option<Address>,
+    /// Unicast IPv6 address of the Worker (None if unavailable)
     pub(crate) unicast_v6: Option<Address>,
 }
 impl<T> WorkerSender<T> {
@@ -155,10 +160,6 @@ impl<T> WorkerSender<T> {
         *status = Disconnected;
 
         info!("[Orchestrator] Worker {} dropped", self.hostname);
-    }
-
-    pub fn is_probing(&self) -> bool {
-        *self.status.lock().unwrap() == Probing
     }
 
     pub fn is_participating(&self) -> bool {
