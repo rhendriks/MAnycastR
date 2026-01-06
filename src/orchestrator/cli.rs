@@ -1,10 +1,10 @@
+use crate::orchestrator::OngoingMeasurement;
 use futures_core::Stream;
 use log::warn;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
-use crate::orchestrator::OngoingMeasurement;
 
 /// Special Receiver struct that notices when the CLI disconnects.
 /// When a CLI disconnects we cancel all open measurements. We set this orchestrator as available for receiving a new measurement.
@@ -32,7 +32,9 @@ impl<T> Drop for CLIReceiver<T> {
 
         // If there is an active measurement we need to cancel it and notify the workers
         if measurement_lock.is_some() {
-            warn!("[Orchestrator] CLI dropped during an active measurement, terminating measurement");
+            warn!(
+                "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
+            );
             *measurement_lock = None; // No longer an active measurement
         }
     }

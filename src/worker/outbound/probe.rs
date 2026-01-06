@@ -61,7 +61,7 @@ pub fn send_probe(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2, // ICMP seq
+                    2,                   // ICMP seq
                     payload_fields,
                     255,
                 ));

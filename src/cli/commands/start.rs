@@ -57,7 +57,6 @@ pub async fn handle(
     let is_traceroute = matches.get_flag("traceroute");
     let is_record = matches.get_flag("record"); // Record Route flag
 
-
     // Get optional opt-out URL
     let url = matches.get_one::<String>("url").unwrap().clone();
 
@@ -155,7 +154,7 @@ pub async fn handle(
     let is_shuffle = matches.get_flag("shuffle");
 
     let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
-    
+
     if is_record && is_ipv6 {
         panic!("Record Route is IPv4 only");
     }
