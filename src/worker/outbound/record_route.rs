@@ -3,18 +3,18 @@ use crate::net::packet::{create_record_route_icmp, ProbePayload};
 use crate::worker::outbound::OutboundConfig;
 use log::{error, warn};
 use pnet::datalink::DataLinkSender;
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Send a Record Route ICMP probe to the specified destination.
 ///
 /// # Arguments
-/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
-/// * 'config' - The outbound configuration containing worker details and settings.
-/// * 'dst' - The destination address to which the probe will be sent.
-/// * 'socket_tx' - The socket sender to use for sending the packet.
-/// * 'limiter' - A rate limiter to control the sending rate of packets.
+/// * `ethernet_header` - The Ethernet header to prepend to the packet.
+/// * `config` - The outbound configuration containing worker details and settings.
+/// * `dst` - The destination address to which the probe will be sent.
+/// * `socket_tx` - The socket sender to use for sending the packet.
+/// * `limiter` - A rate limiter to control the sending rate of packets.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_record_route_probe(
@@ -27,35 +27,40 @@ pub fn send_record_route_probe(
     let mut sent = 0;
     let mut failed = 0;
 
-    let worker_id = config.worker_id as u32;
-    let m_id = config.m_id;
-    let info_url = &config.info_url;
-    let origins = config.origin_map.as_ref().expect("Missing origin_map");
+    // Payload to encode in outgoing probes
+    let icmp_payload = ProbePayload {
+        worker_id: config.worker_id as u32,
+        m_id: config.m_id,
+        trace_ttl: None,
+        info_url: &config.info_url,
+    };
 
-    for origin in origins {
-        let mut packet = ethernet_header.to_owned();
-        let payload_fields = ProbePayload {
-            worker_id,
-            m_id,
-            trace_ttl: None,
-            info_url,
-        };
+    // Write packets to send to a one-time allocated buffer
+    let mut packet_buffer = Vec::with_capacity(256);
 
-        packet.extend_from_slice(&create_record_route_icmp(
+    for origin in &config.tx_origins {
+        // Rate limit
+        if let Err(not_until) = limiter.check() {
+            let wait_time = not_until.wait_time_from(Instant::now());
+            if wait_time > Duration::ZERO {
+                sleep(wait_time);
+            }
+        }
+
+        // Write new packet to buffer
+        packet_buffer.clear();
+        packet_buffer.extend_from_slice(ethernet_header);
+
+        packet_buffer.extend_from_slice(&create_record_route_icmp(
             origin.src.as_ref().unwrap(),
             dst,
             origin.dport as u16,
             2,
-            payload_fields,
+            &icmp_payload,
             255,
         ));
 
-        while limiter.check().is_err() {
-            // Rate limit to avoid bursts
-            sleep(Duration::from_millis(1));
-        }
-
-        match socket_tx.send_to(&packet, None) {
+        match socket_tx.send_to(&packet_buffer, None) {
             Some(Ok(())) => sent += 1,
             Some(Err(e)) => {
                 warn!("[Worker outbound] Failed to send Record Route packet: {e}");

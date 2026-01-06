@@ -73,16 +73,28 @@ pub fn send_probe(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2, // ICMP seq
+                    2,                   // ICMP seq
                     &icmp_payload,
                     255,
                 ));
             }
             A_ID | CHAOS_ID => {
-                packet_buffer.extend_from_slice(&create_dns(origin, dst, worker_id, config.m_type, &config.qname));
+                packet_buffer.extend_from_slice(&create_dns(
+                    origin,
+                    dst,
+                    worker_id,
+                    config.m_type,
+                    &config.qname,
+                ));
             }
             TCP_ID => {
-                packet_buffer.extend_from_slice(&create_tcp(origin, dst, worker_id, config.is_latency, &config.info_url));
+                packet_buffer.extend_from_slice(&create_tcp(
+                    origin,
+                    dst,
+                    worker_id,
+                    config.is_latency,
+                    &config.info_url,
+                ));
             }
             255 => {
                 panic!("Invalid measurement type)") // TODO all, any
