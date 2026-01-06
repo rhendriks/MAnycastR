@@ -9,7 +9,7 @@ mod worker;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::ops::AddAssign;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::custom_module;
@@ -40,23 +40,33 @@ const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
 /// The measurement types that result in different result handling behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeasurementType {
-    /// Targets are probed for responsiveness from any worker, follow-up probes are sent from all workers.
+    /// Targets are probed for responsiveness from any worker, measurement probes are sent from all workers.
     Responsive,
-    /// Targets are probed to determine the catching worker, follow-up probes are sent from the catching worker.
+    /// Targets are probed to determine the catching worker, measurement probes are sent from the catching worker.
     Latency,
-    /// Targets are probed to determine the catching worker, follow-up probes are sent from all workers. TODO will not work with unresponsive targets, and sends an unnecessary discovery probe for unicast traceroute
+    /// Targets are probed to determine the catching worker, traceroute probes are sent from the catching worker. TODO will not work with unresponsive targets, and sends an unnecessary discovery probe for unicast traceroute
     Traceroute,
+}
+
+/// State to keep track of an ongoing measurement
+#[derive(Debug)]
+pub struct OngoingMeasurement {
+    /// Number of Workers still participating in the measurement (decremented when a Worker finishes)
+    workers_count: u32,
+    /// Worker IDs of connected Workers that are actively probing
+    probing_workers: Vec<u32>,
 }
 
 /// The main orchestrator service struct.
 #[derive(Debug)]
 pub struct ControllerService {
     /// List of connected workers
-    workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    saved_workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
     /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
     /// Number of workers participating in the current measurement (None if no measurement is active)
-    active_workers: Arc<Mutex<Option<u32>>>,
+    //workers_count: Arc<Mutex<Option<u32>>>,
+    ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
     /// Indicates the type of measurement currently active
@@ -100,7 +110,7 @@ impl ControllerService {
     /// Returns an error if the hostname already exists and is used by a connected worker.
     fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Box<Status>> {
         {
-            let workers = self.workers.lock().unwrap();
+            let workers = self.saved_workers.lock().unwrap();
             // Check if the hostname already exists in the workers list
             if let Some(existing_worker) = workers.iter().find(|w| w.hostname == hostname) {
                 return if !existing_worker.is_closed() {
@@ -147,9 +157,9 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         .unwrap_or_else(|| (Arc::new(Mutex::new(1)), None));
 
     let controller = ControllerService {
-        workers: Arc::new(Mutex::new(Vec::new())),
+        saved_workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
-        active_workers: Arc::new(Mutex::new(None)),
+        ongoing_measurement: Arc::new(RwLock::new(None)),
         unique_id: current_worker_id,
         m_type: Arc::new(Mutex::new(None)),
         worker_config,

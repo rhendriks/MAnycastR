@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
+use crate::orchestrator::{OngoingMeasurement, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
 use log::{info, warn};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
@@ -16,14 +16,14 @@ pub struct TaskDistributorConfig {
     /// Vector of tasks to distribute
     pub tasks: Vec<Task>,
     /// Active workers (None if no measurement is active)
-    pub active_workers: Arc<Mutex<Option<u32>>>,
+    pub ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
     /// Channel to send tasks to the TaskDistributor
     pub tx_t: Sender<(u32, Instruction, bool)>,
     /// Number of tasks to send per interval (equal to probing rate)
     pub probing_rate: u32,
     /// Interval at which to send tasks
     pub probing_rate_interval: Interval,
-    /// Number of probing workers
+    /// Number of probing workers TODO information in ongoing_measurement
     pub number_of_probing_workers: usize,
     /// Inter-worker interval between workers
     pub worker_interval: u64,
@@ -43,7 +43,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
     spawn(async move {
         // Iterate over the hitlist in chunks of the specified probing rate.
         for chunk in config.tasks.chunks(config.probing_rate as usize) {
-            if config.active_workers.lock().unwrap().is_none() {
+            if config.ongoing_measurement.read().unwrap().is_none() {
                 warn!("[Orchestrator] Measurement no longer active");
                 break;
             }
@@ -87,7 +87,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
             .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while config.active_workers.lock().unwrap().is_some() {
+        while config.ongoing_measurement.read().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
@@ -127,7 +127,7 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_work
         // TODO update probing_rate_interval if a worker disconnects
 
         for chunk in config.tasks.chunks(config.probing_rate as usize) {
-            if config.active_workers.lock().unwrap().is_none() {
+            if config.ongoing_measurement.read().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
@@ -175,7 +175,7 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_work
             .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while config.active_workers.lock().unwrap().is_some() {
+        while config.ongoing_measurement.read().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
@@ -241,7 +241,7 @@ pub async fn round_robin_discovery(
                 id
             };
 
-            if config.active_workers.lock().unwrap().is_none() {
+            if config.ongoing_measurement.read().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
@@ -373,7 +373,7 @@ pub async fn round_robin_discovery(
             .expect("Failed to send end task to TaskDistributor");
 
         // Wait till all workers are finished
-        while config.active_workers.lock().unwrap().is_some() {
+        while config.ongoing_measurement.read().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
@@ -405,15 +405,11 @@ pub async fn round_robin_discovery(
 ///
 /// # Arguments
 ///
-/// * 'rx' - the channel containing the tuple (task_ID, task, multiple_times)
-///
-/// * 'workers' - the list of worker senders to which the tasks will be sent
-///
-/// * 'inter_client_interval' - the interval in seconds between sending tasks to different workers
-///
-/// * 'inter_probe_interval' - the interval in seconds between sending multiple probes to the same worker
-///
-/// * 'number_of_probes' - the number of times to probe the same target (for non-discovery probes)
+/// * `rx` - the channel containing the tuple (task_ID, task, multiple_times)
+/// * `workers` - the list of worker senders to which the tasks will be sent
+/// * `inter_client_interval` - the interval in seconds between sending tasks to different workers
+/// * `inter_probe_interval` - the interval in seconds between sending multiple probes to the same worker
+/// * `number_of_probes` - the number of times to probe the same target (for non-discovery probes)
 pub async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
     workers: Vec<WorkerSender<Result<Instruction, Status>>>,
