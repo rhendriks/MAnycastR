@@ -265,12 +265,7 @@ pub fn create_record_route_icmp(
     // Add info URL to payload
     payload_bytes.extend(payload.info_url.bytes());
 
-    // add the source address
-    if src.is_v6() {
-        panic!("Reverse traceroute not supported for IPv6 yet"); // TODO
-    } else {
-        ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
-    }
+    ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
 }
 
 /// Creates a DNS packet.
