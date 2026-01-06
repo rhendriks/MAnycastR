@@ -102,14 +102,11 @@ impl Controller for ControllerService {
     type WorkerConnectStream = WorkerReceiver<Result<Instruction, Status>>;
 
     /// Handles a worker connecting to this orchestrator formally.
-    ///
     /// Ensures the hostname is unique and returns a unique worker ID
-    ///
     /// Returns the receiver side of a stream to which the orchestrator will send tasks
     ///
     /// # Arguments
-    ///
-    /// * 'request' - a Metadata message containing the hostname of the worker
+    /// * `request` - a Metadata message containing the hostname of the worker
     async fn worker_connect(
         &self,
         request: Request<Worker>,
@@ -181,7 +178,7 @@ impl Controller for ControllerService {
     /// Furthermore, lets the workers know of the desired probing rate (defined by the CLI).
     ///
     /// # Arguments
-    /// * 'request' - a ScheduleMeasurement message containing information about the measurement that the CLI wants to perform
+    /// * `request` - a ScheduleMeasurement message containing information about the measurement that the CLI wants to perform
     ///
     /// # Errors
     /// Returns an error if there is already an active measurement, or if there are no connected workers to perform the measurement.
@@ -522,7 +519,7 @@ impl Controller for ControllerService {
     /// Receive a batch of results from a worker and put it in the stream towards the CLI.
     ///
     /// # Arguments
-    /// * 'request' - a ReplyBatch containing results from a worker
+    /// * `request` - a ReplyBatch containing results from a worker
     ///
     /// # Errors
     /// Returns an error if the CLI has disconnected.

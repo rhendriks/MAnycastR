@@ -12,7 +12,7 @@ use tonic::transport::Identity;
 /// hostname,id
 ///
 /// # Arguments
-/// * 'config_path' - the path to the configuration file
+/// * `config_path` - the path to the configuration file
 ///
 /// # Returns
 /// * The worker ID for any new hostname, which is the maximum ID + 1 in the configuration file

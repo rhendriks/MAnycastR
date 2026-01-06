@@ -12,12 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
 ///
 /// # Arguments
-/// * 'packet_bytes' - the bytes of the packet to parse
-/// * 'measurement_type' - the type of measurement being performed
-/// * 'origin_map' - mapping of origin to origin ID
-///
+/// * `packet_bytes` - the bytes of the packet to parse
+/// * `measurement_type` - the type of measurement being performed
+/// * `origin_map` - mapping of origin to origin ID
+/// * `is_ipv6` - whether we are parsing IPv6 or IPv4 packets
 /// # Returns
-/// * `Option<Result>` - the received DNS reply (None if invalid)
+/// * `Option<Reply>` - the received DNS reply (None if invalid)
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a UDP header.
