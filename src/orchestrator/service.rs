@@ -57,20 +57,23 @@ impl Controller for ControllerService {
             let mut lock = self.ongoing_measurement.write().unwrap();
             if let Some(ref mut measurement) = *lock {
                 // Remove this worker from the probing workers list (if it was probing)
-                measurement.probing_workers.retain(|&id| id != finished_worker_id);
+                measurement
+                    .probing_workers
+                    .retain(|&id| id != finished_worker_id);
 
                 // Decrement the participating workers count
                 measurement.workers_count -= 1;
 
                 if measurement.workers_count == 0 {
-                    info!("[Orchestrator] All workers finished for measurement {m_id}. Notifying CLI");
+                    info!(
+                        "[Orchestrator] All workers finished for measurement {m_id}. Notifying CLI"
+                    );
                     should_notify = true;
 
                     // Set the current measurement to None, allowing for a new measurement
                     *lock = None;
                 }
-            }
-            else {
+            } else {
                 warn!(
                 "[Orchestrator] Received measurement finished signal for worker {finished_worker_id}, but no measurement is active."
             );
@@ -232,7 +235,11 @@ impl Controller for ControllerService {
                 } else {
                     // Listening if any worker is probing with anycast
                     let is_listening = m_definition.configurations.iter().any(|config| {
-                        !config.origin.as_ref().and_then(|o| o.src.as_ref()).map_or(true, |s| s.is_unicast())
+                        !config
+                            .origin
+                            .as_ref()
+                            .and_then(|o| o.src.as_ref())
+                            .map_or(true, |s| s.is_unicast())
                     });
 
                     if is_listening {
@@ -258,7 +265,10 @@ impl Controller for ControllerService {
             conf.worker_id != ALL_WORKERS && !workers.iter().any(|w| w.worker_id == conf.worker_id)
         }) {
             error!("[Orchestrator] Configuration contains unknown worker IDs.");
-            return Err(Status::new(tonic::Code::Cancelled, "Unknown worker in configuration"));
+            return Err(Status::new(
+                tonic::Code::Cancelled,
+                "Unknown worker in configuration",
+            ));
         }
 
         // Initialize a new measurement
@@ -267,7 +277,10 @@ impl Controller for ControllerService {
             // Exit if we have an ongoing measurement
             if measurement_lock.is_some() {
                 error!("[Orchestrator] There is already an active measurement, returning");
-                return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"));
+                return Err(Status::new(
+                    tonic::Code::Cancelled,
+                    "There is already an active measurement",
+                ));
             }
 
             probing_workers_count = probing_worker_ids.len();
@@ -459,12 +472,7 @@ impl Controller for ControllerService {
             round_robin_distributor(task_config).await;
         } else if is_responsive || is_latency || is_traceroute {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
-            round_robin_discovery(
-                task_config,
-                self.worker_stacks.clone(),
-                is_responsive,
-            )
-            .await;
+            round_robin_discovery(task_config, self.worker_stacks.clone(), is_responsive).await;
         } else {
             // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
             broadcast_distributor(task_config).await;
@@ -542,7 +550,6 @@ impl Controller for ControllerService {
                         reply_data: Some(inner_data),
                     });
                 }
-
                 None => {}
             }
         }

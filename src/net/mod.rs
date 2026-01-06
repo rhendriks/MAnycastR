@@ -2,15 +2,15 @@ extern crate byteorder;
 use std::io::{Cursor, Read, Write};
 
 use crate::custom_module::manycastr::{address, Address, RecordedHops};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 pub(crate) use crate::net::icmp::ICMPPacket;
 use crate::net::tcp::TCPPacket;
-pub(crate) use crate::net::udp::{UDPPacket, TXTRecord, DNSAnswer, DNSRecord};
+pub(crate) use crate::net::udp::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
-pub(crate) mod packet;
 mod icmp;
-mod udp;
+pub(crate) mod packet;
 mod tcp;
+mod udp;
 
 /// Enum representing either an IPv4 or IPv6 packet.
 #[derive(Debug)]

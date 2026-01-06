@@ -1,7 +1,7 @@
-use std::io::{Cursor, Write};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use crate::custom_module::manycastr::{address, Address};
 use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Write};
 
 /// A TCPPacket <https://en.wikipedia.org/wiki/Transmission_Control_Protocol>
 #[derive(Debug)]

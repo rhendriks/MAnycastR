@@ -97,7 +97,10 @@ impl<T> Drop for WorkerReceiver<T> {
                     // Decrement the participating workers counter
                     if measurement.workers_count <= 1 {
                         // This was the last worker
-                        info!("[Orchestrator] Last active worker ({}) dropped. Measurement is over.", self.hostname);
+                        info!(
+                            "[Orchestrator] Last active worker ({}) dropped. Measurement is over.",
+                            self.hostname
+                        );
                         *measurement_lock = None; // Reset the state
                         should_notify_cli = true;
                     } else {
@@ -114,7 +117,10 @@ impl<T> Drop for WorkerReceiver<T> {
         if should_notify_cli {
             if let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref() {
                 if let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default())) {
-                    warn!("[Orchestrator] Failed to send measurement finished signal to CLI: {}", e);
+                    warn!(
+                        "[Orchestrator] Failed to send measurement finished signal to CLI: {}",
+                        e
+                    );
                 }
             }
         }
