@@ -9,12 +9,10 @@ use tokio::sync::mpsc;
 /// Special Receiver struct that notices when the CLI disconnects.
 /// When a CLI disconnects we cancel all open measurements. We set this orchestrator as available for receiving a new measurement.
 /// Furthermore, if a measurement is active, we send a termination message to all workers to quit the current measurement.
-///
-/// # Fields
-/// * `inner` - the receiver that connects to the CLI
-/// * `ongoing_measurement` - a shared counter of the number of active workers in the current measurement (None if no measurement is active)
 pub struct CLIReceiver<T> {
+    /// Receiver that connects to the CLI
     pub(crate) inner: mpsc::Receiver<T>,
+    /// Shared measurement data for the current ongoing measurement, None if no measurement is ongoing
     pub(crate) ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
 }
 

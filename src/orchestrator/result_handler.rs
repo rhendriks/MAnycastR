@@ -115,7 +115,7 @@ pub fn trace_discovery_handler(
 /// # Arguments
 /// * `trace_replies` - A list of traceroute results
 /// * `worker_stacks` - Stacks for workers to put follow-up trace tasks into
-/// * `traceroute_config`
+/// * `traceroute_config` - Configuration and state for the ongoing traceroute measurement
 pub fn trace_replies_handler(
     trace_replies: Vec<TraceReply>,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,

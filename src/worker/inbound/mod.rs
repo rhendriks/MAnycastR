@@ -149,11 +149,8 @@ pub fn inbound(
 /// # Arguments
 ///
 /// * `tx` - sender to put task results in
-///
 /// * `rx_f` - channel that is used to signal the end of the measurement
-///
 /// * `worker_id` - the unique worker ID of this worker
-///
 /// * `rq_sender` - contains a vector of all received replies as Reply results
 fn handle_results(
     tx: &UnboundedSender<ReplyBatch>,
