@@ -56,7 +56,7 @@ message Finished {
   uint32 worker_id = 2;
 }
 
-// Schedule a measurement with the orchestrator // TODO spli into different measurement types
+// Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
   uint32 probing_rate = 1; // Probing rate (probes per second)
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
@@ -135,7 +135,7 @@ message Init {
   uint32 worker_id = 1;
 }
 
-// A start control instruction, forwards the configuration to the worker TODO split into different measurement types
+// A start control instruction, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
