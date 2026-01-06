@@ -6,12 +6,12 @@ edition = "2021"
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
 chrono = "0.4.42"# get current time
-clap = "4.5.53"# parse command line arguments
+clap = "4.5.54"# parse command line arguments
 csv = "1.4.0" # write to CSV
 futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
 prost = "0.14.1" # define gRPC messages
-tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
 tonic = { version = "0.14.2", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.10.0-rc.5" # generate random numbers
 gethostname = "1.1.0" # get hostname
