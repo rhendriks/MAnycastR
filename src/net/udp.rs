@@ -292,8 +292,8 @@ impl UDPPacket {
         tx_id: u32,
         sport: u16,
     ) -> Vec<u8> {
-        let src_num = src.to_numeric();
-        let dst_num = dst.to_numeric();
+        let src_num = src.as_numeric();
+        let dst_num = dst.as_numeric();
         // Max length of DNS domain name is 253 character
         // Each label has a max length of 63 characters
         // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain

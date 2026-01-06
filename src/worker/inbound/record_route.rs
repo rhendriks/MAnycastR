@@ -39,7 +39,7 @@ pub fn parse_record_route(
     };
 
     parse_icmp_inner(
-        &icmp_packet,
+        icmp_packet,
         &ip_header,
         m_id,
         worker_map,

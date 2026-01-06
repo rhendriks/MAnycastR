@@ -239,7 +239,7 @@ impl Controller for ControllerService {
                             .origin
                             .as_ref()
                             .and_then(|o| o.src.as_ref())
-                            .map_or(true, |s| s.is_unicast())
+                            .is_none_or(|s| s.is_unicast())
                     });
 
                     if is_listening {
