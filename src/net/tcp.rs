@@ -41,7 +41,6 @@ impl From<&[u8]> for TCPPacket {
 impl From<&TCPPacket> for Vec<u8> {
     fn from(packet: &TCPPacket) -> Self {
         let mut wtr = vec![];
-
         wtr.write_u16::<NetworkEndian>(packet.sport)
             .expect("Unable to write to byte buffer for TCP packet");
         wtr.write_u16::<NetworkEndian>(packet.dport)

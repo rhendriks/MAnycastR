@@ -53,12 +53,12 @@ impl ICMPPacket {
     /// Create a basic ICMP ECHO_REQUEST (8.0) packet with checksum.
     ///
     /// # Arguments
-    /// * 'icmp_identifier' - the identifier for the ICMP header
-    /// * 'sequence_number' - the sequence number for the ICMP header
-    /// * 'body' - the ICMP payload
-    /// * 'src' - the source address of the packet
-    /// * 'dst' - the destination address of the packet
-    /// * 'ttl' - the time to live of the packet
+    /// * `icmp_identifier` - the identifier for the ICMP header
+    /// * `sequence_number` - the sequence number for the ICMP header
+    /// * `body` - the ICMP payload
+    /// * `src` - the source address of the packet
+    /// * `dst` - the destination address of the packet
+    /// * `ttl` - the time to live of the packet
     pub fn echo_request(
         icmp_identifier: u16,
         sequence_number: u16,
