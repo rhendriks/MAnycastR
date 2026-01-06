@@ -271,11 +271,11 @@ pub fn create_record_route_icmp(
 /// Creates a DNS packet.
 ///
 /// # Arguments
-/// * 'origin' - the source address and port values we use for our probes
-/// * 'worker_id' - the unique worker ID of this worker
-/// * 'dst' - the destination address for the DNS packet
-/// * 'measurement_type' - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
-/// * 'qname' - the DNS record to request
+/// * `origin` - the source address and port values we use for our probes
+/// * `worker_id` - the unique worker ID of this worker
+/// * `dst` - the destination address for the DNS packet
+/// * `m_type` - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
+/// * `qname` - the DNS record to request
 ///
 /// # Returns
 /// A DNS packet (including the IP header) as a byte vector.
@@ -283,7 +283,7 @@ pub fn create_dns(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    measurement_type: u8,
+    m_type: u8,
     qname: &str,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
@@ -293,9 +293,9 @@ pub fn create_dns(
     let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
-    if measurement_type == A_ID {
+    if m_type == A_ID {
         UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
-    } else if measurement_type == CHAOS_ID {
+    } else if m_type == CHAOS_ID {
         UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
         panic!("Invalid measurement type")
@@ -305,11 +305,11 @@ pub fn create_dns(
 /// Creates a TCP packet.
 ///
 /// # Arguments
-/// * 'origin' - the source address and port values we use for our probes
-/// * 'dst' - the destination address for the TCP packet
-/// * 'worker_id' - the unique worker ID of this worker
-/// * 'is_symmetric' - whether we are measuring latency
-/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+/// * `origin` - the source address and port values we use for our probes
+/// * `dst` - the destination address for the TCP packet
+/// * `worker_id` - the unique worker ID of this worker
+/// * `is_discovery` - whether this is a measurement (False) or discovery (True) probe
+/// * `info_url` - URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
 /// A TCP packet (including the IP header) as a byte vector.
@@ -345,25 +345,18 @@ pub fn create_tcp(
 /// Checks if the given address is in the given prefix.
 ///
 /// # Arguments
-///
-/// * 'address' - the address to check
-///
-/// * 'prefix' - the prefix to check against
+/// * `addr` - the address to check
+/// * `prefix` - the prefix to check against
 ///
 /// # Returns
-///
 /// True if the address is in the prefix, false otherwise.
 ///
 /// # Panics
-///
 /// If the address is not a valid IP address.
-///
 /// If the prefix is not a valid prefix.
-pub fn is_in_prefix(address: &str, prefix: &IpNetwork) -> bool {
+pub fn is_in_prefix(addr: &str, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
-    let address = address
-        .parse::<IpAddr>()
-        .expect("Invalid IP address format");
+    let address = addr.parse::<IpAddr>().expect("Invalid IP address format");
 
     match address {
         IpAddr::V4(ipv4) => {

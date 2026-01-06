@@ -475,9 +475,8 @@ impl From<&PseudoHeader> for Vec<u8> {
 ///
 /// # Arguments
 ///
-/// * 'buffer' - the UDP/TCP packet as bytes (without the IP header)
-///
-/// * 'pseudo_header' - the pseudo header for this packet (IPv4 or IPv6)
+/// * `buffer` - the UDP/TCP packet as bytes (without the IP header)
+/// * `pseudo_header` - the pseudo header for this packet (IPv4 or IPv6)
 pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
     let mut sum = 0u32;
     let mut packet: Vec<u8> = pseudo_header.into();
