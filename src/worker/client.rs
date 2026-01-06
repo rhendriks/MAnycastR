@@ -16,58 +16,37 @@ impl Worker {
     /// Connect to the orchestrator.
     ///
     /// # Arguments
-    ///
-    /// * 'address' - the address of the orchestrator in string format, containing both the IPv4 address and port number
-    ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let client = connect("127.0.0.0:50001", true);
-    /// ```
+    /// * `address` - the address of the orchestrator in string format, containing both the IPv4 address and port number
+    /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     pub(crate) async fn connect(
         address: String,
-        fqdn: Option<&String>,
+        fqdn: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if let Some(fqdn) = fqdn {
-            // Secure connection
-            let addr = format!("https://{address}");
+        let scheme = if fqdn.is_some() { "https" } else { "http" };
+        let uri = format!("{}://{}", scheme, address);
+        let mut endpoint = Channel::from_shared(uri)?;
 
-            // Load the CA certificate used to authenticate the orchestrator
-            let pem = std::fs::read_to_string("tls/orchestrator.crt")
-                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
+        if let Some(domain_name) = fqdn {
+            let cert_path = "tls/orchestrator.crt";
+            let pem = std::fs::read_to_string(cert_path)
+                .map_err(|e| format!("Failed to read CA cert at {}: {}", cert_path, e))?;
+
             let ca = Certificate::from_pem(pem);
-            // Create a TLS configuration
-            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name(domain_name);
 
-            let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
-            builder
-                .keep_alive_timeout(Duration::from_secs(30))
-                .http2_keep_alive_interval(Duration::from_secs(15))
-                .tcp_keepalive(Some(Duration::from_secs(60)))
-                .tls_config(tls)
-                .expect("Unable to set TLS configuration")
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        } else {
-            // Unsecure connection
-            let addr = format!("http://{address}");
+            endpoint = endpoint.tls_config(tls)?;
+        }
 
-            Channel::from_shared(addr.to_owned())
-                .expect("Unable to set address")
-                .keep_alive_timeout(Duration::from_secs(30))
-                .http2_keep_alive_interval(Duration::from_secs(15))
-                .tcp_keepalive(Some(Duration::from_secs(60)))
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        };
-        // Create worker with secret token that is used to authenticate worker commands.
-        let client = ControllerClient::new(channel);
+        let channel = endpoint
+            .keep_alive_timeout(Duration::from_secs(30))
+            .http2_keep_alive_interval(Duration::from_secs(15))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .connect()
+            .await?;
 
-        Ok(client)
+        Ok(ControllerClient::new(channel))
     }
 
     /// Establish a formal connection with the orchestrator.
