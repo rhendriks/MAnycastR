@@ -27,10 +27,7 @@ pub fn send_trace(
     let tx_origin = if let Some(origin) = origins.iter().find(|o| o.origin_id == origin_id) {
         origin
     } else {
-        warn!(
-            "[Worker outbound] No matching origin found for trace task with origin ID {}",
-            origin_id
-        );
+        warn!("[Worker outbound] No matching origin found for trace task with origin ID {origin_id}");
         return (0, 1);
     };
 
@@ -77,9 +74,7 @@ pub fn send_trace(
 
     match socket_tx.send_to(&packet, None) {
         Some(Ok(())) => return (1, 0),
-        Some(Err(e)) => {
-            warn!("[Worker outbound] Failed to send traceroute packet: {e}");
-        }
+        Some(Err(e)) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),
         None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
     }
     (0, 1)
