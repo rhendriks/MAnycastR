@@ -2,6 +2,7 @@ use crate::custom_module::manycastr::{task, DiscoveryReply, Probe, Task, Trace, 
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
+use crate::orchestrator::TracerouteConfig;
 
 /// Takes a TaskResult containing discovery probe replies for --responsive or --latency probes.
 ///
@@ -34,19 +35,15 @@ pub fn discovery_handler(
 /// Also instruct the catching Worker to send a `Trace` with TTL = 1.
 ///
 /// # Arguments
-/// * 'discovery_results' - List of discovery results
-/// * 'worker_id' - Worker that received the discovery results and will perform the traceroute
-/// * 'worker_stacks' - Shared stack to put follow-up tasks into
-/// * 'session_tracker' - Keeps track of ongoing traceroute sessions
-/// * 'hop_timeout' - Hop timeout interval before being considered unresponsive
-/// * 'initial_hop' - TTL value to start traceroutes with
+/// * `discovery_results` - List of discovery results
+/// * `worker_id` - Worker that received the discovery results and will perform the traceroute
+/// * `worker_stacks` - Shared stack to put follow-up tasks into
+/// * `traceroute_config`
 pub fn trace_discovery_handler(
     discovery_results: Vec<DiscoveryReply>,
     catcher_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-    session_tracker: &mut SessionTracker,
-    hop_timeout: u64,
-    initial_hop: u32,
+    traceroute_config: &mut TracerouteConfig,
 ) {
     let mut tasks_to_send = Vec::new();
 
@@ -68,16 +65,16 @@ pub fn trace_discovery_handler(
             worker_id: catcher_id,
             target,
             origin_id,
-            current_ttl: initial_hop as u8,
+            current_ttl: traceroute_config.initial_hop as u8,
             consecutive_failures: 0,
             last_updated: Instant::now(),
         };
 
         println!("added to session tracker");
-        session_tracker.sessions.insert(identifier.clone(), session);
+        traceroute_config.session_tracker.sessions.insert(identifier.clone(), session);
         // Add deadline
-        let deadline = Instant::now() + Duration::from_secs(hop_timeout);
-        session_tracker
+        let deadline = Instant::now() + Duration::from_secs(traceroute_config.timeout);
+        traceroute_config.session_tracker
             .expiration_queue
             .push_back((identifier, deadline));
 
@@ -90,7 +87,7 @@ pub fn trace_discovery_handler(
         tasks_to_send.push(Task {
             task_type: Some(task::TaskType::Trace(Trace {
                 dst: target,
-                ttl: initial_hop,
+                ttl: traceroute_config.initial_hop,
                 origin_id,
             })),
         });
@@ -112,17 +109,17 @@ pub fn trace_discovery_handler(
 /// If a regular reply (from the target) is received, it closes the `TraceSession`.
 ///
 /// # Arguments
-/// * 'trace_replies' - A list of traceroute results
-/// * 'worker_stacks' - Stacks for workers to put follow-up trace tasks into
-/// * 'session_tracker' - Tracker for ongoing trace tasks, to update based on replies received
-/// * 'max_hops' - Maximum hop count before terminating trace sessions (default 30)
+/// * `trace_replies` - A list of traceroute results
+/// * `worker_stacks` - Stacks for workers to put follow-up trace tasks into
+/// * `traceroute_config`
 pub fn trace_replies_handler(
     trace_replies: Vec<TraceReply>,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-    session_tracker: &mut SessionTracker,
-    max_hops: u32,
+    traceroute_config: &mut TracerouteConfig,
 ) {
     println!("Received trace replies");
+
+    let session_tracker = &mut traceroute_config.session_tracker;
 
     for trace_reply in trace_replies {
         // Get identifier of corresponding trace
@@ -140,7 +137,7 @@ pub fn trace_replies_handler(
             session.last_updated = Instant::now();
             session.consecutive_failures = 0;
 
-            if session.current_ttl > max_hops as u8
+            if session.current_ttl > traceroute_config.max_hops as u8
                 || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
             {
                 // Routing loop or destination reached -> close session
