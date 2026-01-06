@@ -1,8 +1,8 @@
 use crate::custom_module::manycastr::{task, DiscoveryReply, Probe, Task, Trace, TraceReply};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
+use crate::orchestrator::TracerouteConfig;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
-use crate::orchestrator::TracerouteConfig;
 
 /// Takes a TaskResult containing discovery probe replies for --responsive or --latency probes.
 ///
@@ -71,10 +71,14 @@ pub fn trace_discovery_handler(
         };
 
         println!("added to session tracker");
-        traceroute_config.session_tracker.sessions.insert(identifier.clone(), session);
+        traceroute_config
+            .session_tracker
+            .sessions
+            .insert(identifier.clone(), session);
         // Add deadline
         let deadline = Instant::now() + Duration::from_secs(traceroute_config.timeout);
-        traceroute_config.session_tracker
+        traceroute_config
+            .session_tracker
             .expiration_queue
             .push_back((identifier, deadline));
 
