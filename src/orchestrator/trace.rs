@@ -1,8 +1,8 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
-use crate::orchestrator::CliHandle;
+use crate::orchestrator::{CliHandle, OngoingMeasurement};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -51,17 +51,17 @@ pub struct TraceIdentifier {
 /// Else follow up the Trace task for TTL + 1
 ///
 /// # Arguments
-/// * 'worker_stacks' - Shared stack to put Trace tasks in for workers.
-/// * 'sessions' - Shared map that tracks ongoing sessions.
-/// * 'active_workers' - Break signal that is set to None when measurement is finished
-/// * 'hop_timeout' - Maximum waiting time before determining a hop to be unresponsive (default 1s)
-/// * 'max_failures' - Maximum number of consecutive non-responding hops before terminating a traceroute (default 3)
-/// * 'max_hops' - Maximum hop count before terminating a traceroute (default 30)
-/// * 'cli_sender' - Forward '*' results for timed out hops to CLI
+/// * `worker_stacks` - Shared stack to put Trace tasks in for workers.
+/// * `sessions` - Shared map that tracks ongoing sessions.
+/// * `ongoing_measurement` - Shared variable of the current ongoing measurement
+/// * `hop_timeout` - Maximum waiting time before determining a hop to be unresponsive (default 1s)
+/// * `max_failures` - Maximum number of consecutive non-responding hops before terminating a traceroute (default 3)
+/// * `max_hops` - Maximum hop count before terminating a traceroute (default 30)
+/// * `cli_sender` - Forward '*' results for timed out hops to CLI
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     session_tracker: Arc<Mutex<SessionTracker>>,
-    active_workers: Arc<Mutex<Option<u32>>>,
+    ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
     timeout: u64,
     max_failures: u32,
     max_hops: u32,
@@ -70,8 +70,8 @@ pub fn check_trace_timeouts(
     loop {
         // Check if we are finished
         {
-            let worker_guard = active_workers.lock().unwrap();
-            if worker_guard.is_none() {
+            let measurement_guard = ongoing_measurement.read().unwrap();
+            if measurement_guard.is_none() {
                 println!("[x] FINISHED");
                 break;
             }
