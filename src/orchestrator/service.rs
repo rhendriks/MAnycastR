@@ -204,6 +204,7 @@ impl Controller for ControllerService {
         // Get participating (listening and/or probing) and probing workers
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();
+        let probing_workers_count;
 
         // Configure and get the senders
         let workers: Vec<WorkerSender<Result<Instruction, Status>>> = {
@@ -269,6 +270,7 @@ impl Controller for ControllerService {
                 return Err(Status::new(tonic::Code::Cancelled, "There is already an active measurement"));
             }
 
+            probing_workers_count = probing_worker_ids.len();
             *measurement_lock = Some(OngoingMeasurement {
                 workers_count: participating_worker_ids.len() as u32,
                 probing_workers: probing_worker_ids.clone(),
@@ -279,7 +281,6 @@ impl Controller for ControllerService {
         let m_id = rand::rng().random_range(0..u32::MAX);
 
         let participating_workers_count = participating_worker_ids.len();
-        let probing_workers_count = probing_worker_ids.len();
 
         info!("[Orchestrator] {participating_workers_count} participating workers, {probing_workers_count} will probe ({worker_interval} seconds between probing workers)");
 
@@ -455,13 +456,12 @@ impl Controller for ControllerService {
         // Spawn appropriate task distributor thread
         if is_verfploeter {
             // Distribute tasks round-robin
-            round_robin_distributor(task_config, probing_worker_ids).await;
+            round_robin_distributor(task_config).await;
         } else if is_responsive || is_latency || is_traceroute {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(
                 task_config,
                 self.worker_stacks.clone(),
-                probing_worker_ids,
                 is_responsive,
             )
             .await;
@@ -512,7 +512,7 @@ impl Controller for ControllerService {
         Ok(Response::new(status))
     }
 
-    /// Receive a batch of results from a worker and put it in the stream towards the CLI. TODO update rustdoc
+    /// Receive a batch of results from a worker and put it in the stream towards the CLI.
     ///
     /// # Arguments
     /// * 'request' - a ReplyBatch containing results from a worker

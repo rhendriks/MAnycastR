@@ -23,7 +23,7 @@ pub struct TaskDistributorConfig {
     pub probing_rate: u32,
     /// Interval at which to send tasks
     pub probing_rate_interval: Interval,
-    /// Number of probing workers TODO information in ongoing_measurement
+    /// Number of probing workers
     pub number_of_probing_workers: usize,
     /// Inter-worker interval between workers
     pub worker_interval: u64,
@@ -114,26 +114,48 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
 /// Used for --verfploeter and --reverse measurements.
 ///
 /// # Arguments
-/// * 'config' - TaskDistributorConfig with all necessary parameters.
-/// * 'probing_worker_ids' - IDs of the probing workers
-pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_worker_ids: Vec<u32>) {
+/// * `config` - TaskDistributorConfig with all necessary parameters.
+pub async fn round_robin_distributor(config: TaskDistributorConfig) {
     info!("[Orchestrator] Starting Round-Robin Task Distributor.");
     let mut probing_rate_interval = config.probing_rate_interval;
 
-    spawn(async move {
-        // This cycler gives us the next worker to assign a task to
-        let mut sender_cycler = probing_worker_ids.into_iter().cycle();
-        // TODO update cycler if a worker disconnects
-        // TODO update probing_rate_interval if a worker disconnects
+    // Index to cycle over the probing workers
+    let mut current_index = 0;
 
+    spawn(async move {
         for chunk in config.tasks.chunks(config.probing_rate as usize) {
             if config.ongoing_measurement.read().unwrap().is_none() {
                 warn!("[Orchestrator] CLI disconnected; ending measurement");
                 break;
             }
 
-            // Get the current worker ID to send tasks to.
-            let worker_id = sender_cycler.next().expect("No probing workers available");
+            // Get the next probing Worker
+            let worker_id = {
+                let lock = config.ongoing_measurement.read().unwrap();
+
+                // If the measurement was canceled (None), exit the loop
+                let measurement = match *lock {
+                    Some(ref m) => m,
+                    None => {
+                        warn!("[Orchestrator] CLI disconnected; ending measurement");
+                        break;
+                    }
+                };
+
+                let workers = &measurement.probing_workers;
+
+                if workers.is_empty() {
+                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
+                    break;
+                }
+
+                current_index %= workers.len();
+                let id = workers[current_index];
+
+                // Move to next worker for the next loop iteration
+                current_index = (current_index + 1) % workers.len();
+                id
+            };
 
             // Send the instruction to the current round-robin worker
             config
@@ -203,48 +225,52 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig, probing_work
 /// # Arguments
 /// * `config` - TaskDistributorConfig with all necessary parameters.
 /// * `worker_stacks` - stacks of follow-up tasks for each worker
-/// * `probing_worker_ids` - IDs of the probing workers
 /// * `is_responsive` - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
 pub async fn round_robin_discovery(
     config: TaskDistributorConfig,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    probing_worker_ids: Vec<u32>,
     is_responsive: bool,
 ) {
     info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
     let mut probing_rate_interval = config.probing_rate_interval;
-    let probing_workers = Arc::new(RwLock::new(probing_worker_ids));
-    // TODO store in self
-    // TODO update when a worker disconnects
-    let probing_workers_c = probing_workers.clone();
+
+    // Index to cycle over the probing workers
+    let mut current_index = 0;
+    // We create a manual iterator over the general hitlist.
+    let mut hitlist_iter = config.tasks.into_iter();
 
     spawn(async move {
-        // Cycle over the active workers
-        let mut current_index = 0;
-
-        // We create a manual iterator over the general hitlist.
-        let mut hitlist_iter = config.tasks.into_iter();
         let mut hitlist_is_empty = false;
 
         loop {
+            // Get the next probing Worker
             let worker_id = {
-                let workers = probing_workers_c.read().unwrap();
+                let lock = config.ongoing_measurement.read().unwrap();
+
+                // If the measurement was canceled (None), exit the loop
+                let measurement = match *lock {
+                    Some(ref m) => m,
+                    None => {
+                        warn!("[Orchestrator] CLI disconnected; ending measurement");
+                        break;
+                    }
+                };
+
+                let workers = &measurement.probing_workers;
+
                 if workers.is_empty() {
-                    warn!("[Orchestrator] No more probing workers available");
+                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
                     break;
                 }
 
                 current_index %= workers.len();
                 let id = workers[current_index];
+
+                // Move to next worker for the next loop iteration
                 current_index = (current_index + 1) % workers.len();
                 id
             };
-
-            if config.ongoing_measurement.read().unwrap().is_none() {
-                warn!("[Orchestrator] CLI disconnected; ending measurement");
-                break;
-            }
 
             // Worker to send follow-up tasks to
             let f_worker_id = if is_responsive {
