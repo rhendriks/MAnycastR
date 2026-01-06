@@ -7,13 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Sends a traceroute probe based on the provided trace task and configuration.
 /// Only ICMP traceroute is currently implemented.
 /// # Arguments
-/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
-/// * 'config' - The outbound configuration containing worker details and settings.
-/// * 'trace_task' - The traceroute task containing destination and TTL information.
-/// * 'socket_tx' - The socket sender to use for sending the packet.
-/// * 'sent' - A mutable reference to a counter for successfully sent packets.
-/// * 'failed' - A mutable reference to a counter for failed packet sends.
-/// * 'origins' - A vector of origins to find the matching origin ID for traceroute tasks.
+/// * `ethernet_header` - The Ethernet header to prepend to the packet.
+/// * `config` - The outbound configuration containing worker details and settings.
+/// * `trace_task` - The traceroute task containing destination and TTL information.
+/// * `socket_tx` - The socket sender to use for sending the packet.
+/// * `origins` - A vector of origins to find the matching origin ID for traceroute tasks.
 pub fn send_trace(
     ethernet_header: &[u8],
     worker_id: u32,
