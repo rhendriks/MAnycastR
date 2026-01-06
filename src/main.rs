@@ -200,7 +200,7 @@
 //! * Allow feed of targets (instead of a pre-defined hitlist)
 //! * Allow for simultaneous/mixed unicast and anycast measurements
 
-use clap::builder::PossibleValuesParser;
+use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
@@ -397,6 +397,7 @@ fn parse_cmd() -> ArgMatches {
                         .short('r')
                         .value_parser(value_parser!(u32))
                         .required(false)
+                        .default_value_if("traceroute", ArgPredicate::IsPresent, Some("10"))
                         .default_value("1000")
                         .help("Probing rate at each worker (number of outgoing packets / second)")
                     )
