@@ -6,8 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tonic::transport::Channel;
 
-/// The worker that is run at the anycast sites and performs measurements as instructed by the orchestrator.
-///
+/// The worker that is run at the anycast PoPs and performs measurements as instructed by the orchestrator.
 /// The worker is responsible for establishing a connection with the orchestrator, receiving tasks, and performing measurements.
 #[derive(Clone)]
 pub struct Worker {
@@ -28,31 +27,27 @@ pub struct Worker {
 /// Get the origin ID from the origin map based on the reply destination address and ports.
 ///
 /// # Arguments
-///
 /// * `reply_dst` - the destination address of the reply
 /// * `reply_sport` - the source port of the reply
 /// * `reply_dport` - the destination port of the reply
 /// * `origin_map` - the origin map to search in
+///
 /// # Returns
 /// * `Option<u32>` - the origin ID if found, None otherwise
 pub fn get_origin_id(
     reply_dst: Address,
     reply_sport: u16,
     reply_dport: u16,
-    origin_map: &Vec<Origin>,
+    origin_map: &[Origin],
 ) -> Option<u32> {
-    for origin in origin_map {
-        if origin.src == Some(reply_dst)
-            && origin.sport as u16 == reply_dport
-            && origin.dport as u16 == reply_sport
-        {
-            return Some(origin.origin_id);
-        } else if origin.src == Some(reply_dst) && 0 == reply_sport && 0 == reply_dport {
-            // ICMP replies have no port numbers
-            return Some(origin.origin_id);
-        }
-    }
-    None
+    origin_map
+        .iter()
+        .find(|o| {
+            o.src == Some(reply_dst)
+                && ((reply_sport == 0 && reply_dport == 0)
+                    || (o.sport as u16 == reply_dport && o.dport as u16 == reply_sport))
+        })
+        .map(|o| o.origin_id)
 }
 
 /// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,
@@ -61,6 +56,7 @@ pub fn get_origin_id(
 /// # Arguments
 /// * `origins` - A vector of Origin structs to be modified.
 /// * `is_ipv6` - A boolean indicating whether to use the local IPv6 address (true) or IPv4 address (false).
+///
 /// # Returns
 /// * A vector of Origin structs with unspecified unicast addresses replaced by local addresses.
 pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
@@ -72,13 +68,11 @@ pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
 
     origins
         .into_iter()
-        .map(|mut origin| {
-            if let Some(src) = origin.src {
-                if src.is_unicast() {
-                    origin.src = src_addr;
-                }
+        .map(|mut o| {
+            if o.src.is_some_and(|s| s.is_unicast()) {
+                o.src = src_addr;
             }
-            origin
+            o
         })
         .collect()
 }

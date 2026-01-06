@@ -11,11 +11,7 @@ use crate::worker::inbound::ping::parse_icmp_inner;
 ///
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
-pub fn parse_record_route(
-    packet_bytes: &[u8],
-    m_id: u32,
-    worker_map: &Vec<Origin>,
-) -> Option<Reply> {
+pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, worker_map: &[Origin]) -> Option<Reply> {
     // Check for Record Route option and minimum length
     if packet_bytes.len() < 52 || packet_bytes[20] != 7 {
         return None;

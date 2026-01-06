@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], origin_map: &Vec<Origin>, is_ipv6: bool) -> Option<Reply> {
+pub fn parse_tcp(packet_bytes: &[u8], origin_map: &[Origin], is_ipv6: bool) -> Option<Reply> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
