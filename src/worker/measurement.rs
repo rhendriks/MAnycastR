@@ -20,7 +20,6 @@ impl Worker {
     /// Creates an additional thread that forwards task results to the orchestrator.
     ///
     /// # Arguments
-    ///
     /// * `instruction` - Instruction containing a definition for a new measurement
     /// * `worker_id` - the unique ID of this worker
     /// * `abort_s` - an optional boolean that is used to signal the outbound thread to stop sending probes
@@ -28,7 +27,7 @@ impl Worker {
         &mut self,
         instruction: Instruction,
         worker_id: u16,
-        abort_s: Option<Arc<AtomicBool>>,
+        abort_s: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
         let start = match instruction.instruction_type {
             Some(InstructionType::Start(s)) => s,
@@ -73,7 +72,7 @@ impl Worker {
                 worker_id,
                 m_type,
                 origin_map: rx_origins.clone(),
-                abort_s: self.abort_s.clone(),
+                abort_s: self.abort_inbound.clone(),
                 is_traceroute: start.is_traceroute,
                 is_ipv6,
                 is_record: start.is_record,
@@ -89,7 +88,7 @@ impl Worker {
                 OutboundConfig {
                     worker_id,
                     tx_origins,
-                    abort_s: abort_s.ok_or("Abort signal required for probing")?,
+                    abort_s,
                     is_latency: start.is_latency,
                     m_id,
                     m_type,

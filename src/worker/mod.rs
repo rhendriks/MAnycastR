@@ -36,7 +36,7 @@ impl Worker {
             hostname,
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
-            abort_s: Arc::new(AtomicBool::new(false)),
+            abort_inbound: Arc::new(AtomicBool::new(false)),
             interface,
         };
 
