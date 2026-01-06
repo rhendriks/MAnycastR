@@ -42,8 +42,7 @@ impl Address {
         matches!(self.value, Some(Unicast(_)))
     }
 
-    /// Get the prefix of the address
-    /// /24 for IPv4 and /48 for IPv6
+    /// Get the prefix of the address (/24 for IPv4 and /48 for IPv6)
     pub fn get_prefix(&self) -> u64 {
         match &self.value {
             // /24: Shift right by 8 bits
