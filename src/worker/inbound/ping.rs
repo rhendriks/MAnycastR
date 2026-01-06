@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_icmp(
     packet_bytes: &[u8],
     m_id: u32,
-    origin_map: &Vec<Origin>,
+    origin_map: &[Origin],
     is_ipv6: bool,
     is_traceroute: bool,
 ) -> Option<Reply> {
@@ -73,7 +73,7 @@ pub fn parse_icmp_inner(
     icmp_packet: &ICMPPacket,
     ip_header: &IPPacket,
     m_id: u32,
-    origin_map: &Vec<Origin>,
+    origin_map: &[Origin],
     is_ipv6: bool,
     recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,

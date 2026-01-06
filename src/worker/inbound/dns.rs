@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_dns(
     packet_bytes: &[u8],
     measurement_type: u8,
-    origin_map: &Vec<Origin>,
+    origin_map: &[Origin],
     is_ipv6: bool,
 ) -> Option<Reply> {
     // DNS header offset
