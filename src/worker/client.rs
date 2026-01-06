@@ -187,17 +187,18 @@ impl Worker {
 
         if end_instruction.code == 0 {
             info!("[Worker] Received finish signal");
-            // Close outbound sending thread (gracefully)
-            if let Some(tx) = self.outbound_tx.take() {
-                let _ = tx.send(InstructionType::End(end_instruction)).await;
-            }
         } else {
             warn!(
                 "[Worker] Received abort signal (code {})",
                 end_instruction.code
             );
-            // Close outbound thread forcefully
-            abort_outbound.store(true, Ordering::SeqCst);
+            // Close outbound thread forcefully (force stop without parsing tasks in the channel)
+            abort_outbound.store(true, Ordering::SeqCst); // TODO do we need the abort signal if we can just close it gracefully?
+        }
+
+        // Close outbound sending thread (gracefully)
+        if let Some(tx) = self.outbound_tx.take() {
+            let _ = tx.send(InstructionType::End(end_instruction)).await;
         }
 
         Ok(())

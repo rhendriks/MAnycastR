@@ -22,12 +22,12 @@ impl Worker {
     /// # Arguments
     /// * `instruction` - Instruction containing a definition for a new measurement
     /// * `worker_id` - the unique ID of this worker
-    /// * `abort_s` - an optional boolean that is used to signal the outbound thread to stop sending probes
+    /// * `abort_outbound` - Forcefully signal the outbound thread to stop sending probes
     pub(crate) fn init(
         &mut self,
         instruction: Instruction,
         worker_id: u16,
-        abort_s: Arc<AtomicBool>,
+        abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
         let start = match instruction.instruction_type {
             Some(InstructionType::Start(s)) => s,
@@ -88,7 +88,7 @@ impl Worker {
                 OutboundConfig {
                     worker_id,
                     tx_origins,
-                    abort_s,
+                    abort_outbound,
                     is_latency: start.is_latency,
                     m_id,
                     m_type,

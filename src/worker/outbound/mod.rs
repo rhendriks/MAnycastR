@@ -7,9 +7,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::thread::sleep;
-use std::time::Duration;
-use tokio::sync::mpsc::{error::TryRecvError, Receiver};
+use tokio::sync::mpsc::Receiver;
 
 use crate::custom_module;
 use custom_module::manycastr::Origin;
@@ -27,18 +25,14 @@ use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
-/// Configuration for an outbound packet sending worker.
-///
-/// This struct holds all the parameters needed to initialize and run a worker
-/// that generates and sends measurement probes (e.g., ICMP, DNS, TCP)
-/// at a specified rate.
+/// Configuration for the outbound/sending thread
 pub struct OutboundConfig {
     /// The unique ID of this specific worker.
     pub worker_id: u16,
     /// A list of source addresses and port values (`Origin`) to send probes from.
     pub tx_origins: Vec<Origin>,
     /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
-    pub abort_s: Arc<AtomicBool>,
+    pub abort_outbound: Arc<AtomicBool>,
     /// Indicates if this is a latency measurement.
     pub is_latency: bool,
     /// The unique ID of the measurement.
@@ -62,12 +56,9 @@ pub struct OutboundConfig {
 /// Starts the outbound worker thread that awaits tasks and sends probes.
 ///
 /// # Arguments
-///
-/// * 'config' - configuration for the outbound worker thread
-///
-/// * 'outbound_rx' - on this channel we receive future tasks that are part of the current measurement
-///
-/// * 'socket_tx' - the sender object to send packets
+/// * `config` - configuration for the outbound worker thread
+/// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
+/// * `socket_tx` - the sender object to send packets
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
@@ -76,45 +67,35 @@ pub fn outbound(
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
-            let mut sent: u32 = 0;
-            let mut sent_discovery = 0;
-            let mut traces_sent: u32 = 0;
-            let mut failed: u32 = 0;
-            // Rate limit the number of packets sent per second, each origin has the same rate (i.e., sending with 2 origins will double the rate)
-            let mut limiter = DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(config.probing_rate * config.tx_origins.len() as u32).unwrap());
+            let mut sent = 0u32;
+            let mut sent_discovery = 0u32;
+            let mut traces_sent = 0u32;
+            let mut failed = 0u32;
+
+            // Calculate probing rate (multiple origins multiply the probing rate)
+            let total_rate = config.probing_rate * config.tx_origins.len() as u32;
+            // Rate limiter bucket
+            let mut limiter =
+                DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(total_rate).unwrap());
 
             let ethernet_header = get_ethernet_header(config.is_ipv6, &config.if_name);
-            'outer: loop {
-                if config.abort_s.load(std::sync::atomic::Ordering::SeqCst) {
-                    // If the finish_rx is set to true, break the loop (abort)
-                    warn!("[Worker outbound] ABORTING");
+
+            while let Some(instruction) = outbound_rx.blocking_recv() {
+                if config
+                    .abort_outbound
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    // Forcefully abort the thread (discard any instructions left in the channel)
+                    warn!("[Worker outbound] Abort signal received, stopping.");
                     break;
                 }
-                let instruction;
-                // Receive tasks from the outbound channel
-                loop {
-                    match outbound_rx.try_recv() {
-                        Ok(t) => {
-                            instruction = t;
-                            break;
-                        }
-                        Err(e) => {
-                            if e == TryRecvError::Disconnected {
-                                info!("[Worker outbound] Channel disconnected");
-                                break 'outer;
-                            }
-                            // wait some time and try again
-                            sleep(Duration::from_millis(100));
-                        }
-                    };
-                }
+
                 match instruction {
-                    InstructionType::End(_) => {
-                        // An End task means the measurement has finished
-                        break;
-                    }
-                    InstructionType::Tasks(tasks) => {
-                        for task in tasks.tasks.iter() {
+                    // Measurement finished
+                    InstructionType::End(_) => break,
+                    // Probe tasks to send
+                    InstructionType::Tasks(payload) => {
+                        for task in payload.tasks.iter() {
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
                                     let (s, f) = send_probe(
@@ -127,7 +108,7 @@ pub fn outbound(
                                     );
                                     sent += s;
                                     failed += f;
-                                },
+                                }
                                 Some(TaskType::Discovery(task)) => {
                                     let (s, f) = send_probe(
                                         &config,
@@ -139,7 +120,7 @@ pub fn outbound(
                                     );
                                     sent_discovery += s;
                                     failed += f;
-                                },
+                                }
                                 Some(TaskType::Trace(trace)) => {
                                     let (s, f) = send_trace(
                                         &ethernet_header,
@@ -171,10 +152,13 @@ pub fn outbound(
                     _ => continue, // Invalid measurement
                 };
             }
-            info!("[Worker outbound] Outbound thread finished - packets sent : {} (including {} discovery probes), packets failed to send: {}", sent.with_separator(), sent_discovery.with_separator(), failed.with_separator());
-            if traces_sent > 0 {
-                info!("[Worker outbound] Traceroute probes sent: {}", traces_sent.with_separator());
-            }
+            info!(
+                "[Worker outbound] Finished. Sent: {} ({} discovery), Traces: {}, Failed: {}",
+                sent.with_separator(),
+                sent_discovery.with_separator(),
+                traces_sent.with_separator(),
+                failed.with_separator()
+            );
         })
         .expect("Failed to spawn outbound thread");
 }
