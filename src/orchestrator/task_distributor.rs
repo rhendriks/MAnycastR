@@ -38,7 +38,7 @@ pub struct TaskDistributorConfig {
 /// Used for --unicast and regular anycast measurements.
 ///
 /// # Arguments
-/// * 'config' - TaskDistributorConfig with all necessary parameters.
+/// * `config` - TaskDistributorConfig with all necessary parameters.
 pub async fn broadcast_distributor(config: TaskDistributorConfig) {
     info!("[Orchestrator] Starting Broadcast Task Distributor.");
     let mut probing_rate_interval = config.probing_rate_interval;
@@ -426,7 +426,7 @@ pub async fn round_robin_discovery(
     });
 }
 
-/// Reads from a channel containing Tasks and sends them to the workers, at specified inter-client intervals.
+/// Reads from a channel containing Tasks and sends them to the workers, at specified inter-worker intervals.
 /// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
 ///
 /// Used for starting a measurement, sending tasks to the workers, ending a measurement.
@@ -435,13 +435,13 @@ pub async fn round_robin_discovery(
 ///
 /// * `rx` - the channel containing the tuple (task_ID, task, multiple_times)
 /// * `workers` - the list of worker senders to which the tasks will be sent
-/// * `inter_client_interval` - the interval in seconds between sending tasks to different workers
+/// * `inter_worker_interval` - the interval in seconds between sending tasks to different workers
 /// * `inter_probe_interval` - the interval in seconds between sending multiple probes to the same worker
 /// * `number_of_probes` - the number of times to probe the same target (for non-discovery probes)
 pub async fn task_sender(
     mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
     workers: Vec<WorkerSender<Result<Instruction, Status>>>,
-    inter_client_interval: u64,
+    inter_worker_interval: u64,
     inter_probe_interval: u64,
     number_of_probes: u8,
 ) {
@@ -477,7 +477,7 @@ pub async fn task_sender(
                     spawn(async move {
                         // Wait inter-client probing interval
                         tokio::time::sleep(Duration::from_secs(
-                            probing_index * inter_client_interval,
+                            probing_index * inter_worker_interval,
                         ))
                         .await;
 

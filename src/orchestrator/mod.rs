@@ -110,7 +110,7 @@ impl ControllerService {
     /// If the hostname does not exist, it checks for a statically configured ID or generates a new unique ID.
     ///
     /// # Arguments
-    /// * 'hostname' - the hostname of the worker
+    /// * `hostname` - the hostname of the worker
     ///
     /// # Returns
     /// A tuple containing: the worker ID and a boolean indicating if this is a reconnection of a closed worker.
@@ -153,8 +153,7 @@ impl ControllerService {
 /// Starts the orchestrator on the specified port.
 ///
 /// # Arguments
-///
-/// * 'args' - the parsed command-line arguments
+/// * `args` - the parsed command-line arguments
 pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     let port = *args.get_one::<u16>("port").unwrap();
     let addr: SocketAddr = format!("[::]:{port}").parse()?;
