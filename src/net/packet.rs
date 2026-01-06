@@ -200,7 +200,7 @@ pub fn create_icmp(
     dst: &Address,
     identifier: u16,
     seq: u16,
-    payload: ProbePayload,
+    payload: &ProbePayload,
     ttl: u8,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
