@@ -5,7 +5,9 @@ use crate::custom_module::manycastr::{
     TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
-use crate::orchestrator::result_handler::{discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker};
+use crate::orchestrator::result_handler::{
+    discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker,
+};
 use crate::orchestrator::task_distributor::{
     broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
     TaskDistributorConfig,
@@ -13,7 +15,9 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{ControllerService, MeasurementType, OngoingMeasurement, TracerouteConfig};
+use crate::orchestrator::{
+    ControllerService, MeasurementType, OngoingMeasurement, TracerouteConfig,
+};
 use crate::{custom_module, ALL_WORKERS};
 use futures_core::Stream;
 use log::{error, info, warn};
@@ -371,7 +375,9 @@ impl Controller for ControllerService {
             // Start `TraceSession` timeout handler
             let stacks_clone = self.worker_stacks.clone();
             let ongoing_measurement = self.ongoing_measurement.clone();
-            let trace_options = m_definition.trace_options.expect("Tracer options not initialized");
+            let trace_options = m_definition
+                .trace_options
+                .expect("Tracer options not initialized");
 
             // Create the traceroute config
             let mut tr_guard = self.trace_config.write().unwrap();
