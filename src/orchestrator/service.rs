@@ -571,7 +571,6 @@ impl Controller for ControllerService {
                 );
             } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
                 println!("received discovery traceroute replies");
-                // TODO change default probing rate for traceroute to a low value (avoid unintended spam of probes)
                 trace_discovery_handler(
                     discovery_bucket,
                     catcher_id,
