@@ -1,7 +1,7 @@
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Finished, ReplyBatch};
+use crate::custom_module::manycastr::{Address, End};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -50,7 +50,6 @@ impl Worker {
     }
 
     /// Establish a formal connection with the orchestrator.
-    ///
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     pub(crate) async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
         let mut abort_s: Option<Arc<AtomicBool>> = None;
@@ -164,48 +163,16 @@ impl Worker {
                     // Initialize signal finish atomic boolean
                     abort_s = Some(Arc::new(AtomicBool::new(false)));
 
-                    self.init(instruction, worker_id, abort_s.clone());
+                    self.init(instruction, worker_id, abort_s.clone())?;
                 } else {
                     // This worker is not probing
                     abort_s = None;
                     self.outbound_tx = None;
-                    self.init(instruction, worker_id, None);
+                    self.init(instruction, worker_id, None)?;
                 }
             }
         }
         info!("[Worker] Stopped awaiting tasks");
-
-        Ok(())
-    }
-
-    /// Send a TaskResult to the orchestrator
-    pub(crate) async fn send_result_to_server(
-        &mut self,
-        task_result: ReplyBatch,
-    ) -> Result<(), Box<dyn Error>> {
-        self.grpc_client
-            .send_result(Request::new(task_result))
-            .await?;
-
-        Ok(())
-    }
-
-    /// Let the orchestrator know the current measurement is finished.
-    ///
-    /// When a measurement is finished the orchestrator knows not to expect any more results from this worker.
-    ///
-    /// # Arguments
-    ///
-    /// * 'finished' - the 'Finished' message to send to the orchestrator
-    pub(crate) async fn measurement_finish_to_server(
-        &mut self,
-        finished: Finished,
-    ) -> Result<(), Box<dyn Error>> {
-        info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
-        self.current_m_id.lock().unwrap().take(); // Set current measurement ID to None
-        self.grpc_client
-            .measurement_finished(Request::new(finished))
-            .await?;
 
         Ok(())
     }

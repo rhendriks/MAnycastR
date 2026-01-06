@@ -23,7 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_trace(
     packet_bytes: &[u8],
     m_id: u32,
-    worker_map: &Vec<Origin>,
+    worker_map: &[Origin],
     is_ipv6: bool,
 ) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
