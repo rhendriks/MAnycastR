@@ -68,7 +68,7 @@ pub fn send_trace(
         target,
         identifier,      // encode timestamp into identifier field
         sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number
-        payload_fields,
+        &payload_fields,
         trace_task.ttl as u8,
     ));
 

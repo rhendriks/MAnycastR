@@ -3,9 +3,9 @@ use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
 use crate::worker::outbound::{OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
 use log::{error, warn};
 use pnet::datalink::DataLinkSender;
-use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::A_ID;
 use crate::CHAOS_ID;
@@ -17,12 +17,12 @@ use crate::TCP_ID;
 /// and sends it through the provided socket.
 /// # Arguments
 ///
-/// * 'config' - The outbound configuration containing worker details and settings.
-/// * 'ethernet_header' - The Ethernet header to prepend to the packet.
-/// * 'dst' - The destination address to which the probes will be sent.
-/// * 'socket_tx' - The socket sender to use for sending the packet.
-/// * 'limiter' - A rate limiter to control the sending rate of packets.
-/// * 'is_discovery' - A boolean indicating whether the probes are for discovery purposes.
+/// * `config` - The outbound configuration containing worker details and settings.
+/// * `ethernet_header` - The Ethernet header to prepend to the packet.
+/// * `dst` - The destination address to which the probes will be sent.
+/// * `socket_tx` - Raw socket to send packets.
+/// * `limiter` - A rate limit bucket to control the sending rate of packets.
+/// * `is_discovery` - A boolean indicating whether the probes are for discovery purposes.
 ///
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
@@ -32,45 +32,57 @@ pub fn send_probe(
     dst: &Address,
     socket_tx: &mut Box<dyn DataLinkSender>,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
-    is_discovery: bool, // Whether we are sending a discovery probe
+    is_discovery: bool,
 ) -> (u32, u32) {
-    let origins = &config.tx_origins;
     let worker_id = if is_discovery {
         config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET // Use a different worker ID range for discovery probes
     } else {
         config.worker_id as u32
     };
-    let m_type = config.m_type;
-    let is_latency = config.is_latency; // For TCP, use the is_latency flag
-    let m_id = config.m_id;
-    let info_url = &config.info_url;
+
     let mut sent = 0;
     let mut failed = 0;
-    let qname = &config.qname;
-    for origin in origins {
-        let mut packet = ethernet_header.to_owned();
-        match m_type {
+
+    // Payload to encode in outgoing probes
+    let icmp_payload = ProbePayload {
+        worker_id,
+        m_id: config.m_id,
+        trace_ttl: None,
+        info_url: &config.info_url,
+    };
+
+    // Write packets to send to a one-time allocated buffer
+    let mut packet_buffer = Vec::with_capacity(256);
+
+    for origin in &config.tx_origins {
+        // Rate limit
+        if let Err(not_until) = limiter.check() {
+            let wait_time = not_until.wait_time_from(Instant::now());
+            if wait_time > Duration::ZERO {
+                sleep(wait_time);
+            }
+        }
+
+        // Write new packet to buffer
+        packet_buffer.clear();
+        packet_buffer.extend_from_slice(ethernet_header);
+
+        match config.m_type {
             ICMP_ID => {
-                let payload_fields = ProbePayload {
-                    worker_id,
-                    m_id,
-                    trace_ttl: None, // not a traceroute task
-                    info_url,
-                };
-                packet.extend_from_slice(&create_icmp(
+                packet_buffer.extend_from_slice(&create_icmp(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2,                   // ICMP seq
-                    payload_fields,
+                    2, // ICMP seq
+                    &icmp_payload,
                     255,
                 ));
             }
             A_ID | CHAOS_ID => {
-                packet.extend_from_slice(&create_dns(origin, dst, worker_id, m_type, qname));
+                packet_buffer.extend_from_slice(&create_dns(origin, dst, worker_id, config.m_type, &config.qname));
             }
             TCP_ID => {
-                packet.extend_from_slice(&create_tcp(origin, dst, worker_id, is_latency, info_url));
+                packet_buffer.extend_from_slice(&create_tcp(origin, dst, worker_id, config.is_latency, &config.info_url));
             }
             255 => {
                 panic!("Invalid measurement type)") // TODO all, any
@@ -78,12 +90,7 @@ pub fn send_probe(
             _ => panic!("Invalid measurement type"), // Invalid measurement
         }
 
-        while limiter.check().is_err() {
-            // Rate limit to avoid bursts
-            sleep(Duration::from_millis(1));
-        }
-
-        match socket_tx.send_to(&packet, None) {
+        match socket_tx.send_to(&packet_buffer, None) {
             Some(Ok(())) => sent += 1,
             Some(Err(e)) => {
                 warn!("[Worker outbound] Failed to send ICMP packet: {e}");
