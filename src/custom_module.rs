@@ -26,7 +26,7 @@ impl Display for Address {
 
 impl Address {
     /// Returns the integer representation of the IP address as u128.
-    pub fn to_numeric(&self) -> u128 {
+    pub fn as_numeric(&self) -> u128 {
         match &self.value {
             Some(V4(v4)) => *v4 as u128,
             Some(V6(_)) => self.into(),
