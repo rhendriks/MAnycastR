@@ -555,7 +555,7 @@ fn parse_cmd() -> ArgMatches {
                     )
                     .arg(Arg::new("address")
                         .long("addr")
-                        .short('a')
+                        .short('b')
                         .value_parser(value_parser!(String))
                         .required(false)
                         .help("Anycast source address to use for probes")
