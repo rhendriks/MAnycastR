@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
 chrono = "0.4.42"# get current time
-clap = "4.5.54"# parse command line arguments
+clap = "4.5.48"# parse command line arguments
 csv = "1.4.0" # write to CSV
 futures-core = "0.3.31" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
