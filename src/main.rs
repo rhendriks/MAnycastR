@@ -201,7 +201,7 @@
 //! * Allow for simultaneous/mixed unicast and anycast measurements
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
-use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
@@ -535,34 +535,6 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .required(false)
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
-                    )
-                    .group(
-                        ArgGroup::new("source_spec")
-                            .args(["address", "unicast", "configuration"])
-                            .required(true),
-                    )
-                    .group(
-                        ArgGroup::new("target_spec")
-                            .args(["hitlist", "target"])
-                            .required(true),
-                    )
-                    .group(
-                        ArgGroup::new("output_type")
-                            .args(["out", "stream", "parquet"])
-                            .multiple(true)
-                            .required(false)
-                    )
-                    .group(
-                        ArgGroup::new("probing_control")
-                            .args(["rate", "number_of_probes", "probe_interval", "worker_interval", "selective"])
-                            .multiple(true)
-                            .required(false)
-                    )
-                    .group(
-                        ArgGroup::new("probe_def")
-                        .args(["address", "source port", "destination port", "query", "type", "url"])
-                        .multiple(true)
-                        .required(false)
                     )
                 )
             )
