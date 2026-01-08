@@ -49,18 +49,18 @@ pub async fn handle(
     // Start a MAnycastR measurement
     let is_responsive = matches.get_flag("responsive");
     let is_record = matches.get_flag("record");
-    let url = matches.get_one::<String>("url");
-    let m_type = MeasurementType::from_str(matches.get_one::<String>("type").unwrap())
+    let url = matches.get_one::<String>("URL");
+    let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
     let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap())
         .expect("Invalid protocol type!");
 
-    let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
+    let configurations = if let Some(conf_path) = matches.get_one::<String>("CONF") {
         // Use configuration set by the user
         parse_configurations(conf_path, &worker_map)
     } else {
         // Create our own configuration from the arguments
-        let src = if let Some(anycast_address) = matches.get_one::<String>("address") {
+        let src = if let Some(anycast_address) = matches.get_one::<String>("ADDR") {
             Address::from(anycast_address)
         } else if m_type == MeasurementType::UnicastLatency {
             Address {
@@ -69,8 +69,8 @@ pub async fn handle(
         } else {
             panic!("An address must be specified for anycast measurements")
         };
-        let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
-        let dport = *matches.get_one::<u16>("destination port").unwrap() as u32;
+        let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
+        let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
 
         // Get the workers that have to send out probes
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
