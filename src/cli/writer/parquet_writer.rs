@@ -1,7 +1,9 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{MeasurementReply, ReplyBatch};
-use crate::{ALL_WORKERS, TCP_ID};
+use crate::custom_module::manycastr::{
+    MeasurementReply, MeasurementType, ProtocolType, ReplyBatch,
+};
+use crate::ALL_WORKERS;
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
@@ -23,15 +25,13 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     let headers = get_header(
-        config.m_type,
+        config.p_type == ProtocolType::ChaosDns,
         config.is_multi_origin,
-        config.is_symmetric,
-        config.is_traceroute,
         config.is_record,
-        config.is_verfploeter,
+        config.m_type,
     );
     // TODO implement parquet writer for TraceResults
-    let schema = build_parquet_schema(headers);
+    let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
     let key_value_tuples = get_parquet_metadata(config.metadata_args, &config.worker_map);
@@ -53,16 +53,6 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
     let mut writer = SerializedFileWriter::new(config.output_file, schema.clone(), props)
         .expect("Failed to create parquet writer");
 
-    // Get the appropriate header for the Parquet file based on the measurement type and configuration
-    let headers = get_header(
-        config.m_type,
-        config.is_multi_origin,
-        config.is_symmetric,
-        config.is_traceroute,
-        config.is_record,
-        config.is_verfploeter,
-    );
-
     tokio::spawn(async move {
         let mut row_buffer: Vec<ParquetDataRow> = Vec::with_capacity(ROW_BUFFER_CAPACITY);
 
@@ -73,16 +63,15 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
             let rx_id = task_result.rx_id;
             for reply in task_result.results {
-                let Some(ReplyData::Measurement(measurement)) = reply.reply_data else {
+                let Some(ReplyData::Measurement(m_reply)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };
 
                 let parquet_row = reply_to_parquet_row(
-                    measurement,
+                    m_reply,
                     rx_id,
+                    config.p_type,
                     config.m_type,
-                    config.is_symmetric,
-                    config.is_verfploeter,
                     &config.worker_map,
                 );
                 row_buffer.push(parquet_row);
@@ -114,20 +103,17 @@ pub fn get_parquet_metadata(
 ) -> Vec<(String, String)> {
     let mut md = Vec::new();
 
-    if args.is_verfploeter {
-        md.push(("measurement_style".to_string(), "Verfploeter".to_string()));
-    } else if args.is_latency {
-        md.push((
-            "measurement_style".to_string(),
-            "Anycast-latency".to_string(),
-        ));
-    } else if args.is_responsive {
-        md.push((
-            "measurement_style".to_string(),
-            "LACeS-Responsive-mode".to_string(),
-        ));
-    } else {
-        md.push(("measurement_style".to_string(), "LACeS-mode".to_string()));
+    md.push((
+        "measurement_style".to_string(),
+        args.m_type.as_str().to_string(),
+    ));
+    md.push((
+        "protocol_used".to_string(),
+        args.p_type.as_str().to_string(),
+    ));
+
+    if args.is_responsive {
+        md.push(("responsive_mode".to_string(), "true".to_string()));
     }
 
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
@@ -209,9 +195,8 @@ pub struct ParquetDataRow {
 fn reply_to_parquet_row(
     result: MeasurementReply,
     rx_worker_id: u32,
-    m_type: u8,
-    is_latency: bool,
-    is_verfploeter: bool,
+    p_type: ProtocolType,
+    m_type: MeasurementType,
     worker_map: &BiHashMap<u32, String>,
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
@@ -223,26 +208,31 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: if result.origin_id != 0 && result.origin_id != u32::MAX {
-            Some(result.origin_id as u8)
-        } else {
-            None
-        },
+        origin_id: (result.origin_id != 0 && result.origin_id != ALL_WORKERS)
+            .then_some(result.origin_id as u8),
     };
 
-    if is_latency {
-        row.rtt = Some(calculate_rtt(
-            result.rx_time,
-            result.tx_time,
-            m_type == TCP_ID,
-            false,
-        ));
-    } else if is_verfploeter {
-        // no additional fields
-    } else {
-        row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-        row.rx_time = Some(result.rx_time);
-        row.tx_time = Some(result.tx_time);
+    match m_type {
+        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+            row.rtt = Some(calculate_rtt(
+                result.rx_time,
+                result.tx_time,
+                p_type == ProtocolType::Tcp,
+                false,
+            ));
+        }
+        MeasurementType::Verfploeter => {
+            // Verfploeter stays minimal (rx, addr, ttl)
+        }
+        MeasurementType::AnycastTraceroute => {
+            panic!("Anycast traceroute cannot be written to parquet") // TODO
+        }
+        MeasurementType::Laces => {
+            // LACeS
+            row.tx = worker_map.get_by_left(&result.tx_id).cloned();
+            row.rx_time = Some(result.rx_time);
+            row.tx_time = Some(result.tx_time);
+        }
     }
 
     row

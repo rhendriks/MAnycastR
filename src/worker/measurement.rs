@@ -1,11 +1,12 @@
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Finished, Instruction, Origin, ReplyBatch};
+use crate::custom_module::manycastr::{
+    Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
+};
 use crate::net::packet::is_in_prefix;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
 use crate::worker::SocketChannel;
-use crate::ICMP_ID;
 use log::{error, info, warn};
 use pnet::datalink;
 use std::error::Error;
@@ -36,8 +37,9 @@ impl Worker {
 
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
-        let m_type = start.m_type as u8;
         let is_probing = !start.tx_origins.is_empty();
+        let p_type = start.p_type();
+        let m_type = start.m_type();
 
         // Channel for forwarding tasks to outbound
         let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
@@ -70,10 +72,10 @@ impl Worker {
             InboundConfig {
                 m_id,
                 worker_id,
-                m_type,
+                p_type,
                 origin_map: rx_origins.clone(),
                 abort_s: self.abort_inbound.clone(),
-                is_traceroute: start.is_traceroute,
+                is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                 is_ipv6,
                 is_record: start.is_record,
             },
@@ -83,21 +85,21 @@ impl Worker {
 
         // Start outbound sending thread (if this worker is probing)
         if is_probing {
-            self.log_probe_details(m_type, &tx_origins);
+            self.log_probe_details(p_type, &tx_origins);
             outbound(
                 OutboundConfig {
                     worker_id,
                     tx_origins,
                     abort_outbound,
-                    is_latency: start.is_latency,
                     m_id,
-                    m_type,
+                    p_type,
                     qname: start.record,
                     info_url: start.url,
                     if_name: interface.name.clone(),
                     probing_rate: start.rate,
                     origin_map: Some(rx_origins),
                     is_ipv6,
+                    is_record: start.is_record,
                 },
                 outbound_rx,
                 socket_tx,
@@ -183,12 +185,12 @@ impl Worker {
     /// Print the Origins (i.e., source address and port values) used for this measurement
     ///
     /// # Arguments
-    /// * `m_type` - Measurement type (e.g., ICMP, TCP)
+    /// * `p_type` - Protocol used
     /// * `origins` - Sending origins used by this Worker
-    fn log_probe_details(&self, m_type: u8, origins: &[Origin]) {
+    fn log_probe_details(&self, p_type: ProtocolType, origins: &[Origin]) {
         for origin in origins {
-            match m_type {
-                ICMP_ID => info!(
+            match p_type {
+                ProtocolType::Icmp => info!(
                     "[Worker] Sending on: {} using ICMP ID {}",
                     origin.src.unwrap(),
                     origin.dport

@@ -5,7 +5,6 @@ use crate::net::{
 };
 use crate::worker::config::get_origin_id;
 use crate::DNS_IDENTIFIER;
-use crate::{A_ID, CHAOS_ID};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse DNS packets into a Reply result.
@@ -13,17 +12,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
-/// * `measurement_type` - the type of measurement being performed
+/// * `is_chaos` - whether this is a chaos reply (True) or an A record reply (False)
 /// * `origin_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether we are parsing IPv6 or IPv4 packets
+///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
-///
-/// # Remarks
-/// The function returns None if the packet is too short to contain a UDP header.
 pub fn parse_dns(
     packet_bytes: &[u8],
-    measurement_type: u8,
+    is_chaos: bool,
     origin_map: &[Origin],
     is_ipv6: bool,
 ) -> Option<Reply> {
@@ -56,9 +53,7 @@ pub fn parse_dns(
     };
 
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
-    if ((measurement_type == A_ID) & (udp_packet.body.len() < 66))
-        | ((measurement_type == CHAOS_ID) & (udp_packet.body.len() < 10))
-    {
+    if (!is_chaos & (udp_packet.body.len() < 66)) | (is_chaos & (udp_packet.body.len() < 10)) {
         return None;
     }
 
@@ -69,7 +64,7 @@ pub fn parse_dns(
         .unwrap()
         .as_micros() as u64;
 
-    let (tx_time, tx_id, chaos, is_discovery) = if measurement_type == A_ID {
+    let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
         let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), is_ipv6)?;
 
         if (dns_result.probe_sport != reply_dport)
@@ -85,11 +80,9 @@ pub fn parse_dns(
             None,
             dns_result.is_discovery,
         )
-    } else if measurement_type == CHAOS_ID {
+    } else {
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
         (tx_time, tx_worker_id, Some(chaos), false)
-    } else {
-        panic!("Invalid measurement type");
     };
 
     let origin_id = get_origin_id(ip_header.dst(), reply_sport, reply_dport, origin_map)?;

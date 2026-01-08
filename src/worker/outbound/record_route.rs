@@ -32,7 +32,7 @@ pub fn send_record_route_probe(
         worker_id: config.worker_id as u32,
         m_id: config.m_id,
         trace_ttl: None,
-        info_url: &config.info_url,
+        info_url: config.info_url.clone(),
     };
 
     // Write packets to send to a one-time allocated buffer

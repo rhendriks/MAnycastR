@@ -1,8 +1,9 @@
 use crate::custom_module::manycastr::controller_server::Controller;
+use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
     instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction,
-    LiveMeasurementMessage, Probe, Record, Reply, ReplyBatch, ScheduleMeasurement, Start, Task,
-    TraceReply, Worker,
+    LiveMeasurementMessage, MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start,
+    Task, TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -15,9 +16,7 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{
-    ControllerService, MeasurementType, OngoingMeasurement, TracerouteConfig,
-};
+use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
 use crate::{custom_module, ALL_WORKERS};
 use futures_core::Stream;
 use log::{error, info, warn};
@@ -28,9 +27,6 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
-
-// Add the Enum import separately
-use crate::custom_module::manycastr::reply::ReplyData;
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -187,20 +183,18 @@ impl Controller for ControllerService {
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         info!("[Orchestrator] Received CLI measurement request for measurement");
-        let m_definition = request.into_inner();
-        let is_responsive = m_definition.is_responsive;
-        let is_latency = m_definition.is_latency;
-        let is_verfploeter = m_definition.is_verfploeter;
-        let worker_interval = m_definition.worker_interval as u64;
-        let probe_interval = m_definition.probe_interval as u64;
-        let number_of_probes = m_definition.number_of_probes as u8;
-        let is_traceroute = m_definition.trace_options.is_some();
-        let is_record = m_definition.is_record;
-        let probing_rate = m_definition.probing_rate;
-        let m_type = m_definition.m_type;
-        let dst_addresses = m_definition.targets;
-        let dns_record = m_definition.record;
-        let info_url = m_definition.url;
+        let m_def = request.into_inner();
+        let is_responsive = m_def.is_responsive;
+        let worker_interval = m_def.worker_interval as u64;
+        let probe_interval = m_def.probe_interval as u64;
+        let number_of_probes = m_def.number_of_probes as u8;
+        let is_traceroute = m_def.trace_options.is_some();
+        let is_record = m_def.is_record;
+        let probing_rate = m_def.probing_rate;
+        let hitlist = &m_def.hitlist;
+        let dns_record = &m_def.record;
+        let info_url = &m_def.url;
+        let m_type = m_def.m_type();
 
         // Get participating (listening and/or probing) and probing workers
         let mut participating_worker_ids = Vec::new();
@@ -222,7 +216,7 @@ impl Controller for ControllerService {
                 }
 
                 // Probing if any configuration is assigned to this worker
-                let is_probing = m_definition.configurations.iter().any(|config| {
+                let is_probing = m_def.configurations.iter().any(|config| {
                     config.worker_id == worker.worker_id || config.worker_id == ALL_WORKERS
                 });
 
@@ -232,7 +226,7 @@ impl Controller for ControllerService {
                     participating_worker_ids.push(worker.worker_id);
                 } else {
                     // Listening if any worker is probing with anycast
-                    let is_listening = m_definition.configurations.iter().any(|config| {
+                    let is_listening = m_def.configurations.iter().any(|config| {
                         !config
                             .origin
                             .as_ref()
@@ -259,7 +253,7 @@ impl Controller for ControllerService {
         }
 
         // Make sure no unknown workers are in the configuration
-        if m_definition.configurations.iter().any(|conf| {
+        if m_def.configurations.iter().any(|conf| {
             conf.worker_id != ALL_WORKERS && !workers.iter().any(|w| w.worker_id == conf.worker_id)
         }) {
             error!("[Orchestrator] Configuration contains unknown worker IDs.");
@@ -303,7 +297,7 @@ impl Controller for ControllerService {
         // Create a list of origins used by workers
         let mut rx_origins = vec![];
         // Add all configuration origins to the listen origins
-        for configuration in m_definition.configurations.iter() {
+        for configuration in m_def.configurations.iter() {
             if let Some(origin) = &configuration.origin {
                 // Avoid duplicate origins
                 if !rx_origins.contains(origin) {
@@ -324,7 +318,7 @@ impl Controller for ControllerService {
             let mut tx_origins = vec![];
 
             // Add all configuration probing origins assigned to this worker
-            for configuration in &m_definition.configurations {
+            for configuration in &m_def.configurations {
                 // If the worker is selected to perform the measurement (or all workers are selected (u32::MAX))
                 if (configuration.worker_id == worker_id) | (configuration.worker_id == u32::MAX) {
                     if let Some(origin) = &configuration.origin {
@@ -337,15 +331,14 @@ impl Controller for ControllerService {
                 instruction_type: Some(instruction::InstructionType::Start(Start {
                     rate: probing_rate,
                     m_id,
-                    m_type,
+                    p_type: m_def.p_type,
                     tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
                     url: info_url.clone(),
-                    is_latency,
-                    is_traceroute,
-                    is_ipv6: m_definition.is_ipv6,
+                    is_ipv6: m_def.is_ipv6,
                     is_record,
+                    m_type: m_def.m_type,
                 })),
             };
 
@@ -368,13 +361,13 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
+        self.m_type.lock().unwrap().replace(m_type);
+
         if is_traceroute {
             // Start `TraceSession` timeout handler
             let stacks_clone = self.worker_stacks.clone();
             let ongoing_measurement = self.ongoing_measurement.clone();
-            let trace_options = m_definition
-                .trace_options
-                .expect("Tracer options not initialized");
+            let trace_options = m_def.trace_options.expect("Tracer options not initialized");
 
             // Create the traceroute config
             let mut tr_guard = self.trace_config.write().unwrap();
@@ -398,26 +391,20 @@ impl Controller for ControllerService {
                     trace_config_clone,
                 );
             });
-
-            self.m_type
-                .lock()
-                .unwrap()
-                .replace(MeasurementType::Traceroute);
-        } else if is_responsive {
-            self.m_type
-                .lock()
-                .unwrap()
-                .replace(MeasurementType::Responsive);
-        } else if is_latency {
-            self.m_type
-                .lock()
-                .unwrap()
-                .replace(MeasurementType::Latency);
-        } else {
-            self.m_type.lock().unwrap().take(); // Set to None
         }
 
-        let probing_rate_interval = if is_latency || is_verfploeter || is_traceroute {
+        // Send discovery probes before measurement probes if true
+        let send_discovery = is_responsive
+            | matches!(
+                m_type,
+                MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
+            );
+
+        // Distribute tasks round robin if true
+        let is_round_robing =
+            send_discovery || (m_def.m_type == MeasurementType::Verfploeter as i32);
+
+        let probing_rate_interval = if is_round_robing {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
             tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
         } else {
@@ -425,18 +412,10 @@ impl Controller for ControllerService {
             tokio::time::interval(Duration::from_secs(1))
         };
 
-        // Convert dst_addresses into the appropriate TaskType
-        let tasks = if is_record {
-            // Send Reverse tasks
-            dst_addresses
-                .iter()
-                .map(|addr| Task {
-                    task_type: Some(task::TaskType::Record(Record { dst: Some(*addr) })),
-                })
-                .collect::<Vec<Task>>()
-        } else if is_responsive || is_latency || is_traceroute {
+        // Convert hitlist targets into the appropriate TaskType
+        let tasks = if send_discovery {
             // Send Discovery tasks
-            dst_addresses
+            hitlist
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
@@ -444,7 +423,7 @@ impl Controller for ControllerService {
                 .collect::<Vec<Task>>()
         } else {
             // Send Probe tasks
-            dst_addresses
+            hitlist
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
@@ -463,10 +442,10 @@ impl Controller for ControllerService {
         };
 
         // Spawn appropriate task distributor thread
-        if is_verfploeter {
+        if m_def.m_type == MeasurementType::Verfploeter as i32 {
             // Distribute tasks round-robin
             round_robin_distributor(task_config).await;
-        } else if is_responsive || is_latency || is_traceroute {
+        } else if send_discovery {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(task_config, self.worker_stacks.clone(), is_responsive).await;
         } else {
@@ -551,33 +530,46 @@ impl Controller for ControllerService {
         }
 
         if !discovery_bucket.is_empty() {
-            if *self.m_type.lock().unwrap() == Some(MeasurementType::Responsive) {
-                // Perform follow-up tasks from all workers
-                discovery_handler(
-                    discovery_bucket,
-                    ALL_WORKERS,
-                    &mut self.worker_stacks.lock().unwrap(),
-                );
-            } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Latency) {
-                // Perform follow-up tasks from the catching worker
-                discovery_handler(
-                    discovery_bucket,
-                    catcher_id,
-                    &mut self.worker_stacks.lock().unwrap(),
-                );
-            } else if *self.m_type.lock().unwrap() == Some(MeasurementType::Traceroute) {
-                println!("received discovery traceroute replies");
-                let mut config_guard = self.trace_config.write().unwrap();
-                if let Some(config) = config_guard.as_mut() {
-                    trace_discovery_handler(
-                        discovery_bucket,
-                        catcher_id,
-                        &mut self.worker_stacks.lock().unwrap(),
-                        config,
+            let m_type_guard = self.m_type.lock().unwrap();
+            let m_type = match m_type_guard.as_ref() {
+                Some(t) => t,
+                None => {
+                    panic!(
+                        "[Orchestrator] Discovery results received but no measurement style set"
                     );
                 }
-            } else {
-                warn!("[Orchestrator] Received discovery results while not in responsive or latency mode");
+            };
+
+            let mut worker_stacks = self.worker_stacks.lock().unwrap();
+
+            match m_type {
+                // Perform follow-up from ALL workers
+                MeasurementType::Laces | MeasurementType::UnicastLatency => {
+                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks);
+                }
+
+                // Follow up from only the catching worker
+                MeasurementType::AnycastLatency => {
+                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks);
+                }
+
+                // Special handling for Traceroute
+                MeasurementType::AnycastTraceroute => {
+                    let mut config_guard = self.trace_config.write().unwrap();
+                    if let Some(config) = config_guard.as_mut() {
+                        trace_discovery_handler(
+                            discovery_bucket,
+                            catcher_id,
+                            &mut worker_stacks,
+                            config,
+                        );
+                    }
+                }
+
+                MeasurementType::Verfploeter => panic!(
+                    "[Orchestrator] Received discovery results for unsupported mode: {}",
+                    m_type
+                ),
             }
         }
 

@@ -212,13 +212,6 @@ mod net;
 mod orchestrator;
 mod worker;
 
-// Measurement type IDs
-pub const ICMP_ID: u8 = 1; // ICMP ECHO
-pub const A_ID: u8 = 2; // UDP DNS A Record
-pub const TCP_ID: u8 = 3; // TCP SYN/ACK
-pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
-pub const ALL_ID: u8 = 255; // All measurement types
-pub const ANY_ID: u8 = 254; // Any measurement type
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
@@ -381,23 +374,34 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .help("Path to the hitlist file (can be .gz compressed)")
                     )
-                    .arg(Arg::new("type")
+                    .arg(Arg::new("p_type")
                         .long("type")
-                        .short('t')
+                        .short('p')
                         .value_parser(PossibleValuesParser::new([
                             "icmp", "dns", "tcp", "chaos", "any", "all",
                         ]))
                         .ignore_case(true)
                         .required(false)
                         .default_value("icmp")
-                        .help("The type of measurement")
+                        .help("Protocol type used")
+                    )
+                    .arg(Arg::new("m_type")
+                        .long("mode")
+                        .short('m')
+                        .value_parser(PossibleValuesParser::new([
+                            "laces", "verfploeter", "latency", "unicast", "anycast-traceroute",
+                        ]))
+                        .ignore_case(true)
+                        .required(false)
+                        .default_value("laces")
+                        .help("Measurement style/mode to perform")
                     )
                     .arg(Arg::new("rate")
                         .long("rate")
                         .short('r')
                         .value_parser(value_parser!(u32))
                         .required(false)
-                        .default_value_if("traceroute", ArgPredicate::IsPresent, Some("10"))
+                        .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
                         .default_value("1000")
                         .help("Probing rate at each worker (number of outgoing packets / second)")
                     )
@@ -448,39 +452,11 @@ fn parse_cmd() -> ArgMatches {
                         .conflicts_with("target")
                         .requires("hitlist")
                     )
-                    .arg(Arg::new("unicast")
-                        .long("unicast")
-                        .action(ArgAction::SetTrue)
-                        .help("Probe targets using each worker's unicast address")
-                        .conflicts_with_all(["latency", "traceroute", "record", "verfploeter", "address", "configuration"])
-                    )
-                    .arg(Arg::new("verfploeter")
-                        .long("verfploeter")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Perform a Verfploeter catchment mapping")
-                        .conflicts_with_all(["latency", "traceroute", "record", "unicast"])
-                    )
-                    .arg(Arg::new("latency")
-                        .long("latency")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Measure anycast latencies (first, measure catching PoP; second, measure latency from catching PoP to target)")
-                        .conflicts_with_all(["verfploeter", "unicast", "selective", "traceroute", "record"])
-                    )
                     .arg(Arg::new("responsive")
                         .long("responsive")
                         .action(ArgAction::SetTrue)
                         .required(false)
                         .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
-                        .conflicts_with_all(["latency", "verfploeter", "traceroute", "record"])
-                    )
-                    .arg(Arg::new("traceroute")
-                        .long("traceroute")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Perform a traceroute from the receiving anycast site for each target [NOTE: violates probing rate]")
-                        .conflicts_with_all(["latency", "responsive", "verfploeter", "unicast", "selective", "record", "config"]) // TODO support unicast traceroute
                     )
                     .arg(Arg::new("trace-max-failures")
                         .long("trace-max-failures")
@@ -488,7 +464,6 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("3")
                         .required(false)
                         .help("Maximum number of consecutive failures before terminating traceroutes")
-                        .requires("traceroute")
                     )
                     .arg(Arg::new("trace-timeout")
                         .long("trace-timeout")
@@ -496,7 +471,6 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("1")
                         .required(false)
                         .help("Timeout for trace hops (in seconds)")
-                        .requires("traceroute")
                     )
                     .arg(Arg::new("trace-max-hops")
                         .long("trace-max-hops")
@@ -504,7 +478,6 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("30")
                         .required(false)
                         .help("Maximum number of hops before terminating traceroutes")
-                        .requires("traceroute")
                     )
                     .arg(Arg::new("trace-initial-hop")
                         .long("trace-skip-hops")
@@ -512,21 +485,12 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("1")
                         .required(false)
                         .help("Initial TTL value for traceroute measurements.")
-                        .requires("traceroute")
-                    )
-                    .arg(Arg::new("tracemap")
-                        .long("tracemap")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Perform a traceroute catchment mapping [UNIMPLEMENTED].")
-                        .conflicts_with_all(["latency", "responsive", "verfploeter", "unicast", "selective", "record", "traceroute"])
                     )
                     .arg(Arg::new("record")
                         .long("record")
                         .action(ArgAction::SetTrue)
                         .required(false)
-                        .help("Perform a Record Route measurement from the receiving anycast site for each target.")
-                        .conflicts_with_all(["traceroute", "latency", "responsive", "verfploeter", "unicast", "selective"])
+                        .help("Send IPv4 packets with the Record Route option.")
                     )
                     .arg(Arg::new("worker_interval")
                         .long("worker-interval")
@@ -535,7 +499,6 @@ fn parse_cmd() -> ArgMatches {
                         .required(false)
                         .default_value("1")
                         .help("Interval between separate worker's probes to the same target")
-                        .conflicts_with_all(["latency", "verfploeter"]) // --latency and --verfploeter send single probes to each address, so no worker interval is needed
                     )
                     .arg(Arg::new("probe_interval")
                         .long("probe-interval")
@@ -575,7 +538,11 @@ fn parse_cmd() -> ArgMatches {
                         .short('d')
                         .value_parser(value_parser!(u16))
                         .required(false)
-                        .help("Destination port to use (default DNS: 53, TCP: 63853)")
+                        .default_value_ifs([
+                            ("p_type", ArgPredicate::Equals("dns".into()), Some("53")),
+                            ("p_type", ArgPredicate::Equals("chaos".into()), Some("53")),
+                        ])
+                        .help("Destination port to use (default DNS/CHAOS: 53, others: 63853)")
                         .conflicts_with("configuration")
                     )
                     .arg(Arg::new("query")
@@ -583,6 +550,10 @@ fn parse_cmd() -> ArgMatches {
                         .short('q')
                         .value_parser(value_parser!(String))
                         .required(false)
+                        .default_value_ifs([
+                            ("p_type", ArgPredicate::Equals("chaos".into()), Some("hostname.bind")),
+                            ("p_type", ArgPredicate::Equals("dns".into()), Some("example.org")),
+                        ])
                         .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)")
                     )
                     .arg(Arg::new("url")
@@ -590,7 +561,6 @@ fn parse_cmd() -> ArgMatches {
                         .short('u')
                         .value_parser(value_parser!(String))
                         .required(false)
-                        .default_value("")
                         .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
                     )
                     .group(
@@ -602,12 +572,6 @@ fn parse_cmd() -> ArgMatches {
                         ArgGroup::new("target_spec")
                             .args(["hitlist", "target"])
                             .required(true),
-                    )
-                    .group(
-                        ArgGroup::new("measurement_type")
-                            .args(["latency", "traceroute", "record", "unicast", "verfploeter", "responsive", "tracemap"])
-                            .multiple(true)
-                            .required(false)
                     )
                     .group(
                         ArgGroup::new("output_type")

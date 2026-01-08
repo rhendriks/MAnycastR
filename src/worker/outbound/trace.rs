@@ -16,7 +16,7 @@ pub fn send_trace(
     ethernet_header: &[u8],
     worker_id: u32,
     m_id: u32,
-    info_url: &str,
+    info_url: Option<String>,
     trace_task: &Trace,
     socket_tx: &mut Box<dyn DataLinkSender>,
     origins: &[Origin],
