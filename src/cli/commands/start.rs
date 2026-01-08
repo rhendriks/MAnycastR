@@ -28,8 +28,6 @@ pub struct MeasurementExecutionArgs<'a> {
     pub out_path: String,
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicates whether the measurement is a traceroute
-    pub is_traceroute: bool,
     /// Indicates a Record Route measurement
     pub is_record: bool,
 }
@@ -49,88 +47,72 @@ pub async fn handle(
     worker_map: BiHashMap<u32, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Start a MAnycastR measurement
-    let is_unicast = matches.get_flag("unicast");
-    let is_verfploeter = matches.get_flag("verfploeter");
     let is_responsive = matches.get_flag("responsive");
-    let is_latency = matches.get_flag("latency");
-    let is_traceroute = matches.get_flag("traceroute");
-    let is_record = matches.get_flag("record"); // Record Route flag
-
-    // Get optional opt-out URL
+    let is_record = matches.get_flag("record");
     let url = matches.get_one::<String>("url");
-
-    // Source IP for the measurement
-    let src = if is_unicast {
-        Some(Address {
-            value: Some(Unicast(Empty {})),
-        })
-    } else if !matches.contains_id("configuration") {
-        matches.get_one::<String>("address").map(Address::from)
-    } else {
-        None
-    };
-
-    // Get protocol used
+    let m_type = MeasurementType::from_str(matches.get_one::<String>("type").unwrap())
+        .expect("Invalid measurement type");
     let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap())
         .expect("Invalid protocol type!");
 
-    // Get the measurement type
-    let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
-        .expect("Invalid measurement type!");
-
-    let is_config = matches.contains_id("configuration");
-
-    // Get the workers that have to send out probes
-    let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
-        || vec![ALL_WORKERS], // Default: all workers
-        |worker_entries_str| {
-            worker_entries_str
-                .trim_matches(|c| c == '[' || c == ']')
-                .split(',')
-                .filter_map(|entry_str_untrimmed| {
-                    let entry_str = entry_str_untrimmed.trim();
-                    if entry_str.is_empty() {
-                        return None; // Skip trailing commas
-                    }
-                    // Try to parse as worker ID
-                    if let Ok(id_val) = entry_str.parse::<u32>() {
-                        if worker_map.contains_left(&id_val) {
-                            Some(id_val)
-                        } else {
-                            warn!("Worker ID '{entry_str}' is not a known worker.");
-                            None
-                        }
-                    } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
-                        Some(found_id)
-                    } else {
-                        warn!("'{entry_str}' is not a valid worker ID or known hostname.");
-                        None
-                    }
-                })
-                .collect()
-        },
-    );
-
-    // Read the configuration file
-    let configurations = if is_config {
-        let conf_file = matches.get_one::<String>("configuration").unwrap();
-        parse_configurations(conf_file, &worker_map)
+    let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
+        // Use configuration set by the user
+        parse_configurations(conf_path, &worker_map)
     } else {
-        // Obtain port values (read as u16 as is the port header size)
+        // Create our own configuration from the arguments
+        let src = if let Some(anycast_address) = matches.get_one::<String>("address") {
+            Address::from(anycast_address)
+        } else if m_type == MeasurementType::UnicastLatency {
+            Address {
+                value: Some(Unicast(Empty {})),
+            }
+        } else {
+            panic!("An address must be specified for anycast measurements")
+        };
         let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
-        // Default destination port is 53 for DNS, 63853 for all other measurements
         let dport = *matches.get_one::<u16>("destination port").unwrap() as u32;
 
-        // list of worker IDs defined
+        // Get the workers that have to send out probes
+        let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
+            || vec![ALL_WORKERS], // Default: all workers
+            |worker_entries_str| {
+                worker_entries_str
+                    .trim_matches(|c| c == '[' || c == ']')
+                    .split(',')
+                    .filter_map(|entry_str_untrimmed| {
+                        let entry_str = entry_str_untrimmed.trim();
+                        if entry_str.is_empty() {
+                            return None; // Skip trailing commas
+                        }
+                        // Try to parse as worker ID
+                        if let Ok(id_val) = entry_str.parse::<u32>() {
+                            if worker_map.contains_left(&id_val) {
+                                Some(id_val)
+                            } else {
+                                warn!("Worker ID '{entry_str}' is not a known worker.");
+                                None
+                            }
+                        } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
+                            Some(found_id)
+                        } else {
+                            warn!("'{entry_str}' is not a valid worker ID or known hostname.");
+                            None
+                        }
+                    })
+                    .collect()
+            },
+        );
+
+        // Create configuration
         sender_ids
             .iter()
             .map(|&worker_id| Configuration {
                 worker_id,
                 origin: Some(Origin {
-                    src,
+                    src: Some(src),
                     sport,
                     dport,
-                    origin_id: 0, // Only one origin
+                    origin_id: 0, // Argument based configuration with a single Origin
                 }),
             })
             .collect()
@@ -139,16 +121,8 @@ pub async fn handle(
     // Get the target IP addresses
     let hitlist_path = matches.get_one::<String>("hitlist").unwrap();
     let is_shuffle = matches.get_flag("shuffle");
-
-    let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_unicast, is_shuffle);
-
-    if is_record && is_ipv6 {
-        panic!("Record Route is IPv4 only");
-    }
-
-    // Record to request in the DNS query (A/CHAOS)
+    let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_shuffle);
     let dns_record = matches.get_one::<String>("query");
-
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
     let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
@@ -157,27 +131,13 @@ pub async fn handle(
     let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
     let hitlist_length = targets.len();
 
-    // Measurement category (unicast, verfploeter, latency, responsive, traceroute, reverse traceroute, anycast (default))
-    let m_cat = if is_unicast {
-        "Unicast"
-    } else if is_verfploeter {
-        "Anycast-verfploeter"
-    } else if is_latency {
-        "Anycast-latency"
-    } else if is_traceroute {
-        "Anycast-traceroute"
-    } else if is_record {
-        "Anycast-Record-Route"
+    let p_type_str = if is_ipv6 {
+        m_type.to_string() + "v6"
     } else {
-        "Anycast"
-    };
-    let m_cat = if is_responsive {
-        format!("{}-responsive", m_cat)
-    } else {
-        m_cat.to_string()
+        m_type.to_string() + "v4"
     };
 
-    info!("[CLI] Performing {m_cat} {p_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+    info!("[CLI] Performing {m_type} measurement using {p_type_str} targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
     );
@@ -217,7 +177,7 @@ pub async fn handle(
     let path = matches.get_one::<String>("out").unwrap().to_string();
     validate_path_perms(&path)?;
 
-    let trace_options = if is_traceroute {
+    let trace_options = if m_type == MeasurementType::AnycastTraceroute {
         Some(TraceOptions {
             max_failures: *matches
                 .get_one::<u32>("trace-max-failures")
@@ -258,11 +218,10 @@ pub async fn handle(
         hitlist_length,
         out_path: path,
         worker_map,
-        is_traceroute,
         is_record,
     };
 
     grpc_client
-        .do_measurement_to_server(m_definition, args, is_ipv6, is_unicast)
+        .do_measurement_to_server(m_definition, args, is_ipv6, m_type)
         .await
 }
