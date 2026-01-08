@@ -201,7 +201,7 @@
 //! * Allow for simultaneous/mixed unicast and anycast measurements
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
-use clap::{arg, value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
+use clap::{arg, value_parser, ArgAction, ArgGroup, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;

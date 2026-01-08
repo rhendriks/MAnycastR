@@ -55,12 +55,12 @@ pub async fn handle(
     let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap())
         .expect("Invalid protocol type!");
 
-    let configurations = if let Some(conf_path) = matches.get_one::<String>("CONF") {
+    let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
         // Use configuration set by the user
         parse_configurations(conf_path, &worker_map)
     } else {
         // Create our own configuration from the arguments
-        let src = if let Some(anycast_address) = matches.get_one::<String>("ADDR") {
+        let src = if let Some(anycast_address) = matches.get_one::<String>("address") {
             Address::from(anycast_address)
         } else if m_type == MeasurementType::UnicastLatency {
             Address {
@@ -128,7 +128,7 @@ pub async fn handle(
     let worker_interval = *matches.get_one::<u32>("worker_interval").unwrap();
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
-    let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
+    let number_of_probes = *matches.get_one::<u32>("nprobes").unwrap();
     let hitlist_length = targets.len();
 
     let p_type_str = if is_ipv6 {
