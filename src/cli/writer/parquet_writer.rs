@@ -155,7 +155,7 @@ pub fn get_parquet_metadata(
         .iter()
         .map(|c| {
             format!(
-                "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
+                "Worker: {}, src IP: {}, src port: {}, dst port: {}",
                 if c.worker_id == ALL_WORKERS {
                     "ALL".to_string()
                 } else {

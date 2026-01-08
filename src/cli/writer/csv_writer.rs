@@ -37,8 +37,8 @@ pub fn get_csv_metadata(
                 .to_string()
         };
         md_file.push(format!(
-            "# Configuration - Worker: {:<2}, source IP: {}, source port: {}, destination port: {}",
-            hostname, src, origin.sport, origin.dport
+            "# Configuration - Worker: {hostname:<2}, src IP: {src}, src port: {}, dst port: {}",
+            origin.sport, origin.dport
         ));
     }
     md_file.push(format!(
@@ -52,10 +52,12 @@ pub fn get_csv_metadata(
         args.probing_rate.with_separator()
     ));
     md_file.push(format!("# Worker interval: {}", args.interval));
-    md_file.push(format!("# {} connected workers:", args.all_workers.len()));
-    for (_, hostname) in args.all_workers {
-        md_file.push(format!("# * {hostname}"))
-    }
+    let hostnames: Vec<_> = args.all_workers.iter().map(|(_, h)| h.as_str()).collect();
+    md_file.push(format!(
+        "# Connected workers ({}): {}",
+        hostnames.len(),
+        hostnames.join(", ")
+    ));
 
     md_file
 }
