@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::custom_module;
+use crate::custom_module::manycastr::MeasurementType;
 use crate::orchestrator::config::{load_tls, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::result_handler::SessionTracker;
@@ -36,17 +37,6 @@ type TaskMessage = Result<Instruction, Status>;
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_DIRECT: u32 = u32::MAX;
 const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
-
-/// The measurement types that result in different result handling behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MeasurementType {
-    /// Targets are probed for responsiveness from any worker, measurement probes are sent from all workers.
-    Responsive,
-    /// Targets are probed to determine the catching worker, measurement probes are sent from the catching worker.
-    Latency,
-    /// Targets are probed to determine the catching worker, traceroute probes are sent from the catching worker.
-    Traceroute,
-}
 
 /// State to keep track of an ongoing measurement
 #[derive(Debug)]

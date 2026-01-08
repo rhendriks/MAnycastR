@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::Address;
+use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
 use crate::worker::outbound::{OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
 use log::{error, warn};
@@ -6,11 +6,6 @@ use pnet::datalink::DataLinkSender;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-use crate::A_ID;
-use crate::CHAOS_ID;
-use crate::ICMP_ID;
-use crate::TCP_ID;
 
 /// Sends probes to the specified destination using the provided measurement configuration.
 /// This function constructs the appropriate packet based on the measurement type
@@ -48,7 +43,7 @@ pub fn send_probe(
         worker_id,
         m_id: config.m_id,
         trace_ttl: None,
-        info_url: &config.info_url,
+        info_url: config.info_url.clone(),
     };
 
     // Write packets to send to a one-time allocated buffer
@@ -67,8 +62,8 @@ pub fn send_probe(
         packet_buffer.clear();
         packet_buffer.extend_from_slice(ethernet_header);
 
-        match config.m_type {
-            ICMP_ID => {
+        match config.p_type {
+            ProtocolType::Icmp => {
                 packet_buffer.extend_from_slice(&create_icmp(
                     &origin.src.unwrap(),
                     dst,
@@ -78,28 +73,24 @@ pub fn send_probe(
                     255,
                 ));
             }
-            A_ID | CHAOS_ID => {
+            ProtocolType::ADns | ProtocolType::ChaosDns => {
                 packet_buffer.extend_from_slice(&create_dns(
                     origin,
                     dst,
                     worker_id,
-                    config.m_type,
-                    &config.qname,
+                    config.p_type == ProtocolType::ChaosDns,
+                    config.qname.clone().expect("qname missing"),
                 ));
             }
-            TCP_ID => {
+            ProtocolType::Tcp => {
                 packet_buffer.extend_from_slice(&create_tcp(
                     origin,
                     dst,
                     worker_id,
-                    config.is_latency,
-                    &config.info_url,
+                    is_discovery,
+                    config.info_url.clone(),
                 ));
             }
-            255 => {
-                panic!("Invalid measurement type)") // TODO all, any
-            }
-            _ => panic!("Invalid measurement type"), // Invalid measurement
         }
 
         match socket_tx.send_to(&packet_buffer, None) {

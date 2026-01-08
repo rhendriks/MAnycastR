@@ -6,14 +6,13 @@ use std::thread::{sleep, Builder};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Origin, Reply, ReplyBatch};
+use crate::custom_module::manycastr::{Origin, ProtocolType, Reply, ReplyBatch};
 use crate::custom_module::Separated;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
 use crate::worker::inbound::trace::parse_trace;
-use crate::{A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
 use pnet::datalink::DataLinkReceiver;
 
 mod dns;
@@ -31,8 +30,8 @@ pub struct InboundConfig {
     pub m_id: u32,
     /// The unique ID of this specific worker.
     pub worker_id: u16,
-    /// The type of measurement being performed (e.g., ICMP, DNS, TCP).
-    pub m_type: u8,
+    /// Protocol used
+    pub p_type: ProtocolType,
     /// A map of valid source addresses and port values (`Origin`) to verify incoming packets against.
     pub origin_map: Vec<Origin>,
     /// A shared signal that can be used to gracefully shut down the worker.
@@ -84,35 +83,33 @@ pub fn inbound(
                     }
                 };
 
-                // Parse the packet based on the measurement type (skip Ethernet header)
-                let result = if config.is_traceroute {
-                    parse_trace(
-                        &packet[14..],
-                        config.m_id,
-                        &config.origin_map,
-                        config.is_ipv6,
-                    )
-                } else if config.is_record {
-                    parse_record_route(&packet[14..], config.m_id, &config.origin_map)
-                } else if config.m_type == ICMP_ID {
-                    parse_icmp(
-                        &packet[14..],
+                let payload = &packet[14..];
+
+                let result = match (config.is_traceroute, config.is_record, config.p_type) {
+                    (true, _, _) => {
+                        parse_trace(payload, config.m_id, &config.origin_map, config.is_ipv6)
+                    }
+
+                    (_, true, _) => parse_record_route(payload, config.m_id, &config.origin_map),
+
+                    (_, _, ProtocolType::Icmp) => parse_icmp(
+                        payload,
                         config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
                         false,
-                    )
-                } else if config.m_type == A_ID || config.m_type == CHAOS_ID {
-                    parse_dns(
-                        &packet[14..],
-                        config.m_type,
+                    ),
+
+                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
+                        payload,
+                        config.p_type == ProtocolType::ChaosDns,
                         &config.origin_map,
                         config.is_ipv6,
-                    )
-                } else if config.m_type == TCP_ID {
-                    parse_tcp(&packet[14..], &config.origin_map, config.is_ipv6)
-                } else {
-                    panic!("Invalid measurement type");
+                    ),
+
+                    (_, _, ProtocolType::Tcp) => {
+                        parse_tcp(payload, &config.origin_map, config.is_ipv6)
+                    }
                 };
 
                 // Invalid packets have value None

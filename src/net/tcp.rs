@@ -75,8 +75,14 @@ impl TCPPacket {
         dport: u16,
         ack: u32,
         ttl: u8,
-        info_url: &str,
+        info_url: Option<String>,
     ) -> Vec<u8> {
+        let body: Vec<u8> = if let Some(info_url) = info_url {
+            info_url.bytes().collect()
+        } else {
+            vec![]
+        };
+
         let mut tcp_packet = Self {
             sport,
             dport,
@@ -86,7 +92,7 @@ impl TCPPacket {
             flags: 0b00010010,  // SYN and ACK flags
             checksum: 0,
             pointer: 0,
-            body: info_url.bytes().collect(),
+            body,
             window_size: 0,
         };
 

@@ -16,6 +16,7 @@ use pnet::datalink::DataLinkSender;
 
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
+use crate::custom_module::manycastr::ProtocolType;
 use crate::custom_module::Separated;
 use crate::net::packet::get_ethernet_header;
 use crate::worker::outbound::probe::send_probe;
@@ -33,16 +34,14 @@ pub struct OutboundConfig {
     pub tx_origins: Vec<Origin>,
     /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
     pub abort_outbound: Arc<AtomicBool>,
-    /// Indicates if this is a latency measurement.
-    pub is_latency: bool,
     /// The unique ID of the measurement.
     pub m_id: u32,
-    /// The type of probe to send (e.g., 1 for ICMP, 2 for DNS/A, 3 for TCP).
-    pub m_type: u8,
-    /// The domain name to query in DNS measurement probes.
-    pub qname: String,
-    /// An informational URL to be embedded in the probe's payload (e.g., an opt-out link).
-    pub info_url: String,
+    /// Protocol type used
+    pub p_type: ProtocolType,
+    /// Optional domain name to query in DNS measurement probes.
+    pub qname: Option<String>,
+    /// Optional URL to be embedded in the probe's payload (e.g., an opt-out link).
+    pub info_url: Option<String>,
     /// The name of the network interface to send packets from (e.g., "eth0").
     pub if_name: String,
     /// The target rate for sending probes, measured in packets per second (pps).
@@ -51,6 +50,8 @@ pub struct OutboundConfig {
     pub origin_map: Option<Vec<Origin>>,
     /// Indicates if the measurement is IPv6 (true) or IPv4 (false).
     pub is_ipv6: bool,
+    /// Whether to add the Record Route option to IPv4 probes
+    pub is_record: bool,
 }
 
 /// Starts the outbound worker thread that awaits tasks and sends probes.
@@ -98,14 +99,24 @@ pub fn outbound(
                         for task in payload.tasks.iter() {
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
-                                    let (s, f) = send_probe(
-                                        &config,
-                                        &ethernet_header,
-                                        &task.dst.unwrap(),
-                                        &mut socket_tx,
-                                        &mut limiter,
-                                        false, // Not a discovery probe
-                                    );
+                                    let (s, f) = if !config.is_record {
+                                        send_probe(
+                                            &config,
+                                            &ethernet_header,
+                                            &task.dst.unwrap(),
+                                            &mut socket_tx,
+                                            &mut limiter,
+                                            false, // Not a discovery probe
+                                        )
+                                    } else {
+                                        send_record_route_probe(
+                                            &ethernet_header,
+                                            &config,
+                                            &task.dst.unwrap(),
+                                            &mut socket_tx,
+                                            &mut limiter,
+                                        )
+                                    };
                                     sent += s;
                                     failed += f;
                                 }
@@ -126,23 +137,12 @@ pub fn outbound(
                                         &ethernet_header,
                                         config.worker_id as u32,
                                         config.m_id,
-                                        &config.info_url,
+                                        config.info_url.clone(),
                                         trace,
                                         &mut socket_tx,
                                         config.origin_map.as_ref().expect("Missing origin_map"),
                                     );
                                     traces_sent += s;
-                                    failed += f;
-                                }
-                                Some(TaskType::Record(task)) => {
-                                    let (s, f) = send_record_route_probe(
-                                        &ethernet_header,
-                                        &config,
-                                        &task.dst.unwrap(),
-                                        &mut socket_tx,
-                                        &mut limiter,
-                                    );
-                                    sent += s;
                                     failed += f;
                                 }
                                 _ => continue, // Invalid task type

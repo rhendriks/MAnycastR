@@ -1,4 +1,6 @@
+use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
 use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
+use std::fmt;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -237,3 +239,73 @@ macro_rules! impl_separated {
 }
 
 impl_separated!(u32, usize, u64, i32);
+
+/// Pretty print measurement types
+impl Display for MeasurementType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Laces => "LACeS",
+            Self::Verfploeter => "Verfploeter",
+            Self::AnycastLatency => "Anycast Latency",
+            Self::UnicastLatency => "Unicast Latency",
+            Self::AnycastTraceroute => "Anycast Traceroute",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl MeasurementType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Laces => "laces",
+            Self::Verfploeter => "verfploeter",
+            Self::AnycastLatency => "latency",
+            Self::UnicastLatency => "unicast",
+            Self::AnycastTraceroute => "anycast-traceroute",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "laces" => Some(Self::Laces),
+            "verfploeter" => Some(Self::Verfploeter),
+            "latency" => Some(Self::AnycastLatency),
+            "unicast" => Some(Self::UnicastLatency),
+            "anycast-traceroute" => Some(Self::AnycastTraceroute),
+            _ => None,
+        }
+    }
+}
+
+impl Display for ProtocolType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ProtocolType::Icmp => "ICMP",
+            ProtocolType::ADns => "DNS (A)",
+            ProtocolType::Tcp => "TCP",
+            ProtocolType::ChaosDns => "DNS (CHAOS)",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl ProtocolType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProtocolType::Icmp => "icmp",
+            ProtocolType::ADns => "dns",
+            ProtocolType::Tcp => "tcp",
+            ProtocolType::ChaosDns => "chaos",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "icmp" => Some(Self::Icmp),
+            "dns" => Some(Self::ADns),
+            "tcp" => Some(Self::Tcp),
+            "chaos" => Some(Self::ChaosDns),
+            _ => None,
+        }
+    }
+}

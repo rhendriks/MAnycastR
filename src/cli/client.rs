@@ -2,9 +2,11 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{ReplyBatch, ScheduleMeasurement};
+use crate::custom_module::manycastr::{
+    MeasurementType, ProtocolType, ReplyBatch, ScheduleMeasurement,
+};
 use crate::custom_module::Separated;
-use crate::{ALL_WORKERS, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::ALL_WORKERS;
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
@@ -28,11 +30,10 @@ impl CliClient {
     /// Perform a measurement at the orchestrator, await measurement results, and write them to a file.
     ///
     /// # Arguments
-    ///
-    /// * 'm_definition' - measurement definition  for the orchestrator created from the command-line arguments
-    /// * 'args' - contains additional arguments for the measurement execution
-    /// * 'is_ipv6' - boolean whether the measurement is IPv6 or not
-    /// * 'is_unicast' - boolean whether the measurement is unicast or anycast
+    /// * `m_definition` - measurement definition  for the orchestrator created from the command-line arguments
+    /// * `args` - contains additional arguments for the measurement execution
+    /// * `is_ipv6` - boolean whether the measurement is IPv6 or not
+    /// * `is_unicast` - boolean whether the measurement is unicast or anycast
     pub(crate) async fn do_measurement_to_server(
         &mut self,
         m_definition: ScheduleMeasurement,
@@ -40,11 +41,8 @@ impl CliClient {
         is_ipv6: bool,
         is_unicast: bool,
     ) -> Result<(), Box<dyn Error>> {
-        let is_verfploeter = m_definition.is_verfploeter;
         let probing_rate = m_definition.probing_rate;
         let worker_interval = m_definition.worker_interval;
-        let m_type = m_definition.m_type as u8;
-        let is_latency = m_definition.is_latency;
         let is_responsive = m_definition.is_responsive;
 
         // Get number of probers
@@ -62,19 +60,22 @@ impl CliClient {
             }
         };
 
-        let m_time = if is_verfploeter || is_latency {
-            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 1.0)
-                / 60.0
-        } else {
-            (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
-                + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
-                + 1.0) // Time to wait for last replies
-                / 60.0 // Convert to minutes
+        let m_time = match m_definition.m_type() {
+            MeasurementType::Verfploeter | MeasurementType::AnycastLatency => {
+                ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
+                    + 1.0)
+                    / 60.0
+            }
+            _ => {
+                (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
+            + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
+            + 1.0) // Time to wait for last replies
+            / 60.0 // Convert to minutes
+            }
         };
 
-        if is_verfploeter {
-            info!("[CLI] Performing Verfploeter catchment mapping");
-        }
+        info!("[CLI] Performing {} measurement", m_definition.m_type);
+
         info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self
@@ -128,19 +129,13 @@ impl CliClient {
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
-        // Get measurement type
-        let type_str = match m_type {
-            ICMP_ID => "icmp",
-            A_ID => "dns",
-            TCP_ID => "tcp",
-            CHAOS_ID => "chaos",
-            _ => "icmp",
-        };
-        let type_str = if is_ipv6 {
-            format!("{type_str}v6")
-        } else {
-            format!("{type_str}v4")
-        };
+        // Get protocol and IP version
+        let type_str = format!(
+            "{}{}",
+            m_definition.p_type().as_str(),
+            if is_ipv6 { "v6" } else { "v4" }
+        );
+
         // Determine traceroute
         let is_traceroute = args.is_traceroute;
         let is_record = args.is_record;
@@ -157,7 +152,7 @@ impl CliClient {
         let mut is_parquet = args.is_parquet;
 
         // traceroute only supported for ICMP
-        if is_traceroute && m_type != ICMP_ID {
+        if is_traceroute && m_definition.p_type() != ProtocolType::Icmp {
             panic!("Traceroute measurements are only supported for ICMP!");
         }
 
@@ -181,7 +176,6 @@ impl CliClient {
         let file = File::create(file_path).expect("Unable to create file");
 
         let metadata_args = MetadataArgs {
-            is_verfploeter,
             hitlist: args.hitlist_path,
             is_shuffle: args.is_shuffle,
             m_type_str: type_str,
@@ -189,8 +183,9 @@ impl CliClient {
             interval: worker_interval,
             all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
-            is_latency,
             is_responsive,
+            m_type: m_definition.m_type(),
+            p_type: m_definition.p_type(),
         };
 
         let is_multi_origin = if is_unicast {
@@ -208,13 +203,11 @@ impl CliClient {
             print_to_cli: args.is_cli,
             output_file: file,
             metadata_args,
-            m_type,
+            p_type: m_definition.p_type(),
+            m_type: m_definition.m_type(),
             is_multi_origin,
-            is_symmetric: is_unicast || is_latency,
             worker_map: args.worker_map.clone(),
-            is_traceroute,
             is_record,
-            is_verfploeter,
         };
 
         // Start thread that writes results to file

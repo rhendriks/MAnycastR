@@ -8,20 +8,15 @@ use bimap::BiHashMap;
 /// # Arguments
 /// * `args` - Contains measurement arguments to be written into the metadata
 /// * `worker_map` - Convert IDs to hostnames
-/// Variables describing the measurement
 pub fn get_csv_metadata(
     args: MetadataArgs<'_>,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
     let mut md_file = Vec::new();
-    if args.is_verfploeter {
-        md_file.push("# Measurement style: Verfploeter".to_string());
-    } else if args.is_latency {
-        md_file.push("# Measurement style: Anycast latency".to_string());
-    } else if args.is_responsive {
-        md_file.push("# Measurement style: LACeS-Responsive-mode".to_string());
-    } else {
-        md_file.push("# Measurement style: LACeS-mode".to_string());
+    md_file.push(format!("# Measurement type: {}", args.m_type));
+    md_file.push(format!("# Protocol used: {}", args.p_type));
+    if args.is_responsive {
+        md_file.push("# Responsiveness mode enabled".to_string());
     }
 
     // Print configurations used

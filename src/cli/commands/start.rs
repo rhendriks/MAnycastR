@@ -3,10 +3,11 @@ use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::address::Value::Unicast;
 use crate::custom_module::manycastr::{
-    Address, Configuration, Empty, Origin, ScheduleMeasurement, TraceOptions,
+    Address, Configuration, Empty, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
+    TraceOptions,
 };
 use crate::custom_module::Separated;
-use crate::{ALL_ID, ALL_WORKERS, ANY_ID, A_ID, CHAOS_ID, ICMP_ID, TCP_ID};
+use crate::ALL_WORKERS;
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{info, warn};
@@ -56,7 +57,7 @@ pub async fn handle(
     let is_record = matches.get_flag("record"); // Record Route flag
 
     // Get optional opt-out URL
-    let url = matches.get_one::<String>("url").unwrap().clone();
+    let url = matches.get_one::<String>("url");
 
     // Source IP for the measurement
     let src = if is_unicast {
@@ -69,16 +70,13 @@ pub async fn handle(
         None
     };
 
+    // Get protocol used
+    let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap())
+        .expect("Invalid protocol type!");
+
     // Get the measurement type
-    let m_type = match matches.get_one::<String>("type").unwrap().as_str() {
-        "icmp" => ICMP_ID,
-        "dns" => A_ID,
-        "tcp" => TCP_ID,
-        "chaos" => CHAOS_ID,
-        "any" => ANY_ID,
-        "all" => ALL_ID,
-        _ => panic!("Invalid measurement type! (can be either ICMP, DNS, TCP, all, or CHAOS)"),
-    };
+    let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
+        .expect("Invalid measurement type!");
 
     let is_config = matches.contains_id("configuration");
 
@@ -121,16 +119,7 @@ pub async fn handle(
         // Obtain port values (read as u16 as is the port header size)
         let sport: u32 = *matches.get_one::<u16>("source port").unwrap() as u32;
         // Default destination port is 53 for DNS, 63853 for all other measurements
-        let dport = matches
-            .get_one::<u16>("destination port")
-            .map(|&port| port as u32)
-            .unwrap_or_else(|| {
-                if m_type == A_ID || m_type == CHAOS_ID {
-                    53
-                } else {
-                    63853
-                }
-            });
+        let dport = *matches.get_one::<u16>("destination port").unwrap() as u32;
 
         // list of worker IDs defined
         sender_ids
@@ -158,17 +147,7 @@ pub async fn handle(
     }
 
     // Record to request in the DNS query (A/CHAOS)
-    let dns_record = if m_type == CHAOS_ID {
-        matches
-            .get_one::<String>("query")
-            .map_or("hostname.bind", |q| q.as_str())
-    } else if m_type == A_ID || m_type == ALL_ID {
-        matches
-            .get_one::<String>("query")
-            .map_or("example.org", |q| q.as_str())
-    } else {
-        ""
-    };
+    let dns_record = matches.get_one::<String>("query");
 
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
@@ -176,15 +155,6 @@ pub async fn handle(
     let probe_interval = *matches.get_one::<u32>("probe_interval").unwrap();
     let probing_rate = *matches.get_one::<u32>("rate").unwrap();
     let number_of_probes = *matches.get_one::<u32>("number_of_probes").unwrap();
-    let t_type = match m_type {
-        ICMP_ID => "ICMP",
-        A_ID => "DNS/A",
-        TCP_ID => "TCP/SYN-ACK",
-        CHAOS_ID => "DNS/CHAOS",
-        ANY_ID => "Any (ICMP,DNS/A,TCP)",
-        ALL_ID => "All (ICMP,DNS/A,TCP)",
-        _ => "Unknown",
-    };
     let hitlist_length = targets.len();
 
     // Measurement category (unicast, verfploeter, latency, responsive, traceroute, reverse traceroute, anycast (default))
@@ -207,7 +177,7 @@ pub async fn handle(
         m_cat.to_string()
     };
 
-    info!("[CLI] Performing {m_cat} {t_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+    info!("[CLI] Performing {m_cat} {p_type} measurement targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
     );
@@ -266,19 +236,18 @@ pub async fn handle(
     let m_definition = ScheduleMeasurement {
         probing_rate,
         configurations,
-        m_type: m_type as u32,
-        is_verfploeter,
+        m_type: m_type.into(),
         worker_interval,
         is_responsive,
-        is_latency,
-        targets,
-        record: dns_record.to_string(),
-        url,
+        hitlist: targets,
+        record: dns_record.cloned(),
+        url: url.cloned(),
         probe_interval,
         number_of_probes,
         is_ipv6,
         is_record,
         trace_options,
+        p_type: p_type.into(),
     };
 
     let args = MeasurementExecutionArgs {

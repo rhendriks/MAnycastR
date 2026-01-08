@@ -11,8 +11,9 @@ use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
+use crate::custom_module;
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::{custom_module, CHAOS_ID};
+use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -34,26 +35,20 @@ pub struct WriteConfig<'a> {
     pub output_file: File,
     /// Metadata for the measurement, to be written at the beginning of the output file.
     pub metadata_args: MetadataArgs<'a>,
-    /// The type of measurement being performed (1 for ICMP, 2 for DNS/A, 3 for TCP, etc.)
-    pub m_type: u8,
+    /// Protocol used for the measurement
+    pub p_type: ProtocolType,
+    /// Measurement type
+    pub m_type: MeasurementType,
     /// Indicates whether the measurement involves multiple origins
     pub is_multi_origin: bool,
-    /// Indicates whether the measurement is symmetric (e.g., sender == receiver is always true).
-    pub is_symmetric: bool,
     /// A bidirectional map used to convert worker IDs (u16) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicate whether it is a traceroute measurement
-    pub is_traceroute: bool,
     /// Indicate whether Record Route is used
     pub is_record: bool,
-    /// Indicate whether this is a Verfploeter catchment mapping (single probe per target from any worker)
-    pub is_verfploeter: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
 pub struct MetadataArgs<'a> {
-    /// Verfploeter measurement flag.
-    pub is_verfploeter: bool,
     /// Path to the hitlist used.
     pub hitlist: &'a str,
     /// Whether the hitlist was shuffled.
@@ -68,10 +63,12 @@ pub struct MetadataArgs<'a> {
     pub all_workers: &'a BiHashMap<u32, String>,
     /// Optional configuration file used.
     pub configurations: &'a Vec<Configuration>,
-    /// Whether this is a latency-based measurement.
-    pub is_latency: bool,
     /// Whether this is a responsiveness-based measurement.
     pub is_responsive: bool,
+    /// Measurement type
+    pub m_type: MeasurementType,
+    /// Protocol type
+    pub p_type: ProtocolType,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
@@ -128,12 +125,10 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 
     // Write header
     let header = get_header(
-        config.m_type,
+        config.p_type == ProtocolType::ChaosDns,
         config.is_multi_origin,
-        config.is_symmetric,
-        config.is_traceroute,
         config.is_record,
-        config.is_verfploeter,
+        config.m_type,
     );
     dual_wtr
         .write_record(header)
@@ -151,15 +146,28 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             for result in results {
                 let row = match result.reply_data {
                     Some(data) => match data {
-                        ReplyData::Measurement(reply) => {
-                            if config.is_symmetric {
-                                get_latency_row(reply, &rx_id, &config.worker_map, config.m_type)
-                            } else if config.is_verfploeter {
-                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
-                            } else {
-                                get_laces_row(reply, &rx_id, config.m_type, &config.worker_map)
+                        ReplyData::Measurement(reply) => match config.m_type {
+                            MeasurementType::UnicastLatency | MeasurementType::AnycastLatency => {
+                                get_latency_row(
+                                    reply,
+                                    &rx_id,
+                                    &config.worker_map,
+                                    config.p_type == ProtocolType::Tcp,
+                                )
                             }
-                        }
+                            MeasurementType::Verfploeter => {
+                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
+                            }
+                            MeasurementType::Laces => get_laces_row(
+                                reply,
+                                &rx_id,
+                                config.p_type == ProtocolType::Tcp,
+                                &config.worker_map,
+                            ),
+                            MeasurementType::AnycastTraceroute => {
+                                panic!("Received regular reply during a traceroute measurement")
+                            }
+                        },
                         ReplyData::Trace(reply) => get_trace_row(reply, &rx_id, &config.worker_map),
                         ReplyData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
@@ -182,40 +190,42 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 /// Creates the appropriate CSV header for the results file (based on the measurement type)
 ///
 /// # Arguments
-///
-/// * 'measurement_type' - The type of measurement being performed
-/// * 'is_multi_origin' - A boolean that determines whether multiple origins are used
-/// * 'is_symmetric' - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
-/// * 'is_traceroute' - A boolean that determines whether the measurement is a traceroute
-/// * 'is_record' - A boolean that determines whether Record Route is used
+/// * `is_chaos` - Whether CHAOS queries are sent
+/// * `is_multi_origin` - A boolean that determines whether multiple origins are used
+/// * `is_record` - Whether Record Route is used
+/// * `m_type` - Measurement type performed
 pub fn get_header(
-    m_type: u8,
+    is_chaos: bool,
     is_multi_origin: bool,
-    is_latency: bool,
-    is_traceroute: bool,
     is_record: bool,
-    is_verfploeter: bool,
+    m_type: MeasurementType,
 ) -> Vec<&'static str> {
-    let mut header = if is_traceroute {
-        vec![
-            "rx",
-            "hop_addr",
-            "ttl",
-            "tx",
-            "trace_dst",
-            "trace_ttl",
-            "rtt",
-        ]
-    } else if is_latency {
-        vec!["rx", "addr", "ttl", "rtt"]
-    } else if is_verfploeter {
-        vec!["rx", "addr", "ttl"]
-    } else {
-        vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
+    // Determine headers based on measurement type
+    let mut header = match m_type {
+        MeasurementType::AnycastTraceroute => {
+            vec![
+                "rx",
+                "hop_addr",
+                "ttl",
+                "tx",
+                "trace_dst",
+                "trace_ttl",
+                "rtt",
+            ]
+        }
+        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+            vec!["rx", "addr", "ttl", "rtt"]
+        }
+        MeasurementType::Verfploeter => {
+            vec!["rx", "addr", "ttl"]
+        }
+        MeasurementType::Laces => {
+            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
+        }
     };
 
     // Optional fields
-    if m_type == CHAOS_ID {
+    if is_chaos {
         header.push("chaos_data");
     }
     if is_multi_origin {

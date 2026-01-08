@@ -1,6 +1,5 @@
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::fs::File;
@@ -174,24 +173,26 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
 
 /// ICMP arguments to encode in the payload.
 #[derive(Debug)]
-pub struct ProbePayload<'a> {
+pub struct ProbePayload {
+    /// Sender worker ID
     pub worker_id: u32,
+    /// Unique measurement ID (to verify reply)
     pub m_id: u32,
+    /// Optional TTL value of the IP header (for traceroute)
     pub trace_ttl: Option<u8>,
-    pub info_url: &'a str,
+    /// Optional URL (e.g., opt-out information)
+    pub info_url: Option<String>,
 }
 
 /// Creates a ping packet to send.
 ///
 /// # Arguments
-/// * 'src' - the source address for the ping packet
-/// * 'dst' - the destination address for the ping packet
-/// * 'identifier' - the identifier to use in the ICMP header
-/// * 'seq' - the sequence number to use in the ICMP header
-/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
-/// * 'm_id' - the unique ID of the current measurement (encoded in payload)
-/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
-/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
+/// * `src` - the source address for the ping packet
+/// * `dst` - the destination address for the ping packet
+/// * `identifier` - the identifier to use in the ICMP header
+/// * `seq` - the sequence number to use in the ICMP header
+/// * `payload` - information to encode in the payload
+/// * `ttl` - the time-to-live (TTL) value to set in the IP header
 ///
 /// # Returns
 /// A ping packet (including the IP header) as a byte vector.
@@ -224,7 +225,9 @@ pub fn create_icmp(
     }
 
     // Add info URL to payload
-    payload_bytes.extend(payload.info_url.bytes());
+    if let Some(info_url) = &payload.info_url {
+        payload_bytes.extend_from_slice(info_url.as_bytes());
+    }
 
     ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl)
 }
@@ -263,7 +266,9 @@ pub fn create_record_route_icmp(
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
     // Add info URL to payload
-    payload_bytes.extend(payload.info_url.bytes());
+    if let Some(info_url) = &payload.info_url {
+        payload_bytes.extend_from_slice(info_url.as_bytes());
+    }
 
     ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
 }
@@ -274,7 +279,7 @@ pub fn create_record_route_icmp(
 /// * `origin` - the source address and port values we use for our probes
 /// * `worker_id` - the unique worker ID of this worker
 /// * `dst` - the destination address for the DNS packet
-/// * `m_type` - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
+/// * `is_chaos` - whether this is a CHAOS measurement
 /// * `qname` - the DNS record to request
 ///
 /// # Returns
@@ -283,8 +288,8 @@ pub fn create_dns(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    m_type: u8,
-    qname: &str,
+    is_chaos: bool,
+    qname: String,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -293,12 +298,10 @@ pub fn create_dns(
     let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
-    if m_type == A_ID {
+    if !is_chaos {
         UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
-    } else if m_type == CHAOS_ID {
-        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
-        panic!("Invalid measurement type")
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     }
 }
 
@@ -309,7 +312,7 @@ pub fn create_dns(
 /// * `dst` - the destination address for the TCP packet
 /// * `worker_id` - the unique worker ID of this worker
 /// * `is_discovery` - whether this is a measurement (False) or discovery (True) probe
-/// * `info_url` - URL to encode in packet payload (e.g., opt-out URL)
+/// * `info_url` - Optional URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
 /// A TCP packet (including the IP header) as a byte vector.
@@ -318,7 +321,7 @@ pub fn create_tcp(
     dst: &Address,
     worker_id: u32,
     is_discovery: bool,
-    info_url: &str,
+    info_url: Option<String>,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
