@@ -68,8 +68,6 @@ pub struct MetadataArgs<'a> {
     pub all_workers: &'a BiHashMap<u32, String>,
     /// Optional configuration file used.
     pub configurations: &'a Vec<Configuration>,
-    /// Whether this is a configuration-based measurement.
-    pub is_config: bool,
     /// Whether this is a latency-based measurement.
     pub is_latency: bool,
     /// Whether this is a responsiveness-based measurement.

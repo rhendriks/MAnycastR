@@ -189,7 +189,6 @@ impl CliClient {
             interval: worker_interval,
             all_workers: &args.worker_map,
             configurations: &m_definition.configurations,
-            is_config: args.is_config,
             is_latency,
             is_responsive,
         };

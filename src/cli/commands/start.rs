@@ -25,8 +25,6 @@ pub struct MeasurementExecutionArgs<'a> {
     pub hitlist_length: usize,
     /// Path to write results to (may include filename and extension).
     pub out_path: String,
-    /// Indicates whether the measurement is configuration-based (using a configuration file)
-    pub is_config: bool,
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
     /// Indicates whether the measurement is a traceroute
@@ -290,7 +288,6 @@ pub async fn handle(
         hitlist_path,
         hitlist_length,
         out_path: path,
-        is_config,
         worker_map,
         is_traceroute,
         is_record,
