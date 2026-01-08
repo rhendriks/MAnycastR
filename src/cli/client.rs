@@ -2,9 +2,7 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::{
-    MeasurementType, ProtocolType, ReplyBatch, ScheduleMeasurement,
-};
+use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
 use crate::ALL_WORKERS;
 use chrono::Local;
@@ -30,24 +28,23 @@ impl CliClient {
     /// Perform a measurement at the orchestrator, await measurement results, and write them to a file.
     ///
     /// # Arguments
-    /// * `m_definition` - measurement definition  for the orchestrator created from the command-line arguments
+    /// * `m_def` - measurement definition  for the orchestrator created from the command-line arguments
     /// * `args` - contains additional arguments for the measurement execution
     /// * `is_ipv6` - boolean whether the measurement is IPv6 or not
-    /// * `is_unicast` - boolean whether the measurement is unicast or anycast
     pub(crate) async fn do_measurement_to_server(
         &mut self,
-        m_definition: ScheduleMeasurement,
+        m_def: ScheduleMeasurement,
         args: MeasurementExecutionArgs<'_>,
         is_ipv6: bool,
-        is_unicast: bool,
+        m_type: MeasurementType,
     ) -> Result<(), Box<dyn Error>> {
-        let probing_rate = m_definition.probing_rate;
-        let worker_interval = m_definition.worker_interval;
-        let is_responsive = m_definition.is_responsive;
+        let probing_rate = m_def.probing_rate;
+        let worker_interval = m_def.worker_interval;
+        let is_responsive = m_def.is_responsive;
 
         // Get number of probers
         let number_of_probers = {
-            let worker_ids: HashSet<_> = m_definition
+            let worker_ids: HashSet<_> = m_def
                 .configurations
                 .iter()
                 .map(|conf| conf.worker_id)
@@ -60,7 +57,7 @@ impl CliClient {
             }
         };
 
-        let m_time = match m_definition.m_type() {
+        let m_time = match m_def.m_type() {
             MeasurementType::Verfploeter | MeasurementType::AnycastLatency => {
                 ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
                     + 1.0)
@@ -74,13 +71,13 @@ impl CliClient {
             }
         };
 
-        info!("[CLI] Performing {} measurement", m_definition.m_type);
+        info!("[CLI] Performing {} measurement", m_def.m_type);
 
         info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self
             .grpc_client
-            .do_measurement(Request::new(m_definition.clone()))
+            .do_measurement(Request::new(m_def.clone()))
             .await;
         if let Err(e) = response {
             error!(
@@ -89,10 +86,7 @@ impl CliClient {
             );
             return Err(Box::new(e));
         }
-        let start = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let start = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let timestamp_start_str = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
         // Progress bar
@@ -132,29 +126,14 @@ impl CliClient {
         // Get protocol and IP version
         let type_str = format!(
             "{}{}",
-            m_definition.p_type().as_str(),
+            m_def.p_type().as_str(),
             if is_ipv6 { "v6" } else { "v4" }
         );
 
         // Determine traceroute
-        let is_traceroute = args.is_traceroute;
         let is_record = args.is_record;
-        // Determine the type of measurement
-        let filetype = match (is_unicast, is_traceroute, is_record) {
-            (true, false, false) => "up",  // unicast probing
-            (false, false, false) => "ap", // anycast probing
-            (true, true, _) => "ut",       // unicast traceroute
-            (false, true, _) => "at",      // anycast traceroute
-            (true, _, true) => "ur",       // unicast reverse traceroute
-            (false, _, true) => "ar",      // anycast reverse traceroute
-        };
         // Determine the file extension based on the output format
         let mut is_parquet = args.is_parquet;
-
-        // traceroute only supported for ICMP
-        if is_traceroute && m_definition.p_type() != ProtocolType::Icmp {
-            panic!("Traceroute measurements are only supported for ICMP!");
-        }
 
         let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
@@ -162,7 +141,7 @@ impl CliClient {
         // Output file
         let file_path = if path.ends_with('/') {
             // User provided a path, use default naming convention for file
-            format!("{path}{filetype}-{type_str}-{timestamp_start_str}{extension}")
+            format!("{path}{m_type}-{type_str}-{timestamp_start_str}{extension}")
         } else {
             // User provided a file (with possibly a path)
             if path.ends_with(".parquet") {
@@ -182,29 +161,25 @@ impl CliClient {
             probing_rate,
             interval: worker_interval,
             all_workers: &args.worker_map,
-            configurations: &m_definition.configurations,
+            configurations: &m_def.configurations,
             is_responsive,
-            m_type: m_definition.m_type(),
-            p_type: m_definition.p_type(),
+            m_type: m_def.m_type(),
+            p_type: m_def.p_type(),
         };
 
-        let is_multi_origin = if is_unicast {
-            false
-        } else {
-            // Check if any configuration has origin_id that is not 0 or u32::MAX
-            m_definition.configurations.iter().any(|conf| {
-                conf.origin
-                    .as_ref()
-                    .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
-            })
-        };
+        // Check if any configuration has origin_id that is not 0 or u32::MAX -> multi origin
+        let is_multi_origin = m_def.configurations.iter().any(|conf| {
+            conf.origin
+                .as_ref()
+                .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
+        });
 
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
             metadata_args,
-            p_type: m_definition.p_type(),
-            m_type: m_definition.m_type(),
+            p_type: m_def.p_type(),
+            m_type: m_def.m_type(),
             is_multi_origin,
             worker_map: args.worker_map.clone(),
             is_record,
@@ -264,16 +239,13 @@ impl CliClient {
     /// Connect to the orchestrator
     ///
     /// # Arguments
-    ///
-    /// * 'address' - the address of the orchestrator (e.g., 10.10.10.10:50051)
-    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
+    /// * `address` - the address of the orchestrator (e.g., 10.10.10.10:50051)
+    /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     ///
     /// # Returns
-    ///
     /// A gRPC client that is connected to the orchestrator
     ///
     /// # Remarks
-    ///
     /// TLS enabled requires a certificate at ./tls/orchestrator.crt
     pub(crate) async fn connect(
         address: &str,

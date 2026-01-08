@@ -10,25 +10,20 @@ use std::str::FromStr;
 /// Get the hitlist from a file.
 ///
 /// # Arguments
-///
-/// * 'hitlist_path' - path to the hitlist file
-/// * 'configurations' - list of configurations to check the source address type
-/// * 'is_unicast' - boolean whether the measurement is unicast or anycast
-/// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
+/// * `hitlist_path` - path to the hitlist file
+/// * `configurations` - list of configurations to check the source address type
+/// * `is_shuffle` - boolean whether the hitlist should be shuffled or not
 ///
 /// # Returns
-///
 /// * A tuple containing a vector of addresses and a boolean indicating whether the addresses are IPv6 or IPv4.
 ///
 /// # Panics
-///
 /// * If the hitlist file cannot be opened.
 /// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
 /// * If the hitlist addresses are of mixed types (v4 and v6).
 pub fn get_hitlist(
     hitlist_path: &String,
     configurations: &[Configuration],
-    is_unicast: bool,
     is_shuffle: bool,
 ) -> (Vec<Address>, bool) {
     let file =
@@ -48,26 +43,27 @@ pub fn get_hitlist(
         .filter(|l| !l.trim().is_empty()) // Skip empty lines
         .map(Address::from)
         .collect();
-    let is_ipv6 = ips.first().unwrap().is_v6();
+    let hitlist_is_v6 = ips.first().unwrap().is_v6();
+    let is_unicast = ips.first().unwrap().is_unicast();
 
     // Panic if the source IP is not the same type as the addresses
     if !is_unicast
         && configurations
             .first()
-            .expect("Empty configuration list")
+            .unwrap()
             .origin
-            .expect("No origin found")
+            .unwrap()
             .src
-            .expect("No source address")
+            .unwrap()
             .is_v6()
-            != is_ipv6
+            != hitlist_is_v6
     {
         panic!(
             "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
         );
     }
     // Panic if the ips in the hitlist are not all the same type
-    if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
+    if ips.iter().any(|ip| ip.is_v6() != hitlist_is_v6) {
         panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
     }
 
@@ -75,14 +71,14 @@ pub fn get_hitlist(
     if is_shuffle {
         ips.as_mut_slice().shuffle(&mut rand::rng());
     }
-    (ips, is_ipv6)
+    (ips, hitlist_is_v6)
 }
 
 /// Parse the worker configurations from a file.
 ///
 /// # Arguments
-/// * 'conf_file' - path to the configuration file
-/// * 'worker_map' - a BiHashMap mapping worker IDs to hostnames
+/// * `conf_file` - path to the configuration file
+/// * `worker_map` - a BiHashMap mapping worker IDs to hostnames
 ///
 /// # Returns
 /// * A vector of Configuration objects parsed from the file
