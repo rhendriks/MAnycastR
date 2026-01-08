@@ -1,25 +1,20 @@
-use bimap::BiHashMap;
-// use crate::cli::writer::parquet_writer::ParquetDataRow;
 use crate::custom_module::manycastr::MeasurementReply;
-use crate::TCP_ID;
+use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
 ///
 /// # Arguments
-/// * `result` - The Reply that is being written to this row
+/// * `reply` - The Reply that is being written to this row
 /// * `rx_worker_id` - The worker ID of the receiver
-/// * `m_type` - The type of measurement being performed
-/// * `is_symmetric` - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+/// * `is_tcp` - TCP measurements have different tx time formats
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
-/// * `is_record` - A boolean that determines whether Record Route is included
 ///
 /// # Returns
-///
 /// A vector of strings representing the row in the CSV file
 pub fn get_laces_row(
     reply: MeasurementReply,
     rx_worker_id: &u32,
-    m_type: u8,
+    is_tcp: bool,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
     // convert the worker ID to hostname
@@ -33,13 +28,10 @@ pub fn get_laces_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let rx_time = if m_type == TCP_ID {
-        // convert to milliseconds
+    let rx_time = if is_tcp {
+        // convert to milliseconds and mask to 21 bits
         let rx_ms = reply.rx_time / 1000;
-
-        // mask to 21 bits
         let rx_wrapped = rx_ms & 0x1FFFFF;
-
         rx_wrapped.to_string()
     } else {
         reply.rx_time.to_string()
