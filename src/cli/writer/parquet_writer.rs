@@ -150,36 +150,34 @@ pub fn get_parquet_metadata(
         args.all_workers.len().to_string(),
     ));
 
-    if args.is_config && !args.configurations.is_empty() {
-        let config_str = args
-            .configurations
-            .iter()
-            .map(|c| {
-                format!(
-                    "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
-                    if c.worker_id == ALL_WORKERS {
-                        "ALL".to_string()
-                    } else {
-                        worker_map
-                            .get_by_left(&c.worker_id)
-                            .unwrap_or(&String::from("Unknown"))
-                            .to_string()
-                    },
-                    c.origin
-                        .as_ref()
-                        .and_then(|o| o.src)
-                        .map_or("N/A".to_string(), |s| s.to_string()),
-                    c.origin.as_ref().map_or(0, |o| o.sport),
-                    c.origin.as_ref().map_or(0, |o| o.dport)
-                )
-            })
-            .collect::<Vec<_>>();
+    let config_str = args
+        .configurations
+        .iter()
+        .map(|c| {
+            format!(
+                "Worker: {}, SrcIP: {}, SrcPort: {}, DstPort: {}",
+                if c.worker_id == ALL_WORKERS {
+                    "ALL".to_string()
+                } else {
+                    worker_map
+                        .get_by_left(&c.worker_id)
+                        .unwrap_or(&String::from("Unknown"))
+                        .to_string()
+                },
+                c.origin
+                    .as_ref()
+                    .and_then(|o| o.src)
+                    .map_or("N/A".to_string(), |s| s.to_string()),
+                c.origin.as_ref().map_or(0, |o| o.sport),
+                c.origin.as_ref().map_or(0, |o| o.dport)
+            )
+        })
+        .collect::<Vec<_>>();
 
-        md.push((
-            "configurations".to_string(),
-            serde_json::to_string(&config_str).unwrap_or_default(),
-        ));
-    }
+    md.push((
+        "configurations".to_string(),
+        serde_json::to_string(&config_str).unwrap_or_default(),
+    ));
 
     md
 }

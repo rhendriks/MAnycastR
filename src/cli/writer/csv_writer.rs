@@ -6,7 +6,8 @@ use bimap::BiHashMap;
 /// Returns a vector of lines containing the metadata of the measurement
 ///
 /// # Arguments
-///
+/// * `args` - Contains measurement arguments to be written into the metadata
+/// * `worker_map` - Convert IDs to hostnames
 /// Variables describing the measurement
 pub fn get_csv_metadata(
     args: MetadataArgs<'_>,
@@ -54,27 +55,6 @@ pub fn get_csv_metadata(
     md_file.push(format!("# {} connected workers:", args.all_workers.len()));
     for (_, hostname) in args.all_workers {
         md_file.push(format!("# * {hostname}"))
-    }
-
-    // Write configurations used for the measurement
-    if args.is_config {
-        md_file.push("# Configurations:".to_string());
-        for configuration in args.configurations {
-            let origin = configuration.origin.unwrap();
-            let src = origin.src.expect("Invalid source address");
-            let hostname = if configuration.worker_id == u32::MAX {
-                "ALL".to_string()
-            } else {
-                worker_map
-                    .get_by_left(&configuration.worker_id)
-                    .unwrap_or(&String::from("Unknown"))
-                    .to_string()
-            };
-            md_file.push(format!(
-                "# * {:<2}, source IP: {}, source port: {}, destination port: {}",
-                hostname, src, origin.sport, origin.dport
-            ));
-        }
     }
 
     md_file
