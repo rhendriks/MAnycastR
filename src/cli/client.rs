@@ -80,7 +80,7 @@ impl CliClient {
             .await;
         if let Err(e) = response {
             error!(
-                "[CLI] Orchestrator did not perform the measurement for reason: '{}'",
+                "[CLI] Orchestrator did not perform the measurement: '{}'",
                 e.message()
             );
             return Err(Box::new(e));
@@ -140,7 +140,10 @@ impl CliClient {
         // Output file
         let file_path = if path.ends_with('/') {
             // User provided a path, use default naming convention for file
-            format!("{path}{}-{type_str}-{timestamp_start_str}{extension}", m_type.as_str())
+            format!(
+                "{path}{}-{type_str}-{timestamp_start_str}{extension}",
+                m_type.as_str()
+            )
         } else {
             // User provided a file (with possibly a path)
             if path.ends_with(".parquet") {
