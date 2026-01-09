@@ -39,7 +39,7 @@
 //! Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
 //! The CLI writes results to a CSV file.
 //!
-//! # Measurement types
+//! # Supported protocols
 //!
 //! Measurements can be;
 //! * `icmp` ICMP ECHO requests
@@ -47,30 +47,18 @@
 //! * `tcp` TCP SYN/ACK probes
 //! * `chaos` UDP DNS TXT CHAOS requests
 //!
+//! Both IPv4 and IPv6 are supported.
+//!
 //! # Measurement parameters
 //!
-//! When creating a measurement you can specify:
+//! When creating a measurement, many parameters and options are available (see `cli start --help`)
 //!
-//! ## Variables
-//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
-//! * **Type of measurement** - ICMP, DNS, TCP, or CHAOS
-//! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
-//! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
-//! * **Interval** - interval between separate worker's probes to the same target (default: 1s)
-//! * **Address** - source anycast address to use for the probes
-//! * **Source port** - source port to use for the probes (default: 62321)
-//! * **Destination port** - destination port to use for the probes (default: DNS: 53, TCP: 63853)
-//! * **Configuration** - path to a configuration file (allowing for complex configurations of source address, port values used by workers)
-//! * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
-//! * **Responsive** - check if a target is responsive before probing from all workers
-//! * **Out** - path to file or directory to store measurement results (default: ./)
-//! * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
-//!
-//! ## Flags
-//! * **Stream** - stream results to the command-line interface (optional)
-//! * **Shuffle** - shuffle the hitlist
-//! * **Unicast** - perform measurement using the unicast address of each worker
-//! * **verfploeter** - Verfploeter catchment mapping (hitlist split among probing workers)
+//! ## Measurement Types
+//! * **verfploeter** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
+//! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
+//! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
+//! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
+//! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //!
 //! # Usage
 //!
@@ -100,36 +88,57 @@
 //! ### Verfploeter catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv
+//! cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
-//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv
+//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
+//! Each hitlist target receives a single probe from any worker.
+//! Catchment is inferred based on where the ping reply ends up.
 //!
-//! With this measurement each target receives a probe from each worker.
-//! Filtering on sender == receiver allows for calculating anycast RTTs.
+//! Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
 //!
-//! ### Verfploeter catchment mapping using TCPv4
+//! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --verfploeter
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
 //! ```
 //!
-//! hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
-//!
-//! Enabling verfploeter means each target receives a single probe, whereas before each worker would probe each target.
-//! Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
-//! Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
+//! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
+//! Each hitlist target receives 2 probes.
+//! The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
+//! The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
 //!
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast
+//! cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
 //! ```
 //!
-//! Since the hitlist contains IPv6 addresses, the workers will probe the targets using their IPv6 unicast address.
+//! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
+//! Each hitlist target receives a single probe from every worker.
+//! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
+//! Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
 //!
-//! This feature gives the latency between all anycast sites and each target in the hitlist.
-//! Filtering on the lowest unicast RTTs indicates the best anycast site for each target.
+//! ### LACeS measurement
+//!
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+//! ```
+//!
+//! Anycast probes will be sent from all workers.
+//! Each hitlist target receives a single probe from every worker.
+//! Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
+//! Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (--responsive).
+//!
+//! ### Anycast traceroute measurement
+//!
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+//! ```
+//!
+//! Measure the path from the catching PoP to the target.
+//! First, a single `discovery probe` is sent to infer the catching worker.
+//! Next, multiple traceroute packets are sent from the catching worker to measure the path.
 //!
 //! # Requirements
 //!
@@ -199,6 +208,7 @@
 //! * Unicast traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
 //! * Allow for simultaneous/mixed unicast and anycast measurements
+//! * Support any/all protocol types to measure targets with multiple protocols
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
