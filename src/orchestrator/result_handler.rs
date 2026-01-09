@@ -15,7 +15,6 @@ pub fn discovery_handler(
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
 ) {
-    println!("received discovery results, assigning to worker {worker_id}");
     // Get the target addresses from the results
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
@@ -71,7 +70,6 @@ pub fn trace_discovery_handler(
             last_updated: Instant::now(),
         };
 
-        println!("added to session tracker");
         traceroute_config
             .session_tracker
             .sessions
@@ -82,12 +80,6 @@ pub fn trace_discovery_handler(
             .session_tracker
             .expiration_queue
             .push_back((identifier, deadline));
-
-        println!(
-            "worker {} started a traceroute towards {} with TTL 1",
-            catcher_id,
-            target.unwrap()
-        );
 
         tasks_to_send.push(Task {
             task_type: Some(task::TaskType::Trace(Trace {
@@ -122,8 +114,6 @@ pub fn trace_replies_handler(
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     traceroute_config: &mut TracerouteConfig,
 ) {
-    println!("Received trace replies");
-
     let session_tracker = &mut traceroute_config.session_tracker;
 
     for trace_reply in trace_replies {
@@ -146,16 +136,9 @@ pub fn trace_replies_handler(
                 || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
             {
                 // Routing loop or destination reached -> close session
-                println!(
-                    "closing trace session after hop {}",
-                    trace_reply.hop_addr.unwrap()
-                );
-
                 remove = true;
             } else {
                 // Send tracetask for the next hop
-                println!("successful hop discovered {} ; discovering next hop from worker {} to dst {} with TTL {}", trace_reply.hop_addr.unwrap(), trace_reply.tx_id, trace_reply.trace_dst.unwrap(), session.current_ttl);
-
                 worker_stacks
                     .entry(trace_reply.tx_id)
                     .or_default()
@@ -170,7 +153,6 @@ pub fn trace_replies_handler(
         }
 
         if remove {
-            println!("removing trace from session tracker {:?}", identifier);
             session_tracker.sessions.remove(&identifier);
         }
     }

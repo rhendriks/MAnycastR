@@ -300,7 +300,6 @@ pub async fn round_robin_discovery(
 
             // Send follow-up tasks to 'f_worker_id'
             if !follow_up_tasks.is_empty() {
-                println!("sending follow-up task to worker {f_worker_id}");
                 let instruction = Instruction {
                     instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                         tasks: follow_up_tasks,
