@@ -159,7 +159,6 @@ impl CliClient {
         let metadata_args = MetadataArgs {
             hitlist: args.hitlist_path,
             is_shuffle: args.is_shuffle,
-            m_type_str: type_str,
             probing_rate,
             interval: worker_interval,
             all_workers: &args.worker_map,

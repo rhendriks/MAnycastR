@@ -104,7 +104,7 @@ pub fn get_parquet_metadata(
     let mut md = Vec::new();
 
     md.push((
-        "measurement_style".to_string(),
+        "measurement_type".to_string(),
         args.m_type.as_str().to_string(),
     ));
     md.push((
@@ -118,12 +118,7 @@ pub fn get_parquet_metadata(
 
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
     md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
-    md.push(("measurement_type".to_string(), args.m_type_str));
-    // Store numbers without separators for easier parsing later
-    md.push((
-        "probing_rate_pps".to_string(),
-        args.probing_rate.to_string(),
-    ));
+    md.push(("probing_rate".to_string(), args.probing_rate.to_string()));
     md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
 
     let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();

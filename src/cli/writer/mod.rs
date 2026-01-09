@@ -53,8 +53,6 @@ pub struct MetadataArgs<'a> {
     pub hitlist: &'a str,
     /// Whether the hitlist was shuffled.
     pub is_shuffle: bool,
-    /// A string representation of the measurement type (e.g., "ICMP", "DNS").
-    pub m_type_str: String,
     /// The probing rate used.
     pub probing_rate: u32,
     /// The interval between subsequent workers.
