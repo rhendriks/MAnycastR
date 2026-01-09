@@ -191,7 +191,7 @@ impl ICMPPacket {
         }
 
         // Handle trailing 8 bit word if it exists
-        if len % 2 != 0 {
+        if !len.is_multiple_of(2) {
             sum += (buffer[len - 1] as u32) << 8;
         }
 
