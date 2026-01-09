@@ -35,7 +35,12 @@ pub fn parse_trace(
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, worker_map, is_ipv6, true);
+        println!("received reply from traceroute target");
+        let result = parse_icmp(packet_bytes, m_id, worker_map, is_ipv6, true);
+
+        println!("result {:?}", result);
+
+        return result
     }
 
     let ip_header = if is_ipv6 {
