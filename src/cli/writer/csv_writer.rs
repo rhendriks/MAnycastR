@@ -41,7 +41,6 @@ pub fn get_csv_metadata(
         if args.is_shuffle { " (shuffled)" } else { "" },
         args.hitlist
     ));
-    md_file.push(format!("# Measurement type: {}", args.m_type_str));
     md_file.push(format!(
         "# Probing rate: {}",
         args.probing_rate.with_separator()
