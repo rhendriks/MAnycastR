@@ -10,7 +10,7 @@ use crate::custom_module::Separated;
 use crate::ALL_WORKERS;
 use bimap::BiHashMap;
 use clap::ArgMatches;
-use log::{info, warn};
+use log::{error, info, warn};
 use prettytable::{format, row, Table};
 
 pub struct MeasurementExecutionArgs<'a> {
@@ -67,7 +67,9 @@ pub async fn handle(
                 value: Some(Unicast(Empty {})),
             }
         } else {
-            panic!("[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.")
+            let msg = "[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.";
+            error!("{}", msg);
+            return Err(msg.into());
         };
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
@@ -132,11 +134,7 @@ pub async fn handle(
     let hitlist_length = targets.len();
 
     // Get protocol and IP version
-    let type_str = format!(
-        "{}{}",
-        p_type,
-        if is_ipv6 { " (IPv6)" } else { " (IPv4)" }
-    );
+    let type_str = format!("{}{}", p_type, if is_ipv6 { " (IPv6)" } else { " (IPv4)" });
 
     info!("[CLI] Performing {m_type} measurement using {type_str} targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
