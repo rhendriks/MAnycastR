@@ -13,12 +13,12 @@ pub fn get_trace_row(
     // convert the worker ID to hostname
     let rx_hostname = worker_map
         .get_by_left(rx_id)
-        .unwrap_or(&String::from("Unknown"))
+        .unwrap_or(&String::from("*"))
         .to_string();
 
     let tx_hostname = worker_map
         .get_by_left(&reply.tx_id)
-        .unwrap_or(&String::from("Unknown"))
+        .unwrap_or(&String::from("*"))
         .to_string();
 
 
