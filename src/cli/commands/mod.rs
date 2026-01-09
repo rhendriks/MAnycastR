@@ -15,8 +15,8 @@ mod worker_list;
 /// * `args` - the user-defined command-line arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let server_address = args.get_one::<String>("ADDR").unwrap();
-    let fqdn = args.get_one::<String>("FQDN");
+    let server_address = args.get_one::<String>("orchestrator").unwrap();
+    let fqdn = args.get_one::<String>("tls");
 
     // Connect with orchestrator
     info!("[CLI] Connecting to orchestrator - {server_address}");
