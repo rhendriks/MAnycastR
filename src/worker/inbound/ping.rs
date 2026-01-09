@@ -41,8 +41,6 @@ pub fn parse_icmp(
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
 
-    println!("received ping reply from {}", ip_header.src());
-
     let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
         return None;
     };
