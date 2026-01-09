@@ -181,19 +181,24 @@ impl ICMPPacket {
     /// This calculation covers the entire ICMP  message (16-bit one's complement).
     /// Works for both ICMPv4 and ICMPv6
     pub(crate) fn calc_checksum(buffer: &[u8]) -> u16 {
-        let mut cursor = Cursor::new(buffer);
         let mut sum: u32 = 0;
-        while let Ok(word) = cursor.read_u16::<NetworkEndian>() {
-            // Sum all 16-bit words
-            sum += u32::from(word);
+        let len = buffer.len();
+
+        let mut i = 0;
+        while i < len - 1 {
+            let word = ((buffer[i] as u32) << 8) | (buffer[i + 1] as u32);
+            sum += word;
+            i += 2;
         }
-        if let Ok(byte) = cursor.read_u8() {
-            // If there is a byte left, sum it
-            sum += (u32::from(byte) << 8);
+
+        if len % 2 != 0 {
+            sum += (buffer[len - 1] as u32) << 8;
         }
+
         while sum >> 16 > 0 {
             sum = (sum & 0xffff) + (sum >> 16);
         }
+
         !sum as u16
     }
 }
