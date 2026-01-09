@@ -529,7 +529,12 @@ impl Controller for ControllerService {
             }
         }
 
-        println!("received results {}, trace results {}, discovery results {}", results_bucket.len(), trace_bucket.len(), discovery_bucket.len());
+        println!(
+            "received results {}, trace results {}, discovery results {}",
+            results_bucket.len(),
+            trace_bucket.len(),
+            discovery_bucket.len()
+        );
 
         if !discovery_bucket.is_empty() {
             let m_type_guard = self.m_type.lock().unwrap();
