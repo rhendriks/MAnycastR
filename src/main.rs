@@ -302,19 +302,26 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address").value_parser(value_parser!(String)))
-                    .arg(arg!(-f --configuration <CONF> "Path to config file").value_parser(value_parser!(String)))
                     // hidden flag to check for unicast measurement type
                     .arg(
                         arg!(--unicast_trigger <T>)
                             .hide(true)
                             .default_value_if("m_type", ArgPredicate::Equals("unicast".into()), Some("true"))
                     )
-                    // Enforce either: anycast address, configuration, or unicast measurement type
+                    .arg(
+                        arg!(-a --address <ADDR> "Anycast source address")
+                            .value_parser(value_parser!(String))
+                            .required_unless_present_any(["configuration", "unicast_trigger"])
+                    )
+                    .arg(
+                        arg!(-f --configuration <CONF> "Path to config file")
+                            .value_parser(value_parser!(String))
+                            .required_unless_present_any(["address", "unicast_trigger"])
+                    )
                     .group(
                         ArgGroup::new("source_config")
-                            .args(["address", "configuration", "unicast_trigger"])
-                            .required(true)
+                            .args(["address", "configuration"])
+                            .multiple(false) // Ensures only one of these two is used
                     )
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
