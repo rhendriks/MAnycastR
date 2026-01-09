@@ -187,7 +187,7 @@ impl ICMPPacket {
         }
         if let Ok(byte) = cursor.read_u8() {
             // If there is a byte left, sum it
-            sum += u32::from(byte);
+            sum += (u32::from(byte) << 8);
         }
         while sum >> 16 > 0 {
             sum = (sum & 0xffff) + (sum >> 16);
