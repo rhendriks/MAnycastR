@@ -82,6 +82,8 @@ impl ICMPPacket {
 
                 // V4 Checksum: ICMP packet bytes
                 let icmp_bytes: Vec<u8> = (&packet).into();
+                println!("ICMP buffer length: {}", icmp_bytes.len());
+
                 packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
                 let v4_packet = IPv4Packet {
