@@ -1,6 +1,5 @@
 use crate::custom_module::manycastr::{Address, Origin};
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
-use crate::{A_ID, CHAOS_ID};
 use mac_address::mac_address_by_name;
 use pnet::ipnetwork::IpNetwork;
 use std::fs::File;
@@ -67,9 +66,7 @@ fn get_default_gateway_ip_freebsd() -> Result<String, String> {
 /// Returns the ethernet header to use for the outbound packets.
 ///
 /// # Arguments
-///
 /// * 'is_ipv6' - whether we are using IPv6 or not
-///
 /// * 'if_name' - the name of the interface to use
 pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
     // Get the source MAC address for the used interface
@@ -176,41 +173,35 @@ pub fn get_ethernet_header(is_ipv6: bool, if_name: &str) -> Vec<u8> {
 
 /// ICMP arguments to encode in the payload.
 #[derive(Debug)]
-pub struct ProbePayload<'a> {
+pub struct ProbePayload {
+    /// Sender worker ID
     pub worker_id: u32,
+    /// Unique measurement ID (to verify reply)
     pub m_id: u32,
-    pub info_url: &'a str,
+    /// Optional TTL value of the IP header (for traceroute)
+    pub trace_ttl: Option<u8>,
+    /// Optional URL (e.g., opt-out information)
+    pub info_url: Option<String>,
 }
 
 /// Creates a ping packet to send.
 ///
 /// # Arguments
-///
-/// * 'src' - the source address for the ping packet
-///
-/// * 'dst' - the destination address for the ping packet
-///
-/// * 'identifier' - the identifier to use in the ICMP header
-///
-/// * 'seq' - the sequence number to use in the ICMP header
-///
-/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
-///
-/// * 'm_id' - the unique ID of the current measurement (encoded in payload)
-///
-/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
-///
-/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
+/// * `src` - the source address for the ping packet
+/// * `dst` - the destination address for the ping packet
+/// * `identifier` - the identifier to use in the ICMP header
+/// * `seq` - the sequence number to use in the ICMP header
+/// * `payload` - information to encode in the payload
+/// * `ttl` - the time-to-live (TTL) value to set in the IP header
 ///
 /// # Returns
-///
 /// A ping packet (including the IP header) as a byte vector.
 pub fn create_icmp(
     src: &Address,
     dst: &Address,
     identifier: u16,
     seq: u16,
-    payload: ProbePayload,
+    payload: &ProbePayload,
     ttl: u8,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
@@ -228,42 +219,27 @@ pub fn create_icmp(
     payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
-    // Add info URL to payload
-    payload_bytes.extend(payload.info_url.bytes());
-
-    // add the source address
-    if src.is_v6() {
-        ICMPPacket::echo_request_v6(
-            // TODO combine v6 and v4 functions into one
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v6(),
-            dst.get_v6(),
-            ttl,
-        )
-    } else {
-        ICMPPacket::echo_request(
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v4(),
-            dst.get_v4(),
-            ttl,
-        )
+    // Optional, add trace TTL (traceroute measurements)
+    if let Some(trace_ttl) = payload.trace_ttl {
+        payload_bytes.extend_from_slice(&trace_ttl.to_be_bytes()); // Byte 52 (v6) or 24 (v4)
     }
+
+    // Add info URL to payload
+    if let Some(info_url) = &payload.info_url {
+        payload_bytes.extend_from_slice(info_url.as_bytes());
+    }
+
+    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl)
 }
 
 /// Create a Record Route ICMP packet to send.
 /// # Arguments
-/// * 'src' - the source address for the ping packet
-/// * 'dst' - the destination address for the ping packet
-/// * 'identifier' - the identifier to use in the ICMP header
-/// * 'seq' - the sequence number to use in the ICMP header
-/// * 'worker_id' - the unique worker ID of this worker (encoded in payload)
-/// * 'm_id' - the unique ID of the current measurement (encoded in payload)
-/// * 'info_url' - URL to encode in packet (e.g., opt-out URL) (encoded in payload)
-/// * 'ttl' - the time-to-live (TTL) value to set in the IP header
+/// * `src` - the source address for the ping packet
+/// * `dst` - the destination address for the ping packet
+/// * `identifier` - the identifier to use in the ICMP header
+/// * `seq` - the sequence number to use in the ICMP header
+/// * `payload` - payload data
+/// * `ttl` - the time-to-live (TTL) value to set in the IP header
 /// # Returns
 /// A reverse traceroute ICMP packet (including the IP header) as a byte vector.
 pub fn create_record_route_icmp(
@@ -271,7 +247,7 @@ pub fn create_record_route_icmp(
     dst: &Address,
     identifier: u16,
     seq: u16,
-    payload: ProbePayload,
+    payload: &ProbePayload,
     ttl: u8,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
@@ -290,52 +266,30 @@ pub fn create_record_route_icmp(
     payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
 
     // Add info URL to payload
-    payload_bytes.extend(payload.info_url.bytes());
-
-    // add the source address
-    if src.is_v6() {
-        panic!("Reverse traceroute not supported for IPv6 yet"); // TODO
-    } else {
-        ICMPPacket::record_route_icmpv4(
-            identifier,
-            seq,
-            payload_bytes,
-            src.get_v4(),
-            dst.get_v4(),
-            ttl,
-        )
+    if let Some(info_url) = &payload.info_url {
+        payload_bytes.extend_from_slice(info_url.as_bytes());
     }
+
+    ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
 }
 
 /// Creates a DNS packet.
 ///
 /// # Arguments
-///
-/// * 'origin' - the source address and port values we use for our probes
-///
-/// * 'worker_id' - the unique worker ID of this worker
-///
-/// * 'dst' - the destination address for the DNS packet
-///
-/// * 'measurement_type' - the type of measurement being performed (2 = DNS/A, 4 = DNS/CHAOS)
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
-///
-/// * 'qname' - the DNS record to request
+/// * `origin` - the source address and port values we use for our probes
+/// * `worker_id` - the unique worker ID of this worker
+/// * `dst` - the destination address for the DNS packet
+/// * `is_chaos` - whether this is a CHAOS measurement
+/// * `qname` - the DNS record to request
 ///
 /// # Returns
-///
 /// A DNS packet (including the IP header) as a byte vector.
-///
-/// # Panics
-///
-/// If the measurement type is not 2 or 4
 pub fn create_dns(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    measurement_type: u8,
-    qname: &str,
+    is_chaos: bool,
+    qname: String,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -344,51 +298,41 @@ pub fn create_dns(
     let src = &origin.src.expect("None IP address");
     let sport = origin.sport as u16;
 
-    if measurement_type == A_ID {
+    if !is_chaos {
         UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
-    } else if measurement_type == CHAOS_ID {
-        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     } else {
-        panic!("Invalid measurement type")
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
     }
 }
 
 /// Creates a TCP packet.
 ///
 /// # Arguments
-///
-/// * 'origin' - the source address and port values we use for our probes
-///
-/// * 'dst' - the destination address for the TCP packet
-///
-/// * 'worker_id' - the unique worker ID of this worker
-///
-/// * 'is_ipv6' - whether we are using IPv6 or not
-///
-/// * 'is_symmetric' - whether we are measuring latency
-///
-/// * 'info_url' - URL to encode in packet payload (e.g., opt-out URL)
+/// * `origin` - the source address and port values we use for our probes
+/// * `dst` - the destination address for the TCP packet
+/// * `worker_id` - the unique worker ID of this worker
+/// * `is_discovery` - whether this is a measurement (False) or discovery (True) probe
+/// * `info_url` - Optional URL to encode in packet payload (e.g., opt-out URL)
 ///
 /// # Returns
-///
 /// A TCP packet (including the IP header) as a byte vector.
 pub fn create_tcp(
     origin: &Origin,
     dst: &Address,
     worker_id: u32,
-    is_symmetric: bool,
-    info_url: &str,
+    is_discovery: bool,
+    info_url: Option<String>,
 ) -> Vec<u8> {
-    let ack = if !is_symmetric || worker_id > u16::MAX as u32 {
-        // Catchment mapping (or discovery probe for latency measurement)
-        worker_id
-    } else {
-        // Latency measurement
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u32
-    };
+    let tx_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u32;
+
+    let timestamp_21b = tx_time & 0x1FFFFF;
+    let worker_10b = worker_id & 0x3FF;
+
+    let discovery_bit = if is_discovery { 1u32 << 31 } else { 0 };
+    let ack = discovery_bit | (worker_10b << 21) | timestamp_21b;
 
     TCPPacket::tcp_syn_ack(
         &origin.src.unwrap(),
@@ -404,25 +348,18 @@ pub fn create_tcp(
 /// Checks if the given address is in the given prefix.
 ///
 /// # Arguments
-///
-/// * 'address' - the address to check
-///
-/// * 'prefix' - the prefix to check against
+/// * `addr` - the address to check
+/// * `prefix` - the prefix to check against
 ///
 /// # Returns
-///
 /// True if the address is in the prefix, false otherwise.
 ///
 /// # Panics
-///
 /// If the address is not a valid IP address.
-///
 /// If the prefix is not a valid prefix.
-pub fn is_in_prefix(address: &str, prefix: &IpNetwork) -> bool {
+pub fn is_in_prefix(addr: &str, prefix: &IpNetwork) -> bool {
     // Convert the address string to an IpAddr
-    let address = address
-        .parse::<IpAddr>()
-        .expect("Invalid IP address format");
+    let address = addr.parse::<IpAddr>().expect("Invalid IP address format");
 
     match address {
         IpAddr::V4(ipv4) => {

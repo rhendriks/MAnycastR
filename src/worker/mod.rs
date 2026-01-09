@@ -16,11 +16,8 @@ mod outbound;
 impl Worker {
     /// Create a worker instance, which includes establishing a connection with the orchestrator.
     ///
-    /// Extracts the parameters of the command-line arguments.
-    ///
     /// # Arguments
-    ///
-    /// * 'args' - contains the parsed command-line arguments
+    /// * `args` - contains the parsed command-line arguments
     pub async fn new(args: &ArgMatches) -> Result<Worker, Box<dyn Error>> {
         // Get hostname from command line arguments or use the system hostname
         let hostname = args
@@ -29,20 +26,17 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
 
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
-        let fqdn = args.get_one::<String>("tls");
-        let client = Worker::connect(orc_addr.parse().unwrap(), fqdn)
-            .await
-            .expect("Unable to connect to orchestrator");
-
-        let interface = args.get_one::<String>("interface").map(|i| i.to_string());
+        let fqdn = args.get_one::<String>("tls").map(String::as_str);
+        let grpc_client = Self::connect(orc_addr.parse()?, fqdn).await?;
+        let interface = args.get_one::<String>("interface").cloned();
 
         // Initialize a worker instance
-        let mut worker = Worker {
-            grpc_client: client,
+        let mut worker = Self {
+            grpc_client,
             hostname,
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
-            abort_s: Arc::new(AtomicBool::new(false)),
+            abort_inbound: Arc::new(AtomicBool::new(false)),
             interface,
         };
 

@@ -10,30 +10,20 @@ use std::str::FromStr;
 /// Get the hitlist from a file.
 ///
 /// # Arguments
-///
-/// * 'hitlist_path' - path to the hitlist file
-///
-/// * 'configurations' - list of configurations to check the source address type
-///
-/// * 'is_unicast' - boolean whether the measurement is unicast or anycast
-///
-/// * 'is_shuffle' - boolean whether the hitlist should be shuffled or not
+/// * `hitlist_path` - path to the hitlist file
+/// * `configurations` - list of configurations to check the source address type
+/// * `is_shuffle` - boolean whether the hitlist should be shuffled or not
 ///
 /// # Returns
-///
 /// * A tuple containing a vector of addresses and a boolean indicating whether the addresses are IPv6 or IPv4.
 ///
 /// # Panics
-///
 /// * If the hitlist file cannot be opened.
-///
 /// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
-///
 /// * If the hitlist addresses are of mixed types (v4 and v6).
 pub fn get_hitlist(
     hitlist_path: &String,
     configurations: &[Configuration],
-    is_unicast: bool,
     is_shuffle: bool,
 ) -> (Vec<Address>, bool) {
     let file =
@@ -53,60 +43,45 @@ pub fn get_hitlist(
         .filter(|l| !l.trim().is_empty()) // Skip empty lines
         .map(Address::from)
         .collect();
-    let is_ipv6 = ips.first().unwrap().is_v6();
-
-    // Panic if the source IP is not the same type as the addresses
-    if !is_unicast
-        && configurations
-            .first()
-            .expect("Empty configuration list")
-            .origin
-            .expect("No origin found")
-            .src
-            .expect("No source address")
-            .is_v6()
-            != is_ipv6
-    {
-        panic!(
-            "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
-        );
-    }
+    let hitlist_is_v6 = ips[0].is_v6();
     // Panic if the ips in the hitlist are not all the same type
-    if ips.iter().any(|ip| ip.is_v6() != is_ipv6) {
+    if ips.iter().any(|ip| ip.is_v6() != hitlist_is_v6) {
         panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
+    }
+
+    // Make sure the anycast address is the same type as the hitlist addresses
+    if let Some(src_addr) = configurations.first().and_then(|c| c.origin?.src) {
+        let address_is_unicast = src_addr.is_unicast();
+
+        if !address_is_unicast && (src_addr.is_v6() != hitlist_is_v6) {
+            panic!(
+                "Anycast source ({}) does not match hitlist type ({})",
+                if src_addr.is_v6() { "v6" } else { "v4" },
+                if hitlist_is_v6 { "v6" } else { "v4" }
+            );
+        }
     }
 
     // Shuffle the hitlist, if desired
     if is_shuffle {
         ips.as_mut_slice().shuffle(&mut rand::rng());
     }
-    (ips, is_ipv6)
+    (ips, hitlist_is_v6)
 }
-
-// TODO implement feed of addresses instead of a hitlist file
-// format: address,tx -> tx optional to specify from which site to probe
-// protocol and ports used are pre-configured when starting a live measurement at the CLI
 
 /// Parse the worker configurations from a file.
 ///
 /// # Arguments
-///
-/// * 'conf_file' - path to the configuration file
-///
-/// * 'worker_map' - a BiHashMap mapping worker IDs to hostnames
+/// * `conf_file` - path to the configuration file
+/// * `worker_map` - a BiHashMap mapping worker IDs to hostnames
 ///
 /// # Returns
-///
 /// * A vector of Configuration objects parsed from the file
 ///
 /// # Panics
-///
 /// * If the configuration file cannot be opened.
-///
 /// * If the configuration file contains invalid formats.
-///
 /// * If the configuration file contains mixed IPv4 and IPv6 addresses.
-///
 /// * If no valid configurations are found in the file.
 pub fn parse_configurations(
     conf_file: &str,

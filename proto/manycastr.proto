@@ -3,18 +3,18 @@ package manycastr;
 
 // The controller which controls and is responsible for most communication
 service Controller {
-  // Worker lets the orchestrator know the measurement is finished
+  // Worker lets the Orc know the measurement is finished
   rpc MeasurementFinished(Finished) returns (Ack) {}
-  // Worker connects with the orchestrator, which returns a stream for future instructions
+  // Worker connects with the Orc, which returns a stream for future instructions
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
-  // CLI instructs orchestrator to perform a measurement
-  rpc DoMeasurement(ScheduleMeasurement) returns (stream TaskResult) {}
-  // CLI performs a live measurement sending a stream of live tasks to the orchestrator, which forwards them to workers
-  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream TaskResult) {}
-  // CLI asks orchestrator its current status (list of connected workers and measurements)
+  // CLI instructs Orc to perform a measurement and establishes a stream for the Orc to send back replies
+  rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
+  // CLI instructs Orc to perform a live measurement and establishes a stream for the Orc to send back replies
+  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream ReplyBatch) {}
+  // CLI asks Orc its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
-  // Worker sends TaskResult to orchestrator
-  rpc SendResult(TaskResult) returns (Ack) {}
+  // Worker sends measurement replies to the Orc
+  rpc SendResult(ReplyBatch) returns (Ack) {}
 }
 
 // Metadata for the measurement session (sent once at the start)
@@ -56,23 +56,37 @@ message Finished {
   uint32 worker_id = 2;
 }
 
+enum MeasurementType {
+  LACES = 0;
+  VERFPLOETER = 1;
+  ANYCAST_LATENCY = 2;
+  UNICAST_LATENCY = 3;
+  ANYCAST_TRACEROUTE = 4;
+}
+
+enum ProtocolType {
+  ICMP = 0;
+  A_DNS = 1;
+  TCP = 2;
+  CHAOS_DNS = 3;
+}
+
 // Schedule a measurement with the orchestrator
 message ScheduleMeasurement {
   uint32 probing_rate = 1; // Probing rate (probes per second)
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
-  uint32 m_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
+  ProtocolType p_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
   uint32 worker_interval = 4; // interval between probes from different workers
-  bool is_responsive = 5; // whether the measurement is for responsiveness
-  bool is_latency = 6; // whether the measurement is for latency
-  bool is_divide = 7; // whether to divide targets among workers
-  repeated Address targets = 8; // target addresses to probe
-  string record = 9; // Record to send CHAOS (TXT) or A/AAAA requests for
-  string url = 10; // URL to encode in probes (e.g., opt-out link)
-  uint32 probe_interval = 11; // interval between probes from/to the same origin,dst pair
-  uint32 number_of_probes = 12; // number of probes to send per origin,dst pair
-  bool is_traceroute = 13; // whether the measurement is a traceroute measurement
-  bool is_ipv6 = 14; // whether the measurement is for IPv6
-  bool is_record = 15; // whether the measurement is a Record Route measurement
+  MeasurementType m_type = 5;
+  repeated Address hitlist = 6; // target addresses to probe
+  optional string record = 7; // Record to send CHAOS (TXT) or A/AAAA requests for
+  optional string url = 8; // URL to encode in probes (e.g., opt-out link)
+  uint32 probe_interval = 9; // interval between probes from/to the same origin,dst pair
+  uint32 number_of_probes = 10; // number of probes to send per origin,dst pair
+  bool is_ipv6 = 11; // whether the measurement is for IPv6
+  bool is_record = 12; // whether to send IPv4 probes with the Record Route options
+  optional TraceOptions trace_options = 13; // Optional traceroute options
+  bool is_responsive = 14; // Whether to probe a target once for responsiveness before sending measurement probes
 }
 
 // A list of workers
@@ -100,8 +114,8 @@ message Address {
 
 // IPv6 address message (protobuf does not support 128 bit values)
 message IPv6 {
-  fixed64 p1 = 1;
-  fixed64 p2 = 2;
+  fixed64 high = 1; // most significant 64 bits
+  fixed64 low = 2; // least significant 64 bits
 }
 
 
@@ -126,7 +140,6 @@ message Task {
     Probe probe = 1; // A probe task (e.g., regular ping)
     Trace trace = 2; // A traceroute task (to a specific TTL)
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
-    Record record = 4; // A record route task
   }
 }
 
@@ -139,15 +152,21 @@ message Init {
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
-  uint32 m_type = 3;
+  ProtocolType p_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
   repeated Origin tx_origins = 4; // origins to send with
   repeated Origin rx_origins = 5; // origins to listen for
-  string record = 6; // domain to use for DNS queries (TXT/A/AAAA)
-  string url = 7; // URL encoded in probes
-  bool is_latency = 8; // whether the measurement is for latency
-  bool is_traceroute = 9; // whether the measurement is a traceroute measurement
-  bool is_ipv6 = 10; // whether the measurement is for IPv6
-  bool is_record = 11; // whether the measurement is a Record Route measurement
+  optional string record = 6; // domain to use for DNS queries (TXT/A/AAAA)
+  optional string url = 7; // URL encoded in probes
+  bool is_ipv6 = 8; // whether the measurement is for IPv6
+  bool is_record = 9; // send IPv4 probes with the Record Route option
+  MeasurementType m_type = 10; // Measurement type
+}
+
+message TraceOptions {
+  uint32 max_failures = 1; // Maximum number of consecutive timeouts before terminating the traceroute
+  uint32 max_hops = 2; // Maximum number of hops to discover (to avoid routing loops)
+  uint32 timeout = 3; // Maximum time to wait for trace replies before triggering timeout (in seconds)
+  uint32 initial_hop = 4; // Initial TTL value for traceroute measurements
 }
 
 // An end message, indicates the worker should stop sending out probes
@@ -174,35 +193,58 @@ message Probe {
   Address dst = 1; // target address of the probe
 }
 
-// A Record Route task, containing the target address to probe
-message Record {
-  Address dst = 1;
-}
-
 // A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  uint32 origin_id = 3; // Origin to send the traceroute probe from
+  uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
 }
 
-// A TaskResult, contains the worker that executed the task, and a list of results
-message TaskResult {
-  uint32 worker_id = 1;
-  repeated Reply result_list = 2;
-  bool is_discovery = 3; // whether the reply is part of a discovery measurement
+// A ReplyBatch, contains the worker that received the measurement replies, and the replies themselves
+message ReplyBatch {
+  uint32 rx_id = 1;
+  repeated Reply results = 2; // forwarded to CLI by the Orchestrator
 }
 
-// Probe reply message TODO split into different results based on measurement type (traceroute, Record Route, other)
 message Reply {
+  oneof reply_data {
+    MeasurementReply measurement = 1; // result
+    DiscoveryReply discovery = 2; // follow-up
+    TraceReply trace = 3; // result + follow-up
+  }
+}
+
+// Contains discovery reply data (used for follow-up tasks)
+message DiscoveryReply {
+  Address src = 1;
+  fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
+}
+
+// Contains measured reply data (forwarded to the CLI and written to file)
+message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3;
-  uint64 tx_time = 4;
-  fixed32 tx_id = 5;
-  fixed32 origin_id = 6; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  uint64 rx_time = 4;
+  uint64 tx_time = 5;
+  fixed32 tx_id = 6;
   optional string chaos = 7;
-  optional Address trace_dst = 8; // if this reply is part of a traceroute, the target address of the traceroute probe
-  optional uint32 trace_ttl = 9; // if this reply is part of a traceroute, the TTL of the traceroute probe that resulted in this reply
-  repeated Address recorded_hops = 10; // if this reply is part of a Record Route measurement, the hops discovered
+  optional RecordedHops recorded_hops = 8;
+}
+
+// Traceroute reply
+message TraceReply {
+  Address hop_addr = 1;
+  fixed32 ttl = 2;
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  uint64 rx_time = 4; // 32 bit microseconds time
+  uint64 tx_time = 5; // 16 bit microseconds time
+  fixed32 tx_id = 6;
+  Address trace_dst = 7;
+  uint32 hop_count = 8; // TTL used to trigger this reply
+}
+
+// Record Route hops found
+message RecordedHops {
+  repeated Address hops = 1;
 }

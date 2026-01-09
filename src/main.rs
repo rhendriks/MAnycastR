@@ -10,6 +10,8 @@
 //! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
 //! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
 //! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
+//! * Anycast traceroute (measuring the path from Anycast deployment to targets using traceroute with an anycast source address)
+//! * Traceroute catchment mapping (utilizing anycast traceroute to infer catchments for intermediate routers/ASes that send `TTL Time Exceeded` replies)
 //!
 //! ii) Measuring external anycast infrastructure
 //! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
@@ -37,7 +39,7 @@
 //! Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
 //! The CLI writes results to a CSV file.
 //!
-//! # Measurement types
+//! # Supported protocols
 //!
 //! Measurements can be;
 //! * `icmp` ICMP ECHO requests
@@ -45,30 +47,18 @@
 //! * `tcp` TCP SYN/ACK probes
 //! * `chaos` UDP DNS TXT CHAOS requests
 //!
+//! Both IPv4 and IPv6 are supported.
+//!
 //! # Measurement parameters
 //!
-//! When creating a measurement you can specify:
+//! When creating a measurement, many parameters and options are available (see `cli start --help`)
 //!
-//! ## Variables
-//! * **Hitlist** - addresses to be probed (can be IP addresses or numbers) (.gz compressed files are supported)
-//! * **Type of measurement** - ICMP, DNS, TCP, or CHAOS
-//! * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
-//! * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
-//! * **Interval** - interval between separate worker's probes to the same target (default: 1s)
-//! * **Address** - source anycast address to use for the probes
-//! * **Source port** - source port to use for the probes (default: 62321)
-//! * **Destination port** - destination port to use for the probes (default: DNS: 53, TCP: 63853)
-//! * **Configuration** - path to a configuration file (allowing for complex configurations of source address, port values used by workers)
-//! * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
-//! * **Responsive** - check if a target is responsive before probing from all workers (unimplemented)
-//! * **Out** - path to file or directory to store measurement results (default: ./)
-//! * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
-//!
-//! ## Flags
-//! * **Stream** - stream results to the command-line interface (optional)
-//! * **Shuffle** - shuffle the hitlist
-//! * **Unicast** - perform measurement using the unicast address of each worker
-//! * **Divide** - divide-and-conquer Verfploeter catchment mapping
+//! ## Measurement Types
+//! * **verfploeter** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
+//! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
+//! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
+//! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
+//! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //!
 //! # Usage
 //!
@@ -98,36 +88,57 @@
 //! ### Verfploeter catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv
+//! cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
-//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv
+//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
+//! Each hitlist target receives a single probe from any worker.
+//! Catchment is inferred based on where the ping reply ends up.
 //!
-//! With this measurement each target receives a probe from each worker.
-//! Filtering on sender == receiver allows for calculating anycast RTTs.
+//! Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
 //!
-//! ### Divide-and-conquer Verfploeter catchment mapping using TCPv4
+//! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
 //! ```
 //!
-//! hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
-//!
-//! Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe each target.
-//! Benefits are; lower probing burden on targets, less data to process, faster measurements (hitlist split among workers).
-//! Whilst this provides a quick catchment mapping, the downside is that you will not be able to calculate anycast RTTs.
+//! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
+//! Each hitlist target receives 2 probes.
+//! The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
+//! The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
 //!
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast
+//! cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
 //! ```
 //!
-//! Since the hitlist contains IPv6 addresses, the workers will probe the targets using their IPv6 unicast address.
+//! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
+//! Each hitlist target receives a single probe from every worker.
+//! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
+//! Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
 //!
-//! This feature gives the latency between all anycast sites and each target in the hitlist.
-//! Filtering on the lowest unicast RTTs indicates the best anycast site for each target.
+//! ### LACeS measurement
+//!
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+//! ```
+//!
+//! Anycast probes will be sent from all workers.
+//! Each hitlist target receives a single probe from every worker.
+//! Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
+//! Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (--responsive).
+//!
+//! ### Anycast traceroute measurement
+//!
+//! ```
+//! cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+//! ```
+//!
+//! Measure the path from the catching PoP to the target.
+//! First, a single `discovery probe` is sent to infer the catching worker.
+//! Next, multiple traceroute packets are sent from the catching worker to measure the path.
 //!
 //! # Requirements
 //!
@@ -194,12 +205,13 @@
 //!
 //! # Future
 //!
-//! * Unicast traceroute / Record Route measurements
+//! * Unicast traceroute
 //! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Synchronous unicast and anycast measurements
+//! * Allow for simultaneous/mixed unicast and anycast measurements
+//! * Support any/all protocol types to measure targets with multiple protocols
 
-use clap::builder::PossibleValuesParser;
-use clap::{value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
+use clap::builder::{ArgPredicate, PossibleValuesParser};
+use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
@@ -210,14 +222,8 @@ mod net;
 mod orchestrator;
 mod worker;
 
-// Measurement type IDs
-pub const ICMP_ID: u8 = 1; // ICMP ECHO
-pub const A_ID: u8 = 2; // UDP DNS A Record
-pub const TCP_ID: u8 = 3; // TCP SYN/ACK
-pub const CHAOS_ID: u8 = 4; // UDP DNS TXT CHAOS
-pub const ALL_ID: u8 = 255; // All measurement types
-pub const ANY_ID: u8 = 254; // Any measurement type
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
+pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
 ///
@@ -269,329 +275,77 @@ fn main() {
 }
 
 /// Parse command line arguments using clap
-///
-/// Returns the parsed arguments as ArgMatches
 fn parse_cmd() -> ArgMatches {
     Command::new("MAnycastR")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
-        .about("Performs synchronized Internet measurement from a distributed set of anycast sites")
+        .about("Performs synchronized Internet measurement from a distributed set of anycast Points of Presence (PoPs)")
+        .subcommand_required(true)
         .subcommand(
             Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
-                .arg(
-                    Arg::new("port")
-                        .long("port")
-                        .short('p')
-                        .value_parser(value_parser!(u16))
-                        .required(false)
-                        .default_value("50001")
-                        .help("Port to listen on")
-                )
-                .arg(
-                    Arg::new("tls")
-                        .long("tls")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt and orchestrator.key in ./tls/)")
-                )
-                .arg(
-                    Arg::new("config")
-                        .long("config")
-                        .short('c')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Worker list configuration (mapping hostname to ID)")
-                )
+                .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
+                .arg(arg!(--tls "Use TLS (requires certs in ./tls/)").action(ArgAction::SetTrue))
+                .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
-                .arg(
-                    Arg::new("orchestrator")
-                        .short('a')
-                        .value_parser(value_parser!(String))
-                        .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
-                )
-                .arg(
-                    Arg::new("hostname")
-                        .long("hostname")
-                        .short('n')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("hostname for this worker (default: $HOSTNAME)")
-                )
-                .arg(
-                    Arg::new("tls")
-                        .long("tls")
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
-                )
-                .arg(
-                    Arg::new("interface")
-                        .long("interface")
-                        .value_parser(value_parser!(String))
-                        .short('i')
-                        .required(false)
-                        .help("Force interface to use for sending/receiving probes")
-                )
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
+                .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
+                .arg(arg!(-i --interface <IFACE> "Force interface to use"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
-                .arg(
-                    Arg::new("orchestrator")
-                        .short('a')
-                        .value_parser(value_parser!(String))
-                        .required(true)
-                        .help("address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)")
-                )
-                .arg(
-                    Arg::new("tls")
-                        .long("tls")
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Use TLS for communication with the orchestrator (requires orchestrator.crt in ./tls/), takes a FQDN as argument")
-                )
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
-                .subcommand(Command::new("live").about("performs a feed-based measurement [UNIMPLEMENTED]") // TODO
-                    .arg(Arg::new("pipe")
-                        .long("pipe")
-                        .short('p')
-                        .value_parser(value_parser!(String))
-                        .required(true)
-                        .help("A FIFO pipe that provides IP addresses to probe")
-                    )
-                    .arg(Arg::new("url")
-                        .long("url")
-                        .short('u')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .default_value("")
-                        .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
-                    )
-                )
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
-                    .arg(Arg::new("hitlist")
-                        .long("hitlist")
-                        .short('h')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Path to the hitlist file (can be .gz compressed)")
-                    )
-                    .arg(Arg::new("target") // TODO implement single target probing (stream results to stdout and create no output file)
-                        .long("target")
-                        .short('g')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Probe a single target instead of a hitlist, result is streamed to stdout [UNIMPLEMENTED]")
-                        .conflicts_with_all(["hitlist", "out"])
-                    )
-                    .arg(Arg::new("type")
-                        .long("type")
-                        .short('t')
-                        .value_parser(PossibleValuesParser::new([
-                            "icmp", "dns", "tcp", "chaos", "any", "all",
-                        ]))
-                        .ignore_case(true)
-                        .required(false)
+                    .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)").required(true).value_parser(value_parser!(String)))
+                    .arg(arg!(-p --p_type <TYPE> "Protocol to use")
+                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos", "any", "all"]))
                         .default_value("icmp")
-                        .help("The type of measurement")
-                    )
-                    .arg(Arg::new("rate")
-                        .long("rate")
-                        .short('r')
+                        .ignore_case(true))
+                    .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
+                        .value_parser(PossibleValuesParser::new(["laces", "verfploeter", "latency", "unicast", "anycast-traceroute"]))
+                        .default_value("laces")
+                        .ignore_case(true))
+                    .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
+                        .action(ArgAction::SetTrue)
+                        .requires_if("icmp", "p_type"))
+                    .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
+                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with("address"))
+                    .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
-                        .required(false)
-                        .default_value("1000")
-                        .help("Probing rate at each worker (number of outgoing packets / second)")
-                    )
-                    .arg(Arg::new("selective")
-                        .long("selective")
-                        .short('x')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Specify which workers have to send out probes (all connected workers will listen for packets) [worker_id1,worker_id2,...]")
-                        .conflicts_with_all(["configuration", "latency", "traceroute", "record"])
-                    )
-                    .arg(Arg::new("configuration")
-                        .long("conf")
-                        .short('f')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Path to the configuration file")
-                        .conflicts_with_all(["selective", "traceroute", "record", "unicast", "address"])
-                    )
-                    .arg(Arg::new("out")
-                        .long("out")
-                        .short('o')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .default_value("./")
-                        .help("Optional path and/or filename to store the results of the measurement")
-                        .conflicts_with("target")
-                    )
-                    .arg(Arg::new("parquet")
-                        .long("parquet")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Write results as parquet instead of .csv.gz")
-                        .conflicts_with("target")
-                    )
-                    .arg(Arg::new("stream")
-                        .long("stream")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Stream results to stdout")
-                        .conflicts_with("parquet") // TODO support streaming with .parquet output file
-                    )
-                    .arg(Arg::new("shuffle")
-                        .long("shuffle")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Shuffle the hitlist before probing")
-                        .conflicts_with("target")
-                        .requires("hitlist")
-                    )
-                    .arg(Arg::new("unicast")
-                        .long("unicast")
-                        .action(ArgAction::SetTrue)
-                        .help("Probe targets using each worker's unicast address")
-                        .conflicts_with_all(["latency", "traceroute", "record", "divide", "address", "configuration"])
-                    )
-                    .arg(Arg::new("divide")
-                        .long("divide")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Divide the hitlist into equal separate parts for each worker (divide-and-conquer)")
-                        .conflicts_with_all(["latency", "traceroute", "record", "unicast"])
-                    )
-                    .arg(Arg::new("latency")
-                        .long("latency")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Measure anycast latencies (first, measure catching PoP; second, measure latency from catching PoP to target)")
-                        .conflicts_with_all(["divide", "unicast", "selective", "traceroute", "record"])
-                    )
-                    .arg(Arg::new("responsive")
-                        .long("responsive")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("First check if the target is responsive from a single worker before sending probes from multiple workers/origins")
-                        .conflicts_with_all(["latency", "divide", "traceroute", "record"])
-                    )
-                    .arg(Arg::new("traceroute")
-                        .long("traceroute")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Perform a traceroute from the receiving anycast site for each target [NOTE: violates probing rate]")
-                        .conflicts_with_all(["latency", "responsive", "divide", "unicast", "selective", "record", "config"]) // TODO support unicast traceroute
-                    )
-                    .arg(Arg::new("record")
-                        .long("record")
-                        .action(ArgAction::SetTrue)
-                        .required(false)
-                        .help("Perform a Record Route measurement from the receiving anycast site for each target.")
-                        .conflicts_with_all(["traceroute", "latency", "responsive", "divide", "unicast", "selective"])
-                    )
-                    .arg(Arg::new("worker_interval")
-                        .long("worker-interval")
-                        .short('w')
-                        .value_parser(value_parser!(u32))
-                        .required(false)
-                        .default_value("1")
-                        .help("Interval between separate worker's probes to the same target")
-                        .conflicts_with_all(["latency", "divide"]) // --latency and --divide send single probes to each address, so no worker interval is needed
-                    )
-                    .arg(Arg::new("probe_interval")
-                        .long("probe-interval")
-                        .short('i')
-                        .value_parser(value_parser!(u32))
-                        .required(false)
-                        .default_value("1")
-                        .help("Interval between separate probes to the same target")
-                    )
-                    .arg(Arg::new("number_of_probes")
-                        .long("nprobes")
-                        .short('c')
-                        .value_parser(value_parser!(u32))
-                        .required(false)
-                        .default_value("1")
-                        .help("Number of probes to send to each origin,target pair [NOTE: violates probing rate]")
-                    )
-                    .arg(Arg::new("address")
-                        .long("addr")
-                        .short('a')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Anycast source address to use for probes")
-                        .conflicts_with_all(["unicast", "configuration"])
-                    )
-                    .arg(Arg::new("source port")
-                        .long("sport")
-                        .short('s')
+                        .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
+                        .default_value("1000"))
+                    .arg(arg!(selective: -x --selective <IDS> "List of worker IDs/hostnames that send probes [worker_id1,worker_id2,...]"))
+                    .arg(arg!(-o --out <PATH> "Optional path/filename to write output").default_value("./"))
+                    .arg(arg!(--parquet "Write as .parquet (instead of .csv.gz)").action(ArgAction::SetTrue))
+                    .arg(arg!(--stream "Stream to stdout").action(ArgAction::SetTrue))
+                    .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
+                    .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
+                    .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures").value_parser(value_parser!(u32)).default_value("5"))
+                    .arg(arg!(--trace_timeout <N> "Timeout for hops (in seconds)").value_parser(value_parser!(u32)).default_value("3"))
+                    .arg(arg!(--trace_max_hop <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
+                    .arg(arg!(--trace_initial_hop <N> "Starting TTL value").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-w --worker_interval <N> "Interval between workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-i --probe_interval <N> "Interval between probes from the same worker to the same target").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-c --nprobes <N> "Number of probes to send for each origin,target pair [NOTE: violates probing rate]").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-s --sport <PORT> "Source port to use (DNS,UDP)").value_parser(value_parser!(u16)).default_value("62321"))
+                    .arg(arg!(-d --dport <PORT> "Destination port to use (default DNS/CHAOS: 53, TCP: 63853)")
                         .value_parser(value_parser!(u16))
-                        .required(false)
-                        .default_value("62321")
-                        .help("Source port to use")
-                        .conflicts_with("configuration")
+                        .default_value_ifs([
+                            ("p_type", ArgPredicate::Equals("dns".into()), Some("53")),
+                            ("p_type", ArgPredicate::Equals("chaos".into()), Some("53")),
+                        ])
+                        .default_value("63853")
                     )
-                    .arg(Arg::new("destination port")
-                        .long("dport")
-                        .short('d')
-                        .value_parser(value_parser!(u16))
-                        .required(false)
-                        .help("Destination port to use (default DNS: 53, TCP: 63853)")
-                        .conflicts_with("configuration")
-                    )
-                    .arg(Arg::new("query")
-                        .long("query")
-                        .short('q')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .help("Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)")
-                    )
-                    .arg(Arg::new("url")
-                        .long("url")
-                        .short('u')
-                        .value_parser(value_parser!(String))
-                        .required(false)
-                        .default_value("")
-                        .help("Encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)")
-                    )
-                    .group(
-                        ArgGroup::new("source_spec")
-                            .args(["address", "unicast", "configuration"])
-                            .required(true),
-                    )
-                    .group(
-                        ArgGroup::new("target_spec")
-                            .args(["hitlist", "target"])
-                            .required(true),
-                    )
-                    .group(
-                        ArgGroup::new("measurement_type")
-                            .args(["latency", "traceroute", "record", "unicast", "divide", "responsive"])
-                            .multiple(true)
-                            .required(false)
-                    )
-                    .group(
-                        ArgGroup::new("output_type")
-                            .args(["out", "stream", "parquet"])
-                            .multiple(true)
-                            .required(false)
-                    )
-                    .group(
-                        ArgGroup::new("probing_control")
-                            .args(["rate", "number_of_probes", "probe_interval", "worker_interval", "selective"])
-                            .multiple(true)
-                            .required(false)
-                    )
-                    .group(
-                        ArgGroup::new("probe_def")
-                        .args(["address", "source port", "destination port", "query", "type", "url"])
-                        .multiple(true)
-                        .required(false)
-                    )
+                    .arg(arg!(-q --query <QUERY> "Specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)")
+                        .default_value_ifs([
+                            ("p_type", ArgPredicate::Equals("chaos".into()), Some("hostname.bind")),
+                            ("p_type", ArgPredicate::Equals("dns".into()), Some("example.org")),
+                        ]))
+                    .arg(arg!(-u --url <URL> "URL encoded in probe payload (e.g., opt-out URL)"))
                 )
             )
         .get_matches()

@@ -1,7 +1,7 @@
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Finished, TaskResult};
+use crate::custom_module::manycastr::{Address, End, Instruction};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -16,217 +16,190 @@ impl Worker {
     /// Connect to the orchestrator.
     ///
     /// # Arguments
-    ///
-    /// * 'address' - the address of the orchestrator in string format, containing both the IPv4 address and port number
-    ///
-    /// * 'fqdn' - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let client = connect("127.0.0.0:50001", true);
-    /// ```
+    /// * `address` - the address of the orchestrator in string format, containing both the IPv4 address and port number
+    /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
     pub(crate) async fn connect(
         address: String,
-        fqdn: Option<&String>,
+        fqdn: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if let Some(fqdn) = fqdn {
-            // Secure connection
-            let addr = format!("https://{address}");
+        let scheme = if fqdn.is_some() { "https" } else { "http" };
+        let uri = format!("{}://{}", scheme, address);
+        let mut endpoint = Channel::from_shared(uri)?;
 
-            // Load the CA certificate used to authenticate the orchestrator
-            let pem = std::fs::read_to_string("tls/orchestrator.crt")
-                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
+        if let Some(domain_name) = fqdn {
+            let cert_path = "tls/orchestrator.crt";
+            let pem = std::fs::read_to_string(cert_path)
+                .map_err(|e| format!("Failed to read CA cert at {}: {}", cert_path, e))?;
+
             let ca = Certificate::from_pem(pem);
-            // Create a TLS configuration
-            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
+            let tls = ClientTlsConfig::new()
+                .ca_certificate(ca)
+                .domain_name(domain_name);
 
-            let builder = Channel::from_shared(addr.to_owned()).expect("Unable to set address"); // Use the address provided
-            builder
-                .keep_alive_timeout(Duration::from_secs(30))
-                .http2_keep_alive_interval(Duration::from_secs(15))
-                .tcp_keepalive(Some(Duration::from_secs(60)))
-                .tls_config(tls)
-                .expect("Unable to set TLS configuration")
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        } else {
-            // Unsecure connection
-            let addr = format!("http://{address}");
+            endpoint = endpoint.tls_config(tls)?;
+        }
 
-            Channel::from_shared(addr.to_owned())
-                .expect("Unable to set address")
-                .keep_alive_timeout(Duration::from_secs(30))
-                .http2_keep_alive_interval(Duration::from_secs(15))
-                .tcp_keepalive(Some(Duration::from_secs(60)))
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        };
-        // Create worker with secret token that is used to authenticate worker commands.
-        let client = ControllerClient::new(channel);
+        let channel = endpoint
+            .keep_alive_timeout(Duration::from_secs(30))
+            .http2_keep_alive_interval(Duration::from_secs(15))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .connect()
+            .await?;
 
-        Ok(client)
+        Ok(ControllerClient::new(channel))
     }
 
     /// Establish a formal connection with the orchestrator.
-    ///
     /// Obtains a unique worker ID from the orchestrator, establishes a stream for receiving tasks, and handles tasks as they come in.
     pub(crate) async fn connect_to_server(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut abort_s: Option<Arc<AtomicBool>> = None;
-
-        // Get the local unicast addresses
-        let unicast_v6 = local_ipv6().ok().map(Address::from);
-        let unicast_v4 = local_ip().ok().map(Address::from);
-
-        let worker = custom_module::manycastr::Worker {
+        let mut abort_outbound: Arc<AtomicBool> = Arc::new(AtomicBool::new(false)); // To force close outbound sending thread
+        let worker_req = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
-            worker_id: 0, // This will be set after the connection
+            worker_id: 0,
             status: "".to_string(),
-            unicast_v6,
-            unicast_v4,
+            unicast_v6: local_ipv6().ok().map(Address::from),
+            unicast_v4: local_ip().ok().map(Address::from),
         };
 
-        // Connect to the orchestrator
-        let response = self
+        // Establish stream of measurement instructions to the Orchestrator
+        let mut stream = self
             .grpc_client
-            .worker_connect(Request::new(worker))
-            .await
-            .expect("Unable to connect to orchestrator");
+            .worker_connect(Request::new(worker_req))
+            .await?
+            .into_inner();
 
-        let mut stream = response.into_inner();
-        // Read the assigned unique worker ID
-        let id_message = stream
+        // Obtain the unique worker ID set by the Orchestrator (first message)
+        let init_msg = stream
             .message()
-            .await
-            .expect("Unable to await stream")
-            .expect("Unable to receive worker ID");
-        let worker_id = if let Some(InstructionType::Init(init)) = id_message.instruction_type {
-            init.worker_id as u16
-        } else {
-            panic!("Did not receive Init message from orchestrator");
+            .await?
+            .ok_or("Stream closed before Init message received")?;
+
+        let worker_id = match init_msg.instruction_type {
+            Some(InstructionType::Init(init)) => init.worker_id as u16,
+            _ => return Err("Did not receive Init message from orchestrator".into()),
         };
-        info!("[Worker] Connected to Orchestrator with worker_id: {worker_id}");
+        info!("[Worker] Connected to Orchestrator with assigned worker ID: {worker_id}");
 
-        // Await tasks
-        while let Some(instruction) = stream.message().await.expect("Unable to receive task") {
-            // If we already have an active measurement
-            if self.current_m_id.lock().unwrap().is_some() {
-                // If the CLI disconnected we will receive this message
-                match instruction.instruction_type {
-                    None => {
-                        warn!("[Worker] Received empty task, skipping");
-                        continue;
-                    }
-                    Some(InstructionType::Start(_)) => {
-                        warn!("[Worker] Received new measurement during an active measurement, skipping");
-                        continue;
-                    }
-                    Some(InstructionType::End(data)) => {
-                        // Received finish signal
-                        if data.code == 0 {
-                            info!(
-                                "[Worker] Received measurement finished signal from orchestrator"
-                            );
-                            // Close inbound threads
-                            self.abort_s.store(true, Ordering::SeqCst);
-                            // Close outbound threads gracefully
-                            if let Some(tx) = self.outbound_tx.take() {
-                                tx.send(InstructionType::End(End { code: 0 })).await.expect(
-                                    "Unable to send measurement_finished to outbound thread",
-                                );
-                            }
-                        } else if data.code == 1 {
-                            info!("[Worker] CLI disconnected, aborting measurement");
+        // Await instructions
+        while let Some(instruction) = stream.message().await? {
+            let instr_type = match instruction.instruction_type {
+                Some(it) => it,
+                None => {
+                    warn!("[Worker] Received empty instruction, skipping");
+                    continue;
+                }
+            };
 
-                            // Close the inbound threads
-                            self.abort_s.store(true, Ordering::SeqCst);
-                            // finish will be None if this worker is not probing
-                            if let Some(abort_s) = &abort_s {
-                                // Close outbound threads
-                                abort_s.store(true, Ordering::SeqCst);
-                            }
-                        } else {
-                            warn!("[Worker] Received invalid code from orchestrator");
-                            continue;
-                        }
-                    }
-                    Some(task) => {
-                        // outbound_tx will be None if this worker is not probing
-                        if let Some(outbound_tx) = &self.outbound_tx {
-                            // Send the task to the prober
-                            outbound_tx
-                                .send(task)
-                                .await
-                                .expect("Unable to send task to outbound thread");
-                        }
-                    }
-                };
+            // Check if we are currently busy with a measurement
+            let active_m_id = *self
+                .current_m_id
+                .lock()
+                .map_err(|_| "Unable to obtain m_id mutex")?;
 
-                // If we don't have an active measurement
-            } else {
-                let (is_probing, m_id) = match instruction.instruction_type.clone() {
-                    Some(InstructionType::Start(start)) => {
-                        (!start.tx_origins.is_empty(), start.m_id)
+            match (active_m_id, instr_type) {
+                // Starting a measurement (whilst idle)
+                (None, InstructionType::Start(start)) => {
+                    abort_outbound = Arc::new(AtomicBool::new(false));
+                    self.handle_start_instruction(
+                        Instruction {
+                            instruction_type: Some(InstructionType::Start(start)),
+                        },
+                        worker_id,
+                        abort_outbound.clone(),
+                    )
+                    .await?;
+                }
+
+                // Ending a measurement (whilst busy)
+                (Some(_), InstructionType::End(data)) => {
+                    self.handle_end_instruction(data, abort_outbound.clone())
+                        .await?;
+                }
+
+                // Receiving a new measurement (whilst busy) [INVALID]
+                (Some(_), InstructionType::Start(_)) => {
+                    warn!("[Worker] Received new measurement while busy; ignoring.");
+                }
+
+                // Receiving a task (whilst busy)
+                (Some(_), task_data) => {
+                    if let Some(tx) = &self.outbound_tx {
+                        let _ = tx.send(task_data).await;
                     }
-                    _ => {
-                        // First task is not a start measurement task
-                        continue;
-                    }
-                };
+                }
 
-                info!("[Worker] Starting new measurement");
-                *self.current_m_id.lock().unwrap() = Some(m_id);
-                self.abort_s.store(false, Ordering::SeqCst);
-
-                if is_probing {
-                    // This worker is probing
-                    // Initialize signal finish atomic boolean
-                    abort_s = Some(Arc::new(AtomicBool::new(false)));
-
-                    self.init(instruction, worker_id, abort_s.clone());
-                } else {
-                    // This worker is not probing
-                    abort_s = None;
-                    self.outbound_tx = None;
-                    self.init(instruction, worker_id, None);
+                // Receiving anything but a new measurement (whilst idle) [INVALID]
+                (None, _) => {
+                    warn!("[Worker] Received task data while idle; ignoring.");
                 }
             }
         }
-        info!("[Worker] Stopped awaiting tasks");
+        info!("[Worker] Stream closed by Orchestrator");
 
         Ok(())
     }
 
-    /// Send a TaskResult to the orchestrator
-    pub(crate) async fn send_result_to_server(
-        &mut self,
-        task_result: TaskResult,
-    ) -> Result<(), Box<dyn Error>> {
-        self.grpc_client
-            .send_result(Request::new(task_result))
-            .await?;
-
-        Ok(())
-    }
-
-    /// Let the orchestrator know the current measurement is finished.
-    ///
-    /// When a measurement is finished the orchestrator knows not to expect any more results from this worker.
+    /// Start a new measurement.
+    /// Sets the Orchestrator assigned measurement ID,
+    /// Initializes the abort signals to False (for outbound and inbound threads)
+    /// Calls the function to initialize the measurement
     ///
     /// # Arguments
-    ///
-    /// * 'finished' - the 'Finished' message to send to the orchestrator
-    pub(crate) async fn measurement_finish_to_server(
+    /// `instr` - The instruction containing the Start instruction type
+    /// `worker_id` - ID of this worker
+    /// `abort_outbound` - Abort signal to forcefully close the outbound thread
+    async fn handle_start_instruction(
         &mut self,
-        finished: Finished,
+        instr: Instruction,
+        worker_id: u16,
+        abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
-        self.current_m_id.lock().unwrap().take(); // Set current measurement ID to None
-        self.grpc_client
-            .measurement_finished(Request::new(finished))
-            .await?;
+        let start_data = match instr.instruction_type.as_ref().unwrap() {
+            InstructionType::Start(s) => s,
+            _ => unreachable!(),
+        };
+
+        info!("[Worker] Starting measurement {}", start_data.m_id);
+
+        // Set the measurement ID and abort signal
+        *self.current_m_id.lock().unwrap() = Some(start_data.m_id);
+        self.abort_inbound.store(false, Ordering::SeqCst);
+
+        // Initialize the measurement threads
+        self.init(instr, worker_id, abort_outbound)?;
+        Ok(())
+    }
+
+    /// End an ongoing measurement.
+    /// Closes listening thread gracefully.
+    /// Closes sending thread forcefully or gracefully (depending on end code)
+    ///
+    /// # Arguments
+    /// `end_instruction` - End instruction sent by the Orchestrator with an ending code
+    /// `abort_outbound` - Shared boolean to forcefully close the outbound/sending thread
+    async fn handle_end_instruction(
+        &mut self,
+        end_instruction: End,
+        abort_outbound: Arc<AtomicBool>,
+    ) -> Result<(), Box<dyn Error>> {
+        // Close inbound listening thread (gracefully)
+        self.abort_inbound.store(true, Ordering::SeqCst);
+
+        if end_instruction.code == 0 {
+            info!("[Worker] Received finish signal");
+        } else {
+            warn!(
+                "[Worker] Received abort signal (code {})",
+                end_instruction.code
+            );
+            // Close outbound thread forcefully (force stop without parsing tasks in the channel)
+            abort_outbound.store(true, Ordering::SeqCst); // TODO do we need the abort signal if we can just close it gracefully?
+        }
+
+        // Close outbound sending thread (gracefully)
+        if let Some(tx) = self.outbound_tx.take() {
+            let _ = tx.send(InstructionType::End(end_instruction)).await;
+        }
 
         Ok(())
     }
