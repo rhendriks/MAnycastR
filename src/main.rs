@@ -279,14 +279,14 @@ fn parse_cmd() -> ArgMatches {
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
-                .arg(arg!(-a <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
                 .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
                 .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .arg(arg!(-i --interface <IFACE> "Force interface to use"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
-                .arg(arg!(-a <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
                 .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
