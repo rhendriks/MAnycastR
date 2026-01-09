@@ -301,6 +301,7 @@ pub async fn round_robin_discovery(
 
             // Send follow-up tasks to 'f_worker_id'
             if !follow_up_tasks.is_empty() {
+                println!("sending follow-up task to worker {f_worker_id}");
                 let instruction = Instruction {
                     instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                         tasks: follow_up_tasks,
@@ -315,14 +316,8 @@ pub async fn round_robin_discovery(
                     .expect("Failed to send task to TaskDistributor");
             }
 
-            // Get discovery targets
-            let remainder_needed = if is_responsive {
-                // In responsive mode, we always send a full batch of discovery probes
-                config.probing_rate as usize
-            } else {
-                // In non-responsive modes, we limit the batch size to the remaining slots
-                (config.probing_rate as usize).saturating_sub(follow_up_count)
-            };
+            // Get remaining discovery tasks (fill up bucket)
+            let remainder_needed = (config.probing_rate as usize).saturating_sub(follow_up_count);
 
             let discovery_tasks = if remainder_needed > 0 && !hitlist_is_empty {
                 // Fill up the remainder with new discovery probes from the hitlist
