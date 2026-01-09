@@ -316,7 +316,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
                     .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures").value_parser(value_parser!(u32)).default_value("3"))
                     .arg(arg!(--trace_timeout <N> "Timeout for hops (in seconds)").value_parser(value_parser!(u32)).default_value("1"))
-                    .arg(arg!(--trace_max_hops <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
+                    .arg(arg!(--trace_max_hop <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
                     .arg(arg!(--trace_initial_hops <N> "Starting TTL value").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-w --worker_interval <N> "Interval between workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-i --probe_interval <N> "Interval between probes from the same worker to the same target").value_parser(value_parser!(u32)).default_value("1"))
