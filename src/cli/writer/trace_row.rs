@@ -20,7 +20,6 @@ pub fn get_trace_row(
         .unwrap_or(&String::from("*"))
         .to_string();
 
-
     let hop_addr = if let Some(hop_addr) = reply.hop_addr {
         hop_addr.to_string()
     } else {
@@ -28,15 +27,11 @@ pub fn get_trace_row(
     };
 
     // Traceroute hop replies have different RTT encodings
-    let is_traceroute_rtt = if reply.hop_addr == reply.trace_dst {
-        false
-    } else {
-        true
-    };
+    let is_hop_reply = reply.hop_addr != reply.trace_dst;
 
     // Calculate RTT if tx_time is available
-    let rtt =  if reply.hop_addr.is_some() {
-        calculate_rtt(reply.rx_time, reply.tx_time, false, is_traceroute_rtt).to_string()
+    let rtt = if reply.hop_addr.is_some() {
+        calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply).to_string()
     } else {
         "*".to_string()
     };
@@ -47,6 +42,6 @@ pub fn get_trace_row(
         tx_hostname,
         reply.trace_dst.unwrap().to_string(),
         reply.hop_count.to_string(),
-        rtt
+        rtt,
     ]
 }
