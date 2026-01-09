@@ -586,11 +586,19 @@ impl Controller for ControllerService {
             let mut config_guard = self.trace_config.write().unwrap();
             if let Some(config) = config_guard.as_mut() {
                 trace_replies_handler(
-                    trace_bucket,
+                    trace_bucket.clone(),
                     &mut self.worker_stacks.lock().unwrap(),
                     config,
                 );
             }
+
+            // Add trace replies to the results bucket
+            for t in trace_bucket {
+                results_bucket.push(Reply {
+                    reply_data: Some(ReplyData::Trace(t)),
+                });
+            }
+
             println!("handled traceroute replies");
         }
 
