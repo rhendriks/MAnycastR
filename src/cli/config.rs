@@ -53,7 +53,6 @@ pub fn get_hitlist(
     if let Some(src_addr) = configurations.first().and_then(|c| c.origin?.src) {
         let address_is_unicast = src_addr.is_unicast();
 
-        // If NOT unicast, the hitlist version MUST match the source version
         if !address_is_unicast && (src_addr.is_v6() != hitlist_is_v6) {
             panic!(
                 "Anycast source ({}) does not match hitlist type ({})",
