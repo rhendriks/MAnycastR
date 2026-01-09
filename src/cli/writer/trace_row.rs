@@ -9,7 +9,6 @@ pub fn get_trace_row(
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
-    println!("rx_id {}", rx_id);
     // convert the worker ID to hostname
     let rx_hostname = worker_map
         .get_by_left(rx_id)
