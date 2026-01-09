@@ -131,13 +131,14 @@ pub async fn handle(
     let number_of_probes = *matches.get_one::<u32>("nprobes").unwrap();
     let hitlist_length = targets.len();
 
-    let p_type_str = if is_ipv6 {
-        m_type.to_string() + "v6"
-    } else {
-        m_type.to_string() + "v4"
-    };
+    // Get protocol and IP version
+    let type_str = format!(
+        "{}{}",
+        p_type,
+        if is_ipv6 { " (IPv6)" } else { " (IPv4)" }
+    );
 
-    info!("[CLI] Performing {m_type} measurement using {p_type_str} targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+    info!("[CLI] Performing {m_type} measurement using {type_str} targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
     );
