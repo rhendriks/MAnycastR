@@ -72,7 +72,6 @@ impl CliClient {
         };
 
         info!("[CLI] Performing {} measurement", m_def.m_type());
-
         info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
 
         let response = self

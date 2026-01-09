@@ -28,9 +28,9 @@ pub fn get_latency_row(
 
     let mut row = vec![
         rx_hostname,
-        rtt.to_string(),
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
+        rtt.to_string(),
     ];
 
     // Optional fields

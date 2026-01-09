@@ -209,7 +209,7 @@ pub fn get_header(
                 "ttl",
                 "tx",
                 "trace_dst",
-                "trace_ttl",
+                "hop_count",
                 "rtt",
             ]
         }
