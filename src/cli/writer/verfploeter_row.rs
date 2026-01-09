@@ -5,11 +5,8 @@ use bimap::BiHashMap;
 ///
 /// # Arguments
 /// * `result` - The Reply that is being written to this row
-/// * `rx_worker_id` - The worker ID of the receiver
-/// * `m_type` - The type of measurement being performed
-/// * `is_symmetric` - A boolean that determines whether the measurement is symmetric (i.e., sender == receiver is always true)
+/// * `rx_id` - The worker ID of the receiver
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
-/// * `is_record` - A boolean that determines whether Record Route is included
 ///
 /// # Returns
 ///
