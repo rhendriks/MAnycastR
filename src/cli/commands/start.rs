@@ -67,7 +67,7 @@ pub async fn handle(
                 value: Some(Unicast(Empty {})),
             }
         } else {
-            panic!("An address must be specified for anycast measurements")
+            panic!("[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.")
         };
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;

@@ -302,27 +302,8 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
-                    // hidden flag to check for unicast measurement type
-                    .arg(
-                        arg!(--unicast_trigger <T>)
-                            .hide(true)
-                            .default_value_if("m_type", ArgPredicate::Equals("unicast".into()), Some("true"))
-                    )
-                    .arg(
-                        arg!(-a --address <ADDR> "Anycast source address")
-                            .value_parser(value_parser!(String))
-                            .required_unless_present_any(["configuration", "unicast_trigger"])
-                    )
-                    .arg(
-                        arg!(-f --configuration <CONF> "Path to config file")
-                            .value_parser(value_parser!(String))
-                            .required_unless_present_any(["address", "unicast_trigger"])
-                    )
-                    .group(
-                        ArgGroup::new("source_config")
-                            .args(["address", "configuration"])
-                            .multiple(false) // Ensures only one of these two is used
-                    )
+                    .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
+                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with("address"))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
