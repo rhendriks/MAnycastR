@@ -35,8 +35,7 @@ type CliHandle = Arc<Mutex<Option<CliSender>>>;
 type TaskMessage = Result<Instruction, Status>;
 
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
-const ALL_WORKERS_DIRECT: u32 = u32::MAX;
-const ALL_WORKERS_INTERVAL: u32 = u32::MAX - 2;
+const ALL_WORKERS_END: u32 = u32::MAX - 2;
 
 /// State to keep track of an ongoing measurement
 #[derive(Debug)]

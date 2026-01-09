@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{
-    OngoingMeasurement, ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL,
-};
+use crate::orchestrator::{OngoingMeasurement, ALL_WORKERS_END, BREAK_SIGNAL};
+use crate::ALL_WORKERS;
 use log::{info, warn};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
@@ -53,7 +52,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
             config
                 .tx_t
                 .send((
-                    ALL_WORKERS_INTERVAL,
+                    ALL_WORKERS,
                     Instruction {
                         instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
                             tasks: chunk.to_vec(),
@@ -79,7 +78,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
         config
             .tx_t
             .send((
-                ALL_WORKERS_DIRECT,
+                ALL_WORKERS_END,
                 Instruction {
                     instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
                 },
@@ -189,7 +188,7 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
         config
             .tx_t
             .send((
-                ALL_WORKERS_DIRECT,
+                ALL_WORKERS_END,
                 Instruction {
                     instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
                 },
@@ -277,7 +276,7 @@ pub async fn round_robin_discovery(
             // Worker to send follow-up tasks to
             let f_worker_id = if is_responsive {
                 // --responsive sends follow-up tasks to all probing workers
-                ALL_WORKERS_INTERVAL
+                ALL_WORKERS
             } else {
                 // --latency and --traceroute send follow-up tasks to the catching worker
                 worker_id
@@ -386,7 +385,7 @@ pub async fn round_robin_discovery(
         config
             .tx_t
             .send((
-                ALL_WORKERS_DIRECT,
+                ALL_WORKERS_END,
                 Instruction {
                     instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
                 },
@@ -446,7 +445,7 @@ pub async fn task_sender(
 
         if worker_id == BREAK_SIGNAL {
             break;
-        } else if worker_id == ALL_WORKERS_DIRECT {
+        } else if worker_id == ALL_WORKERS_END {
             // To all direct (used for 'end measurement' only)
             for sender in &workers {
                 sender
@@ -461,7 +460,7 @@ pub async fn task_sender(
                     });
                 sender.finished();
             }
-        } else if worker_id == ALL_WORKERS_INTERVAL {
+        } else if worker_id == ALL_WORKERS {
             // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
             let mut probing_index = 0;
 
