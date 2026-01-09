@@ -104,7 +104,6 @@ pub async fn handle(
                     .collect()
             },
         );
-        println!("sender ids {:?}", sender_ids);
 
         // Create configuration
         sender_ids

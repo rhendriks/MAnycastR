@@ -43,28 +43,24 @@ pub fn get_hitlist(
         .filter(|l| !l.trim().is_empty()) // Skip empty lines
         .map(Address::from)
         .collect();
-    let hitlist_is_v6 = ips.first().unwrap().is_v6();
-    let is_unicast = ips.first().unwrap().is_unicast();
-
-    // Panic if the source IP is not the same type as the addresses
-    if !is_unicast
-        && configurations
-            .first()
-            .unwrap()
-            .origin
-            .unwrap()
-            .src
-            .unwrap()
-            .is_v6()
-            != hitlist_is_v6
-    {
-        panic!(
-            "Hitlist addresses are not the same type as the source addresses used! (IPv4 & IPv6)"
-        );
-    }
+    let hitlist_is_v6 = ips[0].is_v6();
     // Panic if the ips in the hitlist are not all the same type
     if ips.iter().any(|ip| ip.is_v6() != hitlist_is_v6) {
         panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
+    }
+
+    // Make sure the anycast address is the same type as the hitlist addresses
+    if let Some(src_addr) = configurations.first().and_then(|c| c.origin?.src) {
+        let address_is_unicast = src_addr.is_unicast();
+
+        // If NOT unicast, the hitlist version MUST match the source version
+        if !address_is_unicast && (src_addr.is_v6() != hitlist_is_v6) {
+            panic!(
+                "Anycast source ({}) does not match hitlist type ({})",
+                if src_addr.is_v6() { "v6" } else { "v4" },
+                if hitlist_is_v6 { "v6" } else { "v4" }
+            );
+        }
     }
 
     // Shuffle the hitlist, if desired
