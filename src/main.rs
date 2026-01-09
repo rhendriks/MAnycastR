@@ -304,18 +304,17 @@ fn parse_cmd() -> ArgMatches {
                         .requires_if("icmp", "p_type"))
                     .arg(arg!(-a --address <ADDR> "Anycast source address").value_parser(value_parser!(String)))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").value_parser(value_parser!(String)))
+                    // hidden flag to check for unicast measurement type
+                    .arg(
+                        arg!(--unicast_trigger <T>)
+                            .hide(true)
+                            .default_value_if("m_type", ArgPredicate::Equals("unicast".into()), Some("true"))
+                    )
                     // Enforce either: anycast address, configuration, or unicast measurement type
                     .group(
                         ArgGroup::new("source_config")
                             .args(["address", "configuration", "unicast_trigger"])
                             .required(true)
-                    )
-                    // hidden flag to check for unicast measurement type
-                    .arg(
-                        arg!(--unicast_trigger)
-                            .hide(true)
-                            .action(ArgAction::SetTrue)
-                            .required_if_eq("m_type", "unicast")
                     )
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
