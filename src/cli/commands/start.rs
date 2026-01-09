@@ -178,14 +178,10 @@ pub async fn handle(
 
     let trace_options = if m_type == MeasurementType::AnycastTraceroute {
         Some(TraceOptions {
-            max_failures: *matches
-                .get_one::<u32>("trace-max-failures")
-                .expect("defaulted"),
-            max_hops: *matches.get_one::<u32>("trace-max-hops").expect("defaulted"),
-            timeout: *matches.get_one::<u32>("trace-timeout").expect("defaulted"),
-            initial_hop: *matches
-                .get_one::<u32>("trace-initial-hop")
-                .expect("defaulted"),
+            max_failures: *matches.get_one::<u32>("trace_max_failures").unwrap(),
+            max_hops: *matches.get_one::<u32>("trace_max_hops").unwrap(),
+            timeout: *matches.get_one::<u32>("trace_timeout").unwrap(),
+            initial_hop: *matches.get_one::<u32>("trace_initial_hop").unwrap(),
         })
     } else {
         None
