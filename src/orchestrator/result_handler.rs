@@ -7,14 +7,15 @@ use std::time::{Duration, Instant};
 /// Takes a TaskResult containing discovery probe replies for --responsive or --latency probes.
 ///
 /// # Arguments
-/// * 'discovery_results' - List of discovery results
-/// * 'worker_id' - worker that will perform the follow-up tasks
-/// * 'worker_stacks' - shared stack to put worker tasks in
+/// * `discovery_results` - List of discovery results
+/// * `worker_id` - worker that will perform the follow-up tasks
+/// * `worker_stacks` - shared stack to put worker tasks in
 pub fn discovery_handler(
     discovery_results: Vec<DiscoveryReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
 ) {
+    println!("received discovery results, assigning to worker {worker_id}");
     // Get the target addresses from the results
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
