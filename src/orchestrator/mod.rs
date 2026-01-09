@@ -113,12 +113,8 @@ impl ControllerService {
             // Check if the hostname already exists in the workers list
             if let Some(existing_worker) = workers.iter().find(|w| w.hostname == hostname) {
                 return if !existing_worker.is_closed() {
-                    warn!(
-                        "[Orchestrator] Refusing worker as the hostname already exists: {hostname}"
-                    );
-                    Err(Box::new(Status::already_exists(
-                        "This hostname already exists",
-                    )))
+                    warn!("[Orchestrator] Refusing worker, hostname already exists: {hostname}");
+                    Err(Box::new(Status::already_exists("This hostname already exists")))
                 } else {
                     // This is a reconnection of a closed worker.
                     let id = existing_worker.worker_id;
