@@ -133,9 +133,9 @@ pub fn parse_icmp_inner(
         })
     } else if is_traceroute {
         let trace_ttl: u8 = if is_ipv6 {
-            icmp_packet.payload[49]
+            icmp_packet.payload[48]
         } else {
-            icmp_packet.payload[25]
+            icmp_packet.payload[24]
         };
 
         Some(Reply {
