@@ -60,12 +60,12 @@ pub async fn handle(
         parse_configurations(conf_path, &worker_map)
     } else {
         // Create our own configuration from the arguments
-        let src = if let Some(anycast_address) = matches.get_one::<String>("address") {
-            Address::from(anycast_address)
-        } else if m_type == MeasurementType::UnicastLatency {
+        let src = if m_type == MeasurementType::UnicastLatency {
             Address {
                 value: Some(Unicast(Empty {})),
             }
+        } else if let Some(anycast_address) = matches.get_one::<String>("address") {
+                Address::from(anycast_address)
         } else {
             let msg = "[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.";
             error!("{}", msg);
