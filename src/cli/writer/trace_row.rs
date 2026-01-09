@@ -20,14 +20,21 @@ pub fn get_trace_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
+
+    let hop_addr = if let Some(hop_addr) = reply.hop_addr {
+        hop_addr.to_string()
+    } else {
+        "*".to_string()
+    };
+
     // Calculate RTT if tx_time is available
     let rtt = calculate_rtt(reply.rx_time, reply.tx_time, false, true);
     vec![
         rx_hostname,
-        reply.hop_addr.unwrap().to_string(),
+        hop_addr,
         reply.ttl.to_string(),
         tx_hostname,
-        reply.trace_dst.expect("no address").to_string(),
+        reply.trace_dst.unwrap().to_string(),
         reply.hop_count.to_string(),
         rtt.to_string(),
     ]
