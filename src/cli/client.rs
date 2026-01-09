@@ -141,7 +141,7 @@ impl CliClient {
         // Output file
         let file_path = if path.ends_with('/') {
             // User provided a path, use default naming convention for file
-            format!("{path}{m_type}-{type_str}-{timestamp_start_str}{extension}")
+            format!("{path}{}-{type_str}-{timestamp_start_str}{extension}", m_type.as_str())
         } else {
             // User provided a file (with possibly a path)
             if path.ends_with(".parquet") {
