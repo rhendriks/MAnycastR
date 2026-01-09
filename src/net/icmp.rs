@@ -184,6 +184,7 @@ impl ICMPPacket {
         let mut sum: u32 = 0;
         let len = buffer.len();
 
+        // Get all 16 bit words
         let mut i = 0;
         while i < len - 1 {
             let word = ((buffer[i] as u32) << 8) | (buffer[i + 1] as u32);
@@ -191,14 +192,17 @@ impl ICMPPacket {
             i += 2;
         }
 
+        // Handle trailing 8 bit word if it exists
         if len % 2 != 0 {
             sum += (buffer[len - 1] as u32) << 8;
         }
 
+        // Cast sum into 16 bits
         while sum >> 16 > 0 {
             sum = (sum & 0xffff) + (sum >> 16);
         }
 
+        // Return as one's complement
         !sum as u16
     }
 }
