@@ -35,7 +35,11 @@ pub fn get_trace_row(
     };
 
     // Calculate RTT if tx_time is available
-    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, false, is_traceroute_rtt);
+    let rtt =  if reply.hop_addr.is_some() {
+        calculate_rtt(reply.rx_time, reply.tx_time, false, is_traceroute_rtt).to_string()
+    } else {
+        "*".to_string()
+    };
     vec![
         rx_hostname,
         hop_addr,
@@ -43,6 +47,6 @@ pub fn get_trace_row(
         tx_hostname,
         reply.trace_dst.unwrap().to_string(),
         reply.hop_count.to_string(),
-        rtt.to_string(),
+        rtt
     ]
 }
