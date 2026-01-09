@@ -1,29 +1,22 @@
-use crate::custom_module::manycastr::{task, Ack, Probe, Task, TaskResult, Trace};
-use crate::orchestrator::ALL_WORKERS_INTERVAL;
+use crate::custom_module::manycastr::{task, DiscoveryReply, Probe, Task, Trace, TraceReply};
+pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
+use crate::orchestrator::TracerouteConfig;
 use std::collections::{HashMap, VecDeque};
-use tonic::{Response, Status};
+use std::time::{Duration, Instant};
 
-/// Takes a TaskResult from a worker containing discovery results and inserts it into the
-/// 'catcher' (i.e., receiving worker) stack for follow-up probing.
+/// Takes a TaskResult containing discovery probe replies for --responsive or --latency probes.
 ///
 /// # Arguments
-///
-/// * 'task_result' - The TaskResult received from a worker containing anycast discovery probe replies.
-/// * 'worker_stacks' - A mutable reference to the HashMap containing stacks of addresses for each worker.
-///
-/// # Returns
-///
-/// * 'Result<Response<Ack>, Status>' - An acknowledgment response indicating success or failure.
-pub fn symmetric_handler(
-    task_result: TaskResult,
+/// * `discovery_results` - List of discovery results
+/// * `worker_id` - worker that will perform the follow-up tasks
+/// * `worker_stacks` - shared stack to put worker tasks in
+pub fn discovery_handler(
+    discovery_results: Vec<DiscoveryReply>,
+    worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-) -> Result<Response<Ack>, Status> {
-    // Get 'catcher' that received the anycast probes
-    let catcher = task_result.worker_id;
-
+) {
     // Get the target addresses from the results
-    let responsive_targets: Vec<Task> = task_result
-        .result_list
+    let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
@@ -32,87 +25,135 @@ pub fn symmetric_handler(
 
     // Assign follow-up probes to the 'catcher' stack
     worker_stacks
-        .entry(catcher)
+        .entry(worker_id)
         .or_default()
         .extend(responsive_targets);
-
-    Ok(Response::new(Ack {
-        is_success: true,
-        error_message: "".to_string(),
-    }))
 }
 
-/// Takes a TaskResult containing discovery probe replies for --responsive probes.
-/// Puts the responsive targets in the worker stack for all workers.
-pub fn responsive_handler(
-    task_result: TaskResult,
-    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
-) -> Result<Response<Ack>, Status> {
-    // Get the target addresses from the results
-    let responsive_targets: Vec<Task> = task_result
-        .result_list
-        .iter()
-        .map(|result| Task {
-            task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
-        })
-        .collect();
-
-    // Assign follow-up probes to the 'all workers' stack
-    worker_stacks
-        .entry(ALL_WORKERS_INTERVAL)
-        .or_default()
-        .extend(responsive_targets);
-
-    Ok(Response::new(Ack {
-        is_success: true,
-        error_message: "".to_string(),
-    }))
-}
-
-/// Handles traceroute discovery probe replies, used to determine the catching worker.
-/// Instructs that worker to perform an initial TraceTask towards that target.
-/// TODO fix rustdoc
+/// Handles discovery replies for traceroute measurements.
+/// Initializes a `TraceSession` for a traceroute from the catching worker to the target.
+/// Also instruct the catching Worker to send a `Trace` with TTL = 1.
+///
+/// # Arguments
+/// * `discovery_results` - List of discovery results
+/// * `worker_id` - Worker that received the discovery results and will perform the traceroute
+/// * `worker_stacks` - Shared stack to put follow-up tasks into
+/// * `traceroute_config`
 pub fn trace_discovery_handler(
-    task_result: &TaskResult,
+    discovery_results: Vec<DiscoveryReply>,
+    catcher_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    traceroute_config: &mut TracerouteConfig,
 ) {
-    // Get catcher that received the anycast probe reply
-    let catcher = task_result.worker_id;
+    let mut tasks_to_send = Vec::new();
 
-    // For each result, create a series of Trace tasks with increasing TTL
-    // starting from TTL=1 up to the hop count to the target (capped at 20)
-    let trace_tasks: Vec<Task> = task_result
-        .result_list
-        .iter()
-        .flat_map(|result| {
-            // Get hop count to the target
-            let ttl = result.ttl;
-            // Default TTL values: 64, 128, 255
-            let hop_count = if ttl < 64 {
-                64 - ttl
-            } else if ttl < 128 {
-                128 - ttl
+    // Discovery replies
+    for result in discovery_results {
+        // Create an ongoing TraceSession for each discovery reply
+        let target = result.src;
+        let origin_id = result.origin_id;
+
+        // Create Trace identifier
+        let identifier = TraceIdentifier {
+            worker_id: catcher_id,
+            target: target.unwrap(),
+            origin_id,
+        };
+
+        // Init Trace session
+        let session = TraceSession {
+            worker_id: catcher_id,
+            target,
+            origin_id,
+            current_ttl: traceroute_config.initial_hop as u8,
+            consecutive_failures: 0,
+            last_updated: Instant::now(),
+        };
+
+        traceroute_config
+            .session_tracker
+            .sessions
+            .insert(identifier.clone(), session);
+        // Add deadline
+        let deadline = Instant::now() + Duration::from_secs(traceroute_config.timeout);
+        traceroute_config
+            .session_tracker
+            .expiration_queue
+            .push_back((identifier, deadline));
+
+        tasks_to_send.push(Task {
+            task_type: Some(task::TaskType::Trace(Trace {
+                dst: target,
+                ttl: traceroute_config.initial_hop,
+                origin_id,
+            })),
+        });
+    }
+
+    // Put tasks in worker stacks
+    if !tasks_to_send.is_empty() {
+        let stack = worker_stacks.entry(catcher_id).or_default();
+        for task in tasks_to_send {
+            stack.push_back(task);
+        }
+    }
+}
+
+/// Awaits `Trace` replies (i.e., ICMP Time Exceeded).
+/// Follows up with Time exceeded with the next `Trace` using TTL + 1.
+/// Updates the corresponding `TraceSession`, including the timeout.
+///
+/// If a regular reply (from the target) is received, it closes the `TraceSession`.
+///
+/// # Arguments
+/// * `trace_replies` - A list of traceroute results
+/// * `worker_stacks` - Stacks for workers to put follow-up trace tasks into
+/// * `traceroute_config` - Configuration and state for the ongoing traceroute measurement
+pub fn trace_replies_handler(
+    trace_replies: Vec<TraceReply>,
+    worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    traceroute_config: &mut TracerouteConfig,
+) {
+    let session_tracker = &mut traceroute_config.session_tracker;
+
+    for trace_reply in trace_replies {
+        // Get identifier of corresponding trace
+        let identifier = TraceIdentifier {
+            worker_id: trace_reply.tx_id,
+            target: trace_reply.trace_dst.unwrap(),
+            origin_id: trace_reply.origin_id,
+        };
+        let mut remove = false;
+
+        // Find session of corresponding trace
+        if let Some(session) = session_tracker.sessions.get_mut(&identifier) {
+            // Update the corresponding trace session
+            session.current_ttl += 1;
+            session.last_updated = Instant::now();
+            session.consecutive_failures = 0;
+
+            if session.current_ttl > traceroute_config.max_hops as u8
+                || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
+            {
+                // Routing loop or destination reached -> close session
+                remove = true;
             } else {
-                255 - ttl
-            };
+                // Send tracetask for the next hop
+                worker_stacks
+                    .entry(trace_reply.tx_id)
+                    .or_default()
+                    .push_back(Task {
+                        task_type: Some(task::TaskType::Trace(Trace {
+                            dst: session.target,
+                            ttl: session.current_ttl as u32,
+                            origin_id: session.origin_id,
+                        })),
+                    });
+            }
+        }
 
-            // Cap at 20 hops (avoid excessive hops)
-            let hop_count = hop_count.min(20);
-
-            // Generate an iterator of Trace task from TTL = 1 up to hop_count
-            (1..=hop_count).map(move |i| Task {
-                task_type: Some(task::TaskType::Trace(Trace {
-                    dst: result.src,
-                    ttl: i,
-                    origin_id: result.origin_id,
-                })),
-            })
-        })
-        .collect();
-
-    // Assign follow-up trace tasks to the 'catcher' stack
-    worker_stacks
-        .entry(catcher)
-        .or_default()
-        .extend(trace_tasks);
+        if remove {
+            session_tracker.sessions.remove(&identifier);
+        }
+    }
 }

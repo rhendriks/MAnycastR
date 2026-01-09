@@ -6,16 +6,13 @@ use log::info;
 use std::error::Error;
 use tonic::codec::CompressionEncoding;
 use tonic::Request;
-
-mod live;
 pub(crate) mod start;
 mod worker_list;
 
 /// Execute the command-line arguments and send the desired commands to the orchestrator.
 ///
 /// # Arguments
-///
-/// * 'args' - the user-defined command-line arguments
+/// * `args` - the user-defined command-line arguments
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.get_one::<String>("orchestrator").unwrap();
@@ -44,12 +41,10 @@ pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             .into_inner()
             .workers
             .into_iter()
-            .map(|worker| (worker.worker_id, worker.hostname)) // .clone() is no longer needed on hostname
+            .map(|worker| (worker.worker_id, worker.hostname))
             .collect();
 
         start::handle(matches, &mut cli_client, worker_map).await?
-    } else if let Some(matches) = args.subcommand_matches("live") {
-        live::handle(matches, &mut cli_client).await?
     } else {
         panic!("Unrecognized command");
     };

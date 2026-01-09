@@ -1,4 +1,5 @@
-use crate::orchestrator::{ALL_WORKERS_DIRECT, ALL_WORKERS_INTERVAL, BREAK_SIGNAL};
+use crate::orchestrator::{ALL_WORKERS_END, BREAK_SIGNAL};
+use crate::ALL_WORKERS;
 use log::info;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -12,15 +13,14 @@ use tonic::transport::Identity;
 /// hostname,id
 ///
 /// # Arguments
-/// * 'config_path' - the path to the configuration file
+/// * `config_path` - the path to the configuration file
 ///
 /// # Returns
-/// Returns a tuple containing:
 /// * The worker ID for any new hostname, which is the maximum ID + 1 in the configuration file
 /// * A mapping of hostnames to worker IDs
 ///
 /// # Panics
-/// Panics if the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.
+/// If the configuration file does not exist, or if there are malformed entries, duplicate hostnames, or duplicate IDs.
 pub fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<HashMap<String, u32>>) {
     if !Path::new(config_path).exists() {
         panic!("[Orchestrator] Configuration file {config_path} not found!");
@@ -76,7 +76,7 @@ pub fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<Hash
         }
 
         // Avoid special worker IDs
-        if id == ALL_WORKERS_INTERVAL || id == ALL_WORKERS_DIRECT || id == BREAK_SIGNAL {
+        if id == ALL_WORKERS || id == ALL_WORKERS_END || id == BREAK_SIGNAL {
             panic!(
                 "[Orchestrator] Error on line {line_number}: ID '{id}' is reserved for special purposes. Please use a different ID."
             );
