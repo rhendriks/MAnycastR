@@ -71,7 +71,6 @@ pub fn check_trace_timeouts(
     loop {
         // Check if measurement is finished
         if ongoing_measurement.read().unwrap().is_none() {
-            println!("[x] FINISHED");
             break;
         }
 
@@ -88,10 +87,9 @@ pub fn check_trace_timeouts(
 
             // Iteratively check top of the stack (oldest sessions) to see if they timed out
             while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
+                // Deadline is in the future
                 if *deadline > now {
-                    // Deadline is in the future
-                    println!("[x] deadline in the future");
-                    break; // release lock and exit
+                    break;
                 }
                 // Pop candidate
                 let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
@@ -114,20 +112,11 @@ pub fn check_trace_timeouts(
                         if session.consecutive_failures > max_failures as u8
                             || session.current_ttl > max_hops as u8
                         {
-                            println!(
-                                "[xxx] trace failed for dst {} with failures {} and current_ttl {}",
-                                session.target.unwrap(),
-                                session.consecutive_failures,
-                                session.current_ttl
-                            );
                             // Remove from tracker
                             session_tracker.sessions.remove(&id);
                             None // Nothing to update
                         } else {
                             // Measure the next hop (current hop timed out)
-
-                            println!("[x] Hop timed out performing follow-up trace from {} to {} with TTL {}", session.worker_id, session.target.unwrap(), session.current_ttl);
-
                             {
                                 // Forward unreachable hop result to CLI
                                 let cli_sender = cli_sender.lock().unwrap();
@@ -195,6 +184,4 @@ pub fn check_trace_timeouts(
         // Sleep for the timeout interval before checking timeouts again
         thread::sleep(Duration::from_secs(timeout));
     }
-
-    println!("[x] [Orchestrator] Finished trace timeout thread")
 }

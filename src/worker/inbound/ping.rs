@@ -132,7 +132,6 @@ pub fn parse_icmp_inner(
             })),
         })
     } else if is_traceroute {
-        println!("received ping reply from traceroute target {}", ip_header.src());
         let trace_ttl: u8 = if is_ipv6 {
             icmp_packet.payload[48]
         } else {

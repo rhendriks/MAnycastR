@@ -65,7 +65,7 @@ pub async fn handle(
                 value: Some(Unicast(Empty {})),
             }
         } else if let Some(anycast_address) = matches.get_one::<String>("address") {
-                Address::from(anycast_address)
+            Address::from(anycast_address)
         } else {
             let msg = "[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.";
             error!("{}", msg);

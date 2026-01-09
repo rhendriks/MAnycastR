@@ -529,13 +529,6 @@ impl Controller for ControllerService {
             }
         }
 
-        println!(
-            "received results {}, trace results {}, discovery results {}",
-            results_bucket.len(),
-            trace_bucket.len(),
-            discovery_bucket.len()
-        );
-
         if !discovery_bucket.is_empty() {
             let m_type_guard = self.m_type.lock().unwrap();
             let m_type = match m_type_guard.as_ref() {
@@ -581,7 +574,6 @@ impl Controller for ControllerService {
         }
 
         if !trace_bucket.is_empty() {
-            println!("received non-discovery traceroute replies");
             // Handle traceroute replies (and target replies)
             let mut config_guard = self.trace_config.write().unwrap();
             if let Some(config) = config_guard.as_mut() {
@@ -598,8 +590,6 @@ impl Controller for ControllerService {
                     reply_data: Some(ReplyData::Trace(t)),
                 });
             }
-
-            println!("handled traceroute replies");
         }
 
         if !results_bucket.is_empty() {
