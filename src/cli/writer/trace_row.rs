@@ -27,8 +27,15 @@ pub fn get_trace_row(
         "*".to_string()
     };
 
+    // Traceroute hop replies have different RTT encodings
+    let is_traceroute_rtt = if reply.hop_addr == reply.trace_dst {
+        false
+    } else {
+        true
+    };
+
     // Calculate RTT if tx_time is available
-    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, false, true);
+    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, false, is_traceroute_rtt);
     vec![
         rx_hostname,
         hop_addr,
