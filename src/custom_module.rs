@@ -1,114 +1,106 @@
+use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
+use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
+use std::fmt;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
+use std::str::FromStr;
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
 }
 
+/// Write Address to string (e.g., 1.1.1.1)
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = match &self.value {
-            Some(V4(v4)) => Ipv4Addr::from(*v4).to_string(),
-            Some(V6(v6)) => Ipv6Addr::new(
-                (v6.p1 >> 48) as u16,
-                (v6.p1 >> 32) as u16,
-                (v6.p1 >> 16) as u16,
-                v6.p1 as u16,
-                (v6.p2 >> 48) as u16,
-                (v6.p2 >> 32) as u16,
-                (v6.p2 >> 16) as u16,
-                v6.p2 as u16,
-            )
-            .to_string(),
-            None => String::from("None"),
-            Some(Unicast(_)) => "UNICAST".to_string(),
-        };
-        write!(f, "{str}")
+        match &self.value {
+            Some(V4(v4)) => {
+                write!(f, "{}", Ipv4Addr::from(*v4))
+            }
+            Some(V6(_)) => {
+                let val: u128 = self.into();
+                write!(f, "{}", Ipv6Addr::from(val))
+            }
+            Some(Unicast(_)) => write!(f, "UNICAST"),
+            None => write!(f, "None"),
+        }
     }
 }
 
 impl Address {
-    pub fn is_v6(&self) -> bool {
-        matches!(&self.value, Some(V6(_)))
-    }
-
-    pub fn is_unicast(&self) -> bool {
-        matches!(&self.value, Some(Unicast(_)))
-    }
-
-    /// Get the prefix of the address
-    ///
-    /// /24 for IPv4 and /48 for IPv6
-    ///
-    #[allow(dead_code)]
-    pub fn get_prefix(&self) -> u64 {
+    /// Returns the integer representation of the IP address as u128.
+    pub fn as_numeric(&self) -> u128 {
         match &self.value {
-            Some(V4(v4)) => {
-                // Return the sum of first 24 bits
-                ((v4 >> 8) & 0x00FFFFFF).into()
-            }
-            Some(V6(v6)) => {
-                // Return the sum of first 48 bits
-                (v6.p1 >> 16) & 0x0000FFFFFFFF
-            }
+            Some(V4(v4)) => *v4 as u128,
+            Some(V6(_)) => self.into(),
             _ => 0,
         }
     }
 
-    /// Get the IPv4 address as u32
-    ///
-    /// Panic if the address is not IPv4
-    pub fn get_v4(&self) -> u32 {
-        match &self.value {
-            Some(V4(v4)) => *v4,
-            _ => panic!("Not a v4 address"),
-        }
+    pub fn is_v6(&self) -> bool {
+        matches!(self.value, Some(V6(_)))
     }
 
-    /// Get the IPv6 address as u128
-    ///
-    /// Panic if the address is not IPv6
-    pub fn get_v6(&self) -> u128 {
+    pub fn is_unicast(&self) -> bool {
+        matches!(self.value, Some(Unicast(_)))
+    }
+
+    /// Get the prefix of the address (/24 for IPv4 and /48 for IPv6)
+    pub fn get_prefix(&self) -> u64 {
         match &self.value {
-            Some(V6(v6)) => (v6.p1 as u128) << 64 | v6.p2 as u128,
-            _ => panic!("Not a v6 address"),
+            // /24: Shift right by 8 bits
+            Some(V4(v4)) => (v4 >> 8) as u64,
+            // /48: high is 64 bits, we want top 48. Shift right by (64 - 48) = 16
+            Some(V6(v6)) => v6.high >> 16,
+            _ => 0,
         }
     }
 
     /// Convert Address to bytes (big-endian)
     pub fn to_be_bytes(self) -> Vec<u8> {
-        match self.value {
-            Some(V4(_)) => self.get_v4().to_be_bytes().to_vec(),
-            Some(V6(_)) => self.get_v6().to_be_bytes().to_vec(),
+        match &self.value {
+            Some(V4(v4)) => v4.to_be_bytes().to_vec(),
+            Some(V6(_)) => {
+                let val: u128 = self.into();
+                val.to_be_bytes().to_vec()
+            }
             _ => vec![],
         }
     }
 }
 
-// convert bytes into Address
+/// Address -> u32 (panic if not V4)
+impl From<Address> for u32 {
+    fn from(addr: Address) -> Self {
+        match addr.value {
+            Some(V4(v4)) => v4,
+            _ => panic!("Attempted to convert non-IPv4 Address to u32"),
+        }
+    }
+}
+
+/// Address -> u128 (Panic if not V6)
+impl From<Address> for u128 {
+    fn from(addr: Address) -> Self {
+        match addr.value {
+            Some(V6(v6)) => (v6.high as u128) << 64 | v6.low as u128,
+            _ => panic!("Attempted to convert non-IPv6 Address to u128"),
+        }
+    }
+}
+
+/// convert bytes into Address
 impl From<&[u8]> for Address {
     fn from(bytes: &[u8]) -> Self {
         match bytes.len() {
             4 => {
-                let mut ip = [0; 4];
-                ip.copy_from_slice(bytes);
-                Address {
-                    value: Some(V4(u32::from_be_bytes(ip))),
-                }
+                let array: [u8; 4] = bytes.try_into().unwrap();
+                Address::from(array)
             }
             16 => {
-                let mut ip = [0; 16];
-                ip.copy_from_slice(bytes);
-                Address {
-                    value: Some(V6(IPv6 {
-                        p1: u64::from_be_bytes(ip[0..8].try_into().unwrap()),
-                        p2: u64::from_be_bytes(ip[8..16].try_into().unwrap()),
-                    })),
-                }
+                let array: [u8; 16] = bytes.try_into().unwrap();
+                Address::from(array)
             }
-            _ => panic!("Invalid IP address length"),
+            _ => panic!("Invalid IP address length: {}", bytes.len()),
         }
     }
 }
@@ -117,6 +109,17 @@ impl From<[u8; 4]> for Address {
     fn from(bytes: [u8; 4]) -> Self {
         Address {
             value: Some(V4(u32::from_be_bytes(bytes))),
+        }
+    }
+}
+
+impl From<[u8; 16]> for Address {
+    fn from(bytes: [u8; 16]) -> Self {
+        Address {
+            value: Some(V6(IPv6 {
+                high: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+                low: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
+            })),
         }
     }
 }
@@ -133,86 +136,74 @@ impl From<u128> for Address {
     fn from(bytes: u128) -> Self {
         Address {
             value: Some(V6(IPv6 {
-                p1: (bytes >> 64) as u64,
-                p2: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
+                high: (bytes >> 64) as u64,
+                low: (bytes & 0xFFFFFFFFFFFFFFFF) as u64,
             })),
         }
     }
 }
 
-impl From<[u8; 16]> for Address {
-    fn from(bytes: [u8; 16]) -> Self {
-        Address {
-            value: Some(V6(IPv6 {
-                p1: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
-                p2: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
-            })),
+impl From<&Address> for u32 {
+    fn from(addr: &Address) -> Self {
+        match &addr.value {
+            Some(V4(v4)) => *v4,
+            _ => panic!("Attempted to convert non-IPv4 &Address to u32"),
         }
     }
 }
 
-// Convert String into an Address
-impl From<String> for Address {
-    fn from(s: String) -> Self {
+impl From<&Address> for u128 {
+    fn from(addr: &Address) -> Self {
+        match &addr.value {
+            Some(V6(v6)) => (v6.high as u128) << 64 | v6.low as u128,
+            _ => panic!("Attempted to convert non-IPv6 &Address to u128"),
+        }
+    }
+}
+
+/// Convert String into an Address (can be an IP number or a standard IP string)
+impl FromStr for Address {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Standard IP string format (e.g., "1.1.1.1" or "2001::1")
         if let Ok(ip) = s.parse::<IpAddr>() {
-            // handle standard IP string format (e.g., 2001::1, 1.1.1.1)
-            match ip {
-                IpAddr::V4(v4_addr) => Address {
-                    value: Some(V4(u32::from_be_bytes(v4_addr.octets()))),
-                },
-                IpAddr::V6(v6_addr) => Address {
-                    value: Some(V6(IPv6 {
-                        p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
-                        p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
-                    })),
-                },
-            }
-        } else if let Ok(ip_number) = s.parse::<u128>() {
-            // attempt to interpret as a raw IP number
-            if ip_number <= u32::MAX as u128 {
-                // IPv4
-                Address {
-                    value: Some(V4(ip_number as u32)),
-                }
-            } else {
-                // IPv6
-                Address {
-                    value: Some(V6(IPv6 {
-                        p1: (ip_number >> 64) as u64,                // Most significant 64 bits
-                        p2: (ip_number & 0xFFFFFFFFFFFFFFFF) as u64, // Least significant 64 bits
-                    })),
-                }
-            }
-        } else {
-            panic!("Invalid IP address or IP number {s}");
+            return Ok(Address::from(ip));
         }
-    }
-}
 
-impl From<&String> for Address {
-    fn from(s: &String) -> Self {
-        Address::from(s.to_string())
+        // IP number
+        if let Ok(ip_number) = s.parse::<u128>() {
+            return Ok(Address::from(ip_number));
+        }
+
+        Err(format!("Invalid IP address or IP number: {s}"))
     }
 }
 
 impl From<&str> for Address {
     fn from(s: &str) -> Self {
-        Address::from(s.to_string())
+        s.parse().unwrap_or_else(|e| panic!("{}", e))
     }
 }
 
+impl From<String> for Address {
+    fn from(s: String) -> Self {
+        Address::from(s.as_str())
+    }
+}
+
+impl From<&String> for Address {
+    fn from(s: &String) -> Self {
+        Address::from(s.as_str())
+    }
+}
+
+/// Convert IpAddr to Address (used for converting local unicast addresses)
 impl From<IpAddr> for Address {
     fn from(ip: IpAddr) -> Self {
         match ip {
-            IpAddr::V4(v4_addr) => Address {
-                value: Some(V4(u32::from_be_bytes(v4_addr.octets()))),
-            },
-            IpAddr::V6(v6_addr) => Address {
-                value: Some(V6(IPv6 {
-                    p1: u64::from_be_bytes(v6_addr.octets()[0..8].try_into().unwrap()),
-                    p2: u64::from_be_bytes(v6_addr.octets()[8..16].try_into().unwrap()),
-                })),
-            },
+            IpAddr::V4(v4) => Address::from(u32::from(v4)),
+            IpAddr::V6(v6) => Address::from(v6.octets()),
         }
     }
 }
@@ -234,14 +225,87 @@ fn format_number(number: usize) -> String {
     chunks.join(",")
 }
 
-impl Separated for u32 {
-    fn with_separator(&self) -> String {
-        format_number(*self as usize)
+/// Print integer types with a thousand separator (e.g., 1000 -> 1,000)
+macro_rules! impl_separated {
+    ($($t:ty),*) => {
+        $(
+            impl Separated for $t {
+                fn with_separator(&self) -> String {
+                    format_number(*self as usize)
+                }
+            }
+        )*
+    };
+}
+
+impl_separated!(u32, usize, u64, i32);
+
+/// Pretty print measurement types
+impl Display for MeasurementType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Laces => "LACeS",
+            Self::Verfploeter => "Verfploeter",
+            Self::AnycastLatency => "Anycast Latency",
+            Self::UnicastLatency => "Unicast Latency",
+            Self::AnycastTraceroute => "Anycast Traceroute",
+        };
+        write!(f, "{}", s)
     }
 }
 
-impl Separated for usize {
-    fn with_separator(&self) -> String {
-        format_number(*self)
+impl MeasurementType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Laces => "laces",
+            Self::Verfploeter => "verfploeter",
+            Self::AnycastLatency => "latency",
+            Self::UnicastLatency => "unicast",
+            Self::AnycastTraceroute => "anycast-traceroute",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "laces" => Some(Self::Laces),
+            "verfploeter" => Some(Self::Verfploeter),
+            "latency" => Some(Self::AnycastLatency),
+            "unicast" => Some(Self::UnicastLatency),
+            "anycast-traceroute" => Some(Self::AnycastTraceroute),
+            _ => None,
+        }
+    }
+}
+
+impl Display for ProtocolType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ProtocolType::Icmp => "ICMP",
+            ProtocolType::ADns => "DNS (A)",
+            ProtocolType::Tcp => "TCP",
+            ProtocolType::ChaosDns => "DNS (CHAOS)",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl ProtocolType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProtocolType::Icmp => "icmp",
+            ProtocolType::ADns => "dns",
+            ProtocolType::Tcp => "tcp",
+            ProtocolType::ChaosDns => "chaos",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "icmp" => Some(Self::Icmp),
+            "dns" => Some(Self::ADns),
+            "tcp" => Some(Self::Tcp),
+            "chaos" => Some(Self::ChaosDns),
+            _ => None,
+        }
     }
 }

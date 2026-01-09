@@ -15,7 +15,7 @@ i) Measuring anycast infrastructure itself
 ii) Measuring external anycast infrastructure
 * [LACeS](https://doi.org/10.1145/3730567.3764484) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
 
-Full documenation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
+Full documentation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
 
 ## The components
 
