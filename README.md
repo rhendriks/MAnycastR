@@ -99,63 +99,60 @@ cli -a [ORC ADDRESS] start [parameters]
 
 ### Examples
 
-#### Verfploeter catchment mapping using ICMPv4
+#### Verfploeter catchment mapping
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -x [nl-ams]
+cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
-Worker with hostname nl-ams will probe the targets in hitlist.txt using ICMPv4 and source address 10.0.0.0.
-All workers listen for probe replies. The CLI writes results live to results.csv.gz
+All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
+Each hitlist target receives a single probe from any worker.
+Catchment is inferred based on where the ping reply ends up.
 
-#### Divide-and-conquer Verfploeter catchment mapping using TCPv4
+Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
 
-```
-cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 --divide
-```
-
-hitlist.txt will be split in equal parts among workers (divide-and-conquer), results are stored in ./
-
-Enabling divide-and-conquer means each target receives a single probe, whereas before each worker would probe all targets.
-Allows for faster measurements (hitlist split among workers), and spreading probing burden amongst individual PoPs' upstreams.
-
-### MAnycast2 anycast detection
+### Anycast latency measurement using TCPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -a 10.0.0.0 -u opt-out.example.com --responsive
+cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
 ```
 
-All workers will probe the targets in hitlist.txt using ICMPv4.
-Probes will have the URL opt-out.example.com encoded in the payload.
---responsive will check if a target is responsive from a single worker before probing from all workers.
-If probe replies for a single target are received at multiple workers, then it is likely anycast.
+Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
+Each hitlist target receives 2 probes.
+The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
+The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
 
-### Measure anycast latencies using TCPv6
-
-```
-cli -a [::1]:50001 start hitlistv6.txt -t tcp --latency --stream -a 2001:: -s 2222 -d 1111
-```
-
-Workers will probe the targets in hitlistv6.txt using TCPv6 with source address 2001::, source port 2222, and destination port 1111.
-For each target a discovery probe is sent, to determine the 'catching' PoP.
-Next, from the catching PoP, a follow-up probe is sent to measure the RTT.
-This results in two probes per target.
-Results are streamed to the CLI, and written to a .csv.gz file.
-Streamed output can be piped to e.g., `grep` or `awk` for further processing.
-Example, printing targets with > 100 ms RTT to the anycast deployment: `| awk -F, 'NR==1 || $4+0 > 100'`
-
-#### Unicast latency measurement using ICMPv6
+### Unicast latency measurement using ICMPv6
 
 ```
-cli -a [::1]:50001 start hitlistv6.txt -t icmp --unicast --parquet
+cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
 ```
 
-Since the hitlist contains IPv6 addresses, the workers will probe the targets using their IPv6 unicast address.
+Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
+Each hitlist target receives a single probe from every worker.
+Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
+Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
 
-This feature gives the latency between all anycast sites and each target in the hitlist.
-Filtering on the lowest unicast RTTs indicates the best anycast site for each target.
+### LACeS measurement
 
-Results are stored in .parquet format.
+```
+cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+```
+
+Anycast probes will be sent from all workers.
+Each hitlist target receives a single probe from every worker.
+Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
+Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (--responsive).
+
+### Anycast traceroute measurement
+
+```
+cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+```
+
+Measure the path from the catching PoP to the target.
+First, a single `discovery probe` is sent to infer the catching worker.
+Next, multiple traceroute packets are sent from the catching worker to measure the path.
 
 ## Installation
 
