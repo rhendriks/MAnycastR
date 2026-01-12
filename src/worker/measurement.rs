@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch};
+use crate::custom_module::manycastr::{Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch};
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};

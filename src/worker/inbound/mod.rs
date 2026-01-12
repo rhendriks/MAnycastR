@@ -1,7 +1,7 @@
 use log::info;
 use std::mem;
 use std::mem::MaybeUninit;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
@@ -136,9 +136,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 /// Get a packet from the socket
 ///
 /// # Returns
-/// (Packet bytes, TTL/hop count, Source Address)
+/// (Packet bytes, hop count, Source Address)
 /// Get a packet from the socket for socket2 0.6.1
-fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std::io::Error> {
+fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std::io::Error> {
     let mut buf = [0u8; 2048];
 
     let uninit_buf = unsafe {
@@ -149,7 +149,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std
     let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
 
     // Storage for the source address
-    let mut source_storage: SockAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0).into();
+    let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
     loop {
         let mut msg = MsgHdrMut::new()
@@ -164,15 +164,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std
                     std::io::Error::new(std::io::ErrorKind::Other, "Invalid source address")
                 })?;
 
-                let mut ttl: Option<u32> = None;
-
-                if source.is_ipv4() {
-                    if packet_data.len() > 8 {
-                        ttl = Some(packet_data[8] as u32);
-                    }
-                } else {
-                    // TODO ipv6 hop limit
-                }
+                let ttl: Option<u8> = None; // TODO
 
                 return Ok((packet_data, ttl, source));
             }
@@ -186,6 +178,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std
         }
     }
 }
+
 /// * `tx` - sender to put task results in
 /// * `rx_f` - channel that is used to signal the end of the measurement
 /// * `worker_id` - the unique worker ID of this worker

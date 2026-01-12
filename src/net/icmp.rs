@@ -131,8 +131,6 @@ impl ICMPPacket {
                     payload: PacketPayload::Icmp { value: packet },
                 };
                 (&v6_packet).into()
-
-                // (&packet).into()
             }
 
             _ => panic!("Source and Destination IP versions must match"),
