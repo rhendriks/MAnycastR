@@ -76,13 +76,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
                 println!("Received packet: {:?} with length {} and ttl {:?} and src {:?}", packet, packet.len(), ttl, src);
 
+
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => {
-                        parse_trace(packet, config.m_id, config.is_ipv6, src.into(), config.origin_id)
+                        parse_trace(packet, config.m_id, config.is_ipv6, src.into(), ttl, config.origin_id)
                     }
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), config.origin_id),
+                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl, config.origin_id),
 
                     (_, _, ProtocolType::Icmp) => parse_icmp(
                         packet,
@@ -90,6 +91,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         config.is_ipv6,
                         false,
                         src.into(),
+                        ttl,
                         config.origin_id,
                     ),
 
@@ -98,10 +100,12 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         config.p_type == ProtocolType::ChaosDns,
                         config.origin_id,
                         config.is_ipv6,
+                        src.into(),
+                        ttl,
                     ),
 
                     (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, config.origin_id, config.is_ipv6)
+                        parse_tcp(packet, config.origin_id, config.is_ipv6, src.into(), ttl)
                     }
                 };
 
@@ -135,7 +139,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 }
 
 /// Get a packet from a socket (with the hop_limit (IPv6)) and src address
-fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std::io::Error> {
+fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut control_storage = [MaybeUninit::<u64>::uninit(); 16];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
@@ -143,7 +147,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std:
     let control_buf_bytes = unsafe {
         std::slice::from_raw_parts_mut(
             control_storage.as_mut_ptr() as *mut MaybeUninit<u8>,
-            std::mem::size_of_val(&control_storage),
+            size_of_val(&control_storage),
         )
     };
 
@@ -170,7 +174,11 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std:
                     (p.to_vec(), c)
                 };
 
-                let hop_limit = parse_hop_limit(ancillary_data);
+                let hop_limit = if source.is_ipv6() {
+                    parse_hop_limit(ancillary_data).unwrap_or(0)
+                } else {
+                    packet_data[8] as u32
+                };
                 return Ok((packet_data, hop_limit, source));
             }
             Err(e) => {
@@ -185,7 +193,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std:
 }
 
 /// Safely parses the control buffer bytes (no unsafe here)
-fn parse_hop_limit(data: &[u8]) -> Option<u8> {
+fn parse_hop_limit(data: &[u8]) -> Option<u32> {
     let mut pos = 0;
     while pos + 16 <= data.len() {
         // cmsghdr on 64-bit: [0..8] len, [8..12] level, [12..16] type
@@ -196,7 +204,7 @@ fn parse_hop_limit(data: &[u8]) -> Option<u8> {
         // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
         if level == 41 && type_ == 52 {
             if pos + 17 <= data.len() {
-                return Some(data[pos + 16]);
+                return Some(data[pos + 16] as u32);
             }
         }
 
