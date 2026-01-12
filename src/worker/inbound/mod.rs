@@ -38,8 +38,6 @@ pub struct InboundConfig {
     pub abort_s: Arc<AtomicBool>,
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
-    /// Indicates if the measurement is using IPv6 (true) or IPv4 (false).
-    pub is_ipv6: bool,
     /// Indicates if the measurement is a Record Route measurement.
     pub is_record: bool,
     /// Origin ID associated with the Socket
@@ -73,7 +71,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 if rx_f_c.load(Ordering::Relaxed) {
                     break;
                 }
-                let (packet, ttl, src) =  match get_packet(&socket) {
+                let (packet, ttl, src) = match get_packet(&socket) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // Wait 100ms to check again
@@ -85,14 +83,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => parse_trace(
-                        packet,
-                        config.m_id,
-                        config.is_ipv6,
-                        src.into(),
-                        ttl,
-                        config.origin_id,
-                    ),
+                    (true, _, _) => {
+                        parse_trace(packet, config.m_id, src.into(), ttl, config.origin_id)
+                    }
 
                     (_, true, _) => {
                         parse_record_route(packet, config.m_id, src.into(), ttl, config.origin_id)
@@ -101,7 +94,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     (_, _, ProtocolType::Icmp) => parse_icmp(
                         packet,
                         config.m_id,
-                        config.is_ipv6,
                         false,
                         src.into(),
                         ttl,
@@ -112,13 +104,12 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         packet,
                         config.p_type == ProtocolType::ChaosDns,
                         config.origin_id,
-                        config.is_ipv6,
                         src.into(),
                         ttl,
                     ),
 
                     (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, config.origin_id, config.is_ipv6, src.into(), ttl)
+                        parse_tcp(packet, config.origin_id, src.into(), ttl)
                     }
                 };
 
@@ -156,7 +147,6 @@ struct ControlBuffer([MaybeUninit<u8>; 128]);
 /// Get a packet from a socket (with the hop_limit (IPv6)) and src address
 fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
-    let mut control_storage = [MaybeUninit::<u64>::uninit(); 16];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
     let mut control_storage = ControlBuffer([MaybeUninit::uninit(); 128]);
@@ -175,9 +165,9 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
 
         match recv_result {
             Ok((bytes_read, control_len)) => {
-                let source = source_storage.as_socket().ok_or_else(|| {
-                    std::io::Error::other("invalid source address")
-                })?;
+                let source = source_storage
+                    .as_socket()
+                    .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
                 let (packet_data, ancillary_data) = unsafe {
                     let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
@@ -206,7 +196,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
     }
 }
 
-/// Safely parses the control buffer bytes (no unsafe here)
+/// Retrieve IPv6 hop limit from the ancillary_data buffer bytes
 fn parse_hop_limit(data: &[u8]) -> Option<u32> {
     let mut pos = 0;
     while pos + 16 <= data.len() {
