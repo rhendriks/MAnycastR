@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Address, Origin};
+use crate::custom_module::manycastr::Address;
 use crate::net::{ICMPPacket, TCPPacket, UDPPacket};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -116,8 +116,9 @@ pub fn create_record_route_icmp(
 /// # Returns
 /// A DNS packet (including the IP header) as a byte vector.
 pub fn create_dns(
-    origin: &Origin,
+    src: &Address,
     dst: &Address,
+    sport: u16,
     worker_id: u32,
     is_chaos: bool,
     qname: String,
@@ -126,8 +127,6 @@ pub fn create_dns(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-    let src = &origin.src.expect("None IP address");
-    let sport = origin.sport as u16;
 
     if !is_chaos {
         UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
@@ -148,8 +147,10 @@ pub fn create_dns(
 /// # Returns
 /// A TCP packet (including the IP header) as a byte vector.
 pub fn create_tcp(
-    origin: &Origin,
+    src: &Address,
     dst: &Address,
+    sport: u16,
+    dport: u16,
     worker_id: u32,
     is_discovery: bool,
     info_url: Option<String>,
@@ -166,10 +167,10 @@ pub fn create_tcp(
     let ack = discovery_bit | (worker_10b << 21) | timestamp_21b;
 
     TCPPacket::tcp_syn_ack(
-        &origin.src.unwrap(),
+        src,
         dst,
-        origin.sport as u16,
-        origin.dport as u16,
+        sport,
+        dport,
         ack,
         255,
         info_url,

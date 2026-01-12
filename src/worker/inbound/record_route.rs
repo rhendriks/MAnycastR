@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Origin, Reply};
+use crate::custom_module::manycastr::{Address, Reply};
 use crate::net::{parse_record_route_option, IPPacket, IPv4Packet, PacketPayload};
 use crate::worker::inbound::ping::parse_icmp_inner;
 
@@ -11,11 +11,13 @@ use crate::worker::inbound::ping::parse_icmp_inner;
 ///
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
-pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, worker_map: &[Origin]) -> Option<Reply> {
+pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, src: Address, origin_id: u32) -> Option<Reply> {
     // Check for Record Route option and minimum length
     if packet_bytes.len() < 52 || packet_bytes[20] != 7 {
         return None;
     }
+
+    let ttl = packet_bytes[8] as u32;
 
     // Parse IP header
     let ipv4_header = IPv4Packet::from(packet_bytes);
@@ -36,11 +38,12 @@ pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, worker_map: &[Origin])
 
     parse_icmp_inner(
         icmp_packet,
-        &ip_header,
         m_id,
-        worker_map,
         false,
         recorded_hops,
         false,
+        src,
+        origin_id,
+        ttl,
     )
 }

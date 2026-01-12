@@ -123,8 +123,8 @@ impl Worker {
 
                 // Receiving a task (whilst busy)
                 (Some(_), task_data) => {
-                    if let Some(tx) = &self.outbound_tx {
-                        let _ = tx.send(task_data).await;
+                    for tx in &self.outbound_txs {
+                        let _ = tx.send(task_data.clone()).await; // TODO can it be a reference to the task data? so we avoid the clone?
                     }
                 }
 
@@ -193,12 +193,14 @@ impl Worker {
                 end_instruction.code
             );
             // Close outbound thread forcefully (force stop without parsing tasks in the channel)
-            abort_outbound.store(true, Ordering::SeqCst); // TODO do we need the abort signal if we can just close it gracefully?
+            abort_outbound.store(true, Ordering::SeqCst);
         }
 
-        // Close outbound sending thread (gracefully)
-        if let Some(tx) = self.outbound_tx.take() {
-            let _ = tx.send(InstructionType::End(end_instruction)).await;
+        // Close outbound sending threads (gracefully)
+        let txs = std::mem::take(&mut self.outbound_txs);
+
+        for tx in txs {
+            let _ = tx.send(InstructionType::End(end_instruction.clone())).await;
         }
 
         Ok(())
