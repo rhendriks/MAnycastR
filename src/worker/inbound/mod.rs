@@ -1,5 +1,7 @@
 use log::info;
 use std::mem;
+use std::mem::MaybeUninit;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, Builder};
@@ -13,7 +15,7 @@ use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
 use crate::worker::inbound::trace::parse_trace;
-use pnet::datalink::DataLinkReceiver;
+use socket2::{MaybeUninitSlice, MsgHdrMut, SockAddr, Socket};
 
 mod dns;
 mod ping;
@@ -55,11 +57,7 @@ pub struct InboundConfig {
 ///
 /// # Panics
 /// If the measurement type is invalid
-pub fn inbound(
-    config: InboundConfig,
-    tx: UnboundedSender<ReplyBatch>,
-    mut socket_rx: Box<dyn DataLinkReceiver>,
-) {
+pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: Arc<Socket>) {
     info!("[Worker inbound] Started listener");
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Vec::new()));
@@ -75,25 +73,18 @@ pub fn inbound(
                 if rx_f_c.load(Ordering::Relaxed) {
                     break;
                 }
-                let packet = match socket_rx.next() {
-                    Ok(packet) => packet,
-                    Err(_) => {
-                        sleep(Duration::from_millis(1)); // Sleep to free CPU, let buffer fill
-                        continue;
-                    }
-                };
+                let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
 
-                let payload = &packet[14..];
-
+                let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => {
-                        parse_trace(payload, config.m_id, &config.origin_map, config.is_ipv6)
+                        parse_trace(packet, config.m_id, &config.origin_map, config.is_ipv6)
                     }
 
-                    (_, true, _) => parse_record_route(payload, config.m_id, &config.origin_map),
+                    (_, true, _) => parse_record_route(packet, config.m_id, &config.origin_map),
 
                     (_, _, ProtocolType::Icmp) => parse_icmp(
-                        payload,
+                        packet,
                         config.m_id,
                         &config.origin_map,
                         config.is_ipv6,
@@ -101,14 +92,14 @@ pub fn inbound(
                     ),
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
-                        payload,
+                        packet,
                         config.p_type == ProtocolType::ChaosDns,
                         &config.origin_map,
                         config.is_ipv6,
                     ),
 
                     (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(payload, &config.origin_map, config.is_ipv6)
+                        parse_tcp(packet, &config.origin_map, config.is_ipv6)
                     }
                 };
 
@@ -141,10 +132,75 @@ pub fn inbound(
         .expect("Failed to spawn result_sender_thread");
 }
 
-/// Thread for handling the received replies, wrapping them in a TaskResult, and streaming them back to the main worker class.
+/// Get a packet from the socket
 ///
-/// # Arguments
-///
+/// # Returns
+/// (Packet bytes, TTL/hop count, Source Address)
+/// Get a packet from the socket for socket2 0.6.1
+// In 0.6.1, these types are located in the root or specific sub-modules.
+// Note: 'Cmsg' was renamed to 'ControlMessage' in some 0.6.x iterations,
+// but most commonly it is Cmsg in the root.
+
+/// Get a packet and TTL from the socket in socket2 0.6.1
+fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std::io::Error> {
+    let mut buf = [0u8; 2048];
+
+    // Safety: 0.6.1 requires MaybeUninitSlice.
+    // This cast is safe as u8 and MaybeUninit<u8> share the same layout.
+    let uninit_buf = unsafe {
+        std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut MaybeUninit<u8>, buf.len())
+    };
+    let mut iov_buf = [MaybeUninitSlice::new(uninit_buf)];
+
+    // Control buffer for ancillary data (TTL/Hop Limit)
+    let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
+
+    // Storage for the source address
+    let mut source_storage: SockAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0).into();
+
+    loop {
+        // Construct the message header using the Builder Pattern (with_...)
+        let mut msg = MsgHdrMut::new()
+            .with_addr(&mut source_storage)
+            .with_buffers(&mut iov_buf)
+            .with_control(&mut control_buf);
+
+        // socket2 0.6.1 uses the libc name 'recvmsg'
+        match socket.recvmsg(&mut msg, 0) {
+            Ok(bytes_read) => {
+                let packet_data = buf[..bytes_read].to_vec();
+                let source = source_storage.as_socket().ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::Other, "Invalid source address")
+                })?;
+
+                let mut ttl: Option<u32> = None;
+
+                // --- TTL EXTRACTION ---
+                if source.is_ipv4() {
+                    // Because you used set_header_included(true), the TTL is at index 8
+                    // of the IPv4 header, which is included in your packet_data.
+                    if packet_data.len() > 8 {
+                        ttl = Some(packet_data[8] as u32);
+                    }
+                } else {
+                    // IPv6: socket2 0.6.1 does not provide a safe ControlMessage iterator.
+                    // To get the Hop Limit here, you would typically use the `nix` crate
+                    // to parse the `control_buf`, OR parse the cmsghdr bytes manually.
+                    // For now, we acknowledge IPv6 TTL requires an external parser like nix.
+                }
+
+                return Ok((packet_data, ttl, source));
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
+}
 /// * `tx` - sender to put task results in
 /// * `rx_f` - channel that is used to signal the end of the measurement
 /// * `worker_id` - the unique worker ID of this worker

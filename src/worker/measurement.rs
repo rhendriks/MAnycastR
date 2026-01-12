@@ -2,13 +2,11 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
     Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
 };
-use crate::net::packet::is_in_prefix;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
-use crate::worker::SocketChannel;
-use log::{error, info, warn};
-use pnet::datalink;
+use log::{error, info};
+use socket2::{Domain, Protocol, Socket, Type};
 use std::error::Error;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -52,21 +50,7 @@ impl Worker {
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
 
-        // Look for the interface that uses the listening IP address
-        let addr = rx_origins[0].src.unwrap().to_string();
-        let interface = self.select_interface(&addr)?;
-
-        // Create raw sockets
-        let config = datalink::Config {
-            write_buffer_size: 10 * 1024 * 1024, // 10 MB
-            read_buffer_size: 10 * 1024 * 1024,  // 10 MB
-            ..Default::default()
-        };
-        let (socket_tx, socket_rx) = match datalink::channel(&interface, config)? {
-            SocketChannel::Ethernet(tx, rx) => (tx, rx),
-            _ => return Err("Unsupported channel type (expected Ethernet)".into()),
-        };
-
+        let socket = Self::get_socket(is_ipv6, p_type);
         // Start inbound listening thread
         inbound(
             InboundConfig {
@@ -80,7 +64,7 @@ impl Worker {
                 is_record: start.is_record,
             },
             tx,
-            socket_rx,
+            socket.clone(),
         );
 
         // Start outbound sending thread (if this worker is probing)
@@ -95,14 +79,12 @@ impl Worker {
                     p_type,
                     qname: start.record,
                     info_url: start.url,
-                    if_name: interface.name.clone(),
                     probing_rate: start.rate,
                     origin_map: Some(rx_origins),
-                    is_ipv6,
                     is_record: start.is_record,
                 },
                 outbound_rx,
-                socket_tx,
+                socket,
             );
         } else {
             info!("[Worker] Not sending probes");
@@ -139,49 +121,6 @@ impl Worker {
         Ok(())
     }
 
-    /// Find the appropriate interface to use.
-    /// 1. Use the user-defined parameter interface if present
-    /// 2. If not present, attempt to find the interface associated with the address.
-    /// 3. Fallback to default interface
-    ///
-    /// # Arguments
-    /// `addr` - Address used to send probes for the new measurement being started
-    fn select_interface(&self, addr: &str) -> Result<datalink::NetworkInterface, Box<dyn Error>> {
-        let interfaces = datalink::interfaces();
-
-        // Force interface (using parameter)
-        if let Some(ref forced_name) = self.interface {
-            return interfaces
-                .into_iter()
-                .find(|i| &i.name == forced_name)
-                .ok_or_else(|| format!("Forced interface {} not found", forced_name).into());
-        }
-
-        // Find prefix matching the measurement address, return its interface
-        if let Some(matched) = interfaces
-            .iter()
-            .find(|i| i.ips.iter().any(|ip| is_in_prefix(addr, ip)))
-        {
-            info!(
-                "[Worker] Found interface: {} for address {}",
-                matched.name, addr
-            );
-            return Ok(matched.clone());
-        }
-
-        //Use default interface (non-loopback)
-        let default = interfaces
-            .into_iter()
-            .find(|i| !i.is_loopback())
-            .ok_or("No usable network interfaces found")?;
-
-        warn!(
-            "[Worker] No interface found for {}, using default {}",
-            addr, default.name
-        );
-        Ok(default)
-    }
-
     /// Print the Origins (i.e., source address and port values) used for this measurement
     ///
     /// # Arguments
@@ -203,5 +142,61 @@ impl Worker {
                 ),
             }
         }
+    }
+
+    /// Obtain a socket.
+    /// Type of socket depends on the IP version (IPv4 or IPv6)
+    /// And the protocol type (ICMP, UDP, TCP)
+    ///
+    /// # Arguments
+    /// `is_ipv6` - IP version used (true: IPv6)
+    /// `p_type` - Protocol type used (ICMP, UDP, or TCP)
+    ///
+    /// # Returns
+    /// Arc<Socket> containing a Socket to send/receive from
+    fn get_socket(is_ipv6: bool, p_type: ProtocolType) -> Arc<Socket> {
+        let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
+
+        // Specify the protocol so the kernel performs this matching
+        let protocol = match p_type {
+            ProtocolType::Icmp => {
+                if is_ipv6 {
+                    Protocol::ICMPV6
+                } else {
+                    Protocol::ICMPV4
+                }
+            }
+            ProtocolType::Tcp => Protocol::TCP,
+            ProtocolType::ADns | ProtocolType::ChaosDns => Protocol::UDP,
+        };
+
+        let socket = Socket::new(domain, Type::RAW, Some(protocol))
+            .expect("Failed to create raw socket. sudo or raw socket permissions required");
+
+        if is_ipv6 {
+            // Receive hop count for incoming IPv6 packets
+            socket
+                .set_recv_hoplimit_v6(true)
+                .expect("Failed to set recv_hop_limit");
+
+            // Allow for setting custom flow labels TODO not used
+            socket.set_tclass_v6(0).ok();
+        } else {
+            // Write our own headers
+            socket
+                .set_header_included_v4(true)
+                .expect("Failed to set header_included");
+            //Receive TTL for incoming IPv4 packets
+            socket
+                .set_recv_tos_v4(true)
+                .expect("Failed to set recv_ttl");
+        }
+
+        // Set large buffer sizes
+        let buf_size = 10 * 1024 * 1024; // 10  MB
+        socket.set_send_buffer_size(buf_size).ok();
+        socket.set_recv_buffer_size(buf_size).ok();
+
+        Arc::new(socket)
     }
 }

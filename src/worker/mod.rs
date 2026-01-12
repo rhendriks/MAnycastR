@@ -5,7 +5,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use crate::worker::config::Worker;
-use pnet::datalink::Channel as SocketChannel;
 
 mod client;
 mod config;
@@ -28,7 +27,6 @@ impl Worker {
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         let fqdn = args.get_one::<String>("tls").map(String::as_str);
         let grpc_client = Self::connect(orc_addr.parse()?, fqdn).await?;
-        let interface = args.get_one::<String>("interface").cloned();
 
         // Initialize a worker instance
         let mut worker = Self {
@@ -37,7 +35,6 @@ impl Worker {
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_tx: None,
             abort_inbound: Arc::new(AtomicBool::new(false)),
-            interface,
         };
 
         worker.connect_to_server().await?;

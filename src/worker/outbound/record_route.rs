@@ -1,16 +1,16 @@
 use crate::custom_module::manycastr::Address;
 use crate::net::packet::{create_record_route_icmp, ProbePayload};
+use crate::worker::outbound::send_packet;
 use crate::worker::outbound::OutboundConfig;
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
+use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
+use socket2::Socket;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 /// Send a Record Route ICMP probe to the specified destination.
 ///
 /// # Arguments
-/// * `ethernet_header` - The Ethernet header to prepend to the packet.
 /// * `config` - The outbound configuration containing worker details and settings.
 /// * `dst` - The destination address to which the probe will be sent.
 /// * `socket_tx` - The socket sender to use for sending the packet.
@@ -18,10 +18,9 @@ use std::time::{Duration, Instant};
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_record_route_probe(
-    ethernet_header: &[u8],
     config: &OutboundConfig,
     dst: &Address,
-    socket_tx: &mut Box<dyn DataLinkSender>,
+    socket_tx: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
 ) -> (u32, u32) {
     let mut sent = 0;
@@ -49,7 +48,6 @@ pub fn send_record_route_probe(
 
         // Write new packet to buffer
         packet_buffer.clear();
-        packet_buffer.extend_from_slice(ethernet_header);
 
         packet_buffer.extend_from_slice(&create_record_route_icmp(
             origin.src.as_ref().unwrap(),
@@ -60,13 +58,12 @@ pub fn send_record_route_probe(
             255,
         ));
 
-        match socket_tx.send_to(&packet_buffer, None) {
-            Some(Ok(())) => sent += 1,
-            Some(Err(e)) => {
-                warn!("[Worker outbound] Failed to send Record Route packet: {e}");
+        match send_packet(&socket_tx, &packet_buffer, dst) {
+            Ok(()) => sent += 1,
+            Err(e) => {
+                warn!("[Worker outbound] Failed to send ICMP packet: {e}");
                 failed += 1;
             }
-            None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
         }
     }
     (sent, failed)

@@ -20,8 +20,6 @@ pub struct Worker {
     pub(crate) outbound_tx: Option<tokio::sync::mpsc::Sender<InstructionType>>,
     /// Atomic boolean to signal the inbound thread to immediately stop listening for packets
     pub(crate) abort_inbound: Arc<AtomicBool>,
-    /// Optional network interface to forcefully bind to
-    pub(crate) interface: Option<String>,
 }
 
 /// Get the origin ID from the origin map based on the reply destination address and ports.
