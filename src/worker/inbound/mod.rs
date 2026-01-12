@@ -74,16 +74,28 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     break;
                 }
                 let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
-                println!("Received packet: {:?} with length {} and ttl {:?} and src {:?}", packet, packet.len(), ttl, src);
-
+                println!(
+                    "Received packet: {:?} with length {} and ttl {:?} and src {:?}",
+                    packet,
+                    packet.len(),
+                    ttl,
+                    src
+                );
 
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => {
-                        parse_trace(packet, config.m_id, config.is_ipv6, src.into(), ttl, config.origin_id)
-                    }
+                    (true, _, _) => parse_trace(
+                        packet,
+                        config.m_id,
+                        config.is_ipv6,
+                        src.into(),
+                        ttl,
+                        config.origin_id,
+                    ),
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl, config.origin_id),
+                    (_, true, _) => {
+                        parse_record_route(packet, config.m_id, src.into(), ttl, config.origin_id)
+                    }
 
                     (_, _, ProtocolType::Icmp) => parse_icmp(
                         packet,
@@ -165,12 +177,15 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
         match recv_result {
             Ok((bytes_read, control_len)) => {
                 let source = source_storage.as_socket().ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "Invalid source address")
+                    std::io::Error::other("invalid source address")
                 })?;
 
                 let (packet_data, ancillary_data) = unsafe {
                     let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
-                    let c = std::slice::from_raw_parts(control_storage.as_ptr() as *const u8, control_len);
+                    let c = std::slice::from_raw_parts(
+                        control_storage.as_ptr() as *const u8,
+                        control_len,
+                    );
                     (p.to_vec(), c)
                 };
 
@@ -202,13 +217,13 @@ fn parse_hop_limit(data: &[u8]) -> Option<u32> {
         let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
 
         // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
-        if level == 41 && type_ == 52 {
-            if pos + 17 <= data.len() {
-                return Some(data[pos + 16] as u32);
-            }
+        if (level == 41) && (type_ == 52) && (pos + 17 <= data.len()) {
+            return Some(data[pos + 16] as u32);
         }
 
-        if cmsg_len == 0 { break; }
+        if cmsg_len == 0 {
+            break;
+        }
         pos += (cmsg_len + 7) & !7; // Align to 8-byte boundary
     }
     None
