@@ -74,7 +74,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     break;
                 }
                 let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
-                println!("Received packet: {:?} with length {} and ttl {} and src {:?}", packet, packet.len(), ttl.expect("no ttl"), src);
+                println!("Received packet: {:?} with length {} and ttl {:?} and src {:?}", packet, packet.len(), ttl, src);
 
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
@@ -138,35 +138,25 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 /// # Returns
 /// (Packet bytes, TTL/hop count, Source Address)
 /// Get a packet from the socket for socket2 0.6.1
-// In 0.6.1, these types are located in the root or specific sub-modules.
-// Note: 'Cmsg' was renamed to 'ControlMessage' in some 0.6.x iterations,
-// but most commonly it is Cmsg in the root.
-
-/// Get a packet and TTL from the socket in socket2 0.6.1
 fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std::io::Error> {
     let mut buf = [0u8; 2048];
 
-    // Safety: 0.6.1 requires MaybeUninitSlice.
-    // This cast is safe as u8 and MaybeUninit<u8> share the same layout.
     let uninit_buf = unsafe {
         std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut MaybeUninit<u8>, buf.len())
     };
     let mut iov_buf = [MaybeUninitSlice::new(uninit_buf)];
 
-    // Control buffer for ancillary data (TTL/Hop Limit)
     let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
 
     // Storage for the source address
     let mut source_storage: SockAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0).into();
 
     loop {
-        // Construct the message header using the Builder Pattern (with_...)
         let mut msg = MsgHdrMut::new()
             .with_addr(&mut source_storage)
             .with_buffers(&mut iov_buf)
             .with_control(&mut control_buf);
 
-        // socket2 0.6.1 uses the libc name 'recvmsg'
         match socket.recvmsg(&mut msg, 0) {
             Ok(bytes_read) => {
                 let packet_data = buf[..bytes_read].to_vec();
@@ -176,25 +166,19 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u32>, SocketAddr), std
 
                 let mut ttl: Option<u32> = None;
 
-                // --- TTL EXTRACTION ---
                 if source.is_ipv4() {
-                    // Because you used set_header_included(true), the TTL is at index 8
-                    // of the IPv4 header, which is included in your packet_data.
                     if packet_data.len() > 8 {
                         ttl = Some(packet_data[8] as u32);
                     }
                 } else {
-                    // IPv6: socket2 0.6.1 does not provide a safe ControlMessage iterator.
-                    // To get the Hop Limit here, you would typically use the `nix` crate
-                    // to parse the `control_buf`, OR parse the cmsghdr bytes manually.
-                    // For now, we acknowledge IPv6 TTL requires an external parser like nix.
+                    // TODO ipv6 hop limit
                 }
 
                 return Ok((packet_data, ttl, source));
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    sleep(Duration::from_millis(1));
                     continue;
                 }
                 return Err(e);
