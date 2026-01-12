@@ -8,7 +8,7 @@ use std::thread::{sleep, Builder};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{Origin, ProtocolType, Reply, ReplyBatch};
+use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
 use crate::custom_module::Separated;
 use crate::worker::inbound::dns::parse_dns;
 use crate::worker::inbound::ping::parse_icmp;
@@ -34,8 +34,6 @@ pub struct InboundConfig {
     pub worker_id: u16,
     /// Protocol used
     pub p_type: ProtocolType,
-    /// A map of valid source addresses and port values (`Origin`) to verify incoming packets against.
-    pub origin_map: Vec<Origin>,
     /// A shared signal that can be used to gracefully shut down the worker.
     pub abort_s: Arc<AtomicBool>,
     /// Indicates if the measurement involves traceroute.
@@ -44,6 +42,8 @@ pub struct InboundConfig {
     pub is_ipv6: bool,
     /// Indicates if the measurement is a Record Route measurement.
     pub is_record: bool,
+    /// Origin ID associated with the Socket
+    pub origin_id: u32,
 }
 
 /// Listen for incoming packets
@@ -79,28 +79,29 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => {
-                        parse_trace(packet, config.m_id, &config.origin_map, config.is_ipv6)
+                        parse_trace(packet, config.m_id, config.is_ipv6, src.into(), config.origin_id)
                     }
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, &config.origin_map),
+                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), config.origin_id),
 
                     (_, _, ProtocolType::Icmp) => parse_icmp(
                         packet,
                         config.m_id,
-                        &config.origin_map,
                         config.is_ipv6,
                         false,
+                        src.into(),
+                        config.origin_id,
                     ),
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
                         packet,
                         config.p_type == ProtocolType::ChaosDns,
-                        &config.origin_map,
+                        config.origin_id,
                         config.is_ipv6,
                     ),
 
                     (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, &config.origin_map, config.is_ipv6)
+                        parse_tcp(packet, config.origin_id, config.is_ipv6)
                     }
                 };
 

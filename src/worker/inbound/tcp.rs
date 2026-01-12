@@ -1,7 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{DiscoveryReply, MeasurementReply, Origin, Reply};
+use crate::custom_module::manycastr::{DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
-use crate::worker::config::get_origin_id;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse TCP packets into a Reply result.
@@ -17,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], origin_map: &[Origin], is_ipv6: bool) -> Option<Reply> {
+pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, is_ipv6: bool) -> Option<Reply> {
     // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
     // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
     if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
@@ -40,13 +39,6 @@ pub fn parse_tcp(packet_bytes: &[u8], origin_map: &[Origin], is_ipv6: bool) -> O
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-
-    let origin_id = get_origin_id(
-        ip_header.dst(),
-        tcp_packet.sport,
-        tcp_packet.dport,
-        origin_map,
-    )?;
 
     let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
     let is_discovery = (identifier >> 31) & 1 == 1;

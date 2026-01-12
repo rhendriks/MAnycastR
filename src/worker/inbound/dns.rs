@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Origin, Reply};
+use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{
     DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
 };
-use crate::worker::config::get_origin_id;
 use crate::DNS_IDENTIFIER;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_dns(
     packet_bytes: &[u8],
     is_chaos: bool,
-    origin_map: &[Origin],
+    origin_id: u32,
     is_ipv6: bool,
 ) -> Option<Reply> {
     // DNS header offset
@@ -57,7 +56,6 @@ pub fn parse_dns(
         return None;
     }
 
-    let reply_sport = udp_packet.sport;
     let reply_dport = udp_packet.dport;
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -84,8 +82,6 @@ pub fn parse_dns(
         let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
         (tx_time, tx_worker_id, Some(chaos), false)
     };
-
-    let origin_id = get_origin_id(ip_header.dst(), reply_sport, reply_dport, origin_map)?;
 
     if is_discovery {
         Some(Reply {

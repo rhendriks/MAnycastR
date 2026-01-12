@@ -34,66 +34,71 @@ impl Worker {
 
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
-        let is_probing = !start.tx_origins.is_empty();
         let p_type = start.p_type();
         let m_type = start.m_type();
 
-        // Channel for forwarding tasks to outbound
-        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
-        self.outbound_tx = Some(outbound_tx);
-
         // Channel for sending from inbound to the orchestrator forwarder thread
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
 
-        let socket = Self::get_socket(is_ipv6, p_type, rx_origins.clone());
-        // Start inbound listening thread
-        inbound(
-            InboundConfig {
-                m_id,
-                worker_id,
-                p_type,
-                origin_map: rx_origins.clone(),
-                abort_s: self.abort_inbound.clone(),
-                is_traceroute: m_type == MeasurementType::AnycastTraceroute,
-                is_ipv6,
-                is_record: start.is_record,
-            },
-            tx,
-            socket.clone(),
-        );
+        let tx_origin_ids: std::collections::HashSet<_> =
+            tx_origins.iter().map(|o| o.origin_id).collect();
 
-        // Start outbound sending thread (if this worker is probing)
-        if is_probing {
-            self.log_probe_details(p_type, &tx_origins);
-            outbound(
-                OutboundConfig {
-                    worker_id,
-                    tx_origins,
-                    abort_outbound,
+        // Start inbound/outbound threads for each origin
+        for rx_origin in rx_origins {
+            let socket = Self::get_socket(is_ipv6, p_type, rx_origin);
+
+            inbound(
+                InboundConfig {
                     m_id,
+                    worker_id,
                     p_type,
-                    qname: start.record,
-                    info_url: start.url,
-                    probing_rate: start.rate,
-                    origin_map: Some(rx_origins),
+                    abort_s: self.abort_inbound.clone(),
+                    is_traceroute: m_type == MeasurementType::AnycastTraceroute,
+                    is_ipv6,
                     is_record: start.is_record,
+                    origin_id: rx_origin.origin_id
                 },
-                outbound_rx,
-                socket,
+                inbound_tx.clone(),
+                socket.clone(),
             );
-        } else {
-            info!("[Worker] Not sending probes");
+
+            // See if this origin_id is in tx_origins
+            if tx_origin_ids.contains(&rx_origin.origin_id) {
+                self.log_probe_details(p_type, &tx_origins);
+
+                // Channel for forwarding tasks to outbound
+                let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
+                self.outbound_txs.push(outbound_tx);
+
+                outbound(
+                    OutboundConfig {
+                        worker_id,
+                        abort_outbound: abort_outbound.clone(),
+                        m_id,
+                        p_type,
+                        qname: start.record.clone(),
+                        info_url: start.url.clone(),
+                        probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
+                        is_record: start.is_record,
+                        src: rx_origin.src.unwrap(),
+                        sport: rx_origin.sport as u16,
+                        dport: rx_origin.dport as u16,
+                    },
+                    outbound_rx,
+                    socket,
+                );
+            }
         }
 
         // Spawn thread to forward reply batches to the CLI
         let m_id_handle = self.current_m_id.clone();
         let mut grpc_client_clone = self.grpc_client.clone();
         tokio::spawn(async move {
-            while let Some(batch) = rx.recv().await {
+            while let Some(batch) = inbound_rx.recv().await {
                 if batch == ReplyBatch::default() {
                     // Set the current measurement ID to None (no active measurement)
                     if let Ok(mut guard) = m_id_handle.lock() {
@@ -114,7 +119,7 @@ impl Worker {
                     break;
                 }
             }
-            rx.close();
+            inbound_rx.close();
         });
 
         Ok(())
@@ -154,7 +159,7 @@ impl Worker {
     ///
     /// # Returns
     /// Arc<Socket> containing a Socket to send/receive from
-    fn get_socket(is_ipv6: bool, p_type: ProtocolType, origins: Vec<Origin>) -> Arc<Socket> {
+    fn get_socket(is_ipv6: bool, p_type: ProtocolType, origin: Origin) -> Arc<Socket> {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
 
         // Specify the protocol so the kernel performs this matching
@@ -171,7 +176,6 @@ impl Worker {
         };
 
         // Bind to used source address and source port
-        let origin = origins.first().expect("nothing to listen for"); // TODO support multiple protocols
         let socket = Socket::new(domain, Type::RAW, Some(protocol))
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
 

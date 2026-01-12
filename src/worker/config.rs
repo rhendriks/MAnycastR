@@ -16,36 +16,10 @@ pub struct Worker {
     pub(crate) hostname: String,
     /// ID of the current measurement (None indicates no active measurement ongoing)
     pub(crate) current_m_id: Arc<Mutex<Option<u32>>>,
-    /// Instructions sender to the outbound probing thread
-    pub(crate) outbound_tx: Option<tokio::sync::mpsc::Sender<InstructionType>>,
+    /// Instructions sender to the outbound probing threads
+    pub(crate) outbound_txs: Vec<tokio::sync::mpsc::Sender<InstructionType>>,
     /// Atomic boolean to signal the inbound thread to immediately stop listening for packets
     pub(crate) abort_inbound: Arc<AtomicBool>,
-}
-
-/// Get the origin ID from the origin map based on the reply destination address and ports.
-///
-/// # Arguments
-/// * `reply_dst` - the destination address of the reply
-/// * `reply_sport` - the source port of the reply
-/// * `reply_dport` - the destination port of the reply
-/// * `origin_map` - the origin map to search in
-///
-/// # Returns
-/// * `Option<u32>` - the origin ID if found, None otherwise
-pub fn get_origin_id(
-    reply_dst: Address,
-    reply_sport: u16,
-    reply_dport: u16,
-    origin_map: &[Origin],
-) -> Option<u32> {
-    origin_map
-        .iter()
-        .find(|o| {
-            o.src == Some(reply_dst)
-                && ((reply_sport == 0 && reply_dport == 0)
-                    || (o.sport as u16 == reply_dport && o.dport as u16 == reply_sport))
-        })
-        .map(|o| o.origin_id)
 }
 
 /// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,

@@ -2,7 +2,7 @@ use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
 use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
 use std::fmt;
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 pub mod manycastr {
@@ -205,6 +205,12 @@ impl From<IpAddr> for Address {
             IpAddr::V4(v4) => Address::from(u32::from(v4)),
             IpAddr::V6(v6) => Address::from(v6.octets()),
         }
+    }
+}
+
+impl From<SocketAddr> for Address {
+    fn from(addr: SocketAddr) -> Self {
+        Address::from(addr.ip())
     }
 }
 

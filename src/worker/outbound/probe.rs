@@ -47,57 +47,58 @@ pub fn send_probe(
     // Write packets to send to a one-time allocated buffer
     let mut packet_buffer = Vec::with_capacity(256);
 
-    for origin in &config.tx_origins {
-        // Rate limit
-        if let Err(not_until) = limiter.check() {
-            let wait_time = not_until.wait_time_from(Instant::now());
-            if wait_time > Duration::ZERO {
-                sleep(wait_time);
-            }
+    // Rate limit TODO rate limit is not shared amongst multiple origins (will violate probing rate)
+    if let Err(not_until) = limiter.check() {
+        let wait_time = not_until.wait_time_from(Instant::now());
+        if wait_time > Duration::ZERO {
+            sleep(wait_time);
         }
+    }
 
-        // Write new packet to buffer
-        packet_buffer.clear();
+    // Write new packet to buffer
+    packet_buffer.clear();
 
-        match config.p_type {
-            ProtocolType::Icmp => {
-                packet_buffer.extend_from_slice(&create_icmp(
-                    &origin.src.unwrap(),
-                    dst,
-                    origin.dport as u16, // ICMP identifier
-                    2, // ICMP seq
-                    &icmp_payload,
-                    255,
-                ));
-            }
-            ProtocolType::ADns | ProtocolType::ChaosDns => {
-                packet_buffer.extend_from_slice(&create_dns(
-                    origin,
-                    dst,
-                    worker_id,
-                    config.p_type == ProtocolType::ChaosDns,
-                    config.qname.clone().expect("qname missing"),
-                ));
-            }
-            ProtocolType::Tcp => {
-                packet_buffer.extend_from_slice(&create_tcp(
-                    origin,
-                    dst,
-                    worker_id,
-                    is_discovery,
-                    config.info_url.clone(),
-                ));
-            }
+    match config.p_type {
+        ProtocolType::Icmp => {
+            packet_buffer.extend_from_slice(&create_icmp(
+                &config.src,
+                dst,
+                config.dport, // ICMP identifier
+                2, // ICMP seq
+                &icmp_payload,
+                255,
+            ));
         }
-        
-        println!("sending packet with length {}", packet_buffer.len());
+        ProtocolType::ADns | ProtocolType::ChaosDns => {
+            packet_buffer.extend_from_slice(&create_dns(
+                &config.src,
+                dst,
+                config.sport,
+                worker_id,
+                config.p_type == ProtocolType::ChaosDns,
+                config.qname.clone().expect("qname missing"),
+            ));
+        }
+        ProtocolType::Tcp => {
+            packet_buffer.extend_from_slice(&create_tcp(
+                &config.src,
+                dst,
+                config.sport,
+                config.dport,
+                worker_id,
+                is_discovery,
+                config.info_url.clone(),
+            ));
+        }
+    }
 
-        match send_packet(socket_tx, &packet_buffer, dst) {
-            Ok(()) => sent += 1,
-            Err(e) => {
-                warn!("[Worker outbound] Failed to send ICMP packet: {e}");
-                failed += 1;
-            }
+    println!("sending packet with length {}", packet_buffer.len());
+
+    match send_packet(socket_tx, &packet_buffer, dst) {
+        Ok(()) => sent += 1,
+        Err(e) => {
+            warn!("[Worker outbound] Failed to send ICMP packet: {e}");
+            failed += 1;
         }
     }
 

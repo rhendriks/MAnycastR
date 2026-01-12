@@ -37,33 +37,31 @@ pub fn send_record_route_probe(
     // Write packets to send to a one-time allocated buffer
     let mut packet_buffer = Vec::with_capacity(256);
 
-    for origin in &config.tx_origins {
-        // Rate limit
-        if let Err(not_until) = limiter.check() {
-            let wait_time = not_until.wait_time_from(Instant::now());
-            if wait_time > Duration::ZERO {
-                sleep(wait_time);
-            }
+    // Rate limit TODO fix rate limit when using multiple origins
+    if let Err(not_until) = limiter.check() {
+        let wait_time = not_until.wait_time_from(Instant::now());
+        if wait_time > Duration::ZERO {
+            sleep(wait_time);
         }
+    }
 
-        // Write new packet to buffer
-        packet_buffer.clear();
+    // Write new packet to buffer
+    packet_buffer.clear();
 
-        packet_buffer.extend_from_slice(&create_record_route_icmp(
-            origin.src.as_ref().unwrap(),
-            dst,
-            origin.dport as u16,
-            2,
-            &icmp_payload,
-            255,
-        ));
+    packet_buffer.extend_from_slice(&create_record_route_icmp(
+        &config.src,
+        dst,
+        config.dport,
+        2,
+        &icmp_payload,
+        255,
+    ));
 
-        match send_packet(&socket_tx, &packet_buffer, dst) {
-            Ok(()) => sent += 1,
-            Err(e) => {
-                warn!("[Worker outbound] Failed to send ICMP packet: {e}");
-                failed += 1;
-            }
+    match send_packet(&socket_tx, &packet_buffer, dst) {
+        Ok(()) => sent += 1,
+        Err(e) => {
+            warn!("[Worker outbound] Failed to send ICMP packet: {e}");
+            failed += 1;
         }
     }
     (sent, failed)
