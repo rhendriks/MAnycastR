@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Origin, Trace};
+use crate::custom_module::manycastr::{Address, Trace};
 use crate::net::packet::{create_icmp, ProbePayload};
 use crate::worker::outbound::send_packet;
 use log::warn;
@@ -18,19 +18,9 @@ pub fn send_trace(
     info_url: Option<String>,
     trace_task: &Trace,
     socket: &Socket,
-    origins: &[Origin],
+    src: &Address,
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
-    let origin_id = trace_task.origin_id;
-    // Get the matching origin for this trace task
-    let tx_origin = if let Some(origin) = origins.iter().find(|o| o.origin_id == origin_id) {
-        origin
-    } else {
-        warn!(
-            "[Worker outbound] No matching origin found for trace task with origin ID {origin_id}"
-        );
-        return (0, 1);
-    };
 
     // Store 14 bits of timestamp
     let tx_time = SystemTime::now()
@@ -58,7 +48,7 @@ pub fn send_trace(
 
     // Create the appropriate traceroute packet based on the trace_type
     let packet = &create_icmp(
-        tx_origin.src.as_ref().unwrap(),
+        src,
         target,
         identifier,      // encode timestamp into identifier field
         sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number

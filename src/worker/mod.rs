@@ -33,7 +33,7 @@ impl Worker {
             grpc_client,
             hostname,
             current_m_id: Arc::new(Mutex::new(None)),
-            outbound_tx: None,
+            outbound_txs: vec![],
             abort_inbound: Arc::new(AtomicBool::new(false)),
         };
 
