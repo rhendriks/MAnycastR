@@ -29,7 +29,7 @@ pub fn parse_icmp(
     ttl: u32,
     origin_id: u32,
 ) -> Option<Reply> {
-    // ICMPv6 66 length (ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply
+    // ICMPv6 minimum length 56 bytes (ICMP header 8 + ICMP body 48) + check it is an ICMP Echo reply
     if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
         || (!src.is_v6() && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
     {
