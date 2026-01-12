@@ -74,6 +74,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     break;
                 }
                 let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
+                println!("Received packet: {:?} with length {}", packet, packet.len());
 
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
