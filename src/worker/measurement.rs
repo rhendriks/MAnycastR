@@ -136,12 +136,12 @@ impl Worker {
         for origin in origins {
             match p_type {
                 ProtocolType::Icmp => info!(
-                    "[Worker] Sending on: {} using ICMP ID {}",
+                    "[Worker] Sending {p_type} packets on: {} using ICMP ID {}",
                     origin.src.unwrap(),
                     origin.dport
                 ),
                 _ => info!(
-                    "[Worker] Sending on: {}, {}:{}",
+                    "[Worker] Sending {p_type} on: {}, {}:{}",
                     origin.src.unwrap(),
                     origin.sport,
                     origin.dport
@@ -182,9 +182,7 @@ impl Worker {
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
-        println!("using address {addr}");
         let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
-        println!("binding to {:?}", &sock_addr);
         socket
             .bind(&sock_addr)
             .expect("Failed to bind socket to address.");
