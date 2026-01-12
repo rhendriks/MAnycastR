@@ -121,18 +121,18 @@ impl ICMPPacket {
 
                 packet.checksum = ICMPPacket::calc_checksum(&pseudo);
 
-                // let v6_packet = IPv6Packet {
-                //     payload_length: 8 + (packet.payload.len() as u16),
-                //     flow_label: 15037,
-                //     next_header: 58,
-                //     hop_limit: ttl,
-                //     src: src_u128,
-                //     dst: dst_u128,
-                //     payload: PacketPayload::Icmp { value: packet },
-                // };
-                // (&v6_packet).into()
-                
-                (&packet).into()
+                let v6_packet = IPv6Packet {
+                    payload_length: 8 + (packet.payload.len() as u16),
+                    flow_label: 15037,
+                    next_header: 58,
+                    hop_limit: ttl,
+                    src: src_u128,
+                    dst: dst_u128,
+                    payload: PacketPayload::Icmp { value: packet },
+                };
+                (&v6_packet).into()
+
+                // (&packet).into()
             }
 
             _ => panic!("Source and Destination IP versions must match"),
