@@ -210,6 +210,9 @@ impl Worker {
         socket.set_send_buffer_size(buf_size).ok();
         socket.set_recv_buffer_size(buf_size).ok();
 
+        // Set socket as non-blocking
+        socket.set_nonblocking(true).expect("Failed to set non-blocking");
+
         Arc::new(socket)
     }
 }

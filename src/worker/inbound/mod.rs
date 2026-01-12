@@ -73,7 +73,16 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 if rx_f_c.load(Ordering::Relaxed) {
                     break;
                 }
-                let (packet, ttl, src) = get_packet(&socket).expect("receiving failed");
+                let (packet, ttl, src) =  match get_packet(&socket) {
+                    Ok(result) => result,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // Wait 100ms to check again
+                        sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    Err(e) => panic!("Socket error: {}", e),
+                };
+                
                 println!(
                     "Received packet: {:?} with length {} and ttl {:?} and src {:?}",
                     packet,
