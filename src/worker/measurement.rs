@@ -60,7 +60,6 @@ impl Worker {
                     p_type,
                     abort_s: self.abort_inbound.clone(),
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
-                    is_ipv6,
                     is_record: start.is_record,
                     origin_id: rx_origin.origin_id,
                 },
@@ -209,7 +208,9 @@ impl Worker {
         socket.set_recv_buffer_size(buf_size).ok();
 
         // Set socket as non-blocking
-        socket.set_nonblocking(true).expect("Failed to set non-blocking");
+        socket
+            .set_nonblocking(true)
+            .expect("Failed to set non-blocking");
 
         Arc::new(socket)
     }

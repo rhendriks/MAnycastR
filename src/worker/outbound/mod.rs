@@ -3,7 +3,7 @@ mod record_route;
 mod trace;
 
 use log::{info, warn};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -170,11 +170,7 @@ pub fn send_packet(
             "Empty packet",
         ));
     }
-
-    let ip: IpAddr = dst
-        .try_into()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let dest_addr = SockAddr::from(SocketAddr::new(ip, 0));
+    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
 
     socket.send_to(packet_buffer, &dest_addr)?;
 
