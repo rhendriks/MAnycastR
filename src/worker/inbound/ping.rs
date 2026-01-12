@@ -24,35 +24,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_icmp(
     packet_bytes: &[u8],
     m_id: u32,
-    is_ipv6: bool,
     is_traceroute: bool,
     src: Address,
     ttl: u32,
     origin_id: u32,
 ) -> Option<Reply> {
     // ICMPv6 66 length (ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply
-    if (is_ipv6 && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
-        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
+    if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
+        || (!src.is_v6() && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
     {
         return None;
     }
 
-    let icmp_packet = if is_ipv6 {
+    let icmp_packet = if src.is_v6() {
         ICMPPacket::from(packet_bytes) // no IP header
     } else {
         ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    parse_icmp_inner(
-        &icmp_packet,
-        m_id,
-        is_ipv6,
-        None,
-        is_traceroute,
-        src,
-        origin_id,
-        ttl,
-    )
+    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, origin_id, ttl)
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
@@ -70,7 +60,6 @@ pub fn parse_icmp(
 pub fn parse_icmp_inner(
     icmp_packet: &ICMPPacket,
     m_id: u32,
-    is_ipv6: bool,
     recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,
     src: Address,
@@ -82,6 +71,8 @@ pub fn parse_icmp_inner(
     if u32::from_be_bytes(pkt_measurement_id) != m_id {
         return None;
     }
+
+    let is_ipv6 = src.is_v6();
 
     let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
     let mut tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());

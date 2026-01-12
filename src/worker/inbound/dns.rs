@@ -19,12 +19,11 @@ pub fn parse_dns(
     packet_bytes: &[u8],
     is_chaos: bool,
     origin_id: u32,
-    is_ipv6: bool,
     src: Address,
     ttl: u32,
 ) -> Option<Reply> {
     // DNS header offset
-    let dns_offset = if is_ipv6 { 8 } else { 28 };
+    let dns_offset = if src.is_v6() { 8 } else { 28 };
 
     // Verify 6 leftmost bits of transaction ID
     let first_tx_byte = packet_bytes[dns_offset];
@@ -34,7 +33,7 @@ pub fn parse_dns(
         return None;
     }
 
-    let udp_packet = if is_ipv6 {
+    let udp_packet = if src.is_v6() {
         UDPPacket::from(packet_bytes)
     } else {
         UDPPacket::from(&packet_bytes[20..]) // skip IPv4 header
@@ -52,7 +51,7 @@ pub fn parse_dns(
         .as_micros() as u64;
 
     let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
-        let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), is_ipv6)?;
+        let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), src.is_v6())?;
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
             return None; // spoofed reply

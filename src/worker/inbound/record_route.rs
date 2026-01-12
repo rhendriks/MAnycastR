@@ -40,14 +40,5 @@ pub fn parse_record_route(
         return None;
     };
 
-    parse_icmp_inner(
-        icmp_packet,
-        m_id,
-        false,
-        recorded_hops,
-        false,
-        src,
-        origin_id,
-        ttl,
-    )
+    parse_icmp_inner(icmp_packet, m_id, recorded_hops, false, src, origin_id, ttl)
 }

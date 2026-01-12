@@ -16,19 +16,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(
-    packet_bytes: &[u8],
-    origin_id: u32,
-    is_ipv6: bool,
-    src: Address,
-    ttl: u32,
-) -> Option<Reply> {
+pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, src: Address, ttl: u32) -> Option<Reply> {
     // Verify RST flag is set
-    if (is_ipv6 && (packet_bytes[13] & 0x04) == 0) || (!is_ipv6 && (packet_bytes[33] & 0x04) == 0) {
+    if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
+        || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)
+    {
         return None;
     }
 
-    let tcp_packet = if is_ipv6 {
+    let tcp_packet = if src.is_v6() {
         TCPPacket::from(packet_bytes)
     } else {
         TCPPacket::from(&packet_bytes[20..])
