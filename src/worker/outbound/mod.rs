@@ -161,7 +161,7 @@ pub fn outbound(
 /// * `dst` - Destination address to send the packet to
 pub fn send_packet(
     socket: &Socket,
-    packet_buffer: &Vec<u8>,
+    packet_buffer: &[u8],
     dst: &Address,
 ) -> Result<(), std::io::Error> {
     if packet_buffer.is_empty() {
