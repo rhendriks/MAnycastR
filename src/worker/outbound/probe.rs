@@ -1,9 +1,9 @@
 use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
-use crate::worker::outbound::{OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
+use crate::worker::outbound::{send_packet, OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
+use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
+use socket2::Socket;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 /// # Arguments
 ///
 /// * `config` - The outbound configuration containing worker details and settings.
-/// * `ethernet_header` - The Ethernet header to prepend to the packet.
 /// * `dst` - The destination address to which the probes will be sent.
 /// * `socket_tx` - Raw socket to send packets.
 /// * `limiter` - A rate limit bucket to control the sending rate of packets.
@@ -23,9 +22,8 @@ use std::time::{Duration, Instant};
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
 pub fn send_probe(
     config: &OutboundConfig,
-    ethernet_header: &[u8],
     dst: &Address,
-    socket_tx: &mut Box<dyn DataLinkSender>,
+    socket_tx: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     is_discovery: bool,
 ) -> (u32, u32) {
@@ -60,7 +58,6 @@ pub fn send_probe(
 
         // Write new packet to buffer
         packet_buffer.clear();
-        packet_buffer.extend_from_slice(ethernet_header);
 
         match config.p_type {
             ProtocolType::Icmp => {
@@ -93,13 +90,12 @@ pub fn send_probe(
             }
         }
 
-        match socket_tx.send_to(&packet_buffer, None) {
-            Some(Ok(())) => sent += 1,
-            Some(Err(e)) => {
+        match send_packet(socket_tx, &packet_buffer, dst) {
+            Ok(()) => sent += 1,
+            Err(e) => {
                 warn!("[Worker outbound] Failed to send ICMP packet: {e}");
                 failed += 1;
             }
-            None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
         }
     }
 
