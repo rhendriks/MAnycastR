@@ -151,18 +151,16 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .expect("Failed to spawn result_sender_thread");
 }
 
+struct ControlBuffer([MaybeUninit<u8>; 128]);
+
 /// Get a packet from a socket (with the hop_limit (IPv6)) and src address
 fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut control_storage = [MaybeUninit::<u64>::uninit(); 16];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
-    let control_buf_bytes = unsafe {
-        std::slice::from_raw_parts_mut(
-            control_storage.as_mut_ptr() as *mut MaybeUninit<u8>,
-            size_of_val(&control_storage),
-        )
-    };
+    let mut control_storage = ControlBuffer([MaybeUninit::uninit(); 128]);
+    let control_buf_bytes = &mut control_storage.0;
 
     loop {
         let recv_result = {
@@ -184,7 +182,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
                 let (packet_data, ancillary_data) = unsafe {
                     let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
                     let c = std::slice::from_raw_parts(
-                        control_storage.as_ptr() as *const u8,
+                        control_storage.0.as_ptr() as *const u8,
                         control_len,
                     );
                     (p.to_vec(), c)
