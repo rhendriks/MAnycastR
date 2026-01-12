@@ -200,7 +200,7 @@ impl Worker {
         let txs = std::mem::take(&mut self.outbound_txs);
 
         for tx in txs {
-            let _ = tx.send(InstructionType::End(end_instruction.clone())).await;
+            let _ = tx.send(InstructionType::End(end_instruction)).await;
         }
 
         Ok(())

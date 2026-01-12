@@ -64,7 +64,7 @@ pub fn send_probe(
                 &config.src,
                 dst,
                 config.dport, // ICMP identifier
-                2, // ICMP seq
+                2,            // ICMP seq
                 &icmp_payload,
                 255,
             ));

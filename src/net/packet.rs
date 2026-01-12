@@ -166,13 +166,5 @@ pub fn create_tcp(
     let discovery_bit = if is_discovery { 1u32 << 31 } else { 0 };
     let ack = discovery_bit | (worker_10b << 21) | timestamp_21b;
 
-    TCPPacket::tcp_syn_ack(
-        src,
-        dst,
-        sport,
-        dport,
-        ack,
-        255,
-        info_url,
-    )
+    TCPPacket::tcp_syn_ack(src, dst, sport, dport, ack, 255, info_url)
 }

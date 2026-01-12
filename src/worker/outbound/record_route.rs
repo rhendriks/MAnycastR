@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 pub fn send_record_route_probe(
     config: &OutboundConfig,
     dst: &Address,
-    socket_tx: &Socket,
+    socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
 ) -> (u32, u32) {
     let mut sent = 0;
@@ -57,7 +57,7 @@ pub fn send_record_route_probe(
         255,
     ));
 
-    match send_packet(&socket_tx, &packet_buffer, dst) {
+    match send_packet(socket, &packet_buffer, dst) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!("[Worker outbound] Failed to send ICMP packet: {e}");

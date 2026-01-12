@@ -57,8 +57,8 @@ pub fn send_trace(
     );
 
     match send_packet(
-        &socket,
-        &packet,
+        socket,
+        packet,
         &trace_task.dst.expect("invalid destination"),
     ) {
         Ok(()) => return (1, 0),

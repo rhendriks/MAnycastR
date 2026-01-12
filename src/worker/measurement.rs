@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch};
+use crate::custom_module::manycastr::{
+    Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
+};
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
@@ -60,7 +62,7 @@ impl Worker {
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                     is_ipv6,
                     is_record: start.is_record,
-                    origin_id: rx_origin.origin_id
+                    origin_id: rx_origin.origin_id,
                 },
                 inbound_tx.clone(),
                 socket.clone(),
@@ -182,17 +184,25 @@ impl Worker {
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
         println!("using address {addr}");
         let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
-        println!("binding to {:?}" , &sock_addr);
-        socket.bind(&sock_addr).expect("Failed to bind socket to address.");
+        println!("binding to {:?}", &sock_addr);
+        socket
+            .bind(&sock_addr)
+            .expect("Failed to bind socket to address.");
 
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
-            socket.set_recv_hoplimit_v6(true).expect("Failed to set recv_hop_limit");
+            socket
+                .set_recv_hoplimit_v6(true)
+                .expect("Failed to set recv_hop_limit");
             // Send packets with our own IPv6 header (cannot receive IPv6 headers :( )
-            socket.set_header_included_v6(true).expect("Failed to set header_included_v6");
+            socket
+                .set_header_included_v6(true)
+                .expect("Failed to set header_included_v6");
         } else {
             // Write our own headers (and receive IPv4 headers)
-            socket.set_header_included_v4(true).expect("Failed to set header_included");
+            socket
+                .set_header_included_v4(true)
+                .expect("Failed to set header_included");
         }
 
         // Set large buffer sizes

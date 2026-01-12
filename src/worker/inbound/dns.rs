@@ -54,9 +54,7 @@ pub fn parse_dns(
     let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
         let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), is_ipv6)?;
 
-        if (dns_result.probe_sport != reply_dport)
-            | (dns_result.probe_dst != src)
-        {
+        if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
             return None; // spoofed reply
         }
 
