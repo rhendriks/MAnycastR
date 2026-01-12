@@ -177,13 +177,12 @@ impl Worker {
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
         let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
+        println!("binding to {:?}" , &sock_addr);
         socket.bind(&sock_addr).expect("Failed to bind socket to address.");
 
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
-            socket
-                .set_recv_hoplimit_v6(true)
-                .expect("Failed to set recv_hop_limit");
+            socket.set_recv_hoplimit_v6(true).expect("Failed to set recv_hop_limit");
 
             // Allow for setting custom flow labels TODO not used
             socket.set_tclass_v6(0).ok();
