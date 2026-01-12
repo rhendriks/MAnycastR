@@ -159,6 +159,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std:
 
         match socket.recvmsg(&mut msg, 0) {
             Ok(bytes_read) => {
+                println!("[get packet] Received {} bytes from {:?}", bytes_read, source_storage);
                 let packet_data = buf[..bytes_read].to_vec();
                 let source = source_storage.as_socket().ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::Other, "Invalid source address")
