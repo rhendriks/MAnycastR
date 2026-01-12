@@ -188,19 +188,11 @@ impl Worker {
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
             socket.set_recv_hoplimit_v6(true).expect("Failed to set recv_hop_limit");
+            // Send packets with our own IPv6 header (cannot receive IPv6 headers :( )
             socket.set_header_included_v6(true).expect("Failed to set header_included_v6");
-
-            // Allow for setting custom flow labels TODO not used (how to set the flow header instead?)
-            // socket.set_tclass_v6(15037).ok();
         } else {
-            // Write our own headers
-            socket
-                .set_header_included_v4(true)
-                .expect("Failed to set header_included");
-            //Receive TTL for incoming IPv4 packets
-            socket
-                .set_recv_tos_v4(true)
-                .expect("Failed to set recv_ttl");
+            // Write our own headers (and receive IPv4 headers)
+            socket.set_header_included_v4(true).expect("Failed to set header_included");
         }
 
         // Set large buffer sizes

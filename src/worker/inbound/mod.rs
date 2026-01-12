@@ -134,41 +134,44 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .expect("Failed to spawn result_sender_thread");
 }
 
-/// Get a packet from the socket
-///
-/// # Returns
-/// (Packet bytes, hop count, Source Address)
-/// Get a packet from the socket for socket2 0.6.1
+/// Get a packet from a socket (with the hop_limit (IPv6)) and src address
 fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std::io::Error> {
-    let mut buf = [0u8; 2048];
-
-    let uninit_buf = unsafe {
-        std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut MaybeUninit<u8>, buf.len())
-    };
-    let mut iov_buf = [MaybeUninitSlice::new(uninit_buf)];
-
-    let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
-
-    // Storage for the source address
+    let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
+    let mut control_storage = [MaybeUninit::<u64>::uninit(); 16];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
-    loop {
-        let mut msg = MsgHdrMut::new()
-            .with_addr(&mut source_storage)
-            .with_buffers(&mut iov_buf)
-            .with_control(&mut control_buf);
+    let control_buf_bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            control_storage.as_mut_ptr() as *mut MaybeUninit<u8>,
+            std::mem::size_of_val(&control_storage),
+        )
+    };
 
-        match socket.recvmsg(&mut msg, 0) {
-            Ok(bytes_read) => {
-                println!("[get packet] Received {} bytes from {:?}", bytes_read, source_storage);
-                let packet_data = buf[..bytes_read].to_vec();
+    loop {
+        let recv_result = {
+            let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
+            let mut msg = MsgHdrMut::new()
+                .with_addr(&mut source_storage)
+                .with_buffers(&mut iov_buf)
+                .with_control(control_buf_bytes);
+
+            socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
+        };
+
+        match recv_result {
+            Ok((bytes_read, control_len)) => {
                 let source = source_storage.as_socket().ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::Other, "Invalid source address")
                 })?;
 
-                let ttl: Option<u8> = None; // TODO
+                let (packet_data, ancillary_data) = unsafe {
+                    let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
+                    let c = std::slice::from_raw_parts(control_storage.as_ptr() as *const u8, control_len);
+                    (p.to_vec(), c)
+                };
 
-                return Ok((packet_data, ttl, source));
+                let hop_limit = parse_hop_limit(ancillary_data);
+                return Ok((packet_data, hop_limit, source));
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -179,6 +182,28 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, Option<u8>, SocketAddr), std:
             }
         }
     }
+}
+
+/// Safely parses the control buffer bytes (no unsafe here)
+fn parse_hop_limit(data: &[u8]) -> Option<u8> {
+    let mut pos = 0;
+    while pos + 16 <= data.len() {
+        // cmsghdr on 64-bit: [0..8] len, [8..12] level, [12..16] type
+        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
+        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
+        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
+
+        // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
+        if level == 41 && type_ == 52 {
+            if pos + 17 <= data.len() {
+                return Some(data[pos + 16]);
+            }
+        }
+
+        if cmsg_len == 0 { break; }
+        pos += (cmsg_len + 7) & !7; // Align to 8-byte boundary
+    }
+    None
 }
 
 /// * `tx` - sender to put task results in

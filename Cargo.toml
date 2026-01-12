@@ -17,7 +17,6 @@ rand = "0.10.0-rc.6" # generate random numbers
 gethostname = "1.1.0" # get hostname
 socket2 = { version = "0.6.1", features = ["all"] }
 local-ip-address = "0.6.8" # get local unicast address
-mac_address = "1.1.8" # get MAC address
 indicatif = "0.18.3" # progress bar
 ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.5" # compression
@@ -27,6 +26,7 @@ parquet = { version = "57.1.0", features = ["snap"]}
 serde_json = "1.0.149"
 log = "0.4.29"
 pretty_env_logger = "0.5.0"
+libc = "0.2.180"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
