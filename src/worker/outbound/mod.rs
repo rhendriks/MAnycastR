@@ -3,7 +3,7 @@ mod record_route;
 mod trace;
 
 use log::{info, warn};
-use std::net::{IpAddr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
