@@ -14,9 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - measurement ID encoded in ICMP payload.
-/// * `worker_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `src` - source address of the packet (hop address)
+/// * `ttl` - TTL/hop limit used when sending the original probe
+/// * `origin_id` - identifier of the origin/worker that sent the probe
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
