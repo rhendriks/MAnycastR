@@ -27,6 +27,7 @@ pub fn parse_icmp(
     is_ipv6: bool,
     is_traceroute: bool,
     src: Address,
+    ttl: u32,
     origin_id: u32,
 ) -> Option<Reply> {
     // ICMPv6 66 length (ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply
@@ -36,23 +37,11 @@ pub fn parse_icmp(
         return None;
     }
 
-    // let ip_header = if is_ipv6 {
-    //     IPPacket::V6(IPv6Packet::from(packet_bytes))
-    // } else {
-    //     IPPacket::V4(IPv4Packet::from(packet_bytes))
-    // };
-    //
-    // let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
-    //     return None;
-    // };
-
-    let (icmp_packet, ttl) = if is_ipv6 {
-        (ICMPPacket::from(packet_bytes), 0) // no IP header TODO ipv6 hop limit
+    let icmp_packet = if is_ipv6 {
+        ICMPPacket::from(packet_bytes) // no IP header
     } else {
-        (ICMPPacket::from(&packet_bytes[20..]), packet_bytes[8] as u32) // skip IPv4 header
+        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
-
-    // let icmp_packet = ICMPPacket::from(packet_bytes);
 
     parse_icmp_inner(
         &icmp_packet,

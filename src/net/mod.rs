@@ -3,7 +3,7 @@ use std::io::{Cursor, Read, Write};
 
 use crate::custom_module::manycastr::{address, Address, RecordedHops};
 pub(crate) use crate::net::icmp::ICMPPacket;
-use crate::net::tcp::TCPPacket;
+pub(crate) use crate::net::tcp::TCPPacket;
 pub(crate) use crate::net::udp::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 

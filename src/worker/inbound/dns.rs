@@ -1,8 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
-use crate::net::{
-    DNSAnswer, DNSRecord, IPPacket, IPv4Packet, IPv6Packet, PacketPayload, TXTRecord,
-};
+use crate::net::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
 use crate::DNS_IDENTIFIER;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,16 +20,11 @@ pub fn parse_dns(
     is_chaos: bool,
     origin_id: u32,
     is_ipv6: bool,
+    src: Address,
+    ttl: u32,
 ) -> Option<Reply> {
     // DNS header offset
-    let dns_offset = if is_ipv6 { 48 } else { 28 };
-
-    // Verify minimum length + protocol (minimum length = IP header + UDP header + 2 transaction ID)
-    if (is_ipv6 && (packet_bytes.len() < 50 || packet_bytes[6] != 17))
-        || (!is_ipv6 && (packet_bytes.len() < 30 || packet_bytes[9] != 17))
-    {
-        return None;
-    }
+    let dns_offset = if is_ipv6 { 8 } else { 28 };
 
     // Verify 6 leftmost bits of transaction ID
     let first_tx_byte = packet_bytes[dns_offset];
@@ -41,14 +34,10 @@ pub fn parse_dns(
         return None;
     }
 
-    let ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(packet_bytes))
+    let udp_packet = if is_ipv6 {
+        UDPPacket::from(packet_bytes)
     } else {
-        IPPacket::V4(IPv4Packet::from(packet_bytes))
-    };
-
-    let PacketPayload::Udp { value: udp_packet } = ip_header.payload() else {
-        return None;
+        UDPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
     // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
@@ -66,8 +55,7 @@ pub fn parse_dns(
         let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), is_ipv6)?;
 
         if (dns_result.probe_sport != reply_dport)
-            | (dns_result.probe_dst != ip_header.src())
-            | (dns_result.probe_src != ip_header.dst())
+            | (dns_result.probe_dst != src)
         {
             return None; // spoofed reply
         }
@@ -86,15 +74,15 @@ pub fn parse_dns(
     if is_discovery {
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(ip_header.src()),
+                src: Some(src),
                 origin_id,
             })),
         })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
-                src: Some(ip_header.src()),
-                ttl: ip_header.ttl() as u32,
+                src: Some(src),
+                ttl,
                 origin_id,
                 rx_time,
                 tx_time,
@@ -110,7 +98,6 @@ struct DnsResult {
     tx_time: u64,
     tx_id: u32,
     probe_sport: u16,
-    probe_src: Address,
     probe_dst: Address,
     is_discovery: bool,
 }
@@ -135,11 +122,6 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
     }
 
     let tx_time = parts[0].parse::<u64>().ok()?;
-    let probe_src = if is_ipv6 {
-        Address::from(parts[1].parse::<u128>().ok()?)
-    } else {
-        Address::from(parts[1].parse::<u32>().ok()?)
-    };
     let probe_dst = if is_ipv6 {
         Address::from(parts[2].parse::<u128>().ok()?)
     } else {
@@ -159,7 +141,6 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
         tx_time,
         tx_id,
         probe_sport,
-        probe_src,
         probe_dst,
         is_discovery,
     })
