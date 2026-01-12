@@ -82,14 +82,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     }
                     Err(e) => panic!("Socket error: {}", e),
                 };
-                
-                println!(
-                    "Received packet: {:?} with length {} and ttl {:?} and src {:?}",
-                    packet,
-                    packet.len(),
-                    ttl,
-                    src
-                );
 
                 let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {

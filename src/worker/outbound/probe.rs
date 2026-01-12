@@ -92,8 +92,6 @@ pub fn send_probe(
         }
     }
 
-    println!("sending packet with length {}", packet_buffer.len());
-
     match send_packet(socket_tx, &packet_buffer, dst) {
         Ok(()) => sent += 1,
         Err(e) => {
