@@ -184,6 +184,7 @@ impl Worker {
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
             socket.set_recv_hoplimit_v6(true).expect("Failed to set recv_hop_limit");
+            socket.set_header_included_v6(true).expect("Failed to set header_included_v6");
 
             // Allow for setting custom flow labels TODO not used (how to set the flow header instead?)
             // socket.set_tclass_v6(15037).ok();
