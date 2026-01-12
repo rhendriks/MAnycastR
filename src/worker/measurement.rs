@@ -1,13 +1,12 @@
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{
-    Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
-};
+use crate::custom_module::manycastr::{Address, Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch};
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
 use log::{error, info};
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -50,7 +49,7 @@ impl Worker {
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
 
-        let socket = Self::get_socket(is_ipv6, p_type);
+        let socket = Self::get_socket(is_ipv6, p_type, rx_origins.clone());
         // Start inbound listening thread
         inbound(
             InboundConfig {
@@ -151,10 +150,11 @@ impl Worker {
     /// # Arguments
     /// `is_ipv6` - IP version used (true: IPv6)
     /// `p_type` - Protocol type used (ICMP, UDP, or TCP)
+    /// `addr` - Addressed used in this measurement (anycast or local unicast address)
     ///
     /// # Returns
     /// Arc<Socket> containing a Socket to send/receive from
-    fn get_socket(is_ipv6: bool, p_type: ProtocolType) -> Arc<Socket> {
+    fn get_socket(is_ipv6: bool, p_type: ProtocolType, origins: Vec<Origin>) -> Arc<Socket> {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
 
         // Specify the protocol so the kernel performs this matching
@@ -170,8 +170,14 @@ impl Worker {
             ProtocolType::ADns | ProtocolType::ChaosDns => Protocol::UDP,
         };
 
+        // Bind to used source address and source port
+        let origin = origins.first().expect("nothing to listen for"); // TODO support multiple protocols
         let socket = Socket::new(domain, Type::RAW, Some(protocol))
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
+
+        let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
+        let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
+        socket.bind(&sock_addr).expect("Failed to bind socket to address.");
 
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets

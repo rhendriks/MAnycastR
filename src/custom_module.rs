@@ -4,6 +4,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+use socket2::SockAddr;
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
