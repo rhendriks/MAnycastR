@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{DiscoveryReply, MeasurementReply, Reply};
-use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
+use crate::net::{IPPacket, IPv4Packet, IPv6Packet, TCPPacket};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse TCP packets into a Reply result.
@@ -16,23 +16,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, is_ipv6: bool) -> Option<Reply> {
-    // TCPv6 64 length (IPv6 header (40) + TCP header (20)) + check for RST flag
-    // TCPv4 40 bytes (IPv4 header (20) + TCP header (20)) + check for RST flag
-    if (is_ipv6 && (packet_bytes.len() < 60 || (packet_bytes[53] & 0x04) == 0))
-        || (!is_ipv6 && (packet_bytes.len() < 40 || (packet_bytes[33] & 0x04) == 0))
+pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, is_ipv6: bool, src: Address, ttl: u32) -> Option<Reply> {
+    // Verify RST flag is set
+    if (is_ipv6 && (packet_bytes[13] & 0x04) == 0)
+        || (!is_ipv6 && (packet_bytes[33] & 0x04) == 0)
     {
         return None;
     }
-
-    let ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(packet_bytes))
+    
+    let tcp_packet = if is_ipv6{
+        TCPPacket::from(packet_bytes)
     } else {
-        IPPacket::V4(IPv4Packet::from(packet_bytes))
-    };
-
-    let PacketPayload::Tcp { value: tcp_packet } = ip_header.payload() else {
-        return None;
+        TCPPacket::from(&packet_bytes[20..])
     };
 
     let rx_time = SystemTime::now()
@@ -48,15 +43,15 @@ pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, is_ipv6: bool) -> Option<R
     if is_discovery {
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(ip_header.src()),
+                src: Some(src),
                 origin_id,
             })),
         })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
-                src: Some(ip_header.src()),
-                ttl: ip_header.ttl() as u32,
+                src: Some(src),
+                ttl,
                 origin_id,
                 rx_time,
                 tx_time: tx_time_21b as u64,

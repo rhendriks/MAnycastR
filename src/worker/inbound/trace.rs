@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, TraceReply};
-use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::inbound::ping::parse_icmp;
 use parquet::data_type::AsBytes;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -25,18 +25,19 @@ pub fn parse_trace(
     m_id: u32,
     is_ipv6: bool,
     src: Address,
+    ttl: u32,
     origin_id: u32,
 ) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
     let (min_len, type_idx, expected_type) = if is_ipv6 {
-        (88, 40, 3) // IPv6: Min length 88, ICMP at index 40, Type 3
+        (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3
     } else {
-        (56, 20, 11) // IPv4: Min length 56, ICMP at index 20, Type 11
+        (56, 20, 11) // IPv4: Min length 56, ICMP type at index 20, Type 11
     };
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, is_ipv6, true, src, origin_id);
+        return parse_icmp(packet_bytes, m_id, is_ipv6, true, src, origin_id, ttl);
     }
 
     let ip_header = if is_ipv6 {
@@ -45,17 +46,17 @@ pub fn parse_trace(
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
 
-    // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
-    let icmp_header = match &ip_header.payload() {
-        PacketPayload::Icmp { value } => value,
-        _ => return None,
+    let icmp_packet = if is_ipv6 {
+        ICMPPacket::from(packet_bytes) // no IP header
+    } else {
+        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
     let original_ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(icmp_header.payload.as_bytes()))
+        IPPacket::V6(IPv6Packet::from(icmp_packet.payload.as_bytes()))
     } else {
-        IPPacket::V4(IPv4Packet::from(icmp_header.payload.as_bytes()))
+        IPPacket::V4(IPv4Packet::from(icmp_packet.payload.as_bytes()))
     };
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
