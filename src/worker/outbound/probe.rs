@@ -65,7 +65,7 @@ pub fn send_probe(
                     &origin.src.unwrap(),
                     dst,
                     origin.dport as u16, // ICMP identifier
-                    2,                   // ICMP seq
+                    2, // ICMP seq
                     &icmp_payload,
                     255,
                 ));
@@ -89,6 +89,8 @@ pub fn send_probe(
                 ));
             }
         }
+        
+        println!("sending packet with length {}", packet_buffer.len());
 
         match send_packet(socket_tx, &packet_buffer, dst) {
             Ok(()) => sent += 1,
