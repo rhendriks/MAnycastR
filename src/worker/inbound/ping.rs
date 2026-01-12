@@ -41,12 +41,14 @@ pub fn parse_icmp(
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
 
-    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
+    let PacketPayload::Icmp { value: icmp_packet } = packet_bytes else {
         return None;
     };
+    
+    // let icmp_packet = ICMPPacket::from(packet_bytes);
 
     parse_icmp_inner(
-        icmp_packet,
+        &icmp_packet,
         &ip_header,
         m_id,
         origin_map,
