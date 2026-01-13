@@ -95,7 +95,7 @@ pub fn send_probe(
     match send_packet(socket_tx, &packet_buffer, dst) {
         Ok(()) => sent += 1,
         Err(e) => {
-            warn!("[Worker outbound] Failed to send ICMP packet: {e}");
+            warn!("[Worker outbound] Failed to send {} packet: {e}", config.p_type);
             failed += 1;
         }
     }
