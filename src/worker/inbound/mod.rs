@@ -187,7 +187,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
-                    sleep(Duration::from_millis(1));
+                    sleep(Duration::from_millis(100));
                     continue;
                 }
                 return Err(e);
