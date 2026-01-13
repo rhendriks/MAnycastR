@@ -51,7 +51,7 @@ pub struct InboundConfig {
 /// # Arguments
 /// * `config` - configuration for the inbound worker thread
 /// * `tx` - sender to put task results in
-/// * `socket_rx` - the socket to listen on
+/// * `socket` - the socket to listen on
 ///
 /// # Panics
 /// If the measurement type is invalid

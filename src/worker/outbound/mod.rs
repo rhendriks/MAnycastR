@@ -53,7 +53,7 @@ pub struct OutboundConfig {
 /// # Arguments
 /// * `config` - configuration for the outbound worker thread
 /// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
-/// * `socket_tx` - the sender object to send packets
+/// * `socket` - the sender object to send packets
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
