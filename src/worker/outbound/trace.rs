@@ -8,10 +8,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Sends a traceroute probe based on the provided trace task and configuration.
 /// Only ICMP traceroute is currently implemented.
 /// # Arguments
-/// * `config` - The outbound configuration containing worker details and settings.
+/// * `worker_id` - This worker's identifier.
+/// * `m_id` - Unique measurement ID.
+/// * `info_url` - Optional URL encoded in the payload.
 /// * `trace_task` - The traceroute task containing destination and TTL information.
-/// * `socket_tx` - The socket sender to use for sending the packet.
-/// * `origins` - A vector of origins to find the matching origin ID for traceroute tasks.
+/// * `socket` - The socket sender to use for sending the packet.
+/// * `src` - Source address bound to this socket
 pub fn send_trace(
     worker_id: u32,
     m_id: u32,

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 /// # Arguments
 /// * `config` - The outbound configuration containing worker details and settings.
 /// * `dst` - The destination address to which the probe will be sent.
-/// * `socket_tx` - The socket sender to use for sending the packet.
+/// * `socket` - The socket sender to use for sending the packet.
 /// * `limiter` - A rate limiter to control the sending rate of packets.
 /// # Returns
 /// A tuple containing the number of successfully sent packets and the number of failed sends.
