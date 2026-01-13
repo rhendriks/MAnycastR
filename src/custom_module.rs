@@ -2,7 +2,7 @@ use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
 use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
 use std::fmt;
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 pub mod manycastr {
@@ -11,7 +11,7 @@ pub mod manycastr {
 
 /// Write Address to string (e.g., 1.1.1.1)
 impl Display for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.value {
             Some(V4(v4)) => {
                 write!(f, "{}", Ipv4Addr::from(*v4))
@@ -204,6 +204,25 @@ impl From<IpAddr> for Address {
         match ip {
             IpAddr::V4(v4) => Address::from(u32::from(v4)),
             IpAddr::V6(v6) => Address::from(v6.octets()),
+        }
+    }
+}
+
+impl From<SocketAddr> for Address {
+    fn from(addr: SocketAddr) -> Self {
+        Address::from(addr.ip())
+    }
+}
+
+impl From<&Address> for IpAddr {
+    fn from(addr: &Address) -> Self {
+        match addr.value {
+            Some(V4(v4_u32)) => IpAddr::V4(Ipv4Addr::from(v4_u32)),
+            Some(V6(v6_msg)) => {
+                let combined = ((v6_msg.high as u128) << 64) | (v6_msg.low as u128);
+                IpAddr::V6(Ipv6Addr::from(combined))
+            }
+            _ => IpAddr::V4(Ipv4Addr::UNSPECIFIED), // None and Unicast
         }
     }
 }
