@@ -171,7 +171,6 @@ pub fn send_packet(
         ));
     }
     let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
-
     socket.send_to(packet_buffer, &dest_addr)?;
 
     Ok(())
