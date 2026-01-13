@@ -37,7 +37,7 @@ pub fn send_record_route_probe(
     // Write packets to send to a one-time allocated buffer
     let mut packet_buffer = Vec::with_capacity(256);
 
-    // Rate limit TODO fix rate limit when using multiple origins
+    // Rate limi
     if let Err(not_until) = limiter.check() {
         let wait_time = not_until.wait_time_from(Instant::now());
         if wait_time > Duration::ZERO {
