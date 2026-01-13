@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 ///
 /// * `config` - The outbound configuration containing worker details and settings.
 /// * `dst` - The destination address to which the probes will be sent.
-/// * `socket_tx` - Raw socket to send packets.
+/// * `socket` - Raw socket to send packets.
 /// * `limiter` - A rate limit bucket to control the sending rate of packets.
 /// * `is_discovery` - A boolean indicating whether the probes are for discovery purposes.
 ///
@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 pub fn send_probe(
     config: &OutboundConfig,
     dst: &Address,
-    socket_tx: &Socket,
+    socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     is_discovery: bool,
 ) -> (u32, u32) {
@@ -92,10 +92,13 @@ pub fn send_probe(
         }
     }
 
-    match send_packet(socket_tx, &packet_buffer, dst) {
+    match send_packet(socket, &packet_buffer, dst) {
         Ok(()) => sent += 1,
         Err(e) => {
-            warn!("[Worker outbound] Failed to send {} packet: {e}", config.p_type);
+            warn!(
+                "[Worker outbound] Failed to send {} packet: {e}",
+                config.p_type
+            );
             failed += 1;
         }
     }
