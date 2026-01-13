@@ -1,7 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Origin, Reply, TraceReply};
-use crate::net::{IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
-use crate::worker::config::get_origin_id;
+use crate::custom_module::manycastr::{Address, Reply, TraceReply};
+use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::inbound::ping::parse_icmp;
 use parquet::data_type::AsBytes;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,46 +14,48 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - measurement ID encoded in ICMP payload.
-/// * `worker_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
+/// * `src` - source address of the packet (hop address)
+/// * `ttl` - TTL/hop limit used when sending the original probe
+/// * `origin_id` - identifier of the origin/worker that sent the probe
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
 pub fn parse_trace(
     packet_bytes: &[u8],
     m_id: u32,
-    worker_map: &[Origin],
-    is_ipv6: bool,
+    src: Address,
+    ttl: u32,
+    origin_id: u32,
 ) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
-    let (min_len, type_idx, expected_type) = if is_ipv6 {
-        (88, 40, 3) // IPv6: Min length 88, ICMP at index 40, Type 3
+    let (min_len, type_idx, expected_type) = if src.is_v6() {
+        (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3
     } else {
-        (56, 20, 11) // IPv4: Min length 56, ICMP at index 20, Type 11
+        (56, 20, 11) // IPv4: Min length 56, ICMP type at index 20, Type 11
     };
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, worker_map, is_ipv6, true);
+        return parse_icmp(packet_bytes, m_id, true, src, origin_id, ttl);
     }
 
-    let ip_header = if is_ipv6 {
+    let ip_header = if src.is_v6() {
         IPPacket::V6(IPv6Packet::from(packet_bytes))
     } else {
         IPPacket::V4(IPv4Packet::from(packet_bytes))
     };
 
-    // Parse ICMP TTL Exceeded header (first 8 bytes after the IPv4 header)
-    let icmp_header = match &ip_header.payload() {
-        PacketPayload::Icmp { value } => value,
-        _ => return None,
+    let icmp_packet = if src.is_v6() {
+        ICMPPacket::from(packet_bytes) // no IP header
+    } else {
+        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
     // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
-    let original_ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(icmp_header.payload.as_bytes()))
+    let original_ip_header = if src.is_v6() {
+        IPPacket::V6(IPv6Packet::from(icmp_packet.payload.as_bytes()))
     } else {
-        IPPacket::V4(IPv4Packet::from(icmp_header.payload.as_bytes()))
+        IPPacket::V4(IPv4Packet::from(icmp_packet.payload.as_bytes()))
     };
 
     // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
@@ -82,9 +83,6 @@ pub fn parse_trace(
 
     // get trace dst address
     let trace_dst = Some(original_ip_header.dst());
-
-    // get origin ID to which this probe is targeted
-    let origin_id = get_origin_id(ip_header.dst(), 0, 0, worker_map)?;
 
     Some(Reply {
         reply_data: Some(ReplyData::Trace(TraceReply {
