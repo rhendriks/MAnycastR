@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Address, DiscoveryReply, MeasurementReply, Origin, RecordedHops, Reply, TraceReply,
+    Address, DiscoveryReply, MeasurementReply, RecordedHops, Reply, TraceReply,
 };
-use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
-use crate::worker::config::get_origin_id;
+use crate::net::ICMPPacket;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP ping packets into a Reply result.
@@ -15,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `origin_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `is_traceroute` - handle echo reply as traceroute target reply
+/// * `src` - source address of the received packet (target address)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
@@ -24,59 +24,47 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn parse_icmp(
     packet_bytes: &[u8],
     m_id: u32,
-    origin_map: &[Origin],
-    is_ipv6: bool,
     is_traceroute: bool,
+    src: Address,
+    ttl: u32,
+    origin_id: u32,
 ) -> Option<Reply> {
-    // ICMPv6 66 length (IPv6 header (40) + ICMP header (8) + ICMP body 48 bytes) + check it is an ICMP Echo reply
-    if (is_ipv6 && (packet_bytes.len() < 66 || packet_bytes[40] != 129))
-        || (!is_ipv6 && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
+    // ICMPv6 minimum length 56 bytes (ICMP header 8 + ICMP body 48) + check it is an ICMP Echo reply
+    if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
+        || (!src.is_v6() && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
     {
         return None;
     }
 
-    let ip_header = if is_ipv6 {
-        IPPacket::V6(IPv6Packet::from(packet_bytes))
+    let icmp_packet = if src.is_v6() {
+        ICMPPacket::from(packet_bytes) // no IP header
     } else {
-        IPPacket::V4(IPv4Packet::from(packet_bytes))
+        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
-        return None;
-    };
-
-    parse_icmp_inner(
-        icmp_packet,
-        &ip_header,
-        m_id,
-        origin_map,
-        is_ipv6,
-        None,
-        is_traceroute,
-    )
+    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, origin_id, ttl)
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
 ///
 /// # Arguments
 /// * `icmp_packet` - Unparsed ICMP packet
-/// * `ip_header` - Parsed IP header
 /// * `m_id` - the ID of the current measurement
 /// * `origin_map` - mapping of origin to origin ID
 /// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
-/// * `is_traceroute` - handle echo reply as traceroute target reply
+/// * `src` - source address of the received packet (target address)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
 pub fn parse_icmp_inner(
     icmp_packet: &ICMPPacket,
-    ip_header: &IPPacket,
     m_id: u32,
-    origin_map: &[Origin],
-    is_ipv6: bool,
     recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,
+    src: Address,
+    origin_id: u32,
+    ttl: u32,
 ) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?;
@@ -84,33 +72,23 @@ pub fn parse_icmp_inner(
         return None;
     }
 
+    let is_ipv6 = src.is_v6();
+
     let tx_time = u64::from_be_bytes(icmp_packet.payload[4..12].try_into().unwrap());
     let mut tx_id = u32::from_be_bytes(icmp_packet.payload[12..16].try_into().unwrap());
-    let (probe_src, probe_dst) = if is_ipv6 {
-        (
-            Address::from(u128::from_be_bytes(
-                icmp_packet.payload[16..32].try_into().unwrap(),
-            )),
-            Address::from(u128::from_be_bytes(
-                icmp_packet.payload[32..48].try_into().unwrap(),
-            )),
-        )
+    let probe_dst = if is_ipv6 {
+        Address::from(u128::from_be_bytes(
+            icmp_packet.payload[32..48].try_into().unwrap(),
+        ))
     } else {
-        (
-            Address::from(u32::from_be_bytes(
-                icmp_packet.payload[16..20].try_into().unwrap(),
-            )),
-            Address::from(u32::from_be_bytes(
-                icmp_packet.payload[20..24].try_into().unwrap(),
-            )),
-        )
+        Address::from(u32::from_be_bytes(
+            icmp_packet.payload[20..24].try_into().unwrap(),
+        ))
     };
 
-    if (probe_src != ip_header.dst()) | (probe_dst != ip_header.src()) {
+    if probe_dst != src {
         return None; // spoofed reply
     }
-
-    let origin_id = get_origin_id(ip_header.dst(), 0, 0, origin_map)?;
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -127,7 +105,7 @@ pub fn parse_icmp_inner(
     if is_discovery {
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(ip_header.src()),
+                src: Some(src),
                 origin_id,
             })),
         })
@@ -140,21 +118,21 @@ pub fn parse_icmp_inner(
 
         Some(Reply {
             reply_data: Some(ReplyData::Trace(TraceReply {
-                hop_addr: Some(ip_header.src()),
-                ttl: ip_header.ttl() as u32,
+                hop_addr: Some(src),
+                ttl,
                 origin_id,
                 rx_time,
                 tx_time,
                 tx_id,
-                trace_dst: Some(ip_header.src()),
+                trace_dst: Some(src),
                 hop_count: trace_ttl as u32,
             })),
         })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
-                src: Some(ip_header.src()),
-                ttl: ip_header.ttl() as u32,
+                src: Some(src),
+                ttl,
                 origin_id,
                 rx_time,
                 tx_time,

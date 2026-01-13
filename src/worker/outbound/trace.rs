@@ -1,39 +1,28 @@
-use crate::custom_module::manycastr::{Origin, Trace};
+use crate::custom_module::manycastr::{Address, Trace};
 use crate::net::packet::{create_icmp, ProbePayload};
-use log::{error, warn};
-use pnet::datalink::DataLinkSender;
+use crate::worker::outbound::send_packet;
+use log::warn;
+use socket2::Socket;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Sends a traceroute probe based on the provided trace task and configuration.
 /// Only ICMP traceroute is currently implemented.
 /// # Arguments
-/// * `ethernet_header` - The Ethernet header to prepend to the packet.
-/// * `config` - The outbound configuration containing worker details and settings.
+/// * `worker_id` - This worker's identifier.
+/// * `m_id` - Unique measurement ID.
+/// * `info_url` - Optional URL encoded in the payload.
 /// * `trace_task` - The traceroute task containing destination and TTL information.
-/// * `socket_tx` - The socket sender to use for sending the packet.
-/// * `origins` - A vector of origins to find the matching origin ID for traceroute tasks.
+/// * `socket` - The socket sender to use for sending the packet.
+/// * `src` - Source address bound to this socket
 pub fn send_trace(
-    ethernet_header: &[u8],
     worker_id: u32,
     m_id: u32,
     info_url: Option<String>,
     trace_task: &Trace,
-    socket_tx: &mut Box<dyn DataLinkSender>,
-    origins: &[Origin],
+    socket: &Socket,
+    src: &Address,
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap(); // Single target for traceroute tasks
-    let origin_id = trace_task.origin_id;
-    // Get the matching origin for this trace task
-    let tx_origin = if let Some(origin) = origins.iter().find(|o| o.origin_id == origin_id) {
-        origin
-    } else {
-        warn!(
-            "[Worker outbound] No matching origin found for trace task with origin ID {origin_id}"
-        );
-        return (0, 1);
-    };
-
-    let mut packet = ethernet_header.to_owned();
 
     // Store 14 bits of timestamp
     let tx_time = SystemTime::now()
@@ -60,19 +49,22 @@ pub fn send_trace(
     };
 
     // Create the appropriate traceroute packet based on the trace_type
-    packet.extend_from_slice(&create_icmp(
-        tx_origin.src.as_ref().unwrap(),
+    let packet = &create_icmp(
+        src,
         target,
         identifier,      // encode timestamp into identifier field
         sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number
         &payload_fields,
         trace_task.ttl as u8,
-    ));
+    );
 
-    match socket_tx.send_to(&packet, None) {
-        Some(Ok(())) => return (1, 0),
-        Some(Err(e)) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),
-        None => error!("[Worker outbound] Failed to send packet: No Tx interface"),
+    match send_packet(
+        socket,
+        packet,
+        &trace_task.dst.expect("invalid destination"),
+    ) {
+        Ok(()) => return (1, 0),
+        Err(e) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),
     }
     (0, 1)
 }

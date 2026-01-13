@@ -3,26 +3,22 @@ mod record_route;
 mod trace;
 
 use log::{info, warn};
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use tokio::sync::mpsc::Receiver;
 
-use crate::custom_module;
-use custom_module::manycastr::Origin;
-
-use pnet::datalink::DataLinkSender;
-
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
-use crate::custom_module::manycastr::ProtocolType;
+use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::custom_module::Separated;
-use crate::net::packet::get_ethernet_header;
 use crate::worker::outbound::probe::send_probe;
 use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
+use socket2::{SockAddr, Socket};
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
@@ -30,8 +26,6 @@ const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 pub struct OutboundConfig {
     /// The unique ID of this specific worker.
     pub worker_id: u16,
-    /// A list of source addresses and port values (`Origin`) to send probes from.
-    pub tx_origins: Vec<Origin>,
     /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
     pub abort_outbound: Arc<AtomicBool>,
     /// The unique ID of the measurement.
@@ -42,16 +36,16 @@ pub struct OutboundConfig {
     pub qname: Option<String>,
     /// Optional URL to be embedded in the probe's payload (e.g., an opt-out link).
     pub info_url: Option<String>,
-    /// The name of the network interface to send packets from (e.g., "eth0").
-    pub if_name: String,
     /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
-    /// Vector of origins to find the matching origin ID for traceroute tasks
-    pub origin_map: Option<Vec<Origin>>,
-    /// Indicates if the measurement is IPv6 (true) or IPv4 (false).
-    pub is_ipv6: bool,
     /// Whether to add the Record Route option to IPv4 probes
     pub is_record: bool,
+    /// Source address to use
+    pub src: Address,
+    /// Source port to use
+    pub sport: u16,
+    /// Destination port to use
+    pub dport: u16,
 }
 
 /// Starts the outbound worker thread that awaits tasks and sends probes.
@@ -59,11 +53,11 @@ pub struct OutboundConfig {
 /// # Arguments
 /// * `config` - configuration for the outbound worker thread
 /// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
-/// * `socket_tx` - the sender object to send packets
+/// * `socket` - the sender object to send packets
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
-    mut socket_tx: Box<dyn DataLinkSender>,
+    socket: Arc<Socket>,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
@@ -74,12 +68,10 @@ pub fn outbound(
             let mut failed = 0u32;
 
             // Calculate probing rate (multiple origins multiply the probing rate)
-            let total_rate = config.probing_rate * config.tx_origins.len() as u32;
+            let total_rate = config.probing_rate;
             // Rate limiter bucket
             let mut limiter =
                 DirectRateLimiter::<LeakyBucket>::per_second(NonZeroU32::new(total_rate).unwrap());
-
-            let ethernet_header = get_ethernet_header(config.is_ipv6, &config.if_name);
 
             while let Some(instruction) = outbound_rx.blocking_recv() {
                 if config
@@ -102,18 +94,16 @@ pub fn outbound(
                                     let (s, f) = if !config.is_record {
                                         send_probe(
                                             &config,
-                                            &ethernet_header,
                                             &task.dst.unwrap(),
-                                            &mut socket_tx,
+                                            &socket,
                                             &mut limiter,
                                             false, // Not a discovery probe
                                         )
                                     } else {
                                         send_record_route_probe(
-                                            &ethernet_header,
                                             &config,
                                             &task.dst.unwrap(),
-                                            &mut socket_tx,
+                                            &socket,
                                             &mut limiter,
                                         )
                                     };
@@ -123,9 +113,8 @@ pub fn outbound(
                                 Some(TaskType::Discovery(task)) => {
                                     let (s, f) = send_probe(
                                         &config,
-                                        &ethernet_header,
                                         &task.dst.unwrap(),
-                                        &mut socket_tx,
+                                        &socket,
                                         &mut limiter,
                                         true, // This is a discovery probe
                                     );
@@ -134,13 +123,12 @@ pub fn outbound(
                                 }
                                 Some(TaskType::Trace(trace)) => {
                                     let (s, f) = send_trace(
-                                        &ethernet_header,
                                         config.worker_id as u32,
                                         config.m_id,
                                         config.info_url.clone(),
                                         trace,
-                                        &mut socket_tx,
-                                        config.origin_map.as_ref().expect("Missing origin_map"),
+                                        &socket,
+                                        &config.src,
                                     );
                                     traces_sent += s;
                                     failed += f;
@@ -161,4 +149,29 @@ pub fn outbound(
             );
         })
         .expect("Failed to spawn outbound thread");
+}
+
+/// Send a packet (vector of bytes) using the socket
+/// IPv4: Send IPv4 header (optional Record Route option) and IP payload
+/// IPv6: Send only payload (kernel writes IPv6 header)
+///
+/// # Arguments
+/// * `socket` - attached socket to send probes from
+/// * `packet_buffer` - Packet to send (as bytes)
+/// * `dst` - Destination address to send the packet to
+pub fn send_packet(
+    socket: &Socket,
+    packet_buffer: &[u8],
+    dst: &Address,
+) -> Result<(), std::io::Error> {
+    if packet_buffer.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Empty packet",
+        ));
+    }
+    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
+    socket.send_to(packet_buffer, &dest_addr)?;
+
+    Ok(())
 }
