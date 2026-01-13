@@ -124,7 +124,7 @@ impl Worker {
                 // Receiving a task (whilst busy)
                 (Some(_), task_data) => {
                     for tx in &self.outbound_txs {
-                        let _ = tx.send(task_data.clone()).await; // TODO can it be a reference to the task data? so we avoid the clone?
+                        let _ = tx.send(task_data.clone()).await;
                     }
                 }
 
