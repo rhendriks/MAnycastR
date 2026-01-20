@@ -11,6 +11,7 @@ i) Measuring anycast infrastructure itself
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
 * [Site flipping](https://doi.org/10.1109/TNSM.2025.3636785) (detecting network regions experiencing anycast site flipping)
 * Measuring [anycast routing stability](https://doi.org/10.1007/978-3-031-85960-1_16)
+* Measuring [BGP convergence time](https://dl.acm.org/doi/epdf/10.1145/3673422.3674890)
 
 ii) Measuring external anycast infrastructure
 * [LACeS](https://doi.org/10.1145/3730567.3764484) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
@@ -50,7 +51,8 @@ When creating a measurement you can specify (for more information run --help):
 
 ### Variables
 * **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
-* **Type of measurement** - ICMP, DNS, TCP, or CHAOS
+* **Protocol** - ICMP, DNS, TCP, or CHAOS
+* **Measurement Type** - `laces`, `verfploeter`, `unicast`, `latency`, or `anycast-traceroute`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -61,16 +63,13 @@ When creating a measurement you can specify (for more information run --help):
 * **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
 * **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
 * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
-* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./)
+* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported)
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
 ### Flags
-* **Stream** - stream results to the command-line interface (optional)
+* **Stream** - stream results to the command-line interface
 * **Shuffle** - shuffle the hitlist
-* **Unicast** - measure unicast latencies from all workers to the targets in the hitlist
-* **Divide** - divide-and-conquer Verfploeter catchment mapping
 * **Responsive** - check if a target is responsive before probing from all workers
-* **Latency** - measure anycast latencies
 * **Parquet** - store results in .parquet format instead of .csv.gz
 
 
@@ -142,7 +141,7 @@ cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
 Anycast probes will be sent from all workers.
 Each hitlist target receives a single probe from every worker.
 Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
-Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (--responsive).
+Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (`--responsive`).
 
 ### Anycast traceroute measurement
 
@@ -259,8 +258,8 @@ MAnycastR as a tool for anycast censuses was developed for the following paper. 
       series = {IMC '25}
 }
 ```
-* Use `--latency` to perform GCD measurements (for iGreedy).
-* Use 'default' anycast measurements to perform anycast-based measurements.
+* Use `-m unicast` to perform GCD measurements (for iGreedy).
+* Use `-m laces` to perform anycast-based measurements (similar to [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf)).
 ---
 MAnycastR as a tool for detecting networks experiencing anycast site flipping was used for the following paper. Please cite this when using MAnycastR to detect anycast site flipping.
 ```
@@ -277,4 +276,4 @@ MAnycastR as a tool for detecting networks experiencing anycast site flipping wa
 }
 ```
 * Use `--config` configuration-based probing to send probes with varied flow header fields (thus triggering load-balancers).
-* Use `--traceroute` to perform anycast Paris traceroute measurements to determine where load-balancers (causing anycast site flipping) reside
+* Use `-m anycast-traceroute` to perform anycast Paris traceroute measurements to determine where load-balancers (causing anycast site flipping) reside
