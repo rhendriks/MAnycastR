@@ -7,11 +7,14 @@ fn main() {
         .expect("Failed to compile Protobuf definitions");
 
     // Gets commit string
-    let output = Command::new("git")
-        .args(["rev-parse", "--short=7", "HEAD"])
-        .output()
-        .unwrap();
-    let git_hash = String::from_utf8(output.stdout).unwrap();
+    let git_hash = std::env::var("GIT_HASH").unwrap_or_else(|_| {
+        Command::new("git")
+            .args(["rev-parse", "--short=7", "HEAD"])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
     println!("cargo:rustc-env=GIT_HASH=git-{git_hash}");
     println!("cargo:rustc-rerun-if-changed=.git/HEAD");
 }
