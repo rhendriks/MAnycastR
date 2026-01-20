@@ -24,9 +24,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --target x86_64-unknown-linux-musl && \
     cp target/x86_64-unknown-linux-musl/release/manycastr /manycastr/manycastr_release
 
-RUN chmod +x /manycastr/manycastr_release
-
-
 # ---- Final Stage ----
 FROM scratch
 COPY --from=builder /manycastr/manycastr_release /manycastr
