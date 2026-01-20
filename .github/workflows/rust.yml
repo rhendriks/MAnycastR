@@ -19,22 +19,25 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Rust and MUSL target
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@nightly
       with:
-        toolchain: nightly
         targets: ${{ env.RUST_TARGET }}
         components: rustfmt, clippy
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ env.RUST_TARGET }}
 
     - name: Install build dependencies (Protobuf Compiler, MUSL tools)
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler \
-            musl-tools \
-            gcc
+        sudo apt-get install -y --no-install-recommends protobuf-compiler musl-tools gcc
 
     - name: Install cargo-udeps
-      run: cargo install cargo-udeps
+      run: |
+        curl -L https://github.com/est31/cargo-udeps/releases/download/v0.1.50/cargo-udeps-v0.1.50-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp
+        echo "/tmp/cargo-udeps-v0.1.50-x86_64-unknown-linux-gnu" >> $GITHUB_PATH
 
     - name: Check for unused dependencies
       run: cargo udeps --all-targets --target ${{ env.RUST_TARGET }}
@@ -42,11 +45,13 @@ jobs:
     - name: Check code formatting
       run: cargo fmt -- --check
 
-    - name: Run Clippy (linting) for MUSL target
-      run: cargo clippy --target ${{ env.RUST_TARGET }} --all-targets --verbose -- -D warnings
+    - name: Run Clippy (linting)
+      run: cargo clippy --target ${{ env.RUST_TARGET }} --all-targets -- -D warnings
 
     - name: Build project for MUSL target
-      run: cargo build --release --target ${{ env.RUST_TARGET }} --verbose --all-targets
+      run: |
+        RUSTFLAGS="-C target-cpu=x86-64-v3" \
+        cargo build --release --target ${{ env.RUST_TARGET }} --verbose
 
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
