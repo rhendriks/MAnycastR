@@ -19,8 +19,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Rust and MUSL target
-      uses: dtolnay/rust-toolchain@nightly
+      uses: dtolnay/rust-toolchain@stable
       with:
+        toolchain: nightly
         targets: ${{ env.RUST_TARGET }}
         components: rustfmt, clippy
 
@@ -38,7 +39,7 @@ jobs:
       run: cargo install cargo-udeps
 
     - name: Check for unused dependencies
-      run: cargo udeps --all-targets --target ${{ env.RUST_TARGET }}
+      run: cargo +nightly udeps --all-targets --target ${{ env.RUST_TARGET }}
 
     - name: Check code formatting
       run: cargo fmt -- --check
