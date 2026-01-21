@@ -81,7 +81,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     Err(e) => panic!("Socket error: {}", e),
                 };
 
-                let packet: &[u8] = packet.as_ref();
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => {
                         parse_trace(packet, config.m_id, src.into(), ttl, config.origin_id)
@@ -145,7 +144,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 struct ControlBuffer([MaybeUninit<u8>; 128]);
 
 /// Get a packet from a socket (with the hop_limit (IPv6)) and src address
-fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Error> {
+fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
@@ -175,7 +174,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
                         control_storage.0.as_ptr() as *const u8,
                         control_len,
                     );
-                    (p.to_vec(), c)
+                    (p, c)
                 };
 
                 let hop_limit = if source.is_ipv6() {
@@ -187,7 +186,7 @@ fn get_packet(socket: &Socket) -> Result<(Vec<u8>, u32, SocketAddr), std::io::Er
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
-                    sleep(Duration::from_millis(100));
+                    sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
                     continue;
                 }
                 return Err(e);
