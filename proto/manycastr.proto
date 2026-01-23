@@ -49,18 +49,17 @@ enum ProtocolType {
 message ScheduleMeasurement {
   uint32 probing_rate = 1; // Probing rate (probes per second)
   repeated Configuration configurations = 2; // Configuration of worker and origin combinations
-  ProtocolType p_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
-  uint32 worker_interval = 4; // interval between probes from different workers
-  MeasurementType m_type = 5;
-  repeated Address hitlist = 6; // target addresses to probe
-  optional string record = 7; // Record to send CHAOS (TXT) or A/AAAA requests for
-  optional string url = 8; // URL to encode in probes (e.g., opt-out link)
-  uint32 probe_interval = 9; // interval between probes from/to the same origin,dst pair
-  uint32 number_of_probes = 10; // number of probes to send per origin,dst pair
-  bool is_ipv6 = 11; // whether the measurement is for IPv6
-  bool is_record = 12; // whether to send IPv4 probes with the Record Route options
-  optional TraceOptions trace_options = 13; // Optional traceroute options
-  bool is_responsive = 14; // Whether to probe a target once for responsiveness before sending measurement probes
+  uint32 worker_interval = 3; // interval between probes from different workers
+  MeasurementType m_type = 4;
+  repeated Address hitlist = 5; // target addresses to probe
+  optional string record = 6; // Record to send CHAOS (TXT) or A/AAAA requests for
+  optional string url = 7; // URL to encode in probes (e.g., opt-out link)
+  uint32 probe_interval = 8; // interval between probes from/to the same origin,dst pair
+  uint32 number_of_probes = 9; // number of probes to send per origin,dst pair
+  bool is_ipv6 = 10; // whether the measurement is for IPv6
+  bool is_record = 11; // whether to send IPv4 probes with the Record Route options
+  optional TraceOptions trace_options = 12; // Optional traceroute options
+  bool is_responsive = 13; // Whether to probe a target once for responsiveness before sending measurement probes
 }
 
 // A list of workers
@@ -126,14 +125,13 @@ message Init {
 message Start {
   uint32 rate = 1;
   uint32 m_id = 2;
-  ProtocolType p_type = 3; // Measurement type (ICMP, UDP, TCP, DNS)
-  repeated Origin tx_origins = 4; // origins to send with
-  repeated Origin rx_origins = 5; // origins to listen for
-  optional string record = 6; // domain to use for DNS queries (TXT/A/AAAA)
-  optional string url = 7; // URL encoded in probes
-  bool is_ipv6 = 8; // whether the measurement is for IPv6
-  bool is_record = 9; // send IPv4 probes with the Record Route option
-  MeasurementType m_type = 10; // Measurement type
+  repeated Origin tx_origins = 3; // origins to send with
+  repeated Origin rx_origins = 4; // origins to listen for
+  optional string record = 5; // domain to use for DNS queries (TXT/A/AAAA)
+  optional string url = 6; // URL encoded in probes
+  bool is_ipv6 = 7; // whether the measurement is for IPv6
+  bool is_record = 8; // send IPv4 probes with the Record Route option
+  MeasurementType m_type = 9; // Measurement type
 }
 
 message TraceOptions {
@@ -154,6 +152,7 @@ message Origin {
   fixed32 sport = 2;
   fixed32 dport = 3;
   fixed32 origin_id = 4;
+  ProtocolType p_type = 5; // Protocol type to use for this origin
 }
 
 // Configuration: mapping of worker ID to origin
@@ -188,36 +187,34 @@ message Reply {
     DiscoveryReply discovery = 2; // follow-up
     TraceReply trace = 3; // result + follow-up
   }
+  fixed32 origin_id = 4; // Origin associated with the reply (src, sport, dport)
 }
 
 // Contains discovery reply data (used for follow-up tasks)
 message DiscoveryReply {
   Address src = 1;
-  fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply TODO match at Orc
 }
 
 // Contains measured reply data (forwarded to the CLI and written to file)
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply TODO match at orc
-  uint64 rx_time = 4;
-  uint64 tx_time = 5;
-  fixed32 tx_id = 6;
-  optional string chaos = 7;
-  optional RecordedHops recorded_hops = 8;
+  uint64 rx_time = 3;
+  uint64 tx_time = 4;
+  fixed32 tx_id = 5;
+  optional string chaos = 6;
+  optional RecordedHops recorded_hops = 7;
 }
 
 // Traceroute reply
 message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;
-  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply TODO match at Orc
-  uint64 rx_time = 4; // 32 bit microseconds time
-  uint64 tx_time = 5; // 16 bit microseconds time
-  fixed32 tx_id = 6;
-  Address trace_dst = 7;
-  uint32 hop_count = 8; // TTL used to trigger this reply
+  uint64 rx_time = 3; // 32 bit microseconds time
+  uint64 tx_time = 4; // 16 bit microseconds time
+  fixed32 tx_id = 5;
+  Address trace_dst = 6;
+  uint32 hop_count = 7; // TTL used to trigger this reply
 }
 
 // Record Route hops found

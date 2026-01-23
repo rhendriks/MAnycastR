@@ -73,7 +73,7 @@ impl Worker {
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
-                self.outbound_txs.push(outbound_tx);
+                self.outbound_txs.push(outbound_tx); // TODO couple outgoing socket to origin ID
 
                 outbound(
                     OutboundConfig {
