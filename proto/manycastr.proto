@@ -146,7 +146,7 @@ message End {
   uint32 code = 1; // 0 -> finished, 1 -> CLI disconnect
 }
 
-// Origin: the source address and port combinations used by workers in a measurement, alongside an identifier
+// Origin: mapping of source address, port values, protocol type, and an identifier
 message Origin {
   Address src = 1;
   fixed32 sport = 2;
