@@ -52,7 +52,7 @@ pub async fn handle(
     let url = matches.get_one::<String>("URL");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
-    let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap())
+    let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap()) // TODO should be optional
         .expect("Invalid protocol type!");
 
     let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
@@ -115,6 +115,7 @@ pub async fn handle(
                     sport,
                     dport,
                     origin_id: 0, // Argument based configuration with a single Origin
+                    p_type: p_type as i32,
                 }),
             })
             .collect()
@@ -134,9 +135,9 @@ pub async fn handle(
     let hitlist_length = targets.len();
 
     // Get protocol and IP version
-    let type_str = format!("{}{}", p_type, if is_ipv6 { " (IPv6)" } else { " (IPv4)" });
+    let ip_version = if is_ipv6 { " (IPv6)" } else { " (IPv4)" };
 
-    info!("[CLI] Performing {m_type} measurement using {type_str} targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+    info!("[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),
              probing_rate.with_separator(),
     );
@@ -145,7 +146,7 @@ pub async fn handle(
     info!("[CLI] Workers send probes using the following configurations:");
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    table.set_titles(row![b->"Worker", b->"ID", b->"Source IP", b->"Source Port", b->"Dest Port"]);
+    table.set_titles(row![b->"Worker", b->"ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"]);
 
     for config in &configurations {
         if let Some(origin) = &config.origin {
@@ -166,7 +167,8 @@ pub async fn handle(
                 worker_id_str,
                 origin.src.unwrap().to_string(),
                 origin.sport,
-                origin.dport
+                origin.dport,
+                origin.p_type()
             ]);
         }
     }
@@ -202,7 +204,6 @@ pub async fn handle(
         is_ipv6,
         is_record,
         trace_options,
-        p_type: p_type.into(),
     };
 
     let args = MeasurementExecutionArgs {
