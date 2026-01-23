@@ -35,8 +35,6 @@ pub struct WriteConfig<'a> {
     pub output_file: File,
     /// Metadata for the measurement, to be written at the beginning of the output file.
     pub metadata_args: MetadataArgs<'a>,
-    /// Protocol used for the measurement
-    pub p_type: ProtocolType,
     /// Measurement type
     pub m_type: MeasurementType,
     /// Indicates whether the measurement involves multiple origins
@@ -65,8 +63,6 @@ pub struct MetadataArgs<'a> {
     pub is_responsive: bool,
     /// Measurement type
     pub m_type: MeasurementType,
-    /// Protocol type
-    pub p_type: ProtocolType,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
