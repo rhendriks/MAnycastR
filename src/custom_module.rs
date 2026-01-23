@@ -264,7 +264,7 @@ impl Display for MeasurementType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::Laces => "LACeS",
-            Self::Verfploeter => "Verfploeter",
+            Self::Catchment => "Catchment Mapping",
             Self::AnycastLatency => "Anycast Latency",
             Self::UnicastLatency => "Unicast Latency",
             Self::AnycastTraceroute => "Anycast Traceroute",
@@ -277,7 +277,7 @@ impl MeasurementType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Laces => "laces",
-            Self::Verfploeter => "verfploeter",
+            Self::Catchment => "catchment",
             Self::AnycastLatency => "latency",
             Self::UnicastLatency => "unicast",
             Self::AnycastTraceroute => "anycast-traceroute",
@@ -287,7 +287,7 @@ impl MeasurementType {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "laces" => Some(Self::Laces),
-            "verfploeter" => Some(Self::Verfploeter),
+            "catchment" => Some(Self::Catchment),
             "latency" => Some(Self::AnycastLatency),
             "unicast" => Some(Self::UnicastLatency),
             "anycast-traceroute" => Some(Self::AnycastTraceroute),

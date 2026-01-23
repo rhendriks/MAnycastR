@@ -2,7 +2,7 @@ use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
     instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction,
-    LiveMeasurementMessage, MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start,
+    MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start,
     Task, TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
@@ -459,16 +459,6 @@ impl Controller for ControllerService {
         };
 
         Ok(Response::new(rx))
-    }
-
-    // Live measurement stream type
-    type LiveMeasurementStream =
-        Pin<Box<dyn Stream<Item = Result<ReplyBatch, Status>> + Send + Sync + 'static>>;
-    async fn live_measurement(
-        &self,
-        _request: Request<Streaming<LiveMeasurementMessage>>,
-    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
-        Err(Status::unimplemented("Not implemented"))
     }
 
     /// Handle the list_clients command from the CLI.

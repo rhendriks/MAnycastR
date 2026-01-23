@@ -216,7 +216,7 @@ fn reply_to_parquet_row(
                 false,
             ));
         }
-        MeasurementType::Verfploeter => {
+        MeasurementType::Catchment => {
             // Verfploeter stays minimal (rx, addr, ttl)
         }
         MeasurementType::AnycastTraceroute => {
