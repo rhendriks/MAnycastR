@@ -223,6 +223,7 @@ mod orchestrator;
 mod worker;
 
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
+pub const ALL_ORIGINS: u32 = u32::MAX; // All origins
 pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
@@ -300,12 +301,12 @@ fn parse_cmd() -> ArgMatches {
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)").required(true).value_parser(value_parser!(String)))
-                    .arg(arg!(-p --p_type <TYPE> "Protocol to use")
-                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos", "any", "all"]))
+                    .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
+                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"])) // TODO allow multiple protocols (e.g., icmp,tcp)
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "verfploeter", "latency", "unicast", "anycast-traceroute"]))
+                        .value_parser(PossibleValuesParser::new(["laces", "verfploeter", "latency", "unicast", "anycast-traceroute"])) // TODO rename verfploeter to 'catchment'
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")

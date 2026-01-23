@@ -58,7 +58,7 @@ impl CliClient {
         };
 
         let m_time = match m_def.m_type() {
-            MeasurementType::Verfploeter | MeasurementType::AnycastLatency => {
+            MeasurementType::Catchment | MeasurementType::AnycastLatency => {
                 ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
                     + 1.0)
                     / 60.0
