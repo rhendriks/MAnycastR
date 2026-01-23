@@ -7,38 +7,12 @@ service Controller {
   rpc MeasurementFinished(Finished) returns (Ack) {}
   // Worker connects with the Orc, which returns a stream for future instructions
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
-  // CLI instructs Orc to perform a measurement and establishes a stream for the Orc to send back replies
+  // CLI instructs Orc to perform a hitlist-based measurement and establishes a stream for the Orc to send back replies
   rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
-  // CLI instructs Orc to perform a live measurement and establishes a stream for the Orc to send back replies
-  rpc LiveMeasurement(stream LiveMeasurementMessage) returns (stream ReplyBatch) {}
   // CLI asks Orc its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends measurement replies to the Orc
   rpc SendResult(ReplyBatch) returns (Ack) {}
-}
-
-// Metadata for the measurement session (sent once at the start)
-message LiveMeasurementMetadata {
-  string url = 1; // URL to encode in probes
-}
-
-// Per-task information (streamed for each task)
-message LiveTask {
-  uint32 worker_id = 1;       // Worker from which to send the probe (0 for any worker)
-  Origin origin = 2;           // Origin to send the probe from
-  Address dst = 3;             // Destination to send the probe to
-  uint32 m_type = 4;           // Measurement type (ICMP, UDP, TCP, DNS)
-  bool is_ipv6 = 5;            // Whether to use IPv6
-  optional string record = 6;  // Record to use for DNS queries (TXT/A/AAAA)
-  bool is_latency = 7;         // Whether the measurement is for latency
-}
-
-// Wrapper message for streaming tasks or sending metadata
-message LiveMeasurementMessage {
-  oneof msg {
-    LiveMeasurementMetadata metadata = 1; // Sent once
-    LiveTask task = 2;                    // Sent multiple times
-  }
 }
 
 // Empty message
@@ -58,7 +32,7 @@ message Finished {
 
 enum MeasurementType {
   LACES = 0;
-  VERFPLOETER = 1;
+  CATCHMENT = 1;
   ANYCAST_LATENCY = 2;
   UNICAST_LATENCY = 3;
   ANYCAST_TRACEROUTE = 4;
@@ -188,16 +162,17 @@ message Configuration {
   uint32 worker_id = 2;
 }
 
-// A probing task, containing the target address to probe
+// A probing task, containing the target address to probe and the origin ID with which to send the probe
 message Probe {
   Address dst = 1; // target address of the probe
+  uint32 origin_id = 2; // origin ID to use for the probe (u32::max for all)
 }
 
-// A traceroute task, containing a destination addres, the TTL value to use, the protocol type, and the origin to use
+// A traceroute task, containing a destination address, the TTL value to use, the protocol type, and the origin to use
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  uint32 origin_id = 3; // Origin to send the traceroute probe from [None if a single origin is used]
+  uint32 origin_id = 3; // Origin to send the traceroute probe from
 }
 
 // A ReplyBatch, contains the worker that received the measurement replies, and the replies themselves
@@ -206,6 +181,7 @@ message ReplyBatch {
   repeated Reply results = 2; // forwarded to CLI by the Orchestrator
 }
 
+// Single reply
 message Reply {
   oneof reply_data {
     MeasurementReply measurement = 1; // result
@@ -217,14 +193,14 @@ message Reply {
 // Contains discovery reply data (used for follow-up tasks)
 message DiscoveryReply {
   Address src = 1;
-  fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 2; // ID of the destination origin (ip, ports) of the reply TODO match at Orc
 }
 
 // Contains measured reply data (forwarded to the CLI and written to file)
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply TODO match at orc
   uint64 rx_time = 4;
   uint64 tx_time = 5;
   fixed32 tx_id = 6;
@@ -236,7 +212,7 @@ message MeasurementReply {
 message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;
-  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply
+  fixed32 origin_id = 3; // ID of the destination origin (ip, ports) of the reply TODO match at Orc
   uint64 rx_time = 4; // 32 bit microseconds time
   uint64 tx_time = 5; // 16 bit microseconds time
   fixed32 tx_id = 6;
