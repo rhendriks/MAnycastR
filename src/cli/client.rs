@@ -122,7 +122,8 @@ impl CliClient {
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
-        // Get protocol and IP version
+
+        // Get protocol and IP version TODO iterate over m_def.configurations -> if single protocol is used -> write this, if multiple protocols used -> write 'multi'
         let type_str = format!(
             "{}{}",
             m_def.p_type().as_str(),
