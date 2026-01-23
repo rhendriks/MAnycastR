@@ -153,7 +153,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                     config.p_type == ProtocolType::Tcp,
                                 )
                             }
-                            MeasurementType::Verfploeter => {
+                            MeasurementType::Catchment => {
                                 get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
                             }
                             MeasurementType::Laces => get_laces_row(
@@ -214,7 +214,7 @@ pub fn get_header(
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
         }
-        MeasurementType::Verfploeter => {
+        MeasurementType::Catchment => {
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
