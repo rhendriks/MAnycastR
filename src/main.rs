@@ -313,7 +313,7 @@ fn parse_cmd() -> ArgMatches {
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
                     .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
-                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with("address"))
+                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with("address"))// TODO include p_type in configurations
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
