@@ -17,7 +17,7 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
-use crate::{custom_module, ALL_WORKERS};
+use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
 use futures_core::Stream;
 use log::{error, info, warn};
 use rand::Rng;
@@ -402,7 +402,7 @@ impl Controller for ControllerService {
 
         // Distribute tasks round robin if true
         let is_round_robing =
-            send_discovery || (m_def.m_type == MeasurementType::Verfploeter as i32);
+            send_discovery || (m_def.m_type() == MeasurementType::Catchment);
 
         let probing_rate_interval = if is_round_robing {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
@@ -418,7 +418,7 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
+                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr), origin_id: ALL_ORIGINS })), // TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
         } else {
@@ -426,7 +426,7 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
+                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr), origin_id: ALL_ORIGINS })), // TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
         };
@@ -442,7 +442,7 @@ impl Controller for ControllerService {
         };
 
         // Spawn appropriate task distributor thread
-        if m_def.m_type == MeasurementType::Verfploeter as i32 {
+        if m_def.m_type == MeasurementType::Catchment as i32 {
             // Distribute tasks round-robin
             round_robin_distributor(task_config).await;
         } else if send_discovery {
@@ -556,7 +556,7 @@ impl Controller for ControllerService {
                     }
                 }
 
-                MeasurementType::Verfploeter => panic!(
+                MeasurementType::Catchment => panic!(
                     "[Orchestrator] Received discovery results for unsupported mode: {}",
                     m_type
                 ),

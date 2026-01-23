@@ -19,7 +19,7 @@ pub fn discovery_handler(
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
-            task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
+            task_type: Some(task::TaskType::Probe(Probe { dst: result.src, origin_id: result.origin_id })),
         })
         .collect();
 
