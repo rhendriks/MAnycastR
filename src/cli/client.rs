@@ -172,7 +172,6 @@ impl CliClient {
             configurations: &m_def.configurations,
             is_responsive,
             m_type: m_def.m_type(),
-            p_type: m_def.p_type(),
         };
 
         // Check if any configuration has origin_id that is not 0 or u32::MAX -> multi origin
@@ -186,7 +185,6 @@ impl CliClient {
             print_to_cli: args.is_cli,
             output_file: file,
             metadata_args,
-            p_type: m_def.p_type(),
             m_type: m_def.m_type(),
             is_multi_origin,
             worker_map: args.worker_map.clone(),
