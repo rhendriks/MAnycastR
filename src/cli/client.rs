@@ -123,12 +123,18 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
 
-        // Get protocol and IP version TODO iterate over m_def.configurations -> if single protocol is used -> write this, if multiple protocols used -> write 'multi'
-        let type_str = format!(
-            "{}{}",
-            m_def.p_type().as_str(),
-            if is_ipv6 { "v6" } else { "v4" }
-        );
+        // Get protocol and IP version
+        let proto_str = {
+            let mut it = m_def.configurations.iter().map(|c| c.origin.expect("none origin").p_type());
+            let first = it.next().unwrap();
+            if it.all(|p| p == first) {
+                // A single protocol type is used
+                first.as_str()
+            } else {
+                // Multiple protocol types are used
+                "multi"
+            }
+        };
 
         // Determine traceroute
         let is_record = args.is_record;
@@ -142,7 +148,7 @@ impl CliClient {
         let file_path = if path.ends_with('/') {
             // User provided a path, use default naming convention for file
             format!(
-                "{path}{}-{type_str}-{timestamp_start_str}{extension}",
+                "{path}{}-{proto_str}-{timestamp_start_str}{extension}",
                 m_type.as_str()
             )
         } else {
