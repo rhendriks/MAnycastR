@@ -158,7 +158,7 @@ pub fn create_tcp(
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u32;
+        .as_micros() as u32;
 
     let timestamp_21b = tx_time & 0x1FFFFF;
     let worker_10b = worker_id & 0x3FF;

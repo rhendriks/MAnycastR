@@ -43,6 +43,8 @@ pub struct WriteConfig<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// Indicate whether Record Route is used
     pub is_record: bool,
+    /// Indicate whether any Origin is for CHAOS
+    pub is_chaos: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -138,6 +140,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             let rx_id = task_result.rx_id;
 
             for result in results {
+                let origin_id = result.origin_id;
                 let row = match result.reply_data {
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
@@ -147,16 +150,18 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                     &rx_id,
                                     &config.worker_map,
                                     config.p_type == ProtocolType::Tcp,
+                                    origin_id,
                                 )
                             }
                             MeasurementType::Catchment => {
-                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
+                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
                             MeasurementType::Laces => get_laces_row(
                                 reply,
                                 &rx_id,
                                 config.p_type == ProtocolType::Tcp,
                                 &config.worker_map,
+                                origin_id,
                             ),
                             MeasurementType::AnycastTraceroute => {
                                 panic!("Received regular reply during a traceroute measurement")
