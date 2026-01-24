@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{Address, Configuration, Origin};
+use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
@@ -6,6 +6,7 @@ use rand::prelude::SliceRandom;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
+use crate::ALL_WORKERS;
 
 /// Get the hitlist from a file.
 ///
@@ -97,21 +98,23 @@ pub fn parse_configurations(
     let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
         .lines()
         .filter_map(|line| {
-            let line = line.expect("Unable to read configuration line");
-            let line = line.trim();
+            let line = line.expect("Unable to read configuration line").trim();
+            // Skip comments and empty lines
             if line.is_empty() || line.starts_with("#") {
                 return None;
-            } // Skip comments and empty lines
+            }
 
-            let parts: Vec<&str> = line.splitn(2, " - ").map(|s| s.trim()).collect();
-            if parts.len() != 2 {
+            // Worker, src_addr, src_port, dst_port, protocol
+            let parts: Vec<&str> = line.split( ",").map(|s| s.trim()).collect();
+            if parts.len() != 5 {
                 panic!("Invalid configuration format: {line}");
             }
 
-            // Parse the worker ID
+            // Get the specified Worker(s)
             let worker_id = if parts[0] == "ALL" {
-                u32::MAX
+                ALL_WORKERS
             } else if let Ok(id_val) = parts[0].parse::<u32>() {
+                // Parse as worker ID
                 if !worker_map.contains_left(&id_val) {
                     panic!("Worker ID {id_val} is not a known worker.");
                 }
@@ -123,12 +126,7 @@ pub fn parse_configurations(
                 panic!("'{}' is not a valid worker ID or known hostname.", parts[0]);
             };
 
-            let addr_ports: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-            if addr_ports.len() != 3 {
-                panic!("Invalid configuration format: {line}");
-            }
-            let src = Address::from(addr_ports[0]);
-
+            let src = Address::from(parts[1]);
             if let Some(v6) = is_ipv6 {
                 if v6 != src.is_v6() {
                     panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
@@ -138,9 +136,9 @@ pub fn parse_configurations(
             }
 
             // Parse to u16 first, must fit in header
-            let sport = u16::from_str(addr_ports[1]).expect("Unable to parse source port") as u32;
-            let dport =
-                u16::from_str(addr_ports[2]).expect("Unable to parse destination port") as u32;
+            let sport = u16::from_str(parts[2]).expect("Unable to parse src port") as u32;
+            let dport = u16::from_str(parts[3]).expect("Unable to parse dst port") as u32;
+            let p_type = ProtocolType::from_str(parts[4]).expect("Unable to parse protocol type");
             origin_id += 1;
 
             Some(Configuration {
@@ -150,6 +148,7 @@ pub fn parse_configurations(
                     sport,
                     dport,
                     origin_id,
+                    p_type: p_type as i32,
                 }),
             })
         })

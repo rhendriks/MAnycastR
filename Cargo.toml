@@ -15,7 +15,7 @@ tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "
 tonic = { version = "0.14.2", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.9.2" # generate random numbers
 gethostname = "1.1.0" # get hostname
-socket2 = { version = "0.6.1", features = ["all"] }
+socket2 = { version = "0.6.2", features = ["all"] }
 local-ip-address = "0.6.9" # get local unicast address
 indicatif = "0.18.3" # progress bar
 ratelimit_meter = "5.0.0" # rate limit
