@@ -14,7 +14,6 @@ pub fn get_csv_metadata(
 ) -> Vec<String> {
     let mut md_file = Vec::new();
     md_file.push(format!("# Measurement type: {}", args.m_type));
-    md_file.push(format!("# Protocol used: {}", args.p_type));
     if args.is_responsive {
         md_file.push("# Responsiveness mode enabled".to_string());
     }
@@ -32,8 +31,8 @@ pub fn get_csv_metadata(
                 .to_string()
         };
         md_file.push(format!(
-            "# Configuration - Worker: {hostname:<2}, src IP: {src}, src port: {}, dst port: {}",
-            origin.sport, origin.dport
+            "# Configuration - Worker: {hostname:<2}, src IP: {src}, src port: {}, dst port: {}, protocol: {}",
+            origin.sport, origin.dport, origin.p_type()
         ));
     }
     md_file.push(format!(
