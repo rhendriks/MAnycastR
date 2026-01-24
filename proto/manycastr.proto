@@ -114,6 +114,7 @@ message Task {
     Trace trace = 2; // A traceroute task (to a specific TTL)
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
   }
+  uint32 origin_id = 4; // Origin from which to send this probe
 }
 
 // Initial message to worker, contains the worker ID assigned by the orchestrator
@@ -164,14 +165,12 @@ message Configuration {
 // A probing task, containing the target address to probe and the origin ID with which to send the probe
 message Probe {
   Address dst = 1; // target address of the probe
-  uint32 origin_id = 2; // origin ID to use for the probe (u32::max for all)
 }
 
 // A traceroute task, containing a destination address, the TTL value to use, the protocol type, and the origin to use
 message Trace {
   Address dst = 1; // target address of the traceroute probe
   uint32 ttl = 2; // TTL to use for the traceroute probe
-  uint32 origin_id = 3; // Origin to send the traceroute probe from
 }
 
 // A ReplyBatch, contains the worker that received the measurement replies, and the replies themselves
@@ -187,7 +186,7 @@ message Reply {
     DiscoveryReply discovery = 2; // follow-up
     TraceReply trace = 3; // result + follow-up
   }
-  fixed32 origin_id = 4; // Origin associated with the reply (src, sport, dport)
+  fixed32 origin_id = 4; // Origin associated with the reply
 }
 
 // Contains discovery reply data (used for follow-up tasks)
