@@ -33,7 +33,7 @@ pub fn parse_tcp(packet_bytes: &[u8], origin_id: u32, src: Address, ttl: u32) ->
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_micros() as u64;
+        .as_millis() as u64;
 
     let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
     let is_discovery = (identifier >> 31) & 1 == 1;

@@ -1,5 +1,6 @@
 use crate::custom_module::manycastr::MeasurementReply;
 use bimap::BiHashMap;
+use crate::{ALL_ORIGINS, NO_ORIGINS};
 
 /// Get the result (csv row) from a Reply message
 ///
@@ -8,6 +9,7 @@ use bimap::BiHashMap;
 /// * `rx_worker_id` - The worker ID of the receiver
 /// * `is_tcp` - TCP measurements have different tx time formats
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
+/// * `origin_id` - Associated origin ID of the reply
 ///
 /// # Returns
 /// A vector of strings representing the row in the CSV file
@@ -16,6 +18,7 @@ pub fn get_laces_row(
     rx_worker_id: &u32,
     is_tcp: bool,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -50,8 +53,8 @@ pub fn get_laces_row(
     if let Some(chaos) = reply.chaos {
         row.push(chaos);
     }
-    if reply.origin_id != 0 {
-        row.push(reply.origin_id.to_string());
+    if origin_id != NO_ORIGINS {
+        row.push(origin_id.to_string());
     }
 
     row

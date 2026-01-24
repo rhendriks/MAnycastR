@@ -4,7 +4,7 @@ use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
-use crate::ALL_WORKERS;
+use crate::{ALL_WORKERS, NO_ORIGINS};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use crate::custom_module::manycastr::ProtocolType::ChaosDns;
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -174,11 +175,16 @@ impl CliClient {
             m_type: m_def.m_type(),
         };
 
-        // Check if any configuration has origin_id that is not 0 or u32::MAX -> multi origin
+        // Check if any configuration has an origin ID
         let is_multi_origin = m_def.configurations.iter().any(|conf| {
             conf.origin
                 .as_ref()
-                .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
+                .is_some_and(|origin| origin.origin_id != NO_ORIGINS)
+        });
+
+        // Check if any configuration sends CHAOS probes
+        let is_chaos = m_def.configurations.iter().any(|conf| {
+            conf.origin.as_ref().is_some_and(|origin| origin.p_type() == ChaosDns)
         });
 
         let config = WriteConfig {
@@ -189,6 +195,7 @@ impl CliClient {
             is_multi_origin,
             worker_map: args.worker_map.clone(),
             is_record,
+            is_chaos,
         };
 
         // Start thread that writes results to file

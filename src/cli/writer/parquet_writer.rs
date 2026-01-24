@@ -3,7 +3,7 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
     MeasurementReply, MeasurementType, ProtocolType, ReplyBatch,
 };
-use crate::ALL_WORKERS;
+use crate::{ALL_WORKERS, NO_ORIGINS};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
@@ -25,7 +25,7 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     let headers = get_header(
-        config.p_type == ProtocolType::ChaosDns,
+        config.is_chaos,
         config.is_multi_origin,
         config.is_record,
         config.m_type,
@@ -63,6 +63,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
             let rx_id = task_result.rx_id;
             for reply in task_result.results {
+                let origin_id = reply.origin_id;
                 let Some(ReplyData::Measurement(m_reply)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };
@@ -70,7 +71,6 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                 let parquet_row = reply_to_parquet_row(
                     m_reply,
                     rx_id,
-                    config.p_type,
                     config.m_type,
                     &config.worker_map,
                 );
@@ -190,7 +190,6 @@ pub struct ParquetDataRow {
 fn reply_to_parquet_row(
     result: MeasurementReply,
     rx_worker_id: u32,
-    p_type: ProtocolType,
     m_type: MeasurementType,
     worker_map: &BiHashMap<u32, String>,
 ) -> ParquetDataRow {
@@ -203,7 +202,7 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: (result.origin_id != 0 && result.origin_id != ALL_WORKERS)
+        origin_id: (result.origin_id != NO_ORIGINS)
             .then_some(result.origin_id as u8),
     };
 
@@ -212,7 +211,6 @@ fn reply_to_parquet_row(
             row.rtt = Some(calculate_rtt(
                 result.rx_time,
                 result.tx_time,
-                p_type == ProtocolType::Tcp,
                 false,
             ));
         }
