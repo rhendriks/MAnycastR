@@ -60,13 +60,13 @@ impl CliClient {
         let m_time = match m_def.m_type() {
             MeasurementType::Catchment | MeasurementType::AnycastLatency => {
                 ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
-                    + 1.0)
+                    + 5.0)
                     / 60.0
             }
             _ => {
                 (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
             + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
-            + 1.0) // Time to wait for last replies
+            + 5.0) // Time to wait for last replies
             / 60.0 // Convert to minutes
             }
         };
