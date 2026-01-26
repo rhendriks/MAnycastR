@@ -192,7 +192,7 @@ impl Controller for ControllerService {
         let dns_record = &m_def.record;
         let info_url = &m_def.url;
         let m_type = m_def.m_type();
-        
+
         // Get participating (listening and/or probing) and probing workers
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();

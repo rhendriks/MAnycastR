@@ -16,7 +16,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
-pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32, sport: u16) -> Option<Reply> {
+pub fn parse_dns(
+    packet_bytes: &[u8],
+    is_chaos: bool,
+    src: Address,
+    ttl: u32,
+    sport: u16,
+) -> Option<Reply> {
     // DNS header offset
     let dns_offset = if src.is_v6() { 8 } else { 28 };
 
@@ -38,7 +44,7 @@ pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32, sp
     if (!is_chaos & (udp_packet.body.len() < 66)) | (is_chaos & (udp_packet.body.len() < 10)) {
         return None;
     }
-    
+
     // Verify port
     if udp_packet.dport != sport {
         return None;

@@ -58,7 +58,10 @@ pub struct InboundConfig {
 /// # Panics
 /// If the measurement type is invalid
 pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: Arc<Socket>) {
-    info!("[Worker inbound] Started listener (for Origin {})", config.origin_id);
+    info!(
+        "[Worker inbound] Started listener (for Origin {})",
+        config.origin_id
+    );
     // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
     let rq = Arc::new(Mutex::new(Vec::new()));
     let rq_c = rq.clone();
@@ -97,7 +100,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         config.p_type == ProtocolType::ChaosDns,
                         src.into(),
                         ttl,
-                        config.sport
+                        config.sport,
                     ),
 
                     (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl, config.sport),
