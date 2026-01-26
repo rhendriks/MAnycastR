@@ -158,7 +158,7 @@ pub async fn handle(
     let hitlist_length = targets.len();
 
     // Get protocol and IP version
-    let ip_version = if is_ipv6 { " (IPv6)" } else { " (IPv4)" };
+    let ip_version = if is_ipv6 { "(IPv6)" } else { "(IPv4)" };
 
     info!("[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
              hitlist_length.with_separator(),

@@ -193,6 +193,8 @@ impl Controller for ControllerService {
         let info_url = &m_def.url;
         let m_type = m_def.m_type();
 
+        println!("configurations {:?}", m_def.configurations);
+
         // Get participating (listening and/or probing) and probing workers
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();
