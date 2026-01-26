@@ -70,7 +70,7 @@ impl Worker {
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
-                self.log_probe_details(rx_origin.p_type(), &tx_origins);
+                self.log_probe_details(&rx_origin);
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
@@ -132,21 +132,21 @@ impl Worker {
     /// # Arguments
     /// * `p_type` - Protocol used
     /// * `origins` - Sending origins used by this Worker
-    fn log_probe_details(&self, p_type: ProtocolType, origins: &[Origin]) {
-        for origin in origins {
-            match p_type {
-                ProtocolType::Icmp => info!(
-                    "[Worker] Sending {p_type} on: {} using ICMP ID {}",
-                    origin.src.unwrap(),
-                    origin.dport
-                ),
-                _ => info!(
-                    "[Worker] Sending {p_type} on: {}, {}:{}",
-                    origin.src.unwrap(),
-                    origin.sport,
-                    origin.dport
-                ),
-            }
+    fn log_probe_details(&self, origin: &Origin) {
+        match origin.p_type() {
+            ProtocolType::Icmp => info!(
+                "[Worker] Sending {} on: {} using ICMP ID {}",
+                origin.p_type(),
+                origin.src.unwrap(),
+                origin.dport
+            ),
+            _ => info!(
+                "[Worker] Sending {} on: {}, {}:{}",
+                origin.p_type(),
+                origin.src.unwrap(),
+                origin.sport,
+                origin.dport
+            ),
         }
     }
 
