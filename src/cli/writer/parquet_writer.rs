@@ -62,8 +62,8 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             }
 
             let rx_id = task_result.rx_id;
+            let origin_id = task_result.origin_id;
             for reply in task_result.results {
-                let origin_id = reply.origin_id;
                 let Some(ReplyData::Measurement(m_reply)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };

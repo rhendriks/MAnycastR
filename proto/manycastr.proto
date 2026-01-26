@@ -177,6 +177,7 @@ message Trace {
 message ReplyBatch {
   uint32 rx_id = 1;
   repeated Reply results = 2; // forwarded to CLI by the Orchestrator
+  fixed32 origin_id = 3; // Origin associated with the replies
 }
 
 // Single reply
@@ -186,7 +187,6 @@ message Reply {
     DiscoveryReply discovery = 2; // follow-up
     TraceReply trace = 3; // result + follow-up
   }
-  fixed32 origin_id = 4; // Origin associated with the reply
 }
 
 // Contains discovery reply data (used for follow-up tasks)

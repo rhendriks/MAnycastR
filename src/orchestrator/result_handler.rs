@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{task, DiscoveryReply, Probe, Task, Trace, TraceReply};
+use crate::custom_module::manycastr::{task, DiscoveryReply, MeasurementReply, Probe, Reply, Task, Trace, TraceReply};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::TracerouteConfig;
 use std::collections::{HashMap, VecDeque};
@@ -10,16 +10,19 @@ use std::time::{Duration, Instant};
 /// * `discovery_results` - List of discovery results
 /// * `worker_id` - worker that will perform the follow-up tasks
 /// * `worker_stacks` - shared stack to put worker tasks in
+/// * `origin_id` - Origin for which these replies are received
 pub fn discovery_handler(
-    discovery_results: Vec<DiscoveryReply>,
+    discovery_results: Vec<MeasurementReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
+    origin_id: u32,
 ) {
     // Get the target addresses from the results
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
-            task_type: Some(task::TaskType::Probe(Probe { dst: result.src, origin_id: result.origin_id })),
+            task_type: Some(task::TaskType::Probe(Probe { dst: result.src})),
+            origin_id,
         })
         .collect();
 
@@ -38,12 +41,14 @@ pub fn discovery_handler(
 /// * `discovery_results` - List of discovery results
 /// * `worker_id` - Worker that received the discovery results and will perform the traceroute
 /// * `worker_stacks` - Shared stack to put follow-up tasks into
-/// * `traceroute_config`
+/// * `traceroute_config` - Traceroute parameters
+/// * `origin_id` - Origin for which these replies are received
 pub fn trace_discovery_handler(
     discovery_results: Vec<DiscoveryReply>,
     catcher_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     traceroute_config: &mut TracerouteConfig,
+    origin_id: u32,
 ) {
     let mut tasks_to_send = Vec::new();
 
@@ -51,7 +56,6 @@ pub fn trace_discovery_handler(
     for result in discovery_results {
         // Create an ongoing TraceSession for each discovery reply
         let target = result.src;
-        let origin_id = result.origin_id;
 
         // Create Trace identifier
         let identifier = TraceIdentifier {
@@ -85,8 +89,8 @@ pub fn trace_discovery_handler(
             task_type: Some(task::TaskType::Trace(Trace {
                 dst: target,
                 ttl: traceroute_config.initial_hop,
-                origin_id,
             })),
+            origin_id,
         });
     }
 
@@ -113,6 +117,7 @@ pub fn trace_replies_handler(
     trace_replies: Vec<TraceReply>,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     traceroute_config: &mut TracerouteConfig,
+    origin_id: u32,
 ) {
     let session_tracker = &mut traceroute_config.session_tracker;
 
@@ -121,7 +126,7 @@ pub fn trace_replies_handler(
         let identifier = TraceIdentifier {
             worker_id: trace_reply.tx_id,
             target: trace_reply.trace_dst.unwrap(),
-            origin_id: trace_reply.origin_id,
+            origin_id,
         };
         let mut remove = false;
 
@@ -146,8 +151,8 @@ pub fn trace_replies_handler(
                         task_type: Some(task::TaskType::Trace(Trace {
                             dst: session.target,
                             ttl: session.current_ttl as u32,
-                            origin_id: session.origin_id,
                         })),
+                        origin_id,
                     });
             }
         }
