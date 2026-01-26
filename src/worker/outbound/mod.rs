@@ -19,6 +19,7 @@ use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
+use crate::ALL_ORIGINS;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
@@ -46,6 +47,8 @@ pub struct OutboundConfig {
     pub sport: u16,
     /// Destination port to use
     pub dport: u16,
+    /// Origin ID associated with this outbound sender
+    pub origin_id: u32,
 }
 
 /// Starts the outbound worker thread that awaits tasks and sends probes.
@@ -89,6 +92,9 @@ pub fn outbound(
                     // Probe tasks to send
                     InstructionType::Tasks(payload) => {
                         for task in payload.tasks.iter() {
+                            if task.origin_id != config.origin_id && task.origin_id != ALL_ORIGINS{
+                                continue // Not for us
+                            }
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
                                     let (s, f) = if !config.is_record {

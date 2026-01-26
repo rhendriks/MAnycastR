@@ -87,6 +87,7 @@ impl Worker {
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
                         dport: rx_origin.dport as u16,
+                        origin_id: rx_origin.origin_id,
                     },
                     outbound_rx,
                     socket,
