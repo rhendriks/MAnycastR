@@ -331,7 +331,6 @@ impl Controller for ControllerService {
                 instruction_type: Some(instruction::InstructionType::Start(Start {
                     rate: probing_rate,
                     m_id,
-                    p_type: m_def.p_type,
                     tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
@@ -379,15 +378,12 @@ impl Controller for ControllerService {
                 initial_hop: trace_options.initial_hop,
                 max_failures: trace_options.max_failures,
             });
-
-            let cli_sender_clone = self.cli_sender.clone();
             let trace_config_clone = self.trace_config.clone();
 
             std::thread::spawn(move || {
                 check_trace_timeouts(
                     stacks_clone,
                     ongoing_measurement,
-                    cli_sender_clone, // send '*' results
                     trace_config_clone,
                 );
             });
@@ -400,7 +396,7 @@ impl Controller for ControllerService {
                 MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
             );
 
-        // Distribute tasks round robin if true
+        // Distribute tasks round-robin if true
         let is_round_robing =
             send_discovery || (m_def.m_type() == MeasurementType::Catchment);
 
@@ -418,7 +414,8 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr), origin_id: ALL_ORIGINS })), // TODO use appropriate origin ID
+                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr), })),
+                    origin_id: ALL_ORIGINS, // TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
         } else {
@@ -426,7 +423,8 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr), origin_id: ALL_ORIGINS })), // TODO use appropriate origin ID
+                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr), })),
+                    origin_id: ALL_ORIGINS// TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
         };
@@ -595,6 +593,7 @@ impl Controller for ControllerService {
             tx.send(Ok(ReplyBatch {
                 rx_id: catcher_id,
                 results: results_bucket,
+                origin_id,
             }))
             .await
             .expect("failed to send results to CLI");
