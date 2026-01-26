@@ -1,5 +1,6 @@
 use crate::custom_module::manycastr::MeasurementReply;
 use bimap::BiHashMap;
+use crate::NO_ORIGINS;
 
 /// Get the result (csv row) from a Reply message
 ///
@@ -15,6 +16,7 @@ pub fn get_verfploeter_csv_row(
     reply: MeasurementReply,
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -32,8 +34,8 @@ pub fn get_verfploeter_csv_row(
     if let Some(chaos) = reply.chaos {
         row.push(chaos.to_string());
     }
-    if reply.origin_id != 0 {
-        row.push(reply.origin_id.to_string());
+    if origin_id != NO_ORIGINS {
+        row.push(origin_id.to_string());
     }
 
     row

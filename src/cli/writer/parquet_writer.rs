@@ -68,11 +68,14 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                     panic!("Unexpected measurement data")
                 };
 
+                let is_tcp = config.tcp_origins.contains(&origin_id);
                 let parquet_row = reply_to_parquet_row(
                     m_reply,
                     rx_id,
                     config.m_type,
                     &config.worker_map,
+                    origin_id,
+                    is_tcp,
                 );
                 row_buffer.push(parquet_row);
             }
@@ -107,10 +110,6 @@ pub fn get_parquet_metadata(
         "measurement_type".to_string(),
         args.m_type.as_str().to_string(),
     ));
-    md.push((
-        "protocol_used".to_string(),
-        args.p_type.as_str().to_string(),
-    ));
 
     if args.is_responsive {
         md.push(("responsive_mode".to_string(), "true".to_string()));
@@ -136,7 +135,7 @@ pub fn get_parquet_metadata(
         .iter()
         .map(|c| {
             format!(
-                "Worker: {}, src IP: {}, src port: {}, dst port: {}",
+                "Worker: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
                 if c.worker_id == ALL_WORKERS {
                     "ALL".to_string()
                 } else {
@@ -150,7 +149,8 @@ pub fn get_parquet_metadata(
                     .and_then(|o| o.src)
                     .map_or("N/A".to_string(), |s| s.to_string()),
                 c.origin.as_ref().map_or(0, |o| o.sport),
-                c.origin.as_ref().map_or(0, |o| o.dport)
+                c.origin.as_ref().map_or(0, |o| o.dport),
+                c.origin.as_ref().map_or("N/A".to_string(), |o| o.p_type().to_string())
             )
         })
         .collect::<Vec<_>>();
@@ -192,6 +192,8 @@ fn reply_to_parquet_row(
     rx_worker_id: u32,
     m_type: MeasurementType,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
+    is_tcp: bool,
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
@@ -202,8 +204,8 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: (result.origin_id != NO_ORIGINS)
-            .then_some(result.origin_id as u8),
+        origin_id: (origin_id != NO_ORIGINS)
+            .then_some(origin_id as u8),
     };
 
     match m_type {
@@ -211,6 +213,7 @@ fn reply_to_parquet_row(
             row.rtt = Some(calculate_rtt(
                 result.rx_time,
                 result.tx_time,
+                is_tcp,
                 false,
             ));
         }

@@ -45,6 +45,9 @@ pub struct WriteConfig<'a> {
     pub is_record: bool,
     /// Indicate whether any Origin is for CHAOS
     pub is_chaos: bool,
+    /// List origins that use TCP (separate RTT calculation)
+    pub tcp_origins: Vec<u32>,
+
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -121,7 +124,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 
     // Write header
     let header = get_header(
-        config.p_type == ProtocolType::ChaosDns,
+        config.is_chaos,
         config.is_multi_origin,
         config.is_record,
         config.m_type,
@@ -149,7 +152,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                     reply,
                                     &rx_id,
                                     &config.worker_map,
-                                    config.p_type == ProtocolType::Tcp,
+                                    config.tcp_origins.contains(&origin_id),
                                     origin_id,
                                 )
                             }
@@ -159,7 +162,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                             MeasurementType::Laces => get_laces_row(
                                 reply,
                                 &rx_id,
-                                config.p_type == ProtocolType::Tcp,
+                                config.tcp_origins.contains(&origin_id),
                                 &config.worker_map,
                                 origin_id,
                             ),
@@ -245,10 +248,11 @@ pub fn get_header(
 /// `is_tcp` - whether it is a TCP encoded timestamp
 ///
 /// # Note
-/// TCP timestamps are masked to 21 bits using millisecond EPOCH
+/// TCP timestamps are masked to 21-bit microseconds EPOCH
+/// Traceroute timestamps are 14-bit milliseconds EPOCH
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
     if is_tcp {
-        // 21 bit millisecond timestamp (2^21 = 2,097,152)
+        // 21 bit microseconds timestamp (2^21 = 2,097,152)
         const MODULUS: u64 = 1 << 21;
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
         let rx_time_ms = rx_time / 1_000;
