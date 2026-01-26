@@ -30,6 +30,8 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32) -> Option<Reply> {
         TCPPacket::from(&packet_bytes[20..])
     };
 
+    println!("source port {}, destination port {}", tcp_packet.sport, tcp_packet.dport);
+
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -42,6 +44,8 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32) -> Option<Reply> {
 
     if is_discovery {
         println!("received TCP discovery task {identifier}");
+        println!("tx_id {tx_id}");
+        println!("tx_time_21b {tx_time_21b}");
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
