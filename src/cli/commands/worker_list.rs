@@ -34,7 +34,7 @@ pub async fn handle(response: Response<Status>) {
 
     let mut connected_workers = 0;
     let mut workers = response.into_inner().workers;
-    workers.sort_by(|a, b| a.worker_id.cmp(&b.worker_id));
+    workers.sort_by_key(|a| a.worker_id);
 
     for worker in workers {
         let unicast_v4 = if let Some(addr) = &worker.unicast_v4 {
