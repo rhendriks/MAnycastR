@@ -550,9 +550,8 @@ impl Controller for ControllerService {
                     }
                 }
 
-                MeasurementType::Catchment => panic!(
-                    "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {}",
-                    m_type
+                MeasurementType::Catchment => warn!(
+                    "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {m_type}"
                 ),
             }
         }

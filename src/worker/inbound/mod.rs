@@ -42,6 +42,8 @@ pub struct InboundConfig {
     pub is_record: bool,
     /// Origin ID associated with the Socket
     pub origin_id: u32,
+    /// Source port used
+    pub sport: u16,
 }
 
 /// Listen for incoming packets
@@ -95,9 +97,10 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         config.p_type == ProtocolType::ChaosDns,
                         src.into(),
                         ttl,
+                        config.sport
                     ),
 
-                    (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl),
+                    (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl, config.sport),
                 };
 
                 // Invalid packets have value None

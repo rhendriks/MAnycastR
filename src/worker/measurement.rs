@@ -63,6 +63,7 @@ impl Worker {
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                     is_record: start.is_record,
                     origin_id: rx_origin.origin_id,
+                    sport: rx_origin.sport as u16
                 },
                 inbound_tx.clone(),
                 socket.clone(),
@@ -188,12 +189,14 @@ impl Worker {
             .bind(&sock_addr)
             .expect("Failed to bind socket to address.");
 
+        // TODO Attach BPF filter (filter on TCP RST, port values for TCP/UDP, and m_ids encoded in packets)
+
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
             socket
                 .set_recv_hoplimit_v6(true)
                 .expect("Failed to set recv_hop_limit");
-            // Send packets with our own IPv6 header (cannot receive IPv6 headers :( )
+            // Send packets with our own IPv6 header (cannot receive IPv6 headers)
             socket
                 .set_header_included_v6(true)
                 .expect("Failed to set header_included_v6");
