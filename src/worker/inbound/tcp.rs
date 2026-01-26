@@ -41,6 +41,7 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32) -> Option<Reply> {
     let tx_time_21b = identifier & 0x1FFFFF;
 
     if is_discovery {
+        println!("received TCP discovery task {identifier}");
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
