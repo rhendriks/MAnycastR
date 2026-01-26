@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
-use crate::custom_module::manycastr::ProtocolType::ChaosDns;
+use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -187,6 +187,11 @@ impl CliClient {
             conf.origin.as_ref().is_some_and(|origin| origin.p_type() == ChaosDns)
         });
 
+        // List of all origin IDs that are TCP
+        let tcp_origin_ids = m_def.configurations.iter().filter_map(|conf| {
+            conf.origin.as_ref().filter(|origin| origin.p_type() == Tcp).map(|origin| origin.origin_id)
+        }).collect::<Vec<u32>>();
+
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
@@ -196,6 +201,7 @@ impl CliClient {
             worker_map: args.worker_map.clone(),
             is_record,
             is_chaos,
+            tcp_origins: tcp_origin_ids,
         };
 
         // Start thread that writes results to file
