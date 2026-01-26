@@ -407,7 +407,7 @@ impl Controller for ControllerService {
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
-                    origin_id: ALL_ORIGINS, // TODO use appropriate origin ID
+                    origin_id: ALL_ORIGINS,
                 })
                 .collect::<Vec<Task>>()
         } else {
@@ -416,7 +416,7 @@ impl Controller for ControllerService {
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
-                    origin_id: ALL_ORIGINS, // TODO use appropriate origin ID
+                    origin_id: ALL_ORIGINS,
                 })
                 .collect::<Vec<Task>>()
         };
