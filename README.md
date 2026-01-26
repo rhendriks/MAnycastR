@@ -51,8 +51,8 @@ When creating a measurement you can specify (for more information run --help):
 
 ### Variables
 * **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
-* **Protocol** - ICMP, DNS, TCP, or CHAOS
-* **Measurement Type** - `laces`, `verfploeter`, `unicast`, `latency`, or `anycast-traceroute`
+* **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
+* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, or `anycast-traceroute`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -98,10 +98,10 @@ cli -a [ORC ADDRESS] start [parameters]
 
 ### Examples
 
-#### Verfploeter catchment mapping
+#### Catchment mapping
 
 ```
-cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
 All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -113,7 +113,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
+cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.

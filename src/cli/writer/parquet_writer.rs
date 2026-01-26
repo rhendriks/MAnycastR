@@ -213,7 +213,7 @@ fn reply_to_parquet_row(
             row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false));
         }
         MeasurementType::Catchment => {
-            // Verfploeter stays minimal (rx, addr, ttl)
+            // Catchment mapping is minimal (rx, addr, ttl)
         }
         MeasurementType::AnycastTraceroute => {
             panic!("Anycast traceroute cannot be written to parquet") // TODO
