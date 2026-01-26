@@ -23,7 +23,7 @@ pub fn get_csv_metadata(
         let origin = configuration.origin.unwrap();
         let src = origin.src.expect("Invalid source address");
         let hostname = if configuration.worker_id == ALL_WORKERS {
-            "ALL".to_string()
+            format!("ALL {}", worker_map.len()).to_string()
         } else {
             worker_map
                 .get_by_left(&configuration.worker_id)
@@ -31,8 +31,8 @@ pub fn get_csv_metadata(
                 .to_string()
         };
         md_file.push(format!(
-            "# Configuration - Worker: {hostname:<2}, src IP: {src}, src port: {}, dst port: {}, protocol: {}",
-            origin.sport, origin.dport, origin.p_type()
+            "# Configuration (Origin ID: {}) - Worker: {hostname:<2}, src IP: {src}, src port: {}, dst port: {}, protocol: {}",
+            origin.origin_id, origin.sport, origin.dport, origin.p_type()
         ));
     }
     md_file.push(format!(
