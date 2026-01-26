@@ -309,14 +309,14 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "verfploeter", "latency", "unicast", "anycast-traceroute"])) // TODO rename verfploeter to 'catchment'
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
                     .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
-                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))// TODO include p_type in configurations
+                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
