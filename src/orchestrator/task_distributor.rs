@@ -350,9 +350,7 @@ pub async fn round_robin_discovery(
             // Check if we finished sending all discovery probes and all stacks are empty
             if hitlist_is_empty {
                 if let Some(start_time) = cooldown_timer {
-                    if start_time.elapsed()
-                        >= Duration::from_secs(5)
-                    {
+                    if start_time.elapsed() >= Duration::from_secs(5) {
                         info!("[Orchestrator] Task distribution finished.");
                         break;
                     }
@@ -363,9 +361,7 @@ pub async fn round_robin_discovery(
                         stacks_guard.values().all(|queue| queue.is_empty())
                     };
                     if all_stacks_empty {
-                        info!(
-                            "[Orchestrator] No more tasks. Waiting 5 seconds for cooldown.",
-                        );
+                        info!("[Orchestrator] No more tasks. Waiting 5 seconds for cooldown.",);
                         cooldown_timer = Some(Instant::now());
                     }
                 }
