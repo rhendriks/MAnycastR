@@ -182,6 +182,7 @@ impl Worker {
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
+        println!("[Worker] Opening socket for {addr} using source port {} and destination port {}", origin.sport, origin.dport)
         let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
         socket
             .bind(&sock_addr)
