@@ -100,7 +100,6 @@ pub fn parse_icmp_inner(
     };
 
     if is_discovery {
-        println!("received icmp discovery task {tx_id}");
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })

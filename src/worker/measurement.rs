@@ -44,9 +44,6 @@ impl Worker {
         // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
-
-        println!("RXs {:?}", rx_origins);
-
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
@@ -178,12 +175,11 @@ impl Worker {
             ProtocolType::ADns | ProtocolType::ChaosDns => Protocol::UDP,
         };
 
-        // Bind to used source address and source port
+        // Bind to used source address (source port is ignored)
         let socket = Socket::new(domain, Type::RAW, Some(protocol))
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
-        println!("[Worker] Opening socket for {addr} using source port {} and destination port {}", origin.sport, origin.dport);
         let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
         socket
             .bind(&sock_addr)
