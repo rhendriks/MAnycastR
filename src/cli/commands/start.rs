@@ -170,13 +170,13 @@ pub async fn handle(
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
     table.set_titles(
-        row![b->"Worker", b->"ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"],
+        row![b->"Hostname", b->"Worker ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"],
     );
 
     for config in &configurations {
         if let Some(origin) = &config.origin {
             let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
-                ("All Workers".to_string(), "ALL".to_string())
+                (format!("All {}", configurations.len()).to_string(), "ALL".to_string())
             } else {
                 (
                     worker_map
