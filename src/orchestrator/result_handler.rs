@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::{task, DiscoveryReply, MeasurementReply, Probe, Reply, Task, Trace, TraceReply};
+use crate::custom_module::manycastr::{task, DiscoveryReply, Probe, Task, Trace, TraceReply};
 pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
 use crate::orchestrator::TracerouteConfig;
 use std::collections::{HashMap, VecDeque};
@@ -21,7 +21,7 @@ pub fn discovery_handler(
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
-            task_type: Some(task::TaskType::Probe(Probe { dst: result.src})),
+            task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
         })
         .collect();

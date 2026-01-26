@@ -1,6 +1,5 @@
-use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
-use crate::orchestrator::{CliHandle, OngoingMeasurement, TracerouteConfig};
+use crate::custom_module::manycastr::{task, Address, Task, Trace};
+use crate::orchestrator::{OngoingMeasurement, TracerouteConfig};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;

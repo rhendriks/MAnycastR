@@ -146,7 +146,9 @@ pub async fn handle(
     info!("[CLI] Workers send probes using the following configurations:");
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    table.set_titles(row![b->"Worker", b->"ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"]);
+    table.set_titles(
+        row![b->"Worker", b->"ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"],
+    );
 
     for config in &configurations {
         if let Some(origin) = &config.origin {
@@ -218,6 +220,6 @@ pub async fn handle(
     };
 
     grpc_client
-        .do_measurement_to_server(m_definition, args, is_ipv6, m_type)
+        .do_measurement_to_server(m_definition, args, m_type)
         .await
 }
