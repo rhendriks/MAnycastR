@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction,
-    MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start,
-    Task, TraceReply, Worker,
+    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType,
+    Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -18,15 +17,13 @@ use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, P
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
 use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
-use futures_core::Stream;
 use log::{error, info, warn};
 use rand::Rng;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -381,11 +378,7 @@ impl Controller for ControllerService {
             let trace_config_clone = self.trace_config.clone();
 
             std::thread::spawn(move || {
-                check_trace_timeouts(
-                    stacks_clone,
-                    ongoing_measurement,
-                    trace_config_clone,
-                );
+                check_trace_timeouts(stacks_clone, ongoing_measurement, trace_config_clone);
             });
         }
 
@@ -397,8 +390,7 @@ impl Controller for ControllerService {
             );
 
         // Distribute tasks round-robin if true
-        let is_round_robing =
-            send_discovery || (m_def.m_type() == MeasurementType::Catchment);
+        let is_round_robing = send_discovery || (m_def.m_type() == MeasurementType::Catchment);
 
         let probing_rate_interval = if is_round_robing {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
@@ -414,7 +406,7 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr), })),
+                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
                     origin_id: ALL_ORIGINS, // TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
@@ -423,8 +415,8 @@ impl Controller for ControllerService {
             hitlist
                 .iter()
                 .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr), })),
-                    origin_id: ALL_ORIGINS// TODO use appropriate origin ID
+                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
+                    origin_id: ALL_ORIGINS, // TODO use appropriate origin ID
                 })
                 .collect::<Vec<Task>>()
         };

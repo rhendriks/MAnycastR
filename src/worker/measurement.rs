@@ -36,7 +36,6 @@ impl Worker {
 
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
-        let p_type = start.p_type();
         let m_type = start.m_type();
 
         // Channel for sending from inbound to the orchestrator forwarder thread
@@ -51,13 +50,13 @@ impl Worker {
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
-            let socket = Self::get_socket(is_ipv6, p_type, rx_origin);
+            let socket = Self::get_socket(is_ipv6, rx_origin.p_type(), rx_origin);
 
             inbound(
                 InboundConfig {
                     m_id,
                     worker_id,
-                    p_type,
+                    p_type: rx_origin.p_type(),
                     abort_s: self.abort_inbound.clone(),
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                     is_record: start.is_record,
@@ -69,18 +68,18 @@ impl Worker {
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
-                self.log_probe_details(p_type, &tx_origins);
+                self.log_probe_details(rx_origin.p_type(), &tx_origins);
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
-                self.outbound_txs.push(outbound_tx); // TODO couple outgoing socket to origin ID
+                self.outbound_txs.push(outbound_tx);
 
                 outbound(
                     OutboundConfig {
                         worker_id,
                         abort_outbound: abort_outbound.clone(),
                         m_id,
-                        p_type,
+                        p_type: rx_origin.p_type(),
                         qname: start.record.clone(),
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins

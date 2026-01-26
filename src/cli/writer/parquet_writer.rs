@@ -1,8 +1,6 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{
-    MeasurementReply, MeasurementType, ProtocolType, ReplyBatch,
-};
+use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch};
 use crate::{ALL_WORKERS, NO_ORIGINS};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
@@ -150,7 +148,9 @@ pub fn get_parquet_metadata(
                     .map_or("N/A".to_string(), |s| s.to_string()),
                 c.origin.as_ref().map_or(0, |o| o.sport),
                 c.origin.as_ref().map_or(0, |o| o.dport),
-                c.origin.as_ref().map_or("N/A".to_string(), |o| o.p_type().to_string())
+                c.origin
+                    .as_ref()
+                    .map_or("N/A".to_string(), |o| o.p_type().to_string())
             )
         })
         .collect::<Vec<_>>();
@@ -204,18 +204,12 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: (origin_id != NO_ORIGINS)
-            .then_some(origin_id as u8),
+        origin_id: (origin_id != NO_ORIGINS).then_some(origin_id as u8),
     };
 
     match m_type {
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
-            row.rtt = Some(calculate_rtt(
-                result.rx_time,
-                result.tx_time,
-                is_tcp,
-                false,
-            ));
+            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false));
         }
         MeasurementType::Catchment => {
             // Verfploeter stays minimal (rx, addr, ttl)

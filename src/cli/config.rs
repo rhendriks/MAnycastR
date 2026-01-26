@@ -1,4 +1,5 @@
 use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
+use crate::ALL_WORKERS;
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
@@ -6,7 +7,6 @@ use rand::prelude::SliceRandom;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
-use crate::ALL_WORKERS;
 
 /// Get the hitlist from a file.
 ///
@@ -98,14 +98,15 @@ pub fn parse_configurations(
     let configurations: Vec<Configuration> = buf_reader // Create a vector of addresses from the file
         .lines()
         .filter_map(|line| {
-            let line = line.expect("Unable to read configuration line").trim();
+            let line = line.expect("Unable to read configuration line");
+            let line = line.trim();
             // Skip comments and empty lines
             if line.is_empty() || line.starts_with("#") {
                 return None;
             }
 
             // Worker, src_addr, src_port, dst_port, protocol
-            let parts: Vec<&str> = line.split( ",").map(|s| s.trim()).collect();
+            let parts: Vec<&str> = line.split(",").map(|s| s.trim()).collect();
             if parts.len() != 5 {
                 panic!("Invalid configuration format: {line}");
             }

@@ -2,6 +2,7 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
+use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
 use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
 use crate::{ALL_WORKERS, NO_ORIGINS};
@@ -18,7 +19,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
-use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -31,12 +31,11 @@ impl CliClient {
     /// # Arguments
     /// * `m_def` - measurement definition  for the orchestrator created from the command-line arguments
     /// * `args` - contains additional arguments for the measurement execution
-    /// * `is_ipv6` - boolean whether the measurement is IPv6 or not
+    /// * `m_type` - Measurement type
     pub(crate) async fn do_measurement_to_server(
         &mut self,
         m_def: ScheduleMeasurement,
         args: MeasurementExecutionArgs<'_>,
-        is_ipv6: bool,
         m_type: MeasurementType,
     ) -> Result<(), Box<dyn Error>> {
         let probing_rate = m_def.probing_rate;
@@ -123,10 +122,12 @@ impl CliClient {
         // Channel for writing results to file
         let (tx_r, rx_r) = unbounded_channel();
 
-
         // Get protocol and IP version
         let proto_str = {
-            let mut it = m_def.configurations.iter().map(|c| c.origin.expect("none origin").p_type());
+            let mut it = m_def
+                .configurations
+                .iter()
+                .map(|c| c.origin.expect("none origin").p_type());
             let first = it.next().unwrap();
             if it.all(|p| p == first) {
                 // A single protocol type is used
@@ -184,13 +185,22 @@ impl CliClient {
 
         // Check if any configuration sends CHAOS probes
         let is_chaos = m_def.configurations.iter().any(|conf| {
-            conf.origin.as_ref().is_some_and(|origin| origin.p_type() == ChaosDns)
+            conf.origin
+                .as_ref()
+                .is_some_and(|origin| origin.p_type() == ChaosDns)
         });
 
         // List of all origin IDs that are TCP
-        let tcp_origin_ids = m_def.configurations.iter().filter_map(|conf| {
-            conf.origin.as_ref().filter(|origin| origin.p_type() == Tcp).map(|origin| origin.origin_id)
-        }).collect::<Vec<u32>>();
+        let tcp_origin_ids = m_def
+            .configurations
+            .iter()
+            .filter_map(|conf| {
+                conf.origin
+                    .as_ref()
+                    .filter(|origin| origin.p_type() == Tcp)
+                    .map(|origin| origin.origin_id)
+            })
+            .collect::<Vec<u32>>();
 
         let config = WriteConfig {
             print_to_cli: args.is_cli,
