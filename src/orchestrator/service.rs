@@ -496,6 +496,7 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let catcher_id = task_result.rx_id;
+        let origin_id = task_result.origin_id;
 
         // Split replies into buckets
         let mut results_bucket: Vec<Reply> = Vec::new();
@@ -535,12 +536,12 @@ impl Controller for ControllerService {
             match m_type {
                 // Perform follow-up from ALL workers
                 MeasurementType::Laces | MeasurementType::UnicastLatency => {
-                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks);
+                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks, origin_id);
                 }
 
                 // Follow up from only the catching worker
                 MeasurementType::AnycastLatency => {
-                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks);
+                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks, origin_id);
                 }
 
                 // Special handling for Traceroute
@@ -552,6 +553,7 @@ impl Controller for ControllerService {
                             catcher_id,
                             &mut worker_stacks,
                             config,
+                            origin_id,
                         );
                     }
                 }
@@ -571,6 +573,7 @@ impl Controller for ControllerService {
                     trace_bucket.clone(),
                     &mut self.worker_stacks.lock().unwrap(),
                     config,
+                    origin_id,
                 );
             }
 

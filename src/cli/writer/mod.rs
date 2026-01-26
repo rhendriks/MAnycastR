@@ -141,9 +141,9 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             }
             let results: Vec<Reply> = task_result.results;
             let rx_id = task_result.rx_id;
+            let origin_id = task_result.origin_id;
 
             for result in results {
-                let origin_id = result.origin_id;
                 let row = match result.reply_data {
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
