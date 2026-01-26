@@ -177,10 +177,7 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
         } // end of round-robin loop
 
         // Wait for the workers to finish their tasks
-        tokio::time::sleep(Duration::from_secs(
-            (config.number_of_probing_workers as u64 * config.worker_interval) + 1,
-        ))
-        .await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         info!("[Orchestrator] Task distribution finished");
 
@@ -278,7 +275,7 @@ pub async fn round_robin_discovery(
                 // --responsive sends follow-up tasks to all probing workers
                 ALL_WORKERS
             } else {
-                // --latency and --traceroute send follow-up tasks to the catching worker
+                // Latency and Traceroute measurements send follow-up tasks to the catching worker
                 worker_id
             };
 
@@ -354,9 +351,7 @@ pub async fn round_robin_discovery(
             if hitlist_is_empty {
                 if let Some(start_time) = cooldown_timer {
                     if start_time.elapsed()
-                        >= Duration::from_secs(
-                            config.number_of_probing_workers as u64 * config.worker_interval + 5,
-                        )
+                        >= Duration::from_secs(5)
                     {
                         info!("[Orchestrator] Task distribution finished.");
                         break;
@@ -369,8 +364,7 @@ pub async fn round_robin_discovery(
                     };
                     if all_stacks_empty {
                         info!(
-                            "[Orchestrator] No more tasks. Waiting {} seconds for cooldown.",
-                            config.number_of_probing_workers as u64 * config.worker_interval + 5
+                            "[Orchestrator] No more tasks. Waiting 5 seconds for cooldown.",
                         );
                         cooldown_timer = Some(Instant::now());
                     }
