@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 /// * `worker_stacks` - shared stack to put worker tasks in
 /// * `origin_id` - Origin for which these replies are received
 pub fn discovery_handler(
-    discovery_results: Vec<MeasurementReply>,
+    discovery_results: Vec<DiscoveryReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     origin_id: u32,
