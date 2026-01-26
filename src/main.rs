@@ -303,7 +303,9 @@ fn parse_cmd() -> ArgMatches {
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)").required(true).value_parser(value_parser!(String)))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
-                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"])) // TODO allow multiple protocols (e.g., icmp,tcp)
+                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
+                        .value_delimiter(',')// Allow for multiple protocols
+                        .action(ArgAction::Append)
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
