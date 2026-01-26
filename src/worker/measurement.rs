@@ -60,7 +60,7 @@ impl Worker {
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                     is_record: start.is_record,
                     origin_id: rx_origin.origin_id,
-                    sport: rx_origin.sport as u16
+                    sport: rx_origin.sport as u16,
                 },
                 inbound_tx.clone(),
                 socket.clone(),
