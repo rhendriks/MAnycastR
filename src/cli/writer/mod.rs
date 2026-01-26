@@ -254,8 +254,7 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
         // 21 bit microseconds timestamp (2^21 = 2,097,152)
         const MODULUS: u64 = 1 << 21;
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
-        let rx_time_ms = rx_time / 1_000;
-        let rx_21b = rx_time_ms & MASK;
+        let rx_21b = rx_time & MASK;
         let tx_21b = tx_time & MASK;
         let rtt_ms = if rx_21b >= tx_21b {
             rx_21b - tx_21b
