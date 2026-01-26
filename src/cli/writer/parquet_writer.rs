@@ -133,7 +133,7 @@ pub fn get_parquet_metadata(
         .iter()
         .map(|c| {
             format!(
-                "Worker: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
+                "Worker: {}, Origin ID: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
                 if c.worker_id == ALL_WORKERS {
                     "ALL".to_string()
                 } else {
@@ -142,6 +142,7 @@ pub fn get_parquet_metadata(
                         .unwrap_or(&String::from("Unknown"))
                         .to_string()
                 },
+                c.origin.as_ref().map_or(0, |o| o.origin_id),
                 c.origin
                     .as_ref()
                     .and_then(|o| o.src)
