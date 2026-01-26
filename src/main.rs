@@ -54,7 +54,7 @@
 //! When creating a measurement, many parameters and options are available (see `cli start --help`)
 //!
 //! ## Measurement Types
-//! * **verfploeter** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
+//! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
 //! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
 //! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
 //! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
@@ -85,10 +85,10 @@
 //!
 //! ## Examples
 //!
-//! ### Verfploeter catchment mapping using ICMPv4
+//! ### Catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+//! cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
 //! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -100,7 +100,7 @@
 //! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
 //! ```
 //!
 //! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -223,6 +223,8 @@ mod orchestrator;
 mod worker;
 
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
+pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
+pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
@@ -300,19 +302,21 @@ fn parse_cmd() -> ArgMatches {
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)").required(true).value_parser(value_parser!(String)))
-                    .arg(arg!(-p --p_type <TYPE> "Protocol to use")
-                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos", "any", "all"]))
+                    .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
+                        .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
+                        .value_delimiter(',')// Allow for multiple protocols
+                        .action(ArgAction::Append)
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "verfploeter", "latency", "unicast", "anycast-traceroute"]))
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
                     .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
-                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with("address"))
+                    .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))

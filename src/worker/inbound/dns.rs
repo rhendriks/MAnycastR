@@ -10,17 +10,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `is_chaos` - whether this is a chaos reply (True) or an A record reply (False)
-/// * `origin_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether we are parsing IPv6 or IPv4 packets
+/// * `src` - source address for this packet
+/// * `ttl` - TTL value of this packet
+/// * `sport` - Source port used for outgoing packets (destination port of replies)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
 pub fn parse_dns(
     packet_bytes: &[u8],
     is_chaos: bool,
-    origin_id: u32,
     src: Address,
     ttl: u32,
+    sport: u16,
 ) -> Option<Reply> {
     // DNS header offset
     let dns_offset = if src.is_v6() { 8 } else { 28 };
@@ -39,8 +40,13 @@ pub fn parse_dns(
         UDPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+    // The UDP responses will be from DNS services, the body length has to be large enough to contain a DNS A reply
     if (!is_chaos & (udp_packet.body.len() < 66)) | (is_chaos & (udp_packet.body.len() < 10)) {
+        return None;
+    }
+
+    // Verify port
+    if udp_packet.dport != sport {
         return None;
     }
 
@@ -70,17 +76,13 @@ pub fn parse_dns(
 
     if is_discovery {
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(src),
-                origin_id,
-            })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                origin_id,
                 rx_time,
                 tx_time,
                 tx_id,

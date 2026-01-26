@@ -1,6 +1,5 @@
-use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
-use crate::orchestrator::{CliHandle, OngoingMeasurement, TracerouteConfig};
+use crate::custom_module::manycastr::{task, Address, Task, Trace};
+use crate::orchestrator::{OngoingMeasurement, TracerouteConfig};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -53,12 +52,10 @@ pub struct TraceIdentifier {
 /// # Arguments
 /// * `worker_stacks` - Shared stack to put Trace tasks in for workers.
 /// * `ongoing_measurement` - Shared variable of the current ongoing measurement
-/// * `cli_sender` - Forward '*' results for timed out hops to CLI
 /// * `traceroute_config`
 pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
-    cli_sender: CliHandle,
     traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
 ) {
     // Get traceroute parameters
@@ -116,44 +113,15 @@ pub fn check_trace_timeouts(
                             session_tracker.sessions.remove(&id);
                             None // Nothing to update
                         } else {
-                            // Measure the next hop (current hop timed out)
-                            {
-                                // Forward unreachable hop result to CLI
-                                let cli_sender = cli_sender.lock().unwrap();
-
-                                let result = TraceReply {
-                                    hop_addr: None,
-                                    ttl: 0,
-                                    origin_id: session.origin_id,
-                                    rx_time: 0,
-                                    tx_time: 0,
-                                    tx_id: session.worker_id,
-                                    trace_dst: session.target,
-                                    hop_count: (session.current_ttl - 1) as u32, // result was incremented
-                                };
-
-                                let task_result = ReplyBatch {
-                                    rx_id: 0, // Noone received a reply
-                                    results: vec![Reply {
-                                        reply_data: Some(ReplyData::Trace(result)),
-                                    }],
-                                };
-
-                                cli_sender
-                                    .as_ref()
-                                    .expect("Sender missing")
-                                    .try_send(Ok(task_result))
-                                    .expect("Trying to send TaskResult");
-                            }
-
+                            // Measure the next hop (hop timed out)
                             tasks_to_send.push((
                                 session.worker_id,
                                 Task {
                                     task_type: Some(task::TaskType::Trace(Trace {
                                         dst: session.target,
                                         ttl: session.current_ttl as u32,
-                                        origin_id: session.origin_id,
                                     })),
+                                    origin_id: session.origin_id,
                                 },
                             ));
 
@@ -172,7 +140,6 @@ pub fn check_trace_timeouts(
                 }
             }
         }
-
         // Put tasks in worker stacks
         if !tasks_to_send.is_empty() {
             let mut stacks = worker_stacks.lock().unwrap();

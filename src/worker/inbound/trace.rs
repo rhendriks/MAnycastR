@@ -16,17 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `m_id` - measurement ID encoded in ICMP payload.
 /// * `src` - source address of the packet (hop address)
 /// * `ttl` - TTL/hop limit used when sending the original probe
-/// * `origin_id` - identifier of the origin/worker that sent the probe
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-pub fn parse_trace(
-    packet_bytes: &[u8],
-    m_id: u32,
-    src: Address,
-    ttl: u32,
-    origin_id: u32,
-) -> Option<Reply> {
+pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
     let (min_len, type_idx, expected_type) = if src.is_v6() {
         (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3
@@ -36,7 +29,7 @@ pub fn parse_trace(
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, true, src, origin_id, ttl);
+        return parse_icmp(packet_bytes, m_id, true, src, ttl);
     }
 
     let ip_header = if src.is_v6() {
@@ -88,7 +81,6 @@ pub fn parse_trace(
         reply_data: Some(ReplyData::Trace(TraceReply {
             hop_addr: Some(hop_addr),
             ttl: ip_header.ttl() as u32,
-            origin_id,
             rx_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

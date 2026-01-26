@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 /// Sends probes to the specified destination using the provided measurement configuration.
 /// This function constructs the appropriate packet based on the measurement type
 /// and sends it through the provided socket.
-/// # Arguments
 ///
+/// # Arguments
 /// * `config` - The outbound configuration containing worker details and settings.
 /// * `dst` - The destination address to which the probes will be sent.
 /// * `socket` - Raw socket to send packets.

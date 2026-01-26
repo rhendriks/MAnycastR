@@ -36,7 +36,6 @@ impl Worker {
 
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
-        let p_type = start.p_type();
         let m_type = start.m_type();
 
         // Channel for sending from inbound to the orchestrator forwarder thread
@@ -45,23 +44,23 @@ impl Worker {
         // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
-
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
-            let socket = Self::get_socket(is_ipv6, p_type, rx_origin);
+            let socket = Self::get_socket(is_ipv6, rx_origin.p_type(), rx_origin);
 
             inbound(
                 InboundConfig {
                     m_id,
                     worker_id,
-                    p_type,
+                    p_type: rx_origin.p_type(),
                     abort_s: self.abort_inbound.clone(),
                     is_traceroute: m_type == MeasurementType::AnycastTraceroute,
                     is_record: start.is_record,
                     origin_id: rx_origin.origin_id,
+                    sport: rx_origin.sport as u16,
                 },
                 inbound_tx.clone(),
                 socket.clone(),
@@ -69,7 +68,7 @@ impl Worker {
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
-                self.log_probe_details(p_type, &tx_origins);
+                self.log_probe_details(&rx_origin);
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
@@ -80,7 +79,7 @@ impl Worker {
                         worker_id,
                         abort_outbound: abort_outbound.clone(),
                         m_id,
-                        p_type,
+                        p_type: rx_origin.p_type(),
                         qname: start.record.clone(),
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
@@ -88,6 +87,7 @@ impl Worker {
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
                         dport: rx_origin.dport as u16,
+                        origin_id: rx_origin.origin_id,
                     },
                     outbound_rx,
                     socket,
@@ -131,21 +131,21 @@ impl Worker {
     /// # Arguments
     /// * `p_type` - Protocol used
     /// * `origins` - Sending origins used by this Worker
-    fn log_probe_details(&self, p_type: ProtocolType, origins: &[Origin]) {
-        for origin in origins {
-            match p_type {
-                ProtocolType::Icmp => info!(
-                    "[Worker] Sending {p_type} packets on: {} using ICMP ID {}",
-                    origin.src.unwrap(),
-                    origin.dport
-                ),
-                _ => info!(
-                    "[Worker] Sending {p_type} on: {}, {}:{}",
-                    origin.src.unwrap(),
-                    origin.sport,
-                    origin.dport
-                ),
-            }
+    fn log_probe_details(&self, origin: &Origin) {
+        match origin.p_type() {
+            ProtocolType::Icmp => info!(
+                "[Worker] Sending {} on: {} using ICMP ID {}",
+                origin.p_type(),
+                origin.src.unwrap(),
+                origin.dport
+            ),
+            _ => info!(
+                "[Worker] Sending {} on: {}, {}:{}",
+                origin.p_type(),
+                origin.src.unwrap(),
+                origin.sport,
+                origin.dport
+            ),
         }
     }
 
@@ -176,7 +176,7 @@ impl Worker {
             ProtocolType::ADns | ProtocolType::ChaosDns => Protocol::UDP,
         };
 
-        // Bind to used source address and source port
+        // Bind to used source address (source port is ignored)
         let socket = Socket::new(domain, Type::RAW, Some(protocol))
             .expect("Failed to create raw socket. sudo or raw socket permissions required");
 
@@ -186,12 +186,14 @@ impl Worker {
             .bind(&sock_addr)
             .expect("Failed to bind socket to address.");
 
+        // TODO Attach BPF filter (filter on TCP RST, port values for TCP/UDP, and m_ids encoded in packets)
+
         if is_ipv6 {
             // Receive hop count for incoming IPv6 packets
             socket
                 .set_recv_hoplimit_v6(true)
                 .expect("Failed to set recv_hop_limit");
-            // Send packets with our own IPv6 header (cannot receive IPv6 headers :( )
+            // Send packets with our own IPv6 header (cannot receive IPv6 headers)
             socket
                 .set_header_included_v6(true)
                 .expect("Failed to set header_included_v6");
