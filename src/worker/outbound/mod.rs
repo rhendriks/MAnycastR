@@ -17,9 +17,9 @@ use crate::custom_module::Separated;
 use crate::worker::outbound::probe::send_probe;
 use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
+use crate::ALL_ORIGINS;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
-use crate::ALL_ORIGINS;
 
 const DISCOVERY_WORKER_ID_OFFSET: u32 = u16::MAX as u32;
 
@@ -92,8 +92,8 @@ pub fn outbound(
                     // Probe tasks to send
                     InstructionType::Tasks(payload) => {
                         for task in payload.tasks.iter() {
-                            if task.origin_id != config.origin_id && task.origin_id != ALL_ORIGINS{
-                                continue // Not for us
+                            if task.origin_id != config.origin_id && task.origin_id != ALL_ORIGINS {
+                                continue; // Not for us
                             }
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
