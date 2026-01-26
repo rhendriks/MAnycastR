@@ -32,9 +32,8 @@ pub fn get_laces_row(
         .to_string();
 
     let rx_time = if is_tcp {
-        // convert to milliseconds and mask to 21 bits
-        let rx_ms = reply.rx_time / 1000;
-        let rx_wrapped = rx_ms & 0x1FFFFF;
+        // Mask to 21 bits
+        let rx_wrapped = reply.rx_time & 0x1FFFFF;
         rx_wrapped.to_string()
     } else {
         reply.rx_time.to_string()

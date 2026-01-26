@@ -22,7 +22,7 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16) -> Opt
     if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
         || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)
     {
-        return None;
+        return None
     }
 
     let tcp_packet = if src.is_v6() {
@@ -33,13 +33,13 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16) -> Opt
 
     // Verify destination port matches our source port
     if tcp_packet.dport != sport {
-        return None;
+        return None
     }
 
     let rx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u64;
+        .as_micros() as u64;
 
     let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
     let is_discovery = (identifier >> 31) & 1 == 1;
