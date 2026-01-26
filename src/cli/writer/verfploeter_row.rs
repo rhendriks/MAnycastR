@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::MeasurementReply;
-use bimap::BiHashMap;
 use crate::NO_ORIGINS;
+use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
 ///

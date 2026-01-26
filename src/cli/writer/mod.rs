@@ -13,7 +13,7 @@ use crate::cli::writer::trace_row::get_trace_row;
 use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
 use crate::custom_module;
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
+use crate::custom_module::manycastr::MeasurementType;
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -47,7 +47,6 @@ pub struct WriteConfig<'a> {
     pub is_chaos: bool,
     /// List origins that use TCP (separate RTT calculation)
     pub tcp_origins: Vec<u32>,
-
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -156,9 +155,12 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                     origin_id,
                                 )
                             }
-                            MeasurementType::Catchment => {
-                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map, origin_id)
-                            }
+                            MeasurementType::Catchment => get_verfploeter_csv_row(
+                                reply,
+                                &rx_id,
+                                &config.worker_map,
+                                origin_id,
+                            ),
                             MeasurementType::Laces => get_laces_row(
                                 reply,
                                 &rx_id,

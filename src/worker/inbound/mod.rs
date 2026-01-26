@@ -82,34 +82,22 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 };
 
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => {
-                        parse_trace(packet, config.m_id, src.into(), ttl, config.origin_id)
-                    }
+                    (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl),
 
-                    (_, true, _) => {
-                        parse_record_route(packet, config.m_id, src.into(), ttl, config.origin_id)
-                    }
+                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
 
-                    (_, _, ProtocolType::Icmp) => parse_icmp(
-                        packet,
-                        config.m_id,
-                        false,
-                        src.into(),
-                        ttl,
-                        config.origin_id,
-                    ),
+                    (_, _, ProtocolType::Icmp) => {
+                        parse_icmp(packet, config.m_id, false, src.into(), ttl)
+                    }
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
                         packet,
                         config.p_type == ProtocolType::ChaosDns,
-                        config.origin_id,
                         src.into(),
                         ttl,
                     ),
 
-                    (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, config.origin_id, src.into(), ttl)
-                    }
+                    (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl),
                 };
 
                 // Invalid packets have value None
@@ -136,7 +124,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
-            handle_results(&tx, config.abort_s, config.worker_id, rq);
+            handle_results(&tx, config.abort_s, config.worker_id, rq, config.origin_id);
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -217,15 +205,20 @@ fn parse_hop_limit(data: &[u8]) -> Option<u32> {
     None
 }
 
+/// Forward results to the Worker handler
+///
+/// # Arguments
 /// * `tx` - sender to put task results in
 /// * `rx_f` - channel that is used to signal the end of the measurement
 /// * `worker_id` - the unique worker ID of this worker
 /// * `rq_sender` - contains a vector of all received replies as Reply results
+/// * `origin_id` - origin ID associated with this inbound handler
 fn handle_results(
     tx: &UnboundedSender<ReplyBatch>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
     rq_sender: Arc<Mutex<Vec<Reply>>>,
+    origin_id: u32,
 ) {
     loop {
         // Every second, forward the ping results to the orchestrator
@@ -242,6 +235,7 @@ fn handle_results(
             tx.send(ReplyBatch {
                 rx_id: worker_id as u32,
                 results: rq,
+                origin_id,
             })
             .expect("Failed to send TaskResult to worker handler");
         }

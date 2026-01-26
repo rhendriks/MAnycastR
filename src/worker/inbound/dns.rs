@@ -10,18 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `is_chaos` - whether this is a chaos reply (True) or an A record reply (False)
-/// * `origin_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether we are parsing IPv6 or IPv4 packets
+/// * `src` - source address for this packet
+/// * `ttl` - TTL value of this packet
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
-pub fn parse_dns(
-    packet_bytes: &[u8],
-    is_chaos: bool,
-    origin_id: u32,
-    src: Address,
-    ttl: u32,
-) -> Option<Reply> {
+pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32) -> Option<Reply> {
     // DNS header offset
     let dns_offset = if src.is_v6() { 8 } else { 28 };
 
@@ -70,17 +64,13 @@ pub fn parse_dns(
 
     if is_discovery {
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(src),
-                origin_id,
-            })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else {
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                origin_id,
                 rx_time,
                 tx_time,
                 tx_id,
