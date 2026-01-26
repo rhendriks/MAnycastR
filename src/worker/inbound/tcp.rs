@@ -10,18 +10,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `src` - source address of the received packet
 /// * `ttl` - TTL of the received packet
+/// * `sport` - Source port used for outgoing packets (destination port of replies)
 ///
 /// # Returns
 /// * `Option<ResultData>` - the received TCP reply
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32) -> Option<Reply> {
+pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16) -> Option<Reply> {
     // Verify RST flag is set
     if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
         || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)
     {
-        return None;
+        return None
     }
 
     let tcp_packet = if src.is_v6() {
@@ -29,6 +30,11 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32) -> Option<Reply> {
     } else {
         TCPPacket::from(&packet_bytes[20..])
     };
+    
+    // Verify destination port matches our source port
+    if tcp_packet.dport != sport {
+        return None
+    }
 
     println!("source port {}, destination port {}", tcp_packet.sport, tcp_packet.dport);
 

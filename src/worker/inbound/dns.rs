@@ -12,10 +12,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `is_chaos` - whether this is a chaos reply (True) or an A record reply (False)
 /// * `src` - source address for this packet
 /// * `ttl` - TTL value of this packet
+/// * `sport` - Source port used for outgoing packets (destination port of replies)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
-pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32) -> Option<Reply> {
+pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32, sport: u16) -> Option<Reply> {
     // DNS header offset
     let dns_offset = if src.is_v6() { 8 } else { 28 };
 
@@ -33,8 +34,13 @@ pub fn parse_dns(packet_bytes: &[u8], is_chaos: bool, src: Address, ttl: u32) ->
         UDPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    // The UDP responses will be from DNS services, with src port 53 and our possible src ports as dest port, furthermore the body length has to be large enough to contain a DNS A reply
+    // The UDP responses will be from DNS services, the body length has to be large enough to contain a DNS A reply
     if (!is_chaos & (udp_packet.body.len() < 66)) | (is_chaos & (udp_packet.body.len() < 10)) {
+        return None;
+    }
+    
+    // Verify port
+    if udp_packet.dport != sport {
         return None;
     }
 
