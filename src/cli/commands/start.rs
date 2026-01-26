@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::cli::client::CliClient;
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
@@ -7,7 +8,7 @@ use crate::custom_module::manycastr::{
     TraceOptions,
 };
 use crate::custom_module::Separated;
-use crate::ALL_WORKERS;
+use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{error, info, warn};
@@ -52,8 +53,6 @@ pub async fn handle(
     let url = matches.get_one::<String>("URL");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
-    let p_type = ProtocolType::from_str(matches.get_one::<String>("p_type").unwrap()) // TODO should be optional
-        .expect("Invalid protocol type!");
 
     let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
         // Use configuration set by the user
@@ -104,21 +103,45 @@ pub async fn handle(
                     .collect()
             },
         );
+        // Get protocol to use
+        let p_types: Vec<ProtocolType> = matches
+            .get_many::<String>("p_type")
+            .unwrap_or_default()
+            .filter_map(|s| ProtocolType::from_str(s))
+            .collect::<HashSet<_>>() // Ensure uniqueness
+            .into_iter()
+            .collect();
 
-        // Create configuration
-        sender_ids
+        let num_p_types = p_types.len();
+
+        // Create the Configuration for each Worker
+        let configs: Vec<Configuration> = sender_ids
             .iter()
-            .map(|&worker_id| Configuration {
-                worker_id,
-                origin: Some(Origin {
-                    src: Some(src),
-                    sport,
-                    dport,
-                    origin_id: 0, // Argument based configuration with a single Origin
-                    p_type: p_type as i32,
-                }),
+            .flat_map(|&worker_id| {
+                p_types.iter().enumerate().map(move |(idx, &p_type)| {
+                    let origin_id = if num_p_types == 1 {
+                        // Single p_type -> single Origin
+                        SINGLE_ORIGIN
+                    } else {
+                        // Multiple p_type -> iterate Origin IDs
+                        (idx + 1) as u32
+                    };
+
+                    Configuration {
+                        worker_id,
+                        origin: Some(Origin {
+                            src: Some(src.clone()),
+                            sport,
+                            dport,
+                            origin_id,
+                            p_type: p_type as i32,
+                        }),
+                    }
+                })
             })
-            .collect()
+            .collect();
+
+        configs
     };
 
     // Get the target IP addresses

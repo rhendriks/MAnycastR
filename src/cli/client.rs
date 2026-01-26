@@ -5,7 +5,7 @@ use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
 use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
-use crate::{ALL_WORKERS, NO_ORIGINS};
+use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
@@ -180,7 +180,7 @@ impl CliClient {
         let is_multi_origin = m_def.configurations.iter().any(|conf| {
             conf.origin
                 .as_ref()
-                .is_some_and(|origin| origin.origin_id != NO_ORIGINS)
+                .is_some_and(|origin| origin.origin_id != SINGLE_ORIGIN)
         });
 
         // Check if any configuration sends CHAOS probes
