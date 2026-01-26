@@ -256,14 +256,14 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
         let rx_21b = rx_time & MASK;
         let tx_21b = tx_time & MASK;
-        let rtt_ms = if rx_21b >= tx_21b {
+        let rtt_us = if rx_21b >= tx_21b {
             rx_21b - tx_21b
         } else {
             // wrap-around case
             (rx_21b + MODULUS) - tx_21b
         };
 
-        rtt_ms as f64
+        rtt_us as f64 / 1_000.0
     } else if is_traceroute {
         // 14-bit Modulus (2^14 = 16,384)
         const MODULUS: u64 = 1 << 14;
