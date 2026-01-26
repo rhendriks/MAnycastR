@@ -1,7 +1,7 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch};
-use crate::{ALL_WORKERS, NO_ORIGINS};
+use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
@@ -204,7 +204,7 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: (origin_id != NO_ORIGINS).then_some(origin_id as u8),
+        origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
     };
 
     match m_type {

@@ -1,6 +1,6 @@
 use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::MeasurementReply;
-use crate::NO_ORIGINS;
+use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
@@ -37,7 +37,7 @@ pub fn get_latency_row(
     ];
 
     // Optional fields
-    if origin_id != NO_ORIGINS {
+    if origin_id != SINGLE_ORIGIN {
         row.push(origin_id.to_string());
     }
 

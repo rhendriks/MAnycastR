@@ -224,7 +224,7 @@ mod worker;
 
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
-pub const NO_ORIGINS: u32 = 0; // Used for single Origin measurements
+pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
