@@ -54,7 +54,7 @@
 //! When creating a measurement, many parameters and options are available (see `cli start --help`)
 //!
 //! ## Measurement Types
-//! * **verfploeter** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
+//! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
 //! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
 //! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
 //! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
@@ -85,10 +85,10 @@
 //!
 //! ## Examples
 //!
-//! ### Verfploeter catchment mapping using ICMPv4
+//! ### Catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start -m verfploeter -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+//! cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
 //! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -100,7 +100,7 @@
 //! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m verfploeter
+//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
 //! ```
 //!
 //! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
