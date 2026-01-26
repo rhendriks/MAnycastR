@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use crate::cli::client::CliClient;
 use crate::cli::config::{get_hitlist, parse_configurations};
 use crate::cli::utils::validate_path_perms;
@@ -13,6 +12,7 @@ use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{error, info, warn};
 use prettytable::{format, row, Table};
+use std::collections::HashSet;
 
 pub struct MeasurementExecutionArgs<'a> {
     /// Determines whether results should be streamed to the command-line interface as they arrive.
@@ -130,7 +130,7 @@ pub async fn handle(
                     Configuration {
                         worker_id,
                         origin: Some(Origin {
-                            src: Some(src.clone()),
+                            src: Some(src),
                             sport,
                             dport,
                             origin_id,
@@ -176,7 +176,10 @@ pub async fn handle(
     for config in &configurations {
         if let Some(origin) = &config.origin {
             let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
-                (format!("All {}", worker_map.len()).to_string(), "ALL".to_string())
+                (
+                    format!("All {}", worker_map.len()).to_string(),
+                    "ALL".to_string(),
+                )
             } else {
                 (
                     worker_map
