@@ -45,6 +45,8 @@ impl Worker {
         let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
         let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
 
+        println!("RXs {:?}", rx_origins);
+
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
@@ -134,7 +136,7 @@ impl Worker {
         for origin in origins {
             match p_type {
                 ProtocolType::Icmp => info!(
-                    "[Worker] Sending {p_type} packets on: {} using ICMP ID {}",
+                    "[Worker] Sending {p_type} on: {} using ICMP ID {}",
                     origin.src.unwrap(),
                     origin.dport
                 ),
