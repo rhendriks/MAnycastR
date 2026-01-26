@@ -124,6 +124,7 @@ impl Worker {
                 // Receiving a task (whilst busy)
                 (Some(_), task_data) => {
                     for tx in &self.outbound_txs {
+                        // TODO only forward based on matching origin ID (or ALL_ORIGIN_ID)
                         let _ = tx.send(task_data.clone()).await;
                     }
                 }

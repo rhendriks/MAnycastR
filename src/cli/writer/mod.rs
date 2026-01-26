@@ -6,26 +6,26 @@ use bimap::BiHashMap;
 use csv::Writer;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::cli::writer::catchment_row::get_catchment_csv_row;
 use crate::cli::writer::csv_writer::get_csv_metadata;
 use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::cli::writer::trace_row::get_trace_row;
-use crate::cli::writer::verfploeter_row::get_verfploeter_csv_row;
 use crate::custom_module;
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
+use crate::custom_module::manycastr::MeasurementType;
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use log::error;
 use std::io::BufWriter;
 
+mod catchment_row;
 pub mod csv_writer;
 mod laces_row;
 mod latency_row;
 pub mod parquet_writer;
 mod trace_row;
-mod verfploeter_row;
 
 /// Configuration for the results writing process.
 pub struct WriteConfig<'a> {
@@ -35,8 +35,6 @@ pub struct WriteConfig<'a> {
     pub output_file: File,
     /// Metadata for the measurement, to be written at the beginning of the output file.
     pub metadata_args: MetadataArgs<'a>,
-    /// Protocol used for the measurement
-    pub p_type: ProtocolType,
     /// Measurement type
     pub m_type: MeasurementType,
     /// Indicates whether the measurement involves multiple origins
@@ -45,6 +43,10 @@ pub struct WriteConfig<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// Indicate whether Record Route is used
     pub is_record: bool,
+    /// Indicate whether any Origin is for CHAOS
+    pub is_chaos: bool,
+    /// List origins that use TCP (separate RTT calculation)
+    pub tcp_origins: Vec<u32>,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -65,8 +67,6 @@ pub struct MetadataArgs<'a> {
     pub is_responsive: bool,
     /// Measurement type
     pub m_type: MeasurementType,
-    /// Protocol type
-    pub p_type: ProtocolType,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
@@ -123,7 +123,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 
     // Write header
     let header = get_header(
-        config.p_type == ProtocolType::ChaosDns,
+        config.is_chaos,
         config.is_multi_origin,
         config.is_record,
         config.m_type,
@@ -140,6 +140,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             }
             let results: Vec<Reply> = task_result.results;
             let rx_id = task_result.rx_id;
+            let origin_id = task_result.origin_id;
 
             for result in results {
                 let row = match result.reply_data {
@@ -150,17 +151,19 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                     reply,
                                     &rx_id,
                                     &config.worker_map,
-                                    config.p_type == ProtocolType::Tcp,
+                                    config.tcp_origins.contains(&origin_id),
+                                    origin_id,
                                 )
                             }
-                            MeasurementType::Verfploeter => {
-                                get_verfploeter_csv_row(reply, &rx_id, &config.worker_map)
+                            MeasurementType::Catchment => {
+                                get_catchment_csv_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
                             MeasurementType::Laces => get_laces_row(
                                 reply,
                                 &rx_id,
-                                config.p_type == ProtocolType::Tcp,
+                                config.tcp_origins.contains(&origin_id),
                                 &config.worker_map,
+                                origin_id,
                             ),
                             MeasurementType::AnycastTraceroute => {
                                 panic!("Received regular reply during a traceroute measurement")
@@ -214,7 +217,7 @@ pub fn get_header(
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
         }
-        MeasurementType::Verfploeter => {
+        MeasurementType::Catchment => {
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
@@ -244,23 +247,23 @@ pub fn get_header(
 /// `is_tcp` - whether it is a TCP encoded timestamp
 ///
 /// # Note
-/// TCP timestamps are masked to 21 bits using millisecond EPOCH
+/// TCP timestamps are masked to 21-bit microseconds EPOCH
+/// Traceroute timestamps are 14-bit milliseconds EPOCH
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
     if is_tcp {
-        // 21 bit millisecond timestamp (2^21 = 2,097,152)
+        // 21 bit microseconds timestamp (2^21 = 2,097,152)
         const MODULUS: u64 = 1 << 21;
         const MASK: u64 = MODULUS - 1; // 0x1FFFFF
-        let rx_time_ms = rx_time / 1_000;
-        let rx_21b = rx_time_ms & MASK;
+        let rx_21b = rx_time & MASK;
         let tx_21b = tx_time & MASK;
-        let rtt_ms = if rx_21b >= tx_21b {
+        let rtt_us = if rx_21b >= tx_21b {
             rx_21b - tx_21b
         } else {
             // wrap-around case
             (rx_21b + MODULUS) - tx_21b
         };
 
-        rtt_ms as f64
+        rtt_us as f64 / 1_000.0
     } else if is_traceroute {
         // 14-bit Modulus (2^14 = 16,384)
         const MODULUS: u64 = 1 << 14;

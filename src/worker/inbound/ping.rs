@@ -11,10 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `m_id` - the ID of the current measurement
-/// * `origin_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `is_traceroute` - handle echo reply as traceroute target reply
 /// * `src` - source address of the received packet (target address)
+/// * `ttl` - TTL of the received packet
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
@@ -27,7 +26,6 @@ pub fn parse_icmp(
     is_traceroute: bool,
     src: Address,
     ttl: u32,
-    origin_id: u32,
 ) -> Option<Reply> {
     // ICMPv6 minimum length 56 bytes (ICMP header 8 + ICMP body 48) + check it is an ICMP Echo reply
     if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
@@ -42,7 +40,7 @@ pub fn parse_icmp(
         ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, origin_id, ttl)
+    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
@@ -50,10 +48,10 @@ pub fn parse_icmp(
 /// # Arguments
 /// * `icmp_packet` - Unparsed ICMP packet
 /// * `m_id` - the ID of the current measurement
-/// * `origin_map` - mapping of origin to origin ID
-/// * `is_ipv6` - whether the packet is IPv6 (true) or IPv4 (false)
 /// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
+/// * `is_traceroute` - whether this is a traceroute target ping reply
 /// * `src` - source address of the received packet (target address)
+/// * `ttl` - TTL of the received packet
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
@@ -63,7 +61,6 @@ pub fn parse_icmp_inner(
     recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,
     src: Address,
-    origin_id: u32,
     ttl: u32,
 ) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
@@ -104,10 +101,7 @@ pub fn parse_icmp_inner(
 
     if is_discovery {
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
-                src: Some(src),
-                origin_id,
-            })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else if is_traceroute {
         let trace_ttl: u8 = if is_ipv6 {
@@ -120,7 +114,6 @@ pub fn parse_icmp_inner(
             reply_data: Some(ReplyData::Trace(TraceReply {
                 hop_addr: Some(src),
                 ttl,
-                origin_id,
                 rx_time,
                 tx_time,
                 tx_id,
@@ -133,7 +126,6 @@ pub fn parse_icmp_inner(
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                origin_id,
                 rx_time,
                 tx_time,
                 tx_id,

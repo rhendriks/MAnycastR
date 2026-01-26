@@ -1,9 +1,7 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{
-    MeasurementReply, MeasurementType, ProtocolType, ReplyBatch,
-};
-use crate::ALL_WORKERS;
+use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch};
+use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
 use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
@@ -25,7 +23,7 @@ const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
     let headers = get_header(
-        config.p_type == ProtocolType::ChaosDns,
+        config.is_chaos,
         config.is_multi_origin,
         config.is_record,
         config.m_type,
@@ -62,17 +60,20 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             }
 
             let rx_id = task_result.rx_id;
+            let origin_id = task_result.origin_id;
             for reply in task_result.results {
                 let Some(ReplyData::Measurement(m_reply)) = reply.reply_data else {
                     panic!("Unexpected measurement data")
                 };
 
+                let is_tcp = config.tcp_origins.contains(&origin_id);
                 let parquet_row = reply_to_parquet_row(
                     m_reply,
                     rx_id,
-                    config.p_type,
                     config.m_type,
                     &config.worker_map,
+                    origin_id,
+                    is_tcp,
                 );
                 row_buffer.push(parquet_row);
             }
@@ -107,10 +108,6 @@ pub fn get_parquet_metadata(
         "measurement_type".to_string(),
         args.m_type.as_str().to_string(),
     ));
-    md.push((
-        "protocol_used".to_string(),
-        args.p_type.as_str().to_string(),
-    ));
 
     if args.is_responsive {
         md.push(("responsive_mode".to_string(), "true".to_string()));
@@ -136,7 +133,7 @@ pub fn get_parquet_metadata(
         .iter()
         .map(|c| {
             format!(
-                "Worker: {}, src IP: {}, src port: {}, dst port: {}",
+                "Worker: {}, Origin ID: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
                 if c.worker_id == ALL_WORKERS {
                     "ALL".to_string()
                 } else {
@@ -145,12 +142,16 @@ pub fn get_parquet_metadata(
                         .unwrap_or(&String::from("Unknown"))
                         .to_string()
                 },
+                c.origin.as_ref().map_or(0, |o| o.origin_id),
                 c.origin
                     .as_ref()
                     .and_then(|o| o.src)
                     .map_or("N/A".to_string(), |s| s.to_string()),
                 c.origin.as_ref().map_or(0, |o| o.sport),
-                c.origin.as_ref().map_or(0, |o| o.dport)
+                c.origin.as_ref().map_or(0, |o| o.dport),
+                c.origin
+                    .as_ref()
+                    .map_or("N/A".to_string(), |o| o.p_type().to_string())
             )
         })
         .collect::<Vec<_>>();
@@ -190,9 +191,10 @@ pub struct ParquetDataRow {
 fn reply_to_parquet_row(
     result: MeasurementReply,
     rx_worker_id: u32,
-    p_type: ProtocolType,
     m_type: MeasurementType,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
+    is_tcp: bool,
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
@@ -203,21 +205,15 @@ fn reply_to_parquet_row(
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
-        origin_id: (result.origin_id != 0 && result.origin_id != ALL_WORKERS)
-            .then_some(result.origin_id as u8),
+        origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
     };
 
     match m_type {
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
-            row.rtt = Some(calculate_rtt(
-                result.rx_time,
-                result.tx_time,
-                p_type == ProtocolType::Tcp,
-                false,
-            ));
+            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false));
         }
-        MeasurementType::Verfploeter => {
-            // Verfploeter stays minimal (rx, addr, ttl)
+        MeasurementType::Catchment => {
+            // Catchment mapping is minimal (rx, addr, ttl)
         }
         MeasurementType::AnycastTraceroute => {
             panic!("Anycast traceroute cannot be written to parquet") // TODO

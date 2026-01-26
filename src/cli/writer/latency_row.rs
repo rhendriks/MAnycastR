@@ -1,5 +1,6 @@
 use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::MeasurementReply;
+use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message
@@ -9,6 +10,7 @@ use bimap::BiHashMap;
 /// * `rx_worker_id` - The worker ID of the receiver
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 /// * `is_tcp` - whether TCP is used (requires specific rtt calculation)
+/// * `origin_id` - origin ID associated with the reply
 ///
 /// # Returns
 /// A vector of strings representing the row in the CSV file
@@ -17,6 +19,7 @@ pub fn get_latency_row(
     rx_worker_id: &u32,
     worker_map: &BiHashMap<u32, String>,
     is_tcp: bool,
+    origin_id: u32,
 ) -> Vec<String> {
     // convert the worker ID to hostname
     let rx_hostname = worker_map
@@ -34,8 +37,8 @@ pub fn get_latency_row(
     ];
 
     // Optional fields
-    if reply.origin_id != 0 {
-        row.push(reply.origin_id.to_string());
+    if origin_id != SINGLE_ORIGIN {
+        row.push(origin_id.to_string());
     }
 
     row

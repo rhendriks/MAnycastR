@@ -1,9 +1,8 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction,
-    LiveMeasurementMessage, MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start,
-    Task, TraceReply, Worker,
+    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType,
+    Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -17,16 +16,14 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
-use crate::{custom_module, ALL_WORKERS};
-use futures_core::Stream;
+use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
 use log::{error, info, warn};
 use rand::Rng;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
@@ -331,7 +328,6 @@ impl Controller for ControllerService {
                 instruction_type: Some(instruction::InstructionType::Start(Start {
                     rate: probing_rate,
                     m_id,
-                    p_type: m_def.p_type,
                     tx_origins,
                     rx_origins: rx_origins.clone(),
                     record: dns_record.clone(),
@@ -379,17 +375,10 @@ impl Controller for ControllerService {
                 initial_hop: trace_options.initial_hop,
                 max_failures: trace_options.max_failures,
             });
-
-            let cli_sender_clone = self.cli_sender.clone();
             let trace_config_clone = self.trace_config.clone();
 
             std::thread::spawn(move || {
-                check_trace_timeouts(
-                    stacks_clone,
-                    ongoing_measurement,
-                    cli_sender_clone, // send '*' results
-                    trace_config_clone,
-                );
+                check_trace_timeouts(stacks_clone, ongoing_measurement, trace_config_clone);
             });
         }
 
@@ -400,9 +389,8 @@ impl Controller for ControllerService {
                 MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
             );
 
-        // Distribute tasks round robin if true
-        let is_round_robing =
-            send_discovery || (m_def.m_type == MeasurementType::Verfploeter as i32);
+        // Distribute tasks round-robin if true
+        let is_round_robing = send_discovery || (m_def.m_type() == MeasurementType::Catchment);
 
         let probing_rate_interval = if is_round_robing {
             // We send a chunk every probing_rate / number_of_probing_workers seconds (as the probing is spread out over the workers)
@@ -419,6 +407,7 @@ impl Controller for ControllerService {
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
+                    origin_id: ALL_ORIGINS,
                 })
                 .collect::<Vec<Task>>()
         } else {
@@ -427,6 +416,7 @@ impl Controller for ControllerService {
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
+                    origin_id: ALL_ORIGINS,
                 })
                 .collect::<Vec<Task>>()
         };
@@ -442,7 +432,7 @@ impl Controller for ControllerService {
         };
 
         // Spawn appropriate task distributor thread
-        if m_def.m_type == MeasurementType::Verfploeter as i32 {
+        if m_def.m_type == MeasurementType::Catchment as i32 {
             // Distribute tasks round-robin
             round_robin_distributor(task_config).await;
         } else if send_discovery {
@@ -459,16 +449,6 @@ impl Controller for ControllerService {
         };
 
         Ok(Response::new(rx))
-    }
-
-    // Live measurement stream type
-    type LiveMeasurementStream =
-        Pin<Box<dyn Stream<Item = Result<ReplyBatch, Status>> + Send + Sync + 'static>>;
-    async fn live_measurement(
-        &self,
-        _request: Request<Streaming<LiveMeasurementMessage>>,
-    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
-        Err(Status::unimplemented("Not implemented"))
     }
 
     /// Handle the list_clients command from the CLI.
@@ -506,6 +486,7 @@ impl Controller for ControllerService {
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let catcher_id = task_result.rx_id;
+        let origin_id = task_result.origin_id;
 
         // Split replies into buckets
         let mut results_bucket: Vec<Reply> = Vec::new();
@@ -545,12 +526,12 @@ impl Controller for ControllerService {
             match m_type {
                 // Perform follow-up from ALL workers
                 MeasurementType::Laces | MeasurementType::UnicastLatency => {
-                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks);
+                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks, origin_id);
                 }
 
                 // Follow up from only the catching worker
                 MeasurementType::AnycastLatency => {
-                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks);
+                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks, origin_id);
                 }
 
                 // Special handling for Traceroute
@@ -562,13 +543,13 @@ impl Controller for ControllerService {
                             catcher_id,
                             &mut worker_stacks,
                             config,
+                            origin_id,
                         );
                     }
                 }
 
-                MeasurementType::Verfploeter => panic!(
-                    "[Orchestrator] Received discovery results for unsupported mode: {}",
-                    m_type
+                MeasurementType::Catchment => warn!(
+                    "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {m_type}"
                 ),
             }
         }
@@ -581,6 +562,7 @@ impl Controller for ControllerService {
                     trace_bucket.clone(),
                     &mut self.worker_stacks.lock().unwrap(),
                     config,
+                    origin_id,
                 );
             }
 
@@ -602,6 +584,7 @@ impl Controller for ControllerService {
             tx.send(Ok(ReplyBatch {
                 rx_id: catcher_id,
                 results: results_bucket,
+                origin_id,
             }))
             .await
             .expect("failed to send results to CLI");

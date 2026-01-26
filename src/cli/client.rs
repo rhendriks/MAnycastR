@@ -2,9 +2,10 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::controller_client::ControllerClient;
+use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
 use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::custom_module::Separated;
-use crate::ALL_WORKERS;
+use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
@@ -30,12 +31,11 @@ impl CliClient {
     /// # Arguments
     /// * `m_def` - measurement definition  for the orchestrator created from the command-line arguments
     /// * `args` - contains additional arguments for the measurement execution
-    /// * `is_ipv6` - boolean whether the measurement is IPv6 or not
+    /// * `m_type` - Measurement type
     pub(crate) async fn do_measurement_to_server(
         &mut self,
         m_def: ScheduleMeasurement,
         args: MeasurementExecutionArgs<'_>,
-        is_ipv6: bool,
         m_type: MeasurementType,
     ) -> Result<(), Box<dyn Error>> {
         let probing_rate = m_def.probing_rate;
@@ -58,15 +58,15 @@ impl CliClient {
         };
 
         let m_time = match m_def.m_type() {
-            MeasurementType::Verfploeter | MeasurementType::AnycastLatency => {
+            MeasurementType::Catchment | MeasurementType::AnycastLatency => {
                 ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
-                    + 1.0)
+                    + 5.0)
                     / 60.0
             }
             _ => {
                 (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
             + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
-            + 1.0) // Time to wait for last replies
+            + 5.0) // Time to wait for last replies
             / 60.0 // Convert to minutes
             }
         };
@@ -123,11 +123,20 @@ impl CliClient {
         let (tx_r, rx_r) = unbounded_channel();
 
         // Get protocol and IP version
-        let type_str = format!(
-            "{}{}",
-            m_def.p_type().as_str(),
-            if is_ipv6 { "v6" } else { "v4" }
-        );
+        let proto_str = {
+            let mut it = m_def
+                .configurations
+                .iter()
+                .map(|c| c.origin.expect("none origin").p_type());
+            let first = it.next().unwrap();
+            if it.all(|p| p == first) {
+                // A single protocol type is used
+                first.as_str()
+            } else {
+                // Multiple protocol types are used
+                "multi"
+            }
+        };
 
         // Determine traceroute
         let is_record = args.is_record;
@@ -141,7 +150,7 @@ impl CliClient {
         let file_path = if path.ends_with('/') {
             // User provided a path, use default naming convention for file
             format!(
-                "{path}{}-{type_str}-{timestamp_start_str}{extension}",
+                "{path}{}-{proto_str}-{timestamp_start_str}{extension}",
                 m_type.as_str()
             )
         } else {
@@ -165,25 +174,44 @@ impl CliClient {
             configurations: &m_def.configurations,
             is_responsive,
             m_type: m_def.m_type(),
-            p_type: m_def.p_type(),
         };
 
-        // Check if any configuration has origin_id that is not 0 or u32::MAX -> multi origin
+        // Check if any configuration has an origin ID
         let is_multi_origin = m_def.configurations.iter().any(|conf| {
             conf.origin
                 .as_ref()
-                .is_some_and(|origin| origin.origin_id != 0 && origin.origin_id != u32::MAX)
+                .is_some_and(|origin| origin.origin_id != SINGLE_ORIGIN)
         });
+
+        // Check if any configuration sends CHAOS probes
+        let is_chaos = m_def.configurations.iter().any(|conf| {
+            conf.origin
+                .as_ref()
+                .is_some_and(|origin| origin.p_type() == ChaosDns)
+        });
+
+        // List of all origin IDs that are TCP
+        let tcp_origin_ids = m_def
+            .configurations
+            .iter()
+            .filter_map(|conf| {
+                conf.origin
+                    .as_ref()
+                    .filter(|origin| origin.p_type() == Tcp)
+                    .map(|origin| origin.origin_id)
+            })
+            .collect::<Vec<u32>>();
 
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
             metadata_args,
-            p_type: m_def.p_type(),
             m_type: m_def.m_type(),
             is_multi_origin,
             worker_map: args.worker_map.clone(),
             is_record,
+            is_chaos,
+            tcp_origins: tcp_origin_ids,
         };
 
         // Start thread that writes results to file
