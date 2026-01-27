@@ -117,6 +117,7 @@ pub fn outbound(
                                     failed += f;
                                 }
                                 Some(TaskType::Discovery(task)) => {
+                                    println!("sending discovery task");
                                     let (s, f) = send_probe(
                                         &config,
                                         &task.dst.unwrap(),
