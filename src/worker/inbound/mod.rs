@@ -157,43 +157,39 @@ fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Erro
     let mut control_storage = ControlBuffer([MaybeUninit::uninit(); 128]);
     let control_buf_bytes = &mut control_storage.0;
 
-    loop {
-        let recv_result = {
-            let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
-            let mut msg = MsgHdrMut::new()
-                .with_addr(&mut source_storage)
-                .with_buffers(&mut iov_buf)
-                .with_control(control_buf_bytes);
+    let recv_result = {
+        let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
+        let mut msg = MsgHdrMut::new()
+            .with_addr(&mut source_storage)
+            .with_buffers(&mut iov_buf)
+            .with_control(control_buf_bytes);
 
-            socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
-        };
+        socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
+    };
 
-        match recv_result {
-            Ok((bytes_read, control_len)) => {
-                let source = source_storage
-                    .as_socket()
-                    .ok_or_else(|| std::io::Error::other("invalid source address"))?;
+    match recv_result {
+        Ok((bytes_read, control_len)) => {
+            let source = source_storage
+                .as_socket()
+                .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
-                let (packet_data, ancillary_data) = unsafe {
-                    let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
-                    let c = std::slice::from_raw_parts(
-                        control_storage.0.as_ptr() as *const u8,
-                        control_len,
-                    );
-                    (p, c)
-                };
+            let (packet_data, ancillary_data) = unsafe {
+                let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
+                let c = std::slice::from_raw_parts(
+                    control_storage.0.as_ptr() as *const u8,
+                    control_len,
+                );
+                (p, c)
+            };
 
-                let hop_limit = if source.is_ipv6() {
-                    parse_hop_limit(ancillary_data).unwrap_or(0)
-                } else {
-                    packet_data[8] as u32
-                };
-                return Ok((packet_data, hop_limit, source));
-            }
-            Err(e) => {
-                return Err(e);
-            }
+            let hop_limit = if source.is_ipv6() {
+                parse_hop_limit(ancillary_data).unwrap_or(0)
+            } else {
+                packet_data[8] as u32
+            };
+            Ok((packet_data, hop_limit, source))
         }
+        Err(e) => Err(e),
     }
 }
 

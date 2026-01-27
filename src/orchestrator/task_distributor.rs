@@ -368,7 +368,9 @@ pub async fn round_robin_discovery(
                         stacks_guard.values().all(|queue| queue.is_empty())
                     };
                     if all_stacks_empty {
-                        info!("[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",);
+                        info!(
+                            "[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",
+                        );
                         cooldown_timer = Some(Instant::now());
                     }
                 }
