@@ -44,6 +44,8 @@ pub struct InboundConfig {
     pub origin_id: u32,
     /// Source port used
     pub sport: u16,
+    /// Source address used
+    pub src: String,
 }
 
 /// Listen for incoming packets
@@ -72,15 +74,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
             // Listen for incoming packets
             let mut received: u32 = 0;
             loop {
-                // Check if we should exit
-                if rx_f_c.load(Ordering::Relaxed) {
-                    break;
-                }
                 let (packet, ttl, src) = match get_packet(&socket) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Wait 100ms to check again
-                        sleep(Duration::from_millis(100));
+                        sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
+                                                         // Check if we should exit
+                        if rx_f_c.load(Ordering::Relaxed) {
+                            break;
+                        }
                         continue;
                     }
                     Err(e) => panic!("Socket error: {}", e),
@@ -119,10 +120,21 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 }
             }
 
-            info!(
-                "[Worker inbound] Stopped pnet listener (received {} packets)",
-                received.with_separator()
-            );
+            if config.p_type == ProtocolType::Icmp {
+                info!(
+                    "[Worker inbound] Stopped ICMP ping listener {} (received {} packets)",
+                    config.src,
+                    received.with_separator(),
+                )
+            } else {
+                info!(
+                    "[Worker inbound] Stopped {} listener {}:{} (received {} packets)",
+                    config.p_type,
+                    config.src,
+                    config.sport,
+                    received.with_separator(),
+                );
+            }
         })
         .expect("Failed to spawn listener_thread");
 
@@ -145,47 +157,39 @@ fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Erro
     let mut control_storage = ControlBuffer([MaybeUninit::uninit(); 128]);
     let control_buf_bytes = &mut control_storage.0;
 
-    loop {
-        let recv_result = {
-            let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
-            let mut msg = MsgHdrMut::new()
-                .with_addr(&mut source_storage)
-                .with_buffers(&mut iov_buf)
-                .with_control(control_buf_bytes);
+    let recv_result = {
+        let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
+        let mut msg = MsgHdrMut::new()
+            .with_addr(&mut source_storage)
+            .with_buffers(&mut iov_buf)
+            .with_control(control_buf_bytes);
 
-            socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
-        };
+        socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
+    };
 
-        match recv_result {
-            Ok((bytes_read, control_len)) => {
-                let source = source_storage
-                    .as_socket()
-                    .ok_or_else(|| std::io::Error::other("invalid source address"))?;
+    match recv_result {
+        Ok((bytes_read, control_len)) => {
+            let source = source_storage
+                .as_socket()
+                .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
-                let (packet_data, ancillary_data) = unsafe {
-                    let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
-                    let c = std::slice::from_raw_parts(
-                        control_storage.0.as_ptr() as *const u8,
-                        control_len,
-                    );
-                    (p, c)
-                };
+            let (packet_data, ancillary_data) = unsafe {
+                let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
+                let c = std::slice::from_raw_parts(
+                    control_storage.0.as_ptr() as *const u8,
+                    control_len,
+                );
+                (p, c)
+            };
 
-                let hop_limit = if source.is_ipv6() {
-                    parse_hop_limit(ancillary_data).unwrap_or(0)
-                } else {
-                    packet_data[8] as u32
-                };
-                return Ok((packet_data, hop_limit, source));
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
-                    continue;
-                }
-                return Err(e);
-            }
+            let hop_limit = if source.is_ipv6() {
+                parse_hop_limit(ancillary_data).unwrap_or(0)
+            } else {
+                packet_data[8] as u32
+            };
+            Ok((packet_data, hop_limit, source))
         }
+        Err(e) => Err(e),
     }
 }
 

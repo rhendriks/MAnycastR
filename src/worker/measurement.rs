@@ -61,6 +61,7 @@ impl Worker {
                     is_record: start.is_record,
                     origin_id: rx_origin.origin_id,
                     sport: rx_origin.sport as u16,
+                    src: rx_origin.src.expect("no src").to_string(),
                 },
                 inbound_tx.clone(),
                 socket.clone(),
