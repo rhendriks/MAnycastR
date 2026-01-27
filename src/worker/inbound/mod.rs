@@ -44,6 +44,8 @@ pub struct InboundConfig {
     pub origin_id: u32,
     /// Source port used
     pub sport: u16,
+    /// Source address used
+    pub src: String,
 }
 
 /// Listen for incoming packets
@@ -119,9 +121,21 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 }
             }
 
+            // config.sport
+            if config.p_type == ProtocolType::Icmp {
+                info!(
+                    "[Worker inbound] Stopped ICMP ping listener {} (received {} packets)",
+                    config.src,
+                    received.with_separator(),
+                )
+            }
+
             info!(
-                "[Worker inbound] Stopped pnet listener (received {} packets)",
-                received.with_separator()
+                "[Worker inbound] Stopped {} listener {}:{} (received {} packets)",
+                config.p_type,
+                config.src,
+                config.sport,
+                received.with_separator(),
             );
         })
         .expect("Failed to spawn listener_thread");
