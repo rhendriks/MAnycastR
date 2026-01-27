@@ -74,15 +74,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
             // Listen for incoming packets
             let mut received: u32 = 0;
             loop {
-                // Check if we should exit
-                if rx_f_c.load(Ordering::Relaxed) {
-                    break;
-                }
                 let (packet, ttl, src) = match get_packet(&socket) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Wait 100ms to check again
-                        sleep(Duration::from_millis(100));
+                        sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
+                                                         // Check if we should exit
+                        if rx_f_c.load(Ordering::Relaxed) {
+                            break;
+                        }
                         continue;
                     }
                     Err(e) => panic!("Socket error: {}", e),
@@ -121,22 +120,21 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 }
             }
 
-            // config.sport
             if config.p_type == ProtocolType::Icmp {
                 info!(
                     "[Worker inbound] Stopped ICMP ping listener {} (received {} packets)",
                     config.src,
                     received.with_separator(),
                 )
+            } else {
+                info!(
+                    "[Worker inbound] Stopped {} listener {}:{} (received {} packets)",
+                    config.p_type,
+                    config.src,
+                    config.sport,
+                    received.with_separator(),
+                );
             }
-
-            info!(
-                "[Worker inbound] Stopped {} listener {}:{} (received {} packets)",
-                config.p_type,
-                config.src,
-                config.sport,
-                received.with_separator(),
-            );
         })
         .expect("Failed to spawn listener_thread");
 
@@ -193,10 +191,6 @@ fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Erro
                 return Ok((packet_data, hop_limit, source));
             }
             Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
-                    continue;
-                }
                 return Err(e);
             }
         }

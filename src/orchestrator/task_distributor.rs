@@ -68,7 +68,7 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
 
         let cooldown = (config.number_of_probing_workers as u64 * config.worker_interval) + 1;
         // Wait for the workers to finish their tasks
-        info!("[Orchestrator] Last tasks being sent, awaiting {cooldown}-seconds cooldown.");
+        info!("[Orchestrator] Last tasks being sent, awaiting a {cooldown}-second cooldown.");
         tokio::time::sleep(Duration::from_secs(cooldown)).await;
 
         info!("[Orchestrator] Task distribution finished");
@@ -176,7 +176,7 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
         } // end of round-robin loop
 
         // Wait for the workers to finish their tasks
-        info!("[Orchestrator] All tasks sent, awaiting 1-second cooldown for replies.");
+        info!("[Orchestrator] All tasks sent, awaiting a 1-second cooldown for replies.");
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         info!("[Orchestrator] Task distribution finished");
@@ -368,7 +368,7 @@ pub async fn round_robin_discovery(
                         stacks_guard.values().all(|queue| queue.is_empty())
                     };
                     if all_stacks_empty {
-                        info!("[Orchestrator] No more tasks. Waiting {cooldown}-seconds for cooldown.",);
+                        info!("[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",);
                         cooldown_timer = Some(Instant::now());
                     }
                 }
