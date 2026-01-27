@@ -66,11 +66,10 @@ pub async fn broadcast_distributor(config: TaskDistributorConfig) {
             probing_rate_interval.tick().await;
         }
 
+        let cooldown = (config.number_of_probing_workers as u64 * config.worker_interval) + 1;
         // Wait for the workers to finish their tasks
-        tokio::time::sleep(Duration::from_secs(
-            (config.number_of_probing_workers as u64 * config.worker_interval) + 1,
-        ))
-        .await;
+        info!("[Orchestrator] Last tasks being sent, awaiting a {cooldown}-second cooldown.");
+        tokio::time::sleep(Duration::from_secs(cooldown)).await;
 
         info!("[Orchestrator] Task distribution finished");
 
@@ -177,7 +176,8 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
         } // end of round-robin loop
 
         // Wait for the workers to finish their tasks
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        info!("[Orchestrator] All tasks sent, awaiting a 1-second cooldown for replies.");
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         info!("[Orchestrator] Task distribution finished");
 
@@ -218,7 +218,8 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
 /// Also checks the worker stacks for follow-up tasks and sends them to the appropriate workers.
 /// Ends the measurement when all discovery probes have been sent and all stacks are empty.
 ///
-/// Used for --responsive, --latency, and --traceroute measurements.
+/// Used for latency and traceroute measurements.
+/// Also used when --responsive is set.
 ///
 /// # Arguments
 /// * `config` - TaskDistributorConfig with all necessary parameters.
@@ -347,10 +348,16 @@ pub async fn round_robin_discovery(
                     .expect("Failed to send task to TaskDistributor");
             }
 
+            let cooldown = if is_responsive {
+                (config.number_of_probing_workers as u64 * config.worker_interval) + 1
+            } else {
+                5
+            };
+
             // Check if we finished sending all discovery probes and all stacks are empty
             if hitlist_is_empty {
                 if let Some(start_time) = cooldown_timer {
-                    if start_time.elapsed() >= Duration::from_secs(5) {
+                    if start_time.elapsed() >= Duration::from_secs(cooldown) {
                         info!("[Orchestrator] Task distribution finished.");
                         break;
                     }
@@ -361,7 +368,9 @@ pub async fn round_robin_discovery(
                         stacks_guard.values().all(|queue| queue.is_empty())
                     };
                     if all_stacks_empty {
-                        info!("[Orchestrator] No more tasks. Waiting 5 seconds for cooldown.",);
+                        info!(
+                            "[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",
+                        );
                         cooldown_timer = Some(Instant::now());
                     }
                 }
