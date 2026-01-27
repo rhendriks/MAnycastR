@@ -388,7 +388,6 @@ impl Controller for ControllerService {
                 m_type,
                 MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
             );
-        println!("send_discovery {send_discovery}, is_responsive {is_responsive}");
 
         // Distribute tasks round-robin if true
         let is_round_robing = send_discovery || (m_def.m_type() == MeasurementType::Catchment);
@@ -404,7 +403,6 @@ impl Controller for ControllerService {
         // Convert hitlist targets into the appropriate TaskType
         let tasks = if send_discovery {
             // Send Discovery tasks
-            println!("sending discovery tasks");
             hitlist
                 .iter()
                 .map(|addr| Task {
