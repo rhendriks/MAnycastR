@@ -74,7 +74,10 @@ impl Address {
         match &self.value {
             Some(V4(v4)) => {
                 let octets = v4.to_be_bytes();
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, octets[0], octets[1], octets[2], octets[3]]
+                [
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, octets[0], octets[1], octets[2],
+                    octets[3],
+                ]
             }
             Some(V6(v6)) => {
                 let mut bytes = [0u8; 16];

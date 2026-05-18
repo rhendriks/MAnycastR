@@ -252,13 +252,14 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "addr" => {
-                SchemaType::primitive_type_builder(header, parquet::basic::Type::FIXED_LEN_BYTE_ARRAY)
-                    .with_repetition(Repetition::OPTIONAL)
-                    .with_length(16)
-                    .build()
-                    .unwrap()
-            }
+            "addr" => SchemaType::primitive_type_builder(
+                header,
+                parquet::basic::Type::FIXED_LEN_BYTE_ARRAY,
+            )
+            .with_repetition(Repetition::OPTIONAL)
+            .with_length(16)
+            .build()
+            .unwrap(),
             "rx_time" | "tx_time" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
                     .with_repetition(Repetition::OPTIONAL)
