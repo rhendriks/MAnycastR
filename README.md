@@ -153,6 +153,91 @@ Measure the path from the catching PoP to the target.
 First, a single `discovery probe` is sent to infer the catching worker.
 Next, multiple traceroute packets are sent from the catching worker to measure the path.
 
+## Parquet output format
+
+When using `--parquet`, results are written as Apache Parquet files with Zstd compression.
+Measurement metadata (type, hitlist, probing rate, connected workers, etc.) is stored in the Parquet file's key-value metadata.
+
+### Columns
+
+Columns depend on the measurement type:
+
+| Column | Type | Description | Measurement types |
+|--------|------|-------------|-------------------|
+| `rx` | `ENUM` | Hostname of the receiving worker | All |
+| `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply (see below) | All |
+| `ttl` | `UINT8` | TTL of the reply | All |
+| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast |
+| `tx` | `ENUM` | Hostname of the sending worker | LACeS |
+| `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
+| `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
+| `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
+| `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
+
+### IP address encoding
+
+The `addr` column stores IP addresses as 16-byte fixed-length binary using IPv4-mapped-IPv6 format ([RFC 4291 Section 2.5.5.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.5.5.2)):
+
+* **IPv4** `192.0.2.1` is stored as `::ffff:192.0.2.1` (`00 00 00 00 00 00 00 00 00 00 FF FF C0 00 02 01`)
+* **IPv6** addresses are stored as-is in 16 bytes big-endian
+
+### Reading Parquet files
+
+#### Python (pyarrow / pandas)
+
+```python
+import pandas as pd
+import ipaddress
+
+df = pd.read_parquet("results.parquet")
+
+def parse_addr(b: bytes) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Parse a 16-byte IPv4-mapped-IPv6 address back to an IPv4 or IPv6 address."""
+    addr = ipaddress.ip_address(b)
+    # Convert IPv4-mapped-IPv6 (::ffff:x.x.x.x) back to IPv4
+    if hasattr(addr, 'ipv4_mapped') and addr.ipv4_mapped:
+        return addr.ipv4_mapped
+    return addr
+
+df["addr"] = df["addr"].apply(parse_addr)
+```
+
+#### DuckDB
+
+```sql
+-- Load the parquet file
+CREATE TABLE results AS SELECT * FROM read_parquet('results.parquet');
+
+-- IPv4: bytes 13-16 contain the address (1-indexed)
+-- Check for IPv4-mapped prefix (bytes 11-12 = 0xFFFF, bytes 1-10 = 0x00)
+SELECT
+    rx,
+    CASE
+        WHEN addr[11:12] = '\xFF\xFF'::BLOB AND addr[1:10] = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'::BLOB
+        THEN printf('%d.%d.%d.%d',
+            get_byte(addr, 12), get_byte(addr, 13),
+            get_byte(addr, 14), get_byte(addr, 15))
+        ELSE encode(addr)
+    END AS ip_address,
+    ttl
+FROM results;
+```
+
+#### Polars
+
+```python
+import polars as pl
+import ipaddress
+
+df = pl.read_parquet("results.parquet")
+df = df.with_columns(
+    pl.col("addr").map_elements(
+        lambda b: str(ipaddress.ip_address(b).ipv4_mapped or ipaddress.ip_address(b)),
+        return_dtype=pl.Utf8,
+    ).alias("addr")
+)
+```
+
 ## Installation
 
 ### Cargo

@@ -4,7 +4,7 @@ use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBa
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
-use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
+use parquet::data_type::{ByteArray, FixedLenByteArray, FloatType, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
-const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
+const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -42,9 +42,9 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
     let props = Arc::new(
         WriterProperties::builder()
-            .set_compression(ParquetCompression::SNAPPY)
+            .set_compression(ParquetCompression::ZSTD(Default::default()))
             .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
-            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
+            .set_max_row_group_row_count(Some(MAX_ROW_GROUP_ROW_COUNT))
             .build(),
     );
 
@@ -169,18 +169,18 @@ pub fn get_parquet_metadata(
 pub struct ParquetDataRow {
     /// Hostname of the probe receiver.
     rx: Option<String>,
-    /// UNIX timestamp in nanoseconds when the reply was received.
+    /// UNIX timestamp in microseconds when the reply was received.
     rx_time: Option<u64>,
-    /// Source address of the reply (as a string).
-    addr: Option<String>,
+    /// Source address of the reply as 16-byte IPv4-mapped-IPv6 (RFC 4291).
+    addr: Option<[u8; 16]>,
     /// Time-to-live (TTL) value of the reply.
     ttl: Option<u8>,
-    /// UNIX timestamp in nanoseconds when the request was sent.
+    /// UNIX timestamp in microseconds when the request was sent.
     tx_time: Option<u64>,
     /// Hostname of the probe sender.
     tx: Option<String>,
     /// Round-trip time (RTT) in milliseconds.
-    rtt: Option<f64>,
+    rtt: Option<f32>,
     /// DNS TXT CHAOS record value.
     chaos_data: Option<String>,
     /// Origin ID for multi-origin measurements (source address, ports).
@@ -199,7 +199,7 @@ fn reply_to_parquet_row(
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         rx_time: None,
-        addr: result.src.map(|s| s.to_string()),
+        addr: result.src.map(|s| s.to_ipv6_mapped_bytes()),
         ttl: Some(result.ttl as u8),
         tx_time: None,
         tx: None,
@@ -210,7 +210,7 @@ fn reply_to_parquet_row(
 
     match m_type {
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
-            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false));
+            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false) as f32);
         }
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
@@ -238,20 +238,35 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 
     for &header in &headers {
         let field = match header {
-            "rx" | "addr" | "tx" | "chaos_data" => {
+            "rx" | "tx" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_logical_type(Some(LogicalType::Enum))
+                    .build()
+                    .unwrap()
+            }
+            "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::String))
                     .build()
                     .unwrap()
             }
+            "addr" => SchemaType::primitive_type_builder(
+                header,
+                parquet::basic::Type::FIXED_LEN_BYTE_ARRAY,
+            )
+            .with_repetition(Repetition::OPTIONAL)
+            .with_length(16)
+            .build()
+            .unwrap(),
             "rx_time" | "tx_time" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Integer {
-                        bit_width: 64,
-                        is_signed: false,
-                    })) // u64
+                    .with_logical_type(Some(LogicalType::Timestamp {
+                        is_adjusted_to_u_t_c: true,
+                        unit: parquet::basic::TimeUnit::MICROS,
+                    }))
                     .build()
                     .unwrap()
             }
@@ -265,7 +280,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::DOUBLE)
+            "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::FLOAT)
                 .with_repetition(Repetition::OPTIONAL)
                 .build()
                 .unwrap(),
@@ -293,23 +308,22 @@ pub fn write_batch_to_parquet(
     for &header in headers {
         if let Some(mut col_writer) = row_group_writer.next_column()? {
             match header {
-                "rx" | "addr" | "tx" | "chaos_data" => {
-                    let mut values = Vec::new();
+                "rx" | "tx" | "chaos_data" => {
+                    let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
                             let opt_val = match header {
                                 "rx" => row.rx.as_ref(),
-                                "addr" => row.addr.as_ref(),
                                 "tx" => row.tx.as_ref(),
                                 "chaos_data" => row.chaos_data.as_ref(),
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
                                 values.push(ByteArray::from(val.as_str()));
-                                1 // 1 means the value is defined (not NULL)
+                                1
                             } else {
-                                0 // 0 means the value is NULL
+                                0
                             }
                         })
                         .collect();
@@ -317,8 +331,25 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::ByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
+                "addr" => {
+                    let mut values: Vec<FixedLenByteArray> = Vec::with_capacity(batch.len());
+                    let def_levels: Vec<i16> = batch
+                        .iter()
+                        .map(|row| {
+                            if let Some(val) = row.addr.as_ref() {
+                                values.push(ByteArray::from(val.as_slice()).into());
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .collect();
+                    col_writer
+                        .typed::<parquet::data_type::FixedLenByteArrayType>()
+                        .write_batch(&values, Some(&def_levels), None)?;
+                }
                 "rx_time" | "tx_time" => {
-                    let mut values = Vec::new();
+                    let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
@@ -342,7 +373,7 @@ pub fn write_batch_to_parquet(
                     )?;
                 }
                 "ttl" | "origin_id" => {
-                    let mut values = Vec::new();
+                    let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
@@ -366,19 +397,19 @@ pub fn write_batch_to_parquet(
                     )?;
                 }
                 "rtt" => {
-                    let mut values = Vec::new();
+                    let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
                             if let Some(val) = row.rtt {
                                 values.push(val);
-                                1 // 1 means the value is defined (not NULL)
+                                1
                             } else {
-                                0 // 0 means the value is NULL
+                                0
                             }
                         })
                         .collect();
-                    col_writer.typed::<DoubleType>().write_batch(
+                    col_writer.typed::<FloatType>().write_batch(
                         &values,
                         Some(&def_levels),
                         None,

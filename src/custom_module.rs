@@ -66,6 +66,28 @@ impl Address {
             _ => vec![],
         }
     }
+
+    /// Convert to 16-byte IPv4-mapped-IPv6 representation (big-endian).
+    /// IPv4 `x.x.x.x` becomes `::ffff:x.x.x.x` (RFC 4291 §2.5.5.2).
+    /// IPv6 addresses are stored as-is.
+    pub fn to_ipv6_mapped_bytes(self) -> [u8; 16] {
+        match self.value {
+            Some(V4(v4)) => {
+                let octets = v4.to_be_bytes();
+                [
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, octets[0], octets[1], octets[2],
+                    octets[3],
+                ]
+            }
+            Some(V6(v6)) => {
+                let mut bytes = [0u8; 16];
+                bytes[..8].copy_from_slice(&v6.high.to_be_bytes());
+                bytes[8..].copy_from_slice(&v6.low.to_be_bytes());
+                bytes
+            }
+            _ => [0u8; 16],
+        }
+    }
 }
 
 /// Address -> u32 (panic if not V4)
