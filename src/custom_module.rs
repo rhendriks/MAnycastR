@@ -70,8 +70,8 @@ impl Address {
     /// Convert to 16-byte IPv4-mapped-IPv6 representation (big-endian).
     /// IPv4 `x.x.x.x` becomes `::ffff:x.x.x.x` (RFC 4291 §2.5.5.2).
     /// IPv6 addresses are stored as-is.
-    pub fn to_ipv6_mapped_bytes(&self) -> [u8; 16] {
-        match &self.value {
+    pub fn to_ipv6_mapped_bytes(self) -> [u8; 16] {
+        match self.value {
             Some(V4(v4)) => {
                 let octets = v4.to_be_bytes();
                 [
