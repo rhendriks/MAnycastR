@@ -86,6 +86,7 @@ pub struct TXTRecord {
 
 /// Read a DNS name that is contained in a DNS response.
 /// Returns the domain name string of the A record reply.
+#[cfg_attr(test, allow(dead_code))]
 fn read_dns_name(data: &mut Cursor<&[u8]>) -> String {
     let mut result = String::new();
     loop {
