@@ -169,8 +169,8 @@ Columns depend on the measurement type:
 | `ttl` | `UINT8` | TTL of the reply | All |
 | `rtt` | `DOUBLE` | Round-trip time (ms) | Latency, Unicast |
 | `tx` | `STRING` | Hostname of the sending worker | LACeS |
-| `rx_time` | `UINT64` | Receive timestamp (ns since epoch) | LACeS |
-| `tx_time` | `UINT64` | Send timestamp (ns since epoch) | LACeS |
+| `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
+| `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
 
