@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
-const MAX_ROW_GROUP_SIZE_BYTES: usize = 256 * 1024 * 1024; // 256 MB
+const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -44,7 +44,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
         WriterProperties::builder()
             .set_compression(ParquetCompression::ZSTD(Default::default()))
             .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
-            .set_max_row_group_size(MAX_ROW_GROUP_SIZE_BYTES) // Set max row group size
+            .set_max_row_group_row_count(Some(MAX_ROW_GROUP_ROW_COUNT))
             .build(),
     );
 
