@@ -13,7 +13,7 @@ prettytable-rs = "0.10.0" # print worker-list
 prost = "0.14.3" # define gRPC messages
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
 tonic = { version = "0.14.2", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
-rand = "0.9.2" # generate random numbers
+rand = "0.10.1" # generate random numbers
 gethostname = "1.1.0" # get hostname
 socket2 = { version = "0.6.2", features = ["all"] }
 local-ip-address = "0.6.9" # get local unicast address

@@ -18,7 +18,7 @@ use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
 use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
 use log::{error, info, warn};
-use rand::Rng;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
@@ -280,7 +280,7 @@ impl Controller for ControllerService {
         }
 
         // Get a random measurement ID
-        let m_id = rand::rng().random_range(0..u32::MAX);
+        let m_id = rand::random_range(0..u32::MAX);
 
         let participating_workers_count = participating_worker_ids.len();
 
