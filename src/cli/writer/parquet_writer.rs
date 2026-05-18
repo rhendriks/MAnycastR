@@ -169,13 +169,13 @@ pub fn get_parquet_metadata(
 pub struct ParquetDataRow {
     /// Hostname of the probe receiver.
     rx: Option<String>,
-    /// UNIX timestamp in nanoseconds when the reply was received.
+    /// UNIX timestamp in microseconds when the reply was received.
     rx_time: Option<u64>,
     /// Source address of the reply as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     addr: Option<[u8; 16]>,
     /// Time-to-live (TTL) value of the reply.
     ttl: Option<u8>,
-    /// UNIX timestamp in nanoseconds when the request was sent.
+    /// UNIX timestamp in microseconds when the request was sent.
     tx_time: Option<u64>,
     /// Hostname of the probe sender.
     tx: Option<String>,
@@ -255,10 +255,10 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             "rx_time" | "tx_time" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Integer {
-                        bit_width: 64,
-                        is_signed: false,
-                    })) // u64
+                    .with_logical_type(Some(LogicalType::Timestamp {
+                        is_adjusted_to_u_t_c: true,
+                        unit: parquet::basic::TimeUnit::MICROS,
+                    }))
                     .build()
                     .unwrap()
             }
