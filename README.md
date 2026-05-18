@@ -155,7 +155,7 @@ Next, multiple traceroute packets are sent from the catching worker to measure t
 
 ## Parquet output format
 
-When using `--parquet`, results are written as Apache Parquet files with Snappy compression.
+When using `--parquet`, results are written as Apache Parquet files with Zstd compression.
 Measurement metadata (type, hitlist, probing rate, connected workers, etc.) is stored in the Parquet file's key-value metadata.
 
 ### Columns
@@ -167,7 +167,7 @@ Columns depend on the measurement type:
 | `rx` | `ENUM` | Hostname of the receiving worker | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `DOUBLE` | Round-trip time (ms) | Latency, Unicast |
+| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast |
 | `tx` | `ENUM` | Hostname of the sending worker | LACeS |
 | `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
 | `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
