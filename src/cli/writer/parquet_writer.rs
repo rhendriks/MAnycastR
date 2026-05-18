@@ -238,7 +238,14 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 
     for &header in &headers {
         let field = match header {
-            "rx" | "tx" | "chaos_data" => {
+            "rx" | "tx" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_logical_type(Some(LogicalType::Enum))
+                    .build()
+                    .unwrap()
+            }
+            "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::String))

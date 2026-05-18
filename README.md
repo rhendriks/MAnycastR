@@ -164,11 +164,11 @@ Columns depend on the measurement type:
 
 | Column | Type | Description | Measurement types |
 |--------|------|-------------|-------------------|
-| `rx` | `STRING` | Hostname of the receiving worker | All |
+| `rx` | `ENUM` | Hostname of the receiving worker | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
 | `rtt` | `DOUBLE` | Round-trip time (ms) | Latency, Unicast |
-| `tx` | `STRING` | Hostname of the sending worker | LACeS |
+| `tx` | `ENUM` | Hostname of the sending worker | LACeS |
 | `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
 | `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
