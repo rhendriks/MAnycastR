@@ -4,7 +4,7 @@ use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBa
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
-use parquet::data_type::{ByteArray, DoubleType, Int32Type, Int64Type};
+use parquet::data_type::{ByteArray, DoubleType, FixedLenByteArray, Int32Type, Int64Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
@@ -171,8 +171,8 @@ pub struct ParquetDataRow {
     rx: Option<String>,
     /// UNIX timestamp in nanoseconds when the reply was received.
     rx_time: Option<u64>,
-    /// Source address of the reply (as a string).
-    addr: Option<String>,
+    /// Source address of the reply as 16-byte IPv4-mapped-IPv6 (RFC 4291).
+    addr: Option<[u8; 16]>,
     /// Time-to-live (TTL) value of the reply.
     ttl: Option<u8>,
     /// UNIX timestamp in nanoseconds when the request was sent.
@@ -199,7 +199,7 @@ fn reply_to_parquet_row(
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         rx_time: None,
-        addr: result.src.map(|s| s.to_string()),
+        addr: result.src.map(|s| s.to_ipv6_mapped_bytes()),
         ttl: Some(result.ttl as u8),
         tx_time: None,
         tx: None,
@@ -238,10 +238,17 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 
     for &header in &headers {
         let field = match header {
-            "rx" | "addr" | "tx" | "chaos_data" => {
+            "rx" | "tx" | "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::String))
+                    .build()
+                    .unwrap()
+            }
+            "addr" => {
+                SchemaType::primitive_type_builder(header, parquet::basic::Type::FIXED_LEN_BYTE_ARRAY)
+                    .with_repetition(Repetition::OPTIONAL)
+                    .with_length(16)
                     .build()
                     .unwrap()
             }
@@ -293,28 +300,44 @@ pub fn write_batch_to_parquet(
     for &header in headers {
         if let Some(mut col_writer) = row_group_writer.next_column()? {
             match header {
-                "rx" | "addr" | "tx" | "chaos_data" => {
+                "rx" | "tx" | "chaos_data" => {
                     let mut values = Vec::new();
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
                             let opt_val = match header {
                                 "rx" => row.rx.as_ref(),
-                                "addr" => row.addr.as_ref(),
                                 "tx" => row.tx.as_ref(),
                                 "chaos_data" => row.chaos_data.as_ref(),
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
                                 values.push(ByteArray::from(val.as_str()));
-                                1 // 1 means the value is defined (not NULL)
+                                1
                             } else {
-                                0 // 0 means the value is NULL
+                                0
                             }
                         })
                         .collect();
                     col_writer
                         .typed::<parquet::data_type::ByteArrayType>()
+                        .write_batch(&values, Some(&def_levels), None)?;
+                }
+                "addr" => {
+                    let mut values: Vec<FixedLenByteArray> = Vec::new();
+                    let def_levels: Vec<i16> = batch
+                        .iter()
+                        .map(|row| {
+                            if let Some(val) = row.addr.as_ref() {
+                                values.push(ByteArray::from(val.as_slice()).into());
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .collect();
+                    col_writer
+                        .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
                 "rx_time" | "tx_time" => {
