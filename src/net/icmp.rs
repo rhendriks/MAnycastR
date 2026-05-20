@@ -59,6 +59,7 @@ impl ICMPPacket {
     /// * `src` - the source address of the packet
     /// * `dst` - the destination address of the packet
     /// * `ttl` - the time to live of the packet
+    /// * `is_dgram` - Datagram socket if true (sudoless version)
     pub fn echo_request(
         icmp_identifier: u16,
         sequence_number: u16,
@@ -66,6 +67,7 @@ impl ICMPPacket {
         src: &Address,
         dst: &Address,
         ttl: u8,
+        is_dgram: bool,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
 
@@ -80,20 +82,24 @@ impl ICMPPacket {
                     payload: body,
                 };
 
-                // V4 Checksum: ICMP packet bytes
                 let icmp_bytes: Vec<u8> = (&packet).into();
                 packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
-                let v4_packet = IPv4Packet {
-                    length: 20 + 8 + body_len,
-                    identifier: 15037,
-                    ttl,
-                    src,
-                    dst,
-                    payload: PacketPayload::Icmp { value: packet },
-                    options: None,
-                };
-                (&v4_packet).into()
+                if is_dgram {
+                    // dgram socket: Kernel adds IP header
+                    (&packet).into()
+                } else {
+                    let v4_packet = IPv4Packet {
+                        length: 20 + 8 + body_len,
+                        identifier: 15037,
+                        ttl,
+                        src,
+                        dst,
+                        payload: PacketPayload::Icmp { value: packet },
+                        options: None,
+                    };
+                    (&v4_packet).into()
+                }
             }
 
             (Some(address::Value::V6(src)), Some(address::Value::V6(dst))) => {
@@ -121,16 +127,21 @@ impl ICMPPacket {
 
                 packet.checksum = ICMPPacket::calc_checksum(&pseudo);
 
-                let v6_packet = IPv6Packet {
-                    payload_length: 8 + (packet.payload.len() as u16),
-                    flow_label: 15037,
-                    next_header: 58,
-                    hop_limit: ttl,
-                    src: src_u128,
-                    dst: dst_u128,
-                    payload: PacketPayload::Icmp { value: packet },
-                };
-                (&v6_packet).into()
+                if is_dgram {
+                    // dgram socket: Kernel adds IP header
+                    (&packet).into()
+                } else {
+                    let v6_packet = IPv6Packet {
+                        payload_length: 8 + (packet.payload.len() as u16),
+                        flow_label: 15037,
+                        next_header: 58,
+                        hop_limit: ttl,
+                        src: src_u128,
+                        dst: dst_u128,
+                        payload: PacketPayload::Icmp { value: packet },
+                    };
+                    (&v6_packet).into()
+                }
             }
 
             _ => panic!("Source and Destination IP versions must match"),
