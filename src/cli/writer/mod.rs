@@ -206,7 +206,7 @@ pub fn get_header(
         MeasurementType::AnycastTraceroute => {
             vec![
                 "rx",
-                "hop_addr",
+                "addr",
                 "ttl",
                 "tx",
                 "trace_dst",
