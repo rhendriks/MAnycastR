@@ -1,6 +1,6 @@
 use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch};
+use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
@@ -28,7 +28,6 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
         config.is_record,
         config.m_type,
     );
-    // TODO implement parquet writer for TraceResults
     let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
@@ -62,19 +61,23 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             let rx_id = task_result.rx_id;
             let origin_id = task_result.origin_id;
             for reply in task_result.results {
-                let Some(ReplyData::Measurement(m_reply)) = reply.reply_data else {
-                    panic!("Unexpected measurement data")
+                let parquet_row = match reply.reply_data {
+                    Some(ReplyData::Measurement(m_reply)) => {
+                        let is_tcp = config.tcp_origins.contains(&origin_id);
+                        measurement_reply_to_parquet_row(
+                            m_reply,
+                            rx_id,
+                            config.m_type,
+                            &config.worker_map,
+                            origin_id,
+                            is_tcp,
+                        )
+                    }
+                    Some(ReplyData::Trace(trace_reply)) => {
+                        trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map)
+                    }
+                    _ => panic!("Unexpected reply data"),
                 };
-
-                let is_tcp = config.tcp_origins.contains(&origin_id);
-                let parquet_row = reply_to_parquet_row(
-                    m_reply,
-                    rx_id,
-                    config.m_type,
-                    &config.worker_map,
-                    origin_id,
-                    is_tcp,
-                );
                 row_buffer.push(parquet_row);
             }
 
@@ -185,10 +188,14 @@ pub struct ParquetDataRow {
     chaos_data: Option<String>,
     /// Origin ID for multi-origin measurements (source address, ports).
     origin_id: Option<u8>,
+    /// Traceroute: destination address of the trace as 16-byte IPv4-mapped-IPv6 (RFC 4291).
+    trace_dst: Option<[u8; 16]>,
+    /// Traceroute: TTL value used to trigger this reply.
+    hop_count: Option<u8>,
 }
 
-/// Converts a Result message into a ParquetDataRow for writing to a Parquet file.
-fn reply_to_parquet_row(
+/// Converts a MeasurementReply into a ParquetDataRow for writing to a Parquet file.
+fn measurement_reply_to_parquet_row(
     result: MeasurementReply,
     rx_worker_id: u32,
     m_type: MeasurementType,
@@ -206,6 +213,8 @@ fn reply_to_parquet_row(
         rtt: None,
         chaos_data: result.chaos,
         origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
+        trace_dst: None,
+        hop_count: None,
     };
 
     match m_type {
@@ -216,10 +225,9 @@ fn reply_to_parquet_row(
             // Catchment mapping is minimal (rx, addr, ttl)
         }
         MeasurementType::AnycastTraceroute => {
-            panic!("Anycast traceroute cannot be written to parquet") // TODO
+            panic!("Received MeasurementReply during a traceroute measurement")
         }
         MeasurementType::Laces => {
-            // LACeS
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
             row.rx_time = Some(result.rx_time);
             row.tx_time = Some(result.tx_time);
@@ -227,6 +235,35 @@ fn reply_to_parquet_row(
     }
 
     row
+}
+
+/// Converts a TraceReply into a ParquetDataRow for writing to a Parquet file.
+fn trace_reply_to_parquet_row(
+    reply: TraceReply,
+    rx_worker_id: u32,
+    worker_map: &BiHashMap<u32, String>,
+) -> ParquetDataRow {
+    let is_hop_reply = reply.hop_addr != reply.trace_dst;
+
+    let rtt = if reply.hop_addr.is_some() {
+        Some(calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply) as f32)
+    } else {
+        None
+    };
+
+    ParquetDataRow {
+        rx: worker_map.get_by_left(&rx_worker_id).cloned(),
+        rx_time: None,
+        addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
+        ttl: Some(reply.ttl as u8),
+        tx_time: None,
+        tx: worker_map.get_by_left(&reply.tx_id).cloned(),
+        rtt,
+        chaos_data: None,
+        origin_id: None,
+        trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
+        hop_count: Some(reply.hop_count as u8),
+    }
 }
 
 /// Creates a parquet data schema from the headers based on the measurement type and configuration.
@@ -252,7 +289,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "addr" => SchemaType::primitive_type_builder(
+            "addr" | "trace_dst" => SchemaType::primitive_type_builder(
                 header,
                 parquet::basic::Type::FIXED_LEN_BYTE_ARRAY,
             )
@@ -270,13 +307,13 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "ttl" | "origin_id" => {
+            "ttl" | "origin_id" | "hop_count" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::Integer {
                         bit_width: 8,
                         is_signed: false,
-                    })) // u8
+                    }))
                     .build()
                     .unwrap()
             }
@@ -331,12 +368,17 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::ByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "addr" => {
+                "addr" | "trace_dst" => {
                     let mut values: Vec<FixedLenByteArray> = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
-                            if let Some(val) = row.addr.as_ref() {
+                            let opt_val = match header {
+                                "addr" => row.addr.as_ref(),
+                                "trace_dst" => row.trace_dst.as_ref(),
+                                _ => None,
+                            };
+                            if let Some(val) = opt_val {
                                 values.push(ByteArray::from(val.as_slice()).into());
                                 1
                             } else {
@@ -372,14 +414,15 @@ pub fn write_batch_to_parquet(
                         None,
                     )?;
                 }
-                "ttl" | "origin_id" => {
+                "ttl" | "origin_id" | "hop_count" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
-                            let opt_val = match header {
+                            let opt_val: Option<u8> = match header {
                                 "ttl" => row.ttl,
                                 "origin_id" => row.origin_id,
+                                "hop_count" => row.hop_count,
                                 _ => None,
                             };
                             if let Some(val) = opt_val {

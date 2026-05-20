@@ -165,13 +165,12 @@ All values are stored as text. Columns depend on the measurement type:
 | Column | Type | Description | Measurement types |
 |--------|------|-------------|-------------------|
 | `rx` | `String` | Hostname of the receiving worker | All |
-| `addr` | `String` | Source IP of the reply (human-readable, e.g., `192.0.2.1` or `2001:db8::1`) | All except Traceroute |
+| `addr` | `String` | Source IP of the reply, or traceroute hop address (`*` if no reply) | All |
 | `ttl` | `String (integer)` | TTL of the reply | All |
 | `rtt` | `String (float)` | Round-trip time (ms) | Latency, Unicast, Traceroute |
 | `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
 | `rx_time` | `String (integer)` | Receive timestamp (microseconds since epoch; 21-bit masked for TCP) | LACeS |
 | `tx_time` | `String (integer)` | Send timestamp (microseconds since epoch) | LACeS |
-| `hop_addr` | `String` | IP address of the traceroute hop (`*` if no reply) | Traceroute |
 | `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
 | `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
@@ -184,7 +183,7 @@ All values are stored as text. Columns depend on the measurement type:
 | Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
 | Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
 | LACeS | `rx`, `rx_time`, `addr`, `ttl`, `tx_time`, `tx` [, `chaos_data`] [, `origin_id`] |
-| Traceroute | `rx`, `hop_addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
+| Traceroute | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
 
 ### Reading CSV files
 
@@ -214,12 +213,14 @@ Columns depend on the measurement type:
 | Column | Type | Description | Measurement types |
 |--------|------|-------------|-------------------|
 | `rx` | `ENUM` | Hostname of the receiving worker | All |
-| `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply (see below) | All |
+| `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast |
-| `tx` | `ENUM` | Hostname of the sending worker | LACeS |
+| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
 | `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
 | `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
+| `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
+| `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
 
