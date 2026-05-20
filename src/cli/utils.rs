@@ -16,14 +16,12 @@ use std::path::Path;
 /// * If unable to create or remove file/directory
 pub fn validate_path_perms(path_str: &String) -> Result<(), Box<dyn Error>> {
     let path = Path::new(path_str);
+    let is_dir = path_str.ends_with('/') || path.is_dir();
 
     // If user provided a file
-    if !path_str.ends_with('/') {
+    if !is_dir {
         if path.exists() {
-            if path.is_dir() {
-                error!("[CLI] Path is already a directory, exiting");
-                return Err("Path is already a directory".into());
-            } else if fs::metadata(path)
+            if fs::metadata(path)
                 .expect("Unable to get path metadata")
                 .permissions()
                 .readonly()
