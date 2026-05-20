@@ -204,15 +204,7 @@ pub fn get_header(
     // Determine headers based on measurement type
     let mut header = match m_type {
         MeasurementType::AnycastTraceroute => {
-            vec![
-                "rx",
-                "addr",
-                "ttl",
-                "tx",
-                "trace_dst",
-                "hop_count",
-                "rtt",
-            ]
+            vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
         }
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
