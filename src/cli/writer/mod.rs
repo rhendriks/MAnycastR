@@ -239,6 +239,11 @@ pub fn get_header(
     header
 }
 
+/// Format RTT as three point decimal string (millisecond accuracy)
+pub fn format_rtt(rtt: f64) -> String {
+    format!("{rtt:.3}")
+}
+
 /// Calculate RTT
 ///
 /// # Arguments
