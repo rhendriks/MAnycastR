@@ -146,26 +146,22 @@ impl CliClient {
 
         let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
-        let path = args.out_path;
-        // Output file
-        let is_dir = path.ends_with('/') || Path::new(&path).is_dir();
-        let file_path = if is_dir {
-            // User provided a directory, use default naming convention for file
-            let sep = if path.ends_with('/') { "" } else { "/" };
-            format!(
-                "{path}{sep}{}-{proto_str}-{timestamp_start_str}{extension}",
+        let path = Path::new(&args.out_path);
+        let file_path = if args.out_path.ends_with('/') || path.is_dir() {
+            // Create filename using default convention
+            path.join(format!(
+                "{}-{proto_str}-{timestamp_start_str}{extension}",
                 m_type.as_str()
-            )
+            ))
         } else {
-            // User provided a file (with possibly a path)
-            if path.ends_with(".parquet") {
+            if args.out_path.ends_with(".parquet") {
                 is_parquet = true;
             }
-            path
+            path.to_path_buf()
         };
 
         // Create the output file
-        info!("[CLI] Writing results to {file_path}");
+        info!("[CLI] Writing results to {}", file_path.display());
         let file = File::create(file_path).expect("Unable to create file");
 
         let metadata_args = MetadataArgs {
