@@ -188,8 +188,6 @@ pub struct ParquetDataRow {
     chaos_data: Option<String>,
     /// Origin ID for multi-origin measurements (source address, ports).
     origin_id: Option<u8>,
-    /// Traceroute: hop address as 16-byte IPv4-mapped-IPv6 (RFC 4291). None when no reply (*).
-    hop_addr: Option<[u8; 16]>, // TODO merge into 'addr' for simplicity
     /// Traceroute: destination address of the trace as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     trace_dst: Option<[u8; 16]>,
     /// Traceroute: TTL value used to trigger this reply.
@@ -215,7 +213,6 @@ fn measurement_reply_to_parquet_row(
         rtt: None,
         chaos_data: result.chaos,
         origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
-        hop_addr: None,
         trace_dst: None,
         hop_count: None,
     };
@@ -257,14 +254,13 @@ fn trace_reply_to_parquet_row(
     ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         rx_time: None,
-        addr: None,
+        addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         ttl: Some(reply.ttl as u8),
         tx_time: None,
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
         chaos_data: None,
         origin_id: None,
-        hop_addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
         hop_count: Some(reply.hop_count as u8),
     }
@@ -293,7 +289,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "addr" | "hop_addr" | "trace_dst" => SchemaType::primitive_type_builder(
+            "addr" | "trace_dst" => SchemaType::primitive_type_builder(
                 header,
                 parquet::basic::Type::FIXED_LEN_BYTE_ARRAY,
             )
@@ -372,14 +368,13 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::ByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "addr" | "hop_addr" | "trace_dst" => {
+                "addr" | "trace_dst" => {
                     let mut values: Vec<FixedLenByteArray> = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
                             let opt_val = match header {
                                 "addr" => row.addr.as_ref(),
-                                "hop_addr" => row.hop_addr.as_ref(),
                                 "trace_dst" => row.trace_dst.as_ref(),
                                 _ => None,
                             };
