@@ -185,7 +185,9 @@
 //!
 //! Next, distribute the binary to the workers.
 //!
-//! Workers need either sudo or the CAP_NET_RAW capability to send out packets.
+//! For ICMP-only measurements (no traceroute or record route), workers can run without sudo.
+//!
+//! For TCP, DNS, traceroute, or record route measurements, workers need sudo or CAP_NET_RAW:
 //! ```bash
 //! sudo setcap cap_net_raw,cap_net_admin=eip manycast
 //! ```
