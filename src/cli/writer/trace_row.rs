@@ -31,7 +31,12 @@ pub fn get_trace_row(
 
     // Calculate RTT if tx_time is available
     let rtt = if reply.hop_addr.is_some() {
-        format_rtt(calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply))
+        format_rtt(calculate_rtt(
+            reply.rx_time,
+            reply.tx_time,
+            false,
+            is_hop_reply,
+        ))
     } else {
         "*".to_string()
     };
