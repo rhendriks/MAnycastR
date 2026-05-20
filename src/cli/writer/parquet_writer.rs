@@ -193,7 +193,7 @@ pub struct ParquetDataRow {
     /// Traceroute: destination address of the trace as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     trace_dst: Option<[u8; 16]>,
     /// Traceroute: TTL value used to trigger this reply.
-    hop_count: Option<u32>, // TODO should be u8
+    hop_count: Option<u8>,
 }
 
 /// Converts a MeasurementReply into a ParquetDataRow for writing to a Parquet file.
@@ -266,7 +266,7 @@ fn trace_reply_to_parquet_row(
         origin_id: None,
         hop_addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
-        hop_count: Some(reply.hop_count),
+        hop_count: Some(reply.hop_count as u8),
     }
 }
 
@@ -311,7 +311,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "ttl" | "origin_id" => {
+            "ttl" | "origin_id" | "hop_count" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::Integer {
@@ -321,10 +321,6 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
-            "hop_count" => SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
-                .with_repetition(Repetition::OPTIONAL)
-                .build()
-                .unwrap(),
             "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::FLOAT)
                 .with_repetition(Repetition::OPTIONAL)
                 .build()
@@ -428,9 +424,9 @@ pub fn write_batch_to_parquet(
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
-                            let opt_val: Option<u32> = match header {
-                                "ttl" => row.ttl.map(|v| v as u32),
-                                "origin_id" => row.origin_id.map(|v| v as u32),
+                            let opt_val: Option<u8> = match header {
+                                "ttl" => row.ttl,
+                                "origin_id" => row.origin_id,
                                 "hop_count" => row.hop_count,
                                 _ => None,
                             };
