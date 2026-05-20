@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -147,16 +148,18 @@ impl CliClient {
 
         let path = args.out_path;
         // Output file
-        let file_path = if path.ends_with('/') {
-            // User provided a path, use default naming convention for file
+        let is_dir = path.ends_with('/') || Path::new(&path).is_dir();
+        let file_path = if is_dir {
+            // User provided a directory, use default naming convention for file
+            let sep = if path.ends_with('/') { "" } else { "/" };
             format!(
-                "{path}{}-{proto_str}-{timestamp_start_str}{extension}",
+                "{path}{sep}{}-{proto_str}-{timestamp_start_str}{extension}",
                 m_type.as_str()
             )
         } else {
             // User provided a file (with possibly a path)
             if path.ends_with(".parquet") {
-                is_parquet = true; // If the file ends with .parquet, we will write in Parquet format
+                is_parquet = true;
             }
             path
         };
