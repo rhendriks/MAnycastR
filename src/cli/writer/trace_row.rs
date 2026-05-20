@@ -1,4 +1,4 @@
-use crate::cli::writer::calculate_rtt;
+use crate::cli::writer::{calculate_rtt, format_rtt};
 use crate::custom_module::manycastr::TraceReply;
 use bimap::BiHashMap;
 
@@ -31,7 +31,7 @@ pub fn get_trace_row(
 
     // Calculate RTT if tx_time is available
     let rtt = if reply.hop_addr.is_some() {
-        calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply).to_string()
+        format_rtt(calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply))
     } else {
         "*".to_string()
     };
