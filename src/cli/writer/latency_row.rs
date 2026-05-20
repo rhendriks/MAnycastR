@@ -1,4 +1,4 @@
-use crate::cli::writer::calculate_rtt;
+use crate::cli::writer::{calculate_rtt, format_rtt};
 use crate::custom_module::manycastr::MeasurementReply;
 use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
@@ -33,7 +33,7 @@ pub fn get_latency_row(
         rx_hostname,
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
-        rtt.to_string(),
+        format_rtt(rtt),
     ];
 
     // Optional fields
