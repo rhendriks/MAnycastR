@@ -153,6 +153,55 @@ Measure the path from the catching PoP to the target.
 First, a single `discovery probe` is sent to infer the catching worker.
 Next, multiple traceroute packets are sent from the catching worker to measure the path.
 
+## CSV output format
+
+By default, results are written as gzip-compressed CSV files (`.csv.gz`).
+Measurement metadata is stored as `#`-prefixed comment lines at the top of the file, followed by a header row and data rows.
+
+### Columns
+
+All values are stored as text. Columns depend on the measurement type:
+
+| Column | Type | Description | Measurement types |
+|--------|------|-------------|-------------------|
+| `rx` | `String` | Hostname of the receiving worker | All |
+| `addr` | `String` | Source IP of the reply (human-readable, e.g., `192.0.2.1` or `2001:db8::1`) | All except Traceroute |
+| `ttl` | `String (integer)` | TTL of the reply | All |
+| `rtt` | `String (float)` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
+| `rx_time` | `String (integer)` | Receive timestamp (microseconds since epoch; 21-bit masked for TCP) | LACeS |
+| `tx_time` | `String (integer)` | Send timestamp (microseconds since epoch) | LACeS |
+| `hop_addr` | `String` | IP address of the traceroute hop (`*` if no reply) | Traceroute |
+| `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
+| `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
+| `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
+| `origin_id` | `String (integer)` | Origin ID (multi-origin only) | Multi-origin |
+
+### Column order per measurement type
+
+| Measurement type | Columns (in order) |
+|------------------|--------------------|
+| Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
+| Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
+| LACeS | `rx`, `rx_time`, `addr`, `ttl`, `tx_time`, `tx` [, `chaos_data`] [, `origin_id`] |
+| Traceroute | `rx`, `hop_addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
+
+### Reading CSV files
+
+#### Python (pandas)
+
+```python
+import pandas as pd
+
+df = pd.read_csv("results.csv.gz", comment="#")
+```
+
+#### DuckDB
+
+```sql
+SELECT * FROM read_csv('results.csv.gz', comment='#');
+```
+
 ## Parquet output format
 
 When using `--parquet`, results are written as Apache Parquet files with Zstd compression.
