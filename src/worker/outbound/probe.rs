@@ -67,6 +67,7 @@ pub fn send_probe(
                 2,            // ICMP seq
                 &icmp_payload,
                 255,
+                config.is_dgram,
             ));
         }
         ProtocolType::ADns | ProtocolType::ChaosDns => {
