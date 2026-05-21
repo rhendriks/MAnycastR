@@ -41,6 +41,8 @@ pub struct OutboundConfig {
     pub probing_rate: u32,
     /// Whether to add the Record Route option to IPv4 probes
     pub is_record: bool,
+    /// Whether the socket is DGRAM (unprivileged ICMP, kernel writes IP headers)
+    pub is_dgram: bool,
     /// Source address to use
     pub src: Address,
     /// Source port to use
