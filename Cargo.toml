@@ -1,6 +1,6 @@
 [package]
 name = "manycastr"
-version = "1.5.2"
+version = "1.6.0"
 edition = "2021"
 
 [dependencies]
@@ -16,6 +16,7 @@ tonic = { version = "0.14.6", features = ["tls-ring", "zstd"] } # gRPC (inter-co
 rand = "0.10.1" # generate random numbers
 gethostname = "1.1.0" # get hostname
 socket2 = { version = "0.6.3", features = ["all"] }
+libc = "0.2.186"
 local-ip-address = "0.6.13" # get local unicast address
 indicatif = "0.18.4" # progress bar
 ratelimit_meter = "5.0.0" # rate limit
