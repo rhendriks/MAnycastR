@@ -56,6 +56,7 @@ pub fn send_trace(
         sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number
         &payload_fields,
         trace_task.ttl as u8,
+        false, // traceroute always uses raw sockets
     );
 
     match send_packet(
