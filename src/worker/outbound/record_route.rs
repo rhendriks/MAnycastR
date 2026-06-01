@@ -21,6 +21,7 @@ pub fn send_record_route_probe(
     dst: &Address,
     socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
+    packet_buffer: &mut Vec<u8>,
 ) -> (u32, u32) {
     let mut sent = 0;
     let mut failed = 0;
@@ -32,10 +33,7 @@ pub fn send_record_route_probe(
         info_url: config.info_url.as_deref(),
     };
 
-    // Write packets to send to a one-time allocated buffer
-    let mut packet_buffer = Vec::with_capacity(256);
-
-    // Rate limi
+    // Rate limit
     if let Err(not_until) = limiter.check() {
         let wait_time = not_until.wait_time_from(Instant::now());
         if wait_time > Duration::ZERO {
@@ -43,7 +41,6 @@ pub fn send_record_route_probe(
         }
     }
 
-    // Write new packet to buffer
     packet_buffer.clear();
 
     packet_buffer.extend_from_slice(&create_record_route_icmp(

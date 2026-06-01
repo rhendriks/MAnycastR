@@ -71,8 +71,8 @@ pub fn outbound(
             let mut sent_discovery = 0u32;
             let mut traces_sent = 0u32;
             let mut failed = 0u32;
+            let mut packet_buffer = Vec::with_capacity(256);
 
-            // Calculate probing rate (multiple origins multiply the probing rate)
             let total_rate = config.probing_rate;
             // Rate limiter bucket
             let mut limiter =
@@ -105,7 +105,8 @@ pub fn outbound(
                                             &task.dst.unwrap(),
                                             &socket,
                                             &mut limiter,
-                                            false, // Not a discovery probe
+                                            false,
+                                            &mut packet_buffer,
                                         )
                                     } else {
                                         send_record_route_probe(
@@ -113,6 +114,7 @@ pub fn outbound(
                                             &task.dst.unwrap(),
                                             &socket,
                                             &mut limiter,
+                                            &mut packet_buffer,
                                         )
                                     };
                                     sent += s;
@@ -124,7 +126,8 @@ pub fn outbound(
                                         &task.dst.unwrap(),
                                         &socket,
                                         &mut limiter,
-                                        true, // This is a discovery probe
+                                        true,
+                                        &mut packet_buffer,
                                     );
                                     sent_discovery += s;
                                     failed += f;
