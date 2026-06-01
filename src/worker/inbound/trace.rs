@@ -29,7 +29,7 @@ pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Op
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, true, src, ttl);
+        return parse_icmp(packet_bytes, m_id, true, src, ttl, false);
     }
 
     let ip_header = if src.is_v6() {
