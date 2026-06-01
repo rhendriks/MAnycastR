@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::{Address, Trace};
 use crate::net::packet::{create_icmp, ProbePayload};
-use crate::worker::outbound::send_packet;
+use crate::worker::outbound::{addr_to_sockaddr, send_packet};
 use log::warn;
 use socket2::Socket;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -59,10 +59,11 @@ pub fn send_trace(
         false, // traceroute always uses raw sockets
     );
 
+    let dest_addr = addr_to_sockaddr(&trace_task.dst.expect("invalid destination"));
     match send_packet(
         socket,
         packet,
-        &trace_task.dst.expect("invalid destination"),
+        &dest_addr,
     ) {
         Ok(()) => return (1, 0),
         Err(e) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),
