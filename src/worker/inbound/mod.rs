@@ -40,6 +40,8 @@ pub struct InboundConfig {
     pub is_traceroute: bool,
     /// Indicates if the measurement is a Record Route measurement.
     pub is_record: bool,
+    /// Whether the socket is DGRAM (unprivileged ICMP, no IP header in packets)
+    pub is_dgram: bool,
     /// Origin ID associated with the Socket
     pub origin_id: u32,
     /// Source port used
@@ -68,13 +70,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
     let rq = Arc::new(Mutex::new(Vec::new()));
     let rq_c = rq.clone();
     let rx_f_c = config.abort_s.clone();
+    let is_dgram = config.is_dgram;
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
             // Listen for incoming packets
             let mut received: u32 = 0;
             loop {
-                let (packet, ttl, src) = match get_packet(&socket) {
+                let (packet, ttl, src) = match get_packet(&socket, is_dgram) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
@@ -93,7 +96,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
 
                     (_, _, ProtocolType::Icmp) => {
-                        parse_icmp(packet, config.m_id, false, src.into(), ttl)
+                        parse_icmp(packet, config.m_id, false, src.into(), ttl, is_dgram)
                     }
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
@@ -149,8 +152,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 
 struct ControlBuffer([MaybeUninit<u8>; 128]);
 
-/// Get a packet from a socket (with the hop_limit (IPv6)) and src address
-fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Error> {
+/// Get a packet from a socket with the TTL and src address
+/// TODO replace with eBPF code
+fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
@@ -173,7 +177,8 @@ fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Erro
                 .as_socket()
                 .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
-            let (packet_data, ancillary_data) = unsafe {
+            // SAFETY: recvmsg initialized `bytes_read` and `control_len` bytes respectively
+            let (packet_data, ancillary_data) = unsafe { // TODO remove unsafe
                 let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
                 let c = std::slice::from_raw_parts(
                     control_storage.0.as_ptr() as *const u8,
@@ -182,15 +187,42 @@ fn get_packet(socket: &Socket) -> Result<(&[u8], u32, SocketAddr), std::io::Erro
                 (p, c)
             };
 
+            // TODO find better approach for obtaining hop_limit/ttl
             let hop_limit = if source.is_ipv6() {
+                // IPv6 header is never included
                 parse_hop_limit(ancillary_data).unwrap_or(0)
+            } else if is_dgram {
+                // dgram does not return the IP header
+                parse_ttl_v4(ancillary_data).unwrap_or(0)
             } else {
+                // IPv4 header included in raw socket mode, get the TTL at byte 8
                 packet_data[8] as u32
             };
             Ok((packet_data, hop_limit, source))
         }
         Err(e) => Err(e),
     }
+}
+
+/// Retrieve IPv4 TTL from the ancillary data buffer (IP_RECVTTL cmsg).
+/// Used in DGRAM mode where the IPv4 header is not included in the packet data.
+fn parse_ttl_v4(data: &[u8]) -> Option<u32> {
+    let mut pos = 0;
+    while pos + 16 <= data.len() {
+        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
+        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
+        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
+
+        if level == libc::IPPROTO_IP && type_ == libc::IP_TTL && pos + 17 <= data.len() {
+            return Some(data[pos + 16] as u32);
+        }
+
+        if cmsg_len == 0 {
+            break;
+        }
+        pos += (cmsg_len + 7) & !7;
+    }
+    None
 }
 
 /// Retrieve IPv6 hop limit from the ancillary_data buffer bytes
