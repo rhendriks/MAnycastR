@@ -1,7 +1,6 @@
 use crate::custom_module::manycastr::Address;
 use crate::net::packet::{create_record_route_icmp, ProbePayload};
-use crate::worker::outbound::send_packet;
-use crate::worker::outbound::OutboundConfig;
+use crate::worker::outbound::{addr_to_sockaddr, send_packet, OutboundConfig};
 use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use socket2::Socket;
@@ -57,7 +56,8 @@ pub fn send_record_route_probe(
         255,
     ));
 
-    match send_packet(socket, &packet_buffer, dst) {
+    let dest_addr = addr_to_sockaddr(dst);
+    match send_packet(socket, &packet_buffer, &dest_addr) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!("[Worker outbound] Failed to send ICMP packet: {e}");

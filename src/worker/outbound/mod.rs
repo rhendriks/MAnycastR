@@ -166,11 +166,11 @@ pub fn outbound(
 /// # Arguments
 /// * `socket` - attached socket to send probes from
 /// * `packet_buffer` - Packet to send (as bytes)
-/// * `dst` - Destination address to send the packet to
+/// * `dst` - Pre-constructed destination socket address
 pub fn send_packet(
     socket: &Socket,
     packet_buffer: &[u8],
-    dst: &Address,
+    dst: &SockAddr,
 ) -> Result<(), std::io::Error> {
     if packet_buffer.is_empty() {
         return Err(std::io::Error::new(
@@ -178,8 +178,11 @@ pub fn send_packet(
             "Empty packet",
         ));
     }
-    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
-    socket.send_to(packet_buffer, &dest_addr)?;
+    socket.send_to(packet_buffer, dst)?;
 
     Ok(())
+}
+
+pub fn addr_to_sockaddr(dst: &Address) -> SockAddr {
+    SockAddr::from(SocketAddr::new(dst.into(), 0))
 }
