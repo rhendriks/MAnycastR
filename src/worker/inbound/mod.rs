@@ -1,9 +1,8 @@
 use log::info;
-use std::mem;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::{sleep, Builder};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
@@ -66,15 +65,12 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         "[Worker inbound] Started listener (for Origin {})",
         config.origin_id
     );
-    // Result queue to store incoming pings, and take them out when sending the TaskResults to the orchestrator
-    let rq = Arc::new(Mutex::new(Vec::new()));
-    let rq_c = rq.clone();
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel::<Reply>();
     let rx_f_c = config.abort_s.clone();
     let is_dgram = config.is_dgram;
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
-            // Listen for incoming packets
             let mut received: u32 = 0;
             loop {
                 let (packet, ttl, src) = match get_packet(&socket, is_dgram) {
@@ -108,16 +104,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl, config.sport),
                 };
 
-                // Invalid packets have value None
-                if result.is_none() {
-                    continue;
-                }
-
-                // Put result in transmission queue
-                {
+                if let Some(reply) = result {
                     received += 1;
-                    let mut buffer = rq_c.lock().unwrap();
-                    buffer.push(result.unwrap())
+                    let _ = reply_tx.send(reply);
                 }
             }
 
@@ -139,11 +128,10 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         })
         .expect("Failed to spawn listener_thread");
 
-    // Thread for sending the received replies to the orchestrator as TaskResult
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
-            handle_results(&tx, config.abort_s, config.worker_id, rq, config.origin_id);
+            handle_results(&tx, config.abort_s, config.worker_id, reply_rx, config.origin_id);
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -251,26 +239,23 @@ fn parse_hop_limit(data: &[u8]) -> Option<u32> {
 /// * `tx` - sender to put task results in
 /// * `rx_f` - channel that is used to signal the end of the measurement
 /// * `worker_id` - the unique worker ID of this worker
-/// * `rq_sender` - contains a vector of all received replies as Reply results
+/// * `reply_rx` - channel receiver for replies from the listener thread
 /// * `origin_id` - origin ID associated with this inbound handler
 fn handle_results(
     tx: &UnboundedSender<ReplyBatch>,
     rx_f: Arc<AtomicBool>,
     worker_id: u16,
-    rq_sender: Arc<Mutex<Vec<Reply>>>,
+    reply_rx: std::sync::mpsc::Receiver<Reply>,
     origin_id: u32,
 ) {
     loop {
-        // Every second, forward the ping results to the orchestrator
         sleep(Duration::from_secs(1));
 
-        // Get the current result queue, and replace it with an empty one
-        let rq = {
-            let mut guard = rq_sender.lock().unwrap();
-            mem::take(&mut *guard)
-        };
+        let mut rq = Vec::new();
+        while let Ok(reply) = reply_rx.try_recv() {
+            rq.push(reply);
+        }
 
-        // Send the result to the worker handler
         if !rq.is_empty() {
             tx.send(ReplyBatch {
                 rx_id: worker_id as u32,
@@ -280,9 +265,7 @@ fn handle_results(
             .expect("Failed to send TaskResult to worker handler");
         }
 
-        // Exit the thread if worker sends us the signal it's finished
         if rx_f.load(Ordering::SeqCst) {
-            // Send default value to let the orchestrator know we are finished
             tx.send(ReplyBatch::default())
                 .expect("Failed to send 'finished' signal to orchestrator");
             break;
