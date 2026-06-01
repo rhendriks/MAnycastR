@@ -226,10 +226,10 @@ impl Worker {
 
         // TODO Attach BPF filter (filter on TCP RST, port values for TCP/UDP, and m_ids encoded in packets)
 
-        socket.set_send_buffer_size(4 * 1024 * 1024).ok();
-        socket.set_recv_buffer_size(16 * 1024 * 1024).ok();
+        socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
+        socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
 
-        unsafe {
+        unsafe { // TODO no API for SO_TIMESTAMP in socket2
             let val: libc::c_int = 1;
             libc::setsockopt(
                 socket.as_raw_fd(),
