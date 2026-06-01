@@ -26,6 +26,7 @@ pub fn send_probe(
     socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     is_discovery: bool,
+    packet_buffer: &mut Vec<u8>,
 ) -> (u32, u32) {
     let worker_id = if is_discovery {
         config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET // Use a different worker ID range for discovery probes
@@ -43,9 +44,6 @@ pub fn send_probe(
         info_url: config.info_url.as_deref(),
     };
 
-    // Write packets to send to a one-time allocated buffer
-    let mut packet_buffer = Vec::with_capacity(256);
-
     // Rate limit
     if let Err(not_until) = limiter.check() {
         let wait_time = not_until.wait_time_from(Instant::now());
@@ -54,7 +52,6 @@ pub fn send_probe(
         }
     }
 
-    // Write new packet to buffer
     packet_buffer.clear();
 
     match config.p_type {
