@@ -233,7 +233,7 @@ impl UDPPacket {
         src: &Address,
         dst: &Address,
         sport: u16,
-        domain_name: String,
+        domain_name: &str,
         tx_time: u64,
         tx_id: u32,
         ttl: u8,
@@ -286,7 +286,7 @@ impl UDPPacket {
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
     fn create_a_record_request(
-        domain_name: String,
+        domain_name: &str,
         tx_time: u64,
         src: &Address,
         dst: &Address,
@@ -336,7 +336,7 @@ impl UDPPacket {
         dst: &Address,
         sport: u16,
         tx: u32,
-        chaos: String,
+        chaos: &str,
     ) -> Vec<u8> {
         let dns_body = Self::create_chaos_request(tx, chaos);
         let udp_length = 8 + dns_body.len() as u32;
@@ -385,7 +385,7 @@ impl UDPPacket {
     }
 
     /// Creating a DNS TXT record request for CHAOS
-    fn create_chaos_request(tx_id: u32, chaos: String) -> Vec<u8> {
+    fn create_chaos_request(tx_id: u32, chaos: &str) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
         // Transaction ID (6 bit identifer + 10 bit tx worker ID)

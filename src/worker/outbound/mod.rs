@@ -133,7 +133,7 @@ pub fn outbound(
                                     let (s, f) = send_trace(
                                         config.worker_id as u32,
                                         config.m_id,
-                                        config.info_url.clone(),
+                                        config.info_url.as_deref(),
                                         trace,
                                         &socket,
                                         &config.src,
