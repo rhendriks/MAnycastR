@@ -26,21 +26,30 @@ pub fn parse_icmp(
     is_traceroute: bool,
     src: Address,
     ttl: u32,
+    is_dgram: bool,
 ) -> Option<Reply> {
-    // ICMPv6 minimum length 56 bytes (ICMP header 8 + ICMP body 48) + check it is an ICMP Echo reply
-    if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
-        || (!src.is_v6() && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
-    {
-        return None;
-    }
-
-    let icmp_packet = if src.is_v6() {
-        ICMPPacket::from(packet_bytes) // no IP header
+    if src.is_v6() {
+        // ICMPv6: no IP header in received data (both RAW and DGRAM)
+        if packet_bytes.len() < 56 || packet_bytes[0] != 129 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(packet_bytes);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
+    } else if is_dgram {
+        // DGRAM: kernel strips IPv4 header, ICMP data starts at offset 0
+        if packet_bytes.len() < 32 || packet_bytes[0] != 0 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(packet_bytes);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
     } else {
-        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
-    };
-
-    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
+        // RAW: IPv4 header included, ICMP starts at offset 20
+        if packet_bytes.len() < 52 || packet_bytes[20] != 0 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(&packet_bytes[20..]);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
+    }
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
