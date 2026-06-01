@@ -229,8 +229,8 @@ impl Worker {
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving (bursts)
 
         socket
-            .set_nonblocking(true)
-            .expect("Failed to set non-blocking");
+            .set_read_timeout(Some(std::time::Duration::from_millis(1)))
+            .expect("Failed to set read timeout");
 
         (Arc::new(socket), is_dgram)
     }
