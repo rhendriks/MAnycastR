@@ -229,7 +229,7 @@ impl Worker {
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
 
-        unsafe { // TODO no API for SO_TIMESTAMP in socket2
+        let ts_ret = unsafe {
             let val: libc::c_int = 1;
             libc::setsockopt(
                 socket.as_raw_fd(),
@@ -237,7 +237,12 @@ impl Worker {
                 libc::SO_TIMESTAMP,
                 &val as *const _ as *const libc::c_void,
                 std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-            );
+            )
+        };
+        if ts_ret == 0 {
+            info!("[Worker] SO_TIMESTAMP enabled (kernel receive timestamps)");
+        } else {
+            warn!("[Worker] Failed to enable SO_TIMESTAMP: {}", std::io::Error::last_os_error());
         }
 
         socket

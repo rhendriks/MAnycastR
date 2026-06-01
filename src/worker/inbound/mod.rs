@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -189,12 +189,25 @@ fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr
                 // IPv4 header included in raw socket mode, get the TTL at byte 8
                 packet_data[8] as u32
             };
-            let rx_time = parse_kernel_timestamp(ancillary_data).unwrap_or_else(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_micros() as u64
-            });
+            let (rx_time, kernel_ts) = match parse_kernel_timestamp(ancillary_data) {
+                Some(ts) => (ts, true),
+                None => (
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros() as u64,
+                    false,
+                ),
+            };
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static LOGGED: AtomicBool = AtomicBool::new(false);
+            if !LOGGED.swap(true, Ordering::Relaxed) {
+                if kernel_ts {
+                    info!("[Worker inbound] Using kernel SO_TIMESTAMP for rx_time");
+                } else {
+                    warn!("[Worker inbound] SO_TIMESTAMP not available, falling back to SystemTime::now()");
+                }
+            }
             Ok((packet_data, hop_limit, source, rx_time))
         }
         Err(e) => Err(e),
