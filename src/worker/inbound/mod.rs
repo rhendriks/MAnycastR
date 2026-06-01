@@ -80,8 +80,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 let (packet, ttl, src) = match get_packet(&socket, is_dgram) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        sleep(Duration::from_millis(1)); // TODO improve this using nonblocking and using a read timeout
-                                                         // Check if we should exit
                         if rx_f_c.load(Ordering::Relaxed) {
                             break;
                         }
