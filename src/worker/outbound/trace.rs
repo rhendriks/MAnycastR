@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn send_trace(
     worker_id: u32,
     m_id: u32,
-    info_url: Option<String>,
+    info_url: Option<&str>,
     trace_task: &Trace,
     socket: &Socket,
     src: &Address,

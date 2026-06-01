@@ -25,12 +25,11 @@ pub fn send_record_route_probe(
     let mut sent = 0;
     let mut failed = 0;
 
-    // Payload to encode in outgoing probes
     let icmp_payload = ProbePayload {
         worker_id: config.worker_id as u32,
         m_id: config.m_id,
         trace_ttl: None,
-        info_url: config.info_url.clone(),
+        info_url: config.info_url.as_deref(),
     };
 
     // Write packets to send to a one-time allocated buffer
