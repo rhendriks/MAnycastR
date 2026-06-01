@@ -81,6 +81,13 @@ orchestrator -p [PORT NUMBER]
 ```
 
 Next, run one or more workers.
+
+To minimize packet loss at high probing rates, increase the kernel receive buffer limit to 32MB on each worker:
+```bash
+sudo sysctl -w net.core.rmem_max=33554432
+```
+To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf`.
+
 ```
 worker -a [ORC ADDRESS]
 ```
