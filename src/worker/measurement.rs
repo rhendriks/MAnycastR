@@ -9,6 +9,7 @@ use log::{error, info, warn};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
+use std::os::fd::AsRawFd;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -225,8 +226,19 @@ impl Worker {
 
         // TODO Attach BPF filter (filter on TCP RST, port values for TCP/UDP, and m_ids encoded in packets)
 
-        socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4MB for sending
-        socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving (bursts)
+        socket.set_send_buffer_size(4 * 1024 * 1024).ok();
+        socket.set_recv_buffer_size(16 * 1024 * 1024).ok();
+
+        unsafe {
+            let val: libc::c_int = 1;
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_TIMESTAMP,
+                &val as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
 
         socket
             .set_read_timeout(Some(std::time::Duration::from_millis(1)))

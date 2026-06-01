@@ -2,7 +2,6 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
 use crate::DNS_IDENTIFIER;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse DNS packets into a Reply result.
 /// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
@@ -22,6 +21,7 @@ pub fn parse_dns(
     src: Address,
     ttl: u32,
     sport: u16,
+    rx_time: u64,
 ) -> Option<Reply> {
     // DNS header offset
     let dns_offset = if src.is_v6() { 8 } else { 28 };
@@ -51,10 +51,6 @@ pub fn parse_dns(
     }
 
     let reply_dport = udp_packet.dport;
-    let rx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
 
     let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
         let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), src.is_v6())?;

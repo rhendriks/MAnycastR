@@ -1,7 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
 use crate::net::TCPPacket;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse TCP packets into a Reply result.
 /// Only accepts packets with the RST flag set.
@@ -17,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16) -> Option<Reply> {
+pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16, rx_time: u64) -> Option<Reply> {
     // Verify RST flag is set
     if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
         || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)
@@ -35,11 +34,6 @@ pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16) -> Opt
     if tcp_packet.dport != sport {
         return None;
     }
-
-    let rx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
 
     let identifier = tcp_packet.seq.wrapping_sub(1); // seq = ack + 1
     let is_discovery = (identifier >> 31) & 1 == 1;

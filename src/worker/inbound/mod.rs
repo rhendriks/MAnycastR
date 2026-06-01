@@ -73,7 +73,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .spawn(move || {
             let mut received: u32 = 0;
             loop {
-                let (packet, ttl, src) = match get_packet(&socket, is_dgram) {
+                let (packet, ttl, src, rx_time) = match get_packet(&socket, is_dgram) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         if rx_f_c.load(Ordering::Relaxed) {
@@ -85,12 +85,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 };
 
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl),
+                    (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl, rx_time),
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
+                    (_, true, _) => {
+                        parse_record_route(packet, config.m_id, src.into(), ttl)
+                    }
 
                     (_, _, ProtocolType::Icmp) => {
-                        parse_icmp(packet, config.m_id, false, src.into(), ttl, is_dgram)
+                        parse_icmp(packet, config.m_id, false, src.into(), ttl, is_dgram, rx_time)
                     }
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
@@ -99,9 +101,12 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         src.into(),
                         ttl,
                         config.sport,
+                        rx_time,
                     ),
 
-                    (_, _, ProtocolType::Tcp) => parse_tcp(packet, src.into(), ttl, config.sport),
+                    (_, _, ProtocolType::Tcp) => {
+                        parse_tcp(packet, src.into(), ttl, config.sport, rx_time)
+                    }
                 };
 
                 if let Some(reply) = result {
@@ -138,9 +143,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 
 struct ControlBuffer([MaybeUninit<u8>; 128]);
 
-/// Get a packet from a socket with the TTL and src address
+/// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).
 /// TODO replace with eBPF code
-fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr), std::io::Error> {
+fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr, u64), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
@@ -184,10 +189,43 @@ fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr
                 // IPv4 header included in raw socket mode, get the TTL at byte 8
                 packet_data[8] as u32
             };
-            Ok((packet_data, hop_limit, source))
+            let rx_time = parse_kernel_timestamp(ancillary_data).unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros() as u64
+            });
+            Ok((packet_data, hop_limit, source, rx_time))
         }
         Err(e) => Err(e),
     }
+}
+
+/// Retrieve kernel-provided receive timestamp (SO_TIMESTAMP) from ancillary data.
+/// Returns microseconds since epoch.
+fn parse_kernel_timestamp(data: &[u8]) -> Option<u64> {
+    let mut pos = 0;
+    while pos + 16 <= data.len() {
+        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
+        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
+        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
+
+        if level == libc::SOL_SOCKET && type_ == libc::SCM_TIMESTAMP {
+            let data_offset = pos + 16;
+            if data_offset + 16 <= data.len() {
+                let secs = i64::from_ne_bytes(data[data_offset..data_offset + 8].try_into().ok()?);
+                let usecs =
+                    i64::from_ne_bytes(data[data_offset + 8..data_offset + 16].try_into().ok()?);
+                return Some(secs as u64 * 1_000_000 + usecs as u64);
+            }
+        }
+
+        if cmsg_len == 0 {
+            break;
+        }
+        pos += (cmsg_len + 7) & !7;
+    }
+    None
 }
 
 /// Retrieve IPv4 TTL from the ancillary data buffer (IP_RECVTTL cmsg).
