@@ -82,7 +82,7 @@ orchestrator -p [PORT NUMBER]
 
 Next, run one or more workers.
 
-To minimize packet loss at high probing rates, increase the kernel receive buffer limit to 32MB on each worker:
+To minimize packet loss at high probing rates, increase the kernel receive buffer limit to 32 MB on each worker:
 ```bash
 sudo sysctl -w net.core.rmem_max=33554432
 ```
