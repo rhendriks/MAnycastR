@@ -273,6 +273,8 @@ impl Worker {
             }
         }
 
+        // TODO per-packet hop limit for traceroute (IPv6)
+
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
 
@@ -343,9 +345,15 @@ impl Worker {
         };
 
         let res = if is_ipv6 {
-            socket
-                .set_recv_hoplimit_v6(true)
-                .and_then(|_| socket.set_header_included_v6(true))
+            // Always request the received hop limit as ancillary data.
+            let r = socket.set_recv_hoplimit_v6(true);
+
+            // TODO header_included_v6 not supported currently in socket2
+            if protocol == Protocol::ICMPV6 {
+                r
+            } else {
+                r.and_then(|_| socket.set_header_included_v6(true))
+            }
         } else {
             socket.set_header_included_v4(true)
         };
