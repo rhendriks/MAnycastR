@@ -223,8 +223,7 @@ All values are stored as text. Columns depend on the measurement type:
 | `ttl` | `String (integer)` | TTL of the reply | All |
 | `rtt` | `String (float)` | Round-trip time (ms) | Latency, Unicast, Traceroute |
 | `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
-| `rx_time` | `String (integer)` | Receive timestamp (microseconds since epoch; 21-bit masked for TCP) | LACeS |
-| `tx_time` | `String (integer)` | Send timestamp (microseconds since epoch) | LACeS |
+| `offset` | `String (integer)` | Signed time offset `rx_time - tx_time` in microseconds (see note) | LACeS |
 | `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
 | `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
@@ -236,8 +235,10 @@ All values are stored as text. Columns depend on the measurement type:
 |------------------|--------------------|
 | Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
 | Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
-| LACeS | `rx`, `rx_time`, `addr`, `ttl`, `tx_time`, `tx` [, `chaos_data`] [, `origin_id`] |
+| LACeS | `rx`, `addr`, `ttl`, `tx`, `offset` [, `chaos_data`] [, `origin_id`] |
 | Traceroute | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
+
+> **LACeS `offset`**: `rx_time - tx_time` in microseconds. Under anycast the probe sender (`tx`) and the reply receiver (`rx`) may be different PoPs, so this is a one-way delay plus any clock offset between them — not a round-trip — and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the offset is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
 
 ### Reading CSV files
 
@@ -271,12 +272,13 @@ Columns depend on the measurement type:
 | `ttl` | `UINT8` | TTL of the reply | All |
 | `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast, Traceroute |
 | `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
-| `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
-| `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
+| `offset` | `INT64` (signed) | Signed time offset `rx_time - tx_time` in microseconds (see note) | LACeS |
 | `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
 | `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
+
+> **LACeS `offset`**: `rx_time - tx_time` in microseconds. Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be different PoPs, so this is not a round-trip and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the offset is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
 
 ### IP address encoding
 
