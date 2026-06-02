@@ -2,7 +2,9 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
     Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
 };
-use crate::worker::bpf::{attach_dns_filter, attach_icmp_filter, attach_tcp_filter};
+use crate::worker::bpf::{
+    attach_dns_filter, attach_icmp_filter, attach_tcp_filter, attach_traceroute_filter,
+};
 use crate::DNS_IDENTIFIER;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
@@ -231,25 +233,30 @@ impl Worker {
 
             // Attach a cBPF filter so the kernel drops non-matching packets
             let filter = match p_type {
-                ProtocolType::Icmp if is_ping => Some((
+                ProtocolType::Icmp if is_traceroute => (
+                    // Time-Exceeded + Echo-Reply by type (identifier is per-probe dynamic)
+                    attach_traceroute_filter(&socket, is_ipv6),
+                    "ICMP traceroute".to_string(),
+                ),
+                ProtocolType::Icmp => (
+                    // Plain echo and Record Route: both are echo replies with id == dport
                     attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
                     format!("ICMP (id {})", origin.dport),
-                )),
-                ProtocolType::Tcp => Some((
+                ),
+                ProtocolType::Tcp => (
+                    // RST flag + sport filtering
                     attach_tcp_filter(&socket, origin.sport as u16, is_ipv6),
                     format!("TCP RST (sport {})", origin.sport),
-                )),
-                ProtocolType::ADns | ProtocolType::ChaosDns => Some((
+                ),
+                // DNS Identifier + sport filtering
+                ProtocolType::ADns | ProtocolType::ChaosDns => (
                     attach_dns_filter(&socket, origin.sport as u16, DNS_IDENTIFIER, is_ipv6),
                     format!("DNS (sport {})", origin.sport),
-                )),
-                _ => None, // ICMP traceroute / Record Route: no echo-reply filter TODO
+                ),
             };
-            if let Some((result, desc)) = filter {
-                match result {
-                    Ok(()) => info!("[Worker] Attached {desc} BPF filter"),
-                    Err(e) => warn!("[Worker] Failed to attach {desc} BPF filter: {e}"),
-                }
+            match filter {
+                (Ok(()), desc) => info!("[Worker] Attached {desc} BPF filter"),
+                (Err(e), desc) => warn!("[Worker] Failed to attach {desc} BPF filter: {e}"),
             }
         }
 

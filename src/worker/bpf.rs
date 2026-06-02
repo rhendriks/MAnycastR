@@ -101,6 +101,44 @@ pub(crate) fn attach_icmp_filter(
     attach(socket, &mut prog)
 }
 
+/// Attach a filter to a raw ICMP socket for traceroute measurements: deliver
+/// only ICMP Time Exceeded (intermediate hops) and Echo Reply (final target)
+/// packets, dropping all other ICMP (echo requests to the host, redirects, etc.).
+///
+/// # Arguments
+/// * `socket` - the raw ICMP socket to attach the filter to
+/// * `is_ipv6` - whether this is an IPv6 (ICMPv6) socket
+#[cfg(target_os = "linux")]
+pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::io::Result<()> {
+    use op::*;
+
+    const ICMP_ECHO_REPLY_V4: u32 = 0;
+    const ICMP_TIME_EXCEEDED_V4: u32 = 11;
+    const ICMP_ECHO_REPLY_V6: u32 = 129;
+    const ICMP_TIME_EXCEEDED_V6: u32 = 3;
+
+    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+        vec![
+            sf(LDX | B | MSH, 0, 0, 0), // X = IP header length
+            sf(LD | B | IND, 0, 0, 0),  // A = ICMP type
+            sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V4), // type == 11 -> accept
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V4), // type == 0 -> accept, else drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    } else {
+        vec![
+            sf(LD | B | ABS, 0, 0, 0), // A = ICMPv6 type
+            sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V6), // type == 3 -> accept
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V6), // type == 129 -> accept, else drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    };
+
+    attach(socket, &mut prog)
+}
+
 /// Attach a filter to a raw TCP socket so the kernel only delivers TCP segments
 /// with the RST flag set whose destination port matches `sport` (the worker's
 /// source port), dropping all other TCP traffic — which on a raw TCP socket
@@ -203,6 +241,11 @@ pub(crate) fn attach_icmp_filter(
     _icmp_id: u16,
     _is_ipv6: bool,
 ) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn attach_traceroute_filter(_socket: &Socket, _is_ipv6: bool) -> std::io::Result<()> {
     Ok(())
 }
 
