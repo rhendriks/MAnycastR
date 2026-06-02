@@ -50,12 +50,16 @@ impl Worker {
             tx_origins.iter().map(|o| o.origin_id).collect();
 
         let is_traceroute = m_type == MeasurementType::AnycastTraceroute;
-        let needs_raw = is_traceroute || start.is_record;
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
-            let (socket, is_dgram) =
-                Self::get_socket(is_ipv6, rx_origin.p_type(), rx_origin, needs_raw);
+            let (socket, is_dgram) = Self::get_socket(
+                is_ipv6,
+                rx_origin.p_type(),
+                rx_origin,
+                is_traceroute,
+                start.is_record,
+            );
 
             inbound(
                 InboundConfig {
@@ -158,20 +162,17 @@ impl Worker {
         }
     }
 
-    /// Obtain a socket.
+    /// Obtain a socket, always preferring SOCK_RAW (SOCK_DGRAM only as an
+    /// unprivileged fall-back for plain ICMP echo measurements).
     /// Type of socket depends on the IP version (IPv4 or IPv6)
     /// And the protocol type (ICMP, UDP, TCP)
-    ///
-    /// For ICMP measurements that don't need raw socket features (traceroute TTL,
-    /// Record Route IP options, TCP SYN/ACK), tries a SOCK_DGRAM ICMP socket first.
-    /// This allows ICMP probing without sudo on Linux (when ping_group_range is set).
-    /// Falls back to SOCK_RAW if DGRAM creation fails.
     ///
     /// # Arguments
     /// * `is_ipv6` - IP version used (true: IPv6)
     /// * `p_type` - Protocol type used (ICMP, UDP, or TCP)
     /// * `origin` - Origin used in this measurement (anycast or local unicast address)
-    /// * `needs_raw` - Whether the measurement requires raw socket features
+    /// * `is_traceroute` - Whether this is a traceroute measurement (raw-only)
+    /// * `is_record` - Whether this is a Record Route measurement (raw-only)
     ///
     /// # Returns
     /// (Arc<Socket>, bool) containing a Socket and whether it is a DGRAM socket
@@ -179,7 +180,8 @@ impl Worker {
         is_ipv6: bool,
         p_type: ProtocolType,
         origin: Origin,
-        needs_raw: bool,
+        is_traceroute: bool,
+        is_record: bool,
     ) -> (Arc<Socket>, bool) {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
 
@@ -196,26 +198,28 @@ impl Worker {
         };
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
+        // TODO UDP/DNS can also use a plain unprivileged UDP datagram socket.
+        let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
 
-        // Prefer dgram sockets for ICMP for performance (ICMP identifier filtering in kernel)
-        // TODO prefer raw sockets (for custom IP identifiers) after implementing eBPF filter
-        // TODO UDP/DNS can use dgram? (TCP SYNACK requires raw?)
-        let (socket, is_dgram) = if p_type == ProtocolType::Icmp && !needs_raw {
-            let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
-            match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
-                Some(s) => {
-                    info!("[Worker] Using unprivileged ICMP socket (no sudo required)");
-                    (s, true)
-                }
-                None => {
-                    warn!(
-                        "[Worker] Unprivileged ICMP socket unavailable, falling back to raw socket"
-                    );
-                    (Self::raw_socket(domain, protocol, is_ipv6), false)
+        let (socket, is_dgram) = match Self::try_raw_socket(domain, protocol, is_ipv6) {
+            Some(s) => {
+                info!("[Worker] Using raw socket");
+                (s, false)
+            }
+            None if is_ping => {
+                // Attempt to create a SOCK_DGRAM as fall-back
+                let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
+                match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
+                    Some(s) => {
+                        info!("[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)");
+                        (s, true)
+                    }
+                    None => panic!(
+                        "Failed to create raw or unprivileged ICMP socket. Grant CAP_NET_RAW or set net.ipv4.ping_group_range."
+                    ),
                 }
             }
-        } else {
-            (Self::raw_socket(domain, protocol, is_ipv6), false)
+            None => panic!("Failed to create raw socket. sudo or CAP_NET_RAW required."),
         };
 
         if !is_dgram {
@@ -225,14 +229,13 @@ impl Worker {
                 .expect("Failed to bind socket to address.");
         }
 
-        // Attach a BPF filter so non-matching packets are filtered in-kernel
         // TODO BPF filters for TCP RST and UDP/DNS port matching.
-        if !is_dgram && p_type == ProtocolType::Icmp && !needs_raw {
+        if !is_dgram && is_ping {
             match attach_icmp_filter(&socket, origin.dport as u16, is_ipv6) {
                 Ok(()) => info!("[Worker] Attached ICMP BPF filter (id {})", origin.dport),
                 Err(e) => warn!("[Worker] Failed to attach ICMP BPF filter: {e}"),
             }
-            // TODO BPF filters for ICMP Record Route and Traceroute
+            // TODO BPF filter for record route and traceroute
         }
 
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
@@ -292,25 +295,30 @@ impl Worker {
         Some(socket)
     }
 
-    /// Create a RAW socket with IP_HDRINCL and appropriate options.
-    fn raw_socket(domain: Domain, protocol: Protocol, is_ipv6: bool) -> Socket {
-        let socket = Socket::new(domain, Type::RAW, Some(protocol))
-            .expect("Failed to create raw socket. sudo or raw socket permissions required");
+    /// Try to create a RAW socket with IP_HDRINCL and appropriate options.
+    /// Returns None if creation or setup fails (e.g. missing CAP_NET_RAW).
+    fn try_raw_socket(domain: Domain, protocol: Protocol, is_ipv6: bool) -> Option<Socket> {
+        let socket = match Socket::new(domain, Type::RAW, Some(protocol)) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("[Worker] RAW socket creation failed: {e}");
+                return None;
+            }
+        };
 
-        if is_ipv6 {
+        let res = if is_ipv6 {
             socket
                 .set_recv_hoplimit_v6(true)
-                .expect("Failed to set recv_hop_limit");
-            socket
-                .set_header_included_v6(true)
-                .expect("Failed to set header_included_v6");
+                .and_then(|_| socket.set_header_included_v6(true))
         } else {
-            socket
-                .set_header_included_v4(true)
-                .expect("Failed to set header_included");
+            socket.set_header_included_v4(true)
+        };
+        if let Err(e) = res {
+            warn!("[Worker] RAW socket option failed: {e}");
+            return None;
         }
 
-        socket
+        Some(socket)
     }
 
     /// Enable IP_RECVTTL on an IPv4 socket so TTL arrives as ancillary data.
