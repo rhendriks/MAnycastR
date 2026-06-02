@@ -201,8 +201,8 @@ impl Worker {
         };
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
-        // TODO UDP/DNS can also use a plain unprivileged UDP datagram socket.
         let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
+        let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
         let (socket, is_dgram) = match Self::try_raw_socket(domain, protocol, is_ipv6) {
             Some(s) => {
@@ -210,7 +210,7 @@ impl Worker {
                 (s, false)
             }
             None if is_ping => {
-                // Attempt to create a SOCK_DGRAM as fall-back
+                // Fall back to an unprivileged SOCK_DGRAM ICMP socket bound to the ICMP identifier.
                 let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
                 match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
                     Some(s) => {
@@ -219,6 +219,19 @@ impl Worker {
                     }
                     None => panic!(
                         "Failed to create raw or unprivileged ICMP socket. Grant CAP_NET_RAW or set net.ipv4.ping_group_range."
+                    ),
+                }
+            }
+            None if is_dns => {
+                // Fall back to an unprivileged SOCK_DGRAM UDP socket bound to the source port.
+                let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
+                match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
+                    Some(s) => {
+                        info!("[Worker] Raw socket unavailable, using unprivileged UDP socket (no sudo required)");
+                        (s, true)
+                    }
+                    None => panic!(
+                        "Failed to create raw or unprivileged UDP socket. Grant CAP_NET_RAW."
                     ),
                 }
             }
