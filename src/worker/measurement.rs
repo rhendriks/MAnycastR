@@ -240,9 +240,18 @@ impl Worker {
 
         if !is_dgram {
             let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
-            socket
-                .bind(&sock_addr)
-                .expect("Failed to bind socket to address.");
+            // DEBUG
+            info!(
+                "[Worker DEBUG] binding raw socket to {}:{} (ipv6={})",
+                addr, origin.sport, is_ipv6
+            );
+            match socket.bind(&sock_addr) {
+                Ok(()) => info!("[Worker DEBUG] bind ok"),
+                Err(e) => {
+                    warn!("[Worker DEBUG] bind failed: {e}");
+                    panic!("Failed to bind socket to address: {e}");
+                }
+            }
 
             // TODO add verified IPv6 cBPF filters
             if !is_ipv6 {
