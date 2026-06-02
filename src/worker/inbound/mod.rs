@@ -199,15 +199,6 @@ fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr
                     false,
                 ),
             };
-            use std::sync::atomic::{AtomicBool, Ordering};
-            static LOGGED: AtomicBool = AtomicBool::new(false);
-            if !LOGGED.swap(true, Ordering::Relaxed) {
-                if kernel_ts {
-                    info!("[Worker inbound] Using kernel SO_TIMESTAMP for rx_time");
-                } else {
-                    warn!("[Worker inbound] SO_TIMESTAMP not available, falling back to SystemTime::now()");
-                }
-            }
             Ok((packet_data, hop_limit, source, rx_time))
         }
         Err(e) => Err(e),
