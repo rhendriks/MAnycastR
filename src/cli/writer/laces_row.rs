@@ -1,3 +1,4 @@
+use crate::cli::writer::calculate_offset;
 use crate::custom_module::manycastr::MeasurementReply;
 use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
@@ -7,7 +8,7 @@ use bimap::BiHashMap;
 /// # Arguments
 /// * `reply` - The Reply that is being written to this row
 /// * `rx_worker_id` - The worker ID of the receiver
-/// * `is_tcp` - TCP measurements have different tx time formats
+/// * `is_tcp` - TCP measurements encode the tx time as a 21-bit timestamp
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 /// * `origin_id` - Associated origin ID of the reply
 ///
@@ -31,21 +32,14 @@ pub fn get_laces_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let rx_time = if is_tcp {
-        // Mask to 21 bits
-        let rx_wrapped = reply.rx_time & 0x1FFFFF;
-        rx_wrapped.to_string()
-    } else {
-        reply.rx_time.to_string()
-    };
+    let offset = calculate_offset(reply.rx_time, reply.tx_time, is_tcp);
 
     let mut row = vec![
         rx_hostname,
-        rx_time,
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
-        reply.tx_time.to_string(),
         tx_hostname,
+        offset.to_string(),
     ];
 
     // Optional fields
