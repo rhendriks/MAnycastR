@@ -1,4 +1,4 @@
-use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
+use crate::cli::writer::{calculate_offset, calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -14,6 +14,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
+// TODO should we order each buffer by IP for better compression?
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -172,14 +173,12 @@ pub fn get_parquet_metadata(
 pub struct ParquetDataRow {
     /// Hostname of the probe receiver.
     rx: Option<String>,
-    /// UNIX timestamp in microseconds when the reply was received.
-    rx_time: Option<u64>,
     /// Source address of the reply as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     addr: Option<[u8; 16]>,
     /// Time-to-live (TTL) value of the reply.
     ttl: Option<u8>,
-    /// UNIX timestamp in microseconds when the request was sent.
-    tx_time: Option<u64>,
+    /// LACeS time offset rx_time - tx_time, in microseconds (signed; see `calculate_offset`).
+    offset: Option<i64>, // TODO can be i32?
     /// Hostname of the probe sender.
     tx: Option<String>,
     /// Round-trip time (RTT) in milliseconds.
@@ -205,10 +204,9 @@ fn measurement_reply_to_parquet_row(
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
-        rx_time: None,
         addr: result.src.map(|s| s.to_ipv6_mapped_bytes()),
         ttl: Some(result.ttl as u8),
-        tx_time: None,
+        offset: None,
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
@@ -229,8 +227,7 @@ fn measurement_reply_to_parquet_row(
         }
         MeasurementType::Laces => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-            row.rx_time = Some(result.rx_time);
-            row.tx_time = Some(result.tx_time);
+            row.offset = Some(calculate_offset(result.rx_time, result.tx_time, is_tcp));
         }
     }
 
@@ -253,10 +250,9 @@ fn trace_reply_to_parquet_row(
 
     ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
-        rx_time: None,
         addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         ttl: Some(reply.ttl as u8),
-        tx_time: None,
+        offset: None,
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
         chaos_data: None,
@@ -297,12 +293,12 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "rx_time" | "tx_time" => {
+            "offset" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Timestamp {
-                        is_adjusted_to_u_t_c: true,
-                        unit: parquet::basic::TimeUnit::MICROS,
+                    .with_logical_type(Some(LogicalType::Integer {
+                        bit_width: 64,
+                        is_signed: true,
                     }))
                     .build()
                     .unwrap()
@@ -390,18 +386,13 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "rx_time" | "tx_time" => {
+                "offset" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
                         .map(|row| {
-                            let opt_val = match header {
-                                "rx_time" => row.rx_time,
-                                "tx_time" => row.tx_time,
-                                _ => None,
-                            };
-                            if let Some(val) = opt_val {
-                                values.push(val as i64);
+                            if let Some(val) = row.offset {
+                                values.push(val);
                                 1
                             } else {
                                 0
