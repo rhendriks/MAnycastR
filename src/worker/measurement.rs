@@ -236,12 +236,10 @@ impl Worker {
                 libc::SOL_SOCKET,
                 libc::SO_TIMESTAMP,
                 &val as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                size_of::<libc::c_int>() as libc::socklen_t,
             )
         };
-        if ts_ret == 0 {
-            info!("[Worker] SO_TIMESTAMP enabled (kernel receive timestamps)");
-        } else {
+        if ts_ret != 0 {
             warn!("[Worker] Failed to enable SO_TIMESTAMP: {}", std::io::Error::last_os_error());
         }
 
