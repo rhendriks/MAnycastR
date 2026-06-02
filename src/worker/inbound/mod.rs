@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::info;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -102,6 +102,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         ttl,
                         config.sport,
                         rx_time,
+                        is_dgram,
                     ),
 
                     (_, _, ProtocolType::Tcp) => {
