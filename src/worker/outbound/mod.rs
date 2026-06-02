@@ -162,30 +162,25 @@ pub fn outbound(
         .expect("Failed to spawn outbound thread");
 }
 
-/// Send a packet (vector of bytes) using the socket
+/// Send a packet (vector of bytes) to a destination using the socket
 /// IPv4: Send IPv4 header (optional Record Route option) and IP payload
 /// IPv6: Send only payload (kernel writes IPv6 header)
 ///
 /// # Arguments
 /// * `socket` - attached socket to send probes from
 /// * `packet_buffer` - Packet to send (as bytes)
-/// * `dst` - Pre-constructed destination socket address
+/// * `dst` - Destination address to send to
+/// * `port` - Destination port. Ignored by raw sockets (the destination is in
+///   the IP header we craft, so callers pass 0); required for SOCK_DGRAM UDP
+///   sockets, where the kernel writes the UDP header (e.g. 53 for DNS).
 pub fn send_packet(
     socket: &Socket,
     packet_buffer: &[u8],
-    dst: &SockAddr,
+    dst: &Address,
+    port: u16,
 ) -> Result<(), std::io::Error> {
-    if packet_buffer.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "Empty packet",
-        ));
-    }
-    socket.send_to(packet_buffer, dst)?;
+    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), port));
+    socket.send_to(packet_buffer, &dest_addr)?;
 
     Ok(())
-}
-
-pub fn addr_to_sockaddr(dst: &Address) -> SockAddr {
-    SockAddr::from(SocketAddr::new(dst.into(), 0))
 }
