@@ -258,13 +258,26 @@ impl Worker {
         bind_addr: &SockAddr,
         is_ipv6: bool,
     ) -> Option<Socket> {
-        let socket = Socket::new(domain, Type::DGRAM, Some(protocol)).ok()?;
-        socket.bind(bind_addr).ok()?;
+        let socket = match Socket::new(domain, Type::DGRAM, Some(protocol)) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("[Worker] DGRAM socket creation failed: {e}");
+                return None;
+            }
+        };
+        if let Err(e) = socket.bind(bind_addr) {
+            warn!("[Worker] DGRAM socket bind to {bind_addr:?} failed: {e}");
+            return None;
+        }
 
-        if is_ipv6 {
-            socket.set_recv_hoplimit_v6(true).ok()?;
+        let ttl_res = if is_ipv6 {
+            socket.set_recv_hoplimit_v6(true)
         } else {
-            Self::set_recv_ttl_v4(&socket).ok()?;
+            Self::set_recv_ttl_v4(&socket)
+        };
+        if let Err(e) = ttl_res {
+            warn!("[Worker] DGRAM socket TTL/hoplimit option failed: {e}");
+            return None;
         }
 
         Some(socket)
