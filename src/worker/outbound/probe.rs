@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
-use crate::worker::outbound::{addr_to_sockaddr, send_packet, OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
+use crate::worker::outbound::{send_packet, OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
 use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use socket2::Socket;
@@ -74,6 +74,7 @@ pub fn send_probe(
                 worker_id,
                 config.p_type == ProtocolType::ChaosDns,
                 config.qname.as_deref().expect("qname missing"),
+                config.is_dgram,
             ));
         }
         ProtocolType::Tcp => {
@@ -89,8 +90,7 @@ pub fn send_probe(
         }
     }
 
-    let dest_addr = addr_to_sockaddr(dst);
-    match send_packet(socket, &packet_buffer, &dest_addr) {
+    match send_packet(socket, &packet_buffer, dst, config.dport) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!(
