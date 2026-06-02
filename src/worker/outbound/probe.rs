@@ -90,7 +90,15 @@ pub fn send_probe(
         }
     }
 
-    match send_packet(socket, &packet_buffer, dst, config.dport) {
+    // dport must be 0 for IPv6 SOCK_RAW
+    let dest_port = if config.is_dgram
+        && matches!(config.p_type, ProtocolType::ADns | ProtocolType::ChaosDns)
+    {
+        config.dport
+    } else {
+        0
+    };
+    match send_packet(socket, &packet_buffer, dst, dest_port) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!(
