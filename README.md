@@ -99,8 +99,53 @@ cli -a [ORC ADDRESS] worker-list
 ```
 
 Finally, you can perform a measurement.
+See [Socket privileges](#socket-privileges) below for what the worker needs in order to send and receive probes.
 ```
 cli -a [ORC ADDRESS] start [parameters]
+```
+
+## Socket privileges
+
+Workers send and receive probes, which requires opening sockets.
+How much privilege this needs depends on the protocol.
+This section explains the options and the trade-offs, so that operators can make an informed decision about what to grant.
+
+### What each protocol needs
+
+| Protocol | Raw socket required? | Notes |
+|----------|----------------------|-------|
+| ICMP | No (with a sysctl) — see below | Can use an *unprivileged ICMP socket* if `net.ipv4.ping_group_range` permits, otherwise falls back to a raw socket |
+| DNS (UDP) | No | Plain UDP datagram sockets need no special privilege |
+| CHAOS (UDP) | No | Same as DNS |
+| TCP (SYN/ACK) | Yes | Crafting custom TCP SYN/ACK packets requires a raw socket |
+
+The worker prefers raw sockets when available, as used by the standard `ping` utility, because they allow for more accurate RTT measurements and more control over packet contents (e.g., TTL, IP options).
+As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissions.
+
+### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
+
+We recommend granting `CAP_NET_RAW` to the worker binary, which allows it to open raw sockets without running as root.
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
+```
+Or, under systemd, without setuid or root:
+```ini
+[Service]
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+```
+
+### Running ICMP measurements without a raw socket
+
+If granting `CAP_NET_RAW` is not possible/undesirable,
+the worker can still send ICMP echo requests using an unprivileged ICMP socket,
+but this requires a one-time configuration change to the kernel's `ping_group_range`.
+
+To enable the unprivileged ICMP path for all groups (one-time, persists across reboots):
+```bash
+echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-manycastr.conf
+sudo sysctl --system
 ```
 
 ### Examples
