@@ -276,6 +276,7 @@ impl Worker {
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
 
+        // enable SO_TIMESTAMP (get kernel timestamp when packet is received)
         let ts_ret = unsafe {
             let val: libc::c_int = 1;
             libc::setsockopt(
@@ -368,7 +369,7 @@ impl Worker {
                 libc::IPPROTO_IP,
                 libc::IP_RECVTTL,
                 &val as *const _ as *const libc::c_void,
-                std::mem::size_of_val(&val) as libc::socklen_t,
+                size_of_val(&val) as libc::socklen_t,
             )
         };
         if ret == 0 {

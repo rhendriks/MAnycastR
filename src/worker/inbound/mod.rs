@@ -145,7 +145,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 struct ControlBuffer([MaybeUninit<u8>; 128]);
 
 /// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).
-/// TODO replace with eBPF code
 fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr, u64), std::io::Error> {
     let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
@@ -190,16 +189,11 @@ fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr
                 // IPv4 header included in raw socket mode, get the TTL at byte 8
                 packet_data[8] as u32
             };
-            let (rx_time, kernel_ts) = match parse_kernel_timestamp(ancillary_data) {
-                Some(ts) => (ts, true),
-                None => (
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_micros() as u64,
-                    false,
-                ),
-            };
+            // Get timestamp from the kernel, or current time if unavailable
+            let rx_time = parse_kernel_timestamp(ancillary_data).unwrap_or_else(|| std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64);
             Ok((packet_data, hop_limit, source, rx_time))
         }
         Err(e) => Err(e),
