@@ -124,6 +124,7 @@ pub fn create_dns(
     worker_id: u32,
     is_chaos: bool,
     qname: &str,
+    is_dgram: bool,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -131,9 +132,9 @@ pub fn create_dns(
         .as_micros() as u64;
 
     if !is_chaos {
-        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255, is_dgram)
     } else {
-        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname, is_dgram)
     }
 }
 
