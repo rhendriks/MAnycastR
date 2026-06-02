@@ -229,6 +229,7 @@ impl From<&[u8]> for TXTRecord {
 impl UDPPacket {
     /// Create a UDP packet with a DNS A record request.
     /// In the domain of the A record, we encode the transmit time, source and destination addresses, sender worker ID, and source port.
+    #[allow(clippy::too_many_arguments)]
     pub fn dns_request(
         src: &Address,
         dst: &Address,
@@ -237,9 +238,16 @@ impl UDPPacket {
         tx_time: u64,
         tx_id: u32,
         ttl: u8,
+        is_dgram: bool,
     ) -> Vec<u8> {
         let dns_packet =
             Self::create_a_record_request(domain_name, tx_time, src, dst, tx_id, sport);
+
+        // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
+        if is_dgram {
+            return dns_packet;
+        }
+
         let udp_length = (8 + dns_packet.len()) as u16;
 
         let mut udp_packet = Self {
@@ -337,8 +345,15 @@ impl UDPPacket {
         sport: u16,
         tx: u32,
         chaos: &str,
+        is_dgram: bool,
     ) -> Vec<u8> {
         let dns_body = Self::create_chaos_request(tx, chaos);
+
+        // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
+        if is_dgram {
+            return dns_body;
+        }
+
         let udp_length = 8 + dns_body.len() as u32;
 
         let mut udp_packet = Self {
