@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::info;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -80,37 +80,19 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 let (packet, ttl, src, rx_time) =
                     match get_packet(&socket, is_dgram, &mut buf, &mut control_buf) {
                         Ok(result) => result,
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        if rx_f_c.load(Ordering::Relaxed) {
-                            break;
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            if rx_f_c.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!("[Worker inbound DEBUG] get_packet error (non-WouldBlock): {e}");
-                        panic!("Socket error: {}", e);
-                    }
-                };
-
-                // DEBUG: a packet was delivered by recvmsg. Logs the source, byte
-                // count, ttl, and the first bytes so we can see whether the IPv6
-                // header is present (byte 0 == 0x60) or stripped (ICMPv6 type).
-                let head = &packet[..packet.len().min(16)];
-                info!(
-                    "[Worker inbound DEBUG] recv {} bytes from {} ttl={} is_dgram={} head={:02x?}",
-                    packet.len(),
-                    src,
-                    ttl,
-                    is_dgram,
-                    head
-                );
+                        Err(e) => panic!("Socket error: {}", e),
+                    };
 
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl, rx_time),
 
-                    (_, true, _) => {
-                        parse_record_route(packet, config.m_id, src.into(), ttl)
-                    }
+                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
 
                     (_, _, ProtocolType::Icmp) => {
                         parse_icmp(packet, config.m_id, false, src.into(), ttl, is_dgram, rx_time)
@@ -131,20 +113,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     }
                 };
 
-                match result {
-                    Some(reply) => {
-                        received += 1;
-                        let _ = reply_tx.send(reply);
-                    }
-                    None => {
-                        // DEBUG
-                        info!(
-                            "[Worker inbound DEBUG] parse returned None (p_type={:?}, {} bytes from {})",
-                            config.p_type,
-                            packet.len(),
-                            src
-                        );
-                    }
+                if let Some(reply) = result {
+                    received += 1;
+                    let _ = reply_tx.send(reply);
                 }
             }
 
