@@ -115,12 +115,14 @@ This section explains the options and the trade-offs, so that operators can make
 | Protocol | Raw socket required? | Notes |
 |----------|----------------------|-------|
 | ICMP | No (with a sysctl) — see below | Can use an *unprivileged ICMP socket* if `net.ipv4.ping_group_range` permits, otherwise falls back to a raw socket |
-| DNS (UDP) | No | Plain UDP datagram sockets need no special privilege |
+| DNS (UDP) | No | Always uses an unprivileged UDP datagram socket (see below) to avoid ICMP port-unreachable replies |
 | CHAOS (UDP) | No | Same as DNS |
 | TCP (SYN/ACK) | Yes | Crafting custom TCP SYN/ACK packets requires a raw socket |
 
-The worker prefers raw sockets when available, as used by the standard `ping` utility, because they allow for more accurate RTT measurements and more control over packet contents (e.g., TTL, IP options).
+The worker prefers raw sockets when available for ICMP and TCP, as used by the standard `ping` utility, because they allow for more accurate RTT measurements and more control over packet contents (e.g., TTL, IP options).
 As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissions.
+
+For DNS measurements we prefer `SOCK_DGRAM` to avoid generating ICMP port-unreachable replies, which would be generated for every DNS reply if a raw socket were used (since the kernel has no UDP listener bound to the source port).
 
 ### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
 
