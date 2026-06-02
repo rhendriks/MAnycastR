@@ -2,6 +2,7 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
     Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
 };
+use crate::worker::bpf::attach_icmp_filter;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
@@ -224,7 +225,15 @@ impl Worker {
                 .expect("Failed to bind socket to address.");
         }
 
-        // TODO Attach BPF filter (filter on TCP RST, port values for TCP/UDP, and m_ids encoded in packets)
+        // Attach a BPF filter so non-matching packets are filtered in-kernel
+        // TODO BPF filters for TCP RST and UDP/DNS port matching.
+        if !is_dgram && p_type == ProtocolType::Icmp && !needs_raw {
+            match attach_icmp_filter(&socket, origin.dport as u16, is_ipv6) {
+                Ok(()) => info!("[Worker] Attached ICMP BPF filter (id {})", origin.dport),
+                Err(e) => warn!("[Worker] Failed to attach ICMP BPF filter: {e}"),
+            }
+            // TODO BPF filters for ICMP Record Route and Traceroute
+        }
 
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
