@@ -72,9 +72,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .name("listener_thread".to_string())
         .spawn(move || {
             let mut received: u32 = 0;
+            // Owned by the listener so the packet slice returned by get_packet
+            // (which borrows `buf`) stays valid while we parse it.
+            let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
+            let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
             loop {
-                let (packet, ttl, src, rx_time) = match get_packet(&socket, is_dgram) {
-                    Ok(result) => result,
+                let (packet, ttl, src, rx_time) =
+                    match get_packet(&socket, is_dgram, &mut buf, &mut control_buf) {
+                        Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         if rx_f_c.load(Ordering::Relaxed) {
                             break;
@@ -169,22 +174,21 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .expect("Failed to spawn result_sender_thread");
 }
 
-struct ControlBuffer([MaybeUninit<u8>; 128]);
-
 /// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).
-fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr, u64), std::io::Error> {
-    let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
+fn get_packet<'a>(
+    socket: &Socket,
+    is_dgram: bool,
+    buf: &'a mut [MaybeUninit<u8>],
+    control_buf: &'a mut [MaybeUninit<u8>],
+) -> Result<(&'a [u8], u32, SocketAddr, u64), std::io::Error> {
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
-    let mut control_storage = ControlBuffer([MaybeUninit::uninit(); 128]);
-    let control_buf_bytes = &mut control_storage.0;
-
     let recv_result = {
-        let mut iov_buf = [MaybeUninitSlice::new(&mut buf)];
+        let mut iov_buf = [MaybeUninitSlice::new(&mut buf[..])];
         let mut msg = MsgHdrMut::new()
             .with_addr(&mut source_storage)
             .with_buffers(&mut iov_buf)
-            .with_control(control_buf_bytes);
+            .with_control(&mut control_buf[..]);
 
         socket.recvmsg(&mut msg, 0).map(|n| (n, msg.control_len()))
     };
@@ -195,11 +199,10 @@ fn get_packet(socket: &Socket, is_dgram: bool) -> Result<(&[u8], u32, SocketAddr
                 .as_socket()
                 .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
-            // SAFETY: recvmsg initialized `bytes_read` and `control_len` bytes respectively
             let (packet_data, ancillary_data) = unsafe { // TODO remove unsafe
                 let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
                 let c = std::slice::from_raw_parts(
-                    control_storage.0.as_ptr() as *const u8,
+                    control_buf.as_ptr() as *const u8,
                     control_len,
                 );
                 (p, c)
