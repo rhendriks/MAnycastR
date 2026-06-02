@@ -240,47 +240,36 @@ impl Worker {
 
         if !is_dgram {
             let sock_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
-            // DEBUG
-            info!(
-                "[Worker DEBUG] binding raw socket to {}:{} (ipv6={})",
-                addr, origin.sport, is_ipv6
-            );
-            match socket.bind(&sock_addr) {
-                Ok(()) => info!("[Worker DEBUG] bind ok"),
-                Err(e) => {
-                    warn!("[Worker DEBUG] bind failed: {e}");
-                    panic!("Failed to bind socket to address: {e}");
-                }
-            }
+            socket
+                .bind(&sock_addr)
+                .expect("Failed to bind socket to address.");
 
-            // TODO add verified IPv6 cBPF filters
-            if !is_ipv6 {
-                let filter = match p_type {
-                    ProtocolType::Icmp if is_traceroute => (
-                        // Time-Exceeded + Echo-Reply by type (identifier is per-probe dynamic)
-                        attach_traceroute_filter(&socket, is_ipv6),
-                        "ICMP traceroute".to_string(),
-                    ),
-                    ProtocolType::Icmp => (
-                        // Plain echo and Record Route: both are echo replies with id == dport
-                        attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
-                        format!("ICMP (id {})", origin.dport),
-                    ),
-                    ProtocolType::Tcp => (
-                        // RST flag + sport filtering
-                        attach_tcp_filter(&socket, origin.sport as u16, is_ipv6),
-                        format!("TCP RST (sport {})", origin.sport),
-                    ),
-                    // DNS Identifier + sport filtering
-                    ProtocolType::ADns | ProtocolType::ChaosDns => (
-                        attach_dns_filter(&socket, origin.sport as u16, DNS_IDENTIFIER, is_ipv6),
-                        format!("DNS (sport {})", origin.sport),
-                    ),
-                };
-                match filter {
-                    (Ok(()), desc) => info!("[Worker] Attached {desc} BPF filter"),
-                    (Err(e), desc) => warn!("[Worker] Failed to attach {desc} BPF filter: {e}"),
-                }
+            // Attach a cBPF filter so the kernel drops non-matching packets
+            let filter = match p_type {
+                ProtocolType::Icmp if is_traceroute => (
+                    // Time-Exceeded + Echo-Reply by type (identifier is per-probe dynamic)
+                    attach_traceroute_filter(&socket, is_ipv6),
+                    "ICMP traceroute".to_string(),
+                ),
+                ProtocolType::Icmp => (
+                    // Plain echo and Record Route: both are echo replies with id == dport
+                    attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
+                    format!("ICMP (id {})", origin.dport),
+                ),
+                ProtocolType::Tcp => (
+                    // RST flag + sport filtering
+                    attach_tcp_filter(&socket, origin.sport as u16, is_ipv6),
+                    format!("TCP RST (sport {})", origin.sport),
+                ),
+                // DNS Identifier + sport filtering
+                ProtocolType::ADns | ProtocolType::ChaosDns => (
+                    attach_dns_filter(&socket, origin.sport as u16, DNS_IDENTIFIER, is_ipv6),
+                    format!("DNS (sport {})", origin.sport),
+                ),
+            };
+            match filter {
+                (Ok(()), desc) => info!("[Worker] Attached {desc} BPF filter"),
+                (Err(e), desc) => warn!("[Worker] Failed to attach {desc} BPF filter: {e}"),
             }
         }
 
