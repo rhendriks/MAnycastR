@@ -2,7 +2,8 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
     Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
 };
-use crate::worker::bpf::attach_icmp_filter;
+use crate::worker::bpf::{attach_dns_filter, attach_icmp_filter, attach_tcp_filter};
+use crate::DNS_IDENTIFIER;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
@@ -227,15 +228,29 @@ impl Worker {
             socket
                 .bind(&sock_addr)
                 .expect("Failed to bind socket to address.");
-        }
 
-        // TODO BPF filters for TCP RST and UDP/DNS port matching.
-        if !is_dgram && is_ping {
-            match attach_icmp_filter(&socket, origin.dport as u16, is_ipv6) {
-                Ok(()) => info!("[Worker] Attached ICMP BPF filter (id {})", origin.dport),
-                Err(e) => warn!("[Worker] Failed to attach ICMP BPF filter: {e}"),
+            // Attach a cBPF filter so the kernel drops non-matching packets
+            let filter = match p_type {
+                ProtocolType::Icmp if is_ping => Some((
+                    attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
+                    format!("ICMP (id {})", origin.dport),
+                )),
+                ProtocolType::Tcp => Some((
+                    attach_tcp_filter(&socket, origin.sport as u16, is_ipv6),
+                    format!("TCP RST (sport {})", origin.sport),
+                )),
+                ProtocolType::ADns | ProtocolType::ChaosDns => Some((
+                    attach_dns_filter(&socket, origin.sport as u16, DNS_IDENTIFIER, is_ipv6),
+                    format!("DNS (sport {})", origin.sport),
+                )),
+                _ => None, // ICMP traceroute / Record Route: no echo-reply filter TODO
+            };
+            if let Some((result, desc)) = filter {
+                match result {
+                    Ok(()) => info!("[Worker] Attached {desc} BPF filter"),
+                    Err(e) => warn!("[Worker] Failed to attach {desc} BPF filter: {e}"),
+                }
             }
-            // TODO BPF filter for record route and traceroute
         }
 
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending

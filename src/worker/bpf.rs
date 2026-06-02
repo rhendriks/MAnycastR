@@ -1,88 +1,48 @@
-//! Classic BPF (cBPF) socket filters for raw sockets.
-//!
-//! Attaching a cBPF program via `SO_ATTACH_FILTER` lets the kernel drop
-//! irrelevant packets before they reach the socket receive buffer, replicating
-//! the kernel-side identifier filtering that unprivileged ICMP datagram sockets
-//! get for free.
-//!
-//! Classic BPF requires no privilege beyond owning the socket (unlike eBPF,
-//! which needs CAP_BPF / CAP_SYS_ADMIN to load programs). Since raw sockets
-//! already require CAP_NET_RAW, attaching the filter adds no extra privilege.
-
 use socket2::Socket;
 
-/// Attach a cBPF filter to a raw ICMP socket so the kernel only delivers ICMP
-/// echo replies whose identifier matches `icmp_id`, dropping all other ICMP
-/// traffic before it reaches the socket receive buffer.
-///
-/// # Arguments
-/// * `socket` - the raw ICMP socket to attach the filter to
-/// * `icmp_id` - the ICMP identifier used for this measurement
-/// * `is_ipv6` - whether this is an IPv6 (ICMPv6) socket
+// cBPF opcode bits (linux/filter.h, linux/bpf_common.h)
 #[cfg(target_os = "linux")]
-pub(crate) fn attach_icmp_filter(
-    socket: &Socket,
-    icmp_id: u16,
-    is_ipv6: bool,
-) -> std::io::Result<()> {
+mod op {
+    pub const LD: u16 = 0x00;
+    pub const LDX: u16 = 0x01;
+    pub const B: u16 = 0x10;
+    pub const H: u16 = 0x08;
+    pub const ABS: u16 = 0x20;
+    pub const IND: u16 = 0x40;
+    pub const MSH: u16 = 0xa0;
+    pub const ALU: u16 = 0x04;
+    pub const AND: u16 = 0x50;
+    pub const RSH: u16 = 0x70;
+    pub const JMP: u16 = 0x05;
+    pub const JEQ: u16 = 0x10;
+    pub const K: u16 = 0x00;
+    pub const RET: u16 = 0x06;
+}
+
+#[cfg(target_os = "linux")]
+const ACCEPT: u32 = 0xffff_ffff; // return value: keep the whole packet
+#[cfg(target_os = "linux")]
+const DROP: u32 = 0; // return value: drop the packet
+
+#[cfg(target_os = "linux")]
+#[inline]
+fn sf(code: u16, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
+    libc::sock_filter { code, jt, jf, k }
+}
+
+/// Attach a cBPF program to a socket via `SO_ATTACH_FILTER`.
+/// The kernel copies the program during the call, so `prog` need only remain
+/// valid for the duration of this function.
+#[cfg(target_os = "linux")]
+fn attach(socket: &Socket, prog: &mut [libc::sock_filter]) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
-
-    // cBPF opcode bits (linux/filter.h, linux/bpf_common.h)
-    const LD: u16 = 0x00;
-    const LDX: u16 = 0x01;
-    const B: u16 = 0x10;
-    const H: u16 = 0x08;
-    const ABS: u16 = 0x20;
-    const IND: u16 = 0x40;
-    const MSH: u16 = 0xa0;
-    const JMP: u16 = 0x05;
-    const JEQ: u16 = 0x10;
-    const K: u16 = 0x00;
-    const RET: u16 = 0x06;
-
-    const ICMP_ECHO_REPLY_V4: u32 = 0;
-    const ICMP_ECHO_REPLY_V6: u32 = 129;
-    const ACCEPT: u32 = 0xffff_ffff; // return value: keep the whole packet
-    const DROP: u32 = 0; // return value: drop the packet
-
-    let sf = |code: u16, jt: u8, jf: u8, k: u32| libc::sock_filter { code, jt, jf, k };
-    let id = icmp_id as u32;
-
-    // Jump offsets (jt/jf) are relative to the NEXT instruction; on any
-    // mismatch we jump straight to the final `RET DROP`.
-    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
-        // IPv4 raw socket: received data INCLUDES the IP header (variable length),
-        // so use BPF_MSH to compute the header length into X and index from there.
-        vec![
-            sf(LDX | B | MSH, 0, 0, 0), // X = 4 * (P[0] & 0x0f)  (IP header length)
-            sf(LD | B | IND, 0, 0, 0),  // A = P[X+0]  ICMP type
-            sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V4), // type == 0 ? else -> drop
-            sf(LD | H | IND, 0, 0, 4),  // A = P[X+4]  ICMP identifier (big-endian u16)
-            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
-            sf(RET | K, 0, 0, ACCEPT),  // accept
-            sf(RET | K, 0, 0, DROP),    // drop
-        ]
-    } else {
-        // IPv6 raw socket: the kernel STRIPS the IPv6 header, so the received
-        // data starts at the ICMPv6 header — fixed offsets, no BPF_MSH needed.
-        vec![
-            sf(LD | B | ABS, 0, 0, 0), // A = P[0]   ICMPv6 type
-            sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V6), // type == 129 ? else -> drop
-            sf(LD | H | ABS, 0, 0, 4), // A = P[4]   identifier
-            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
-            sf(RET | K, 0, 0, ACCEPT), // accept
-            sf(RET | K, 0, 0, DROP),   // drop
-        ]
-    };
 
     let fprog = libc::sock_fprog {
         len: prog.len() as u16,
         filter: prog.as_mut_ptr(),
     };
 
-    // The kernel copies the program during setsockopt, so `prog` only needs to
-    // remain valid for the duration of this call.
-    let ret = unsafe {
+    let ret = unsafe { // TODO unsafe
         libc::setsockopt(
             socket.as_raw_fd(),
             libc::SOL_SOCKET,
@@ -98,11 +58,168 @@ pub(crate) fn attach_icmp_filter(
     Ok(())
 }
 
-/// No-op on non-Linux platforms (cBPF socket filters are Linux-specific).
+/// Attach a filter to a raw ICMP socket so the kernel only delivers ICMP echo
+/// replies whose identifier matches `icmp_id`, dropping all other ICMP traffic.
+///
+/// # Arguments
+/// * `socket` - the raw ICMP socket to attach the filter to
+/// * `icmp_id` - the ICMP identifier used for this measurement
+/// * `is_ipv6` - whether this is an IPv6 (ICMPv6) socket
+#[cfg(target_os = "linux")]
+pub(crate) fn attach_icmp_filter(
+    socket: &Socket,
+    icmp_id: u16,
+    is_ipv6: bool,
+) -> std::io::Result<()> {
+    use op::*;
+
+    const ICMP_ECHO_REPLY_V4: u32 = 0;
+    const ICMP_ECHO_REPLY_V6: u32 = 129;
+    let id = icmp_id as u32;
+
+    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+        vec![
+            sf(LDX | B | MSH, 0, 0, 0), // X = IP header length
+            sf(LD | B | IND, 0, 0, 0),  // A = ICMP type
+            sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V4), // type == 0 ? else -> drop
+            sf(LD | H | IND, 0, 0, 4),  // A = ICMP identifier
+            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    } else {
+        vec![
+            sf(LD | B | ABS, 0, 0, 0), // A = ICMPv6 type
+            sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V6), // type == 129 ? else -> drop
+            sf(LD | H | ABS, 0, 0, 4), // A = identifier
+            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    };
+
+    attach(socket, &mut prog)
+}
+
+/// Attach a filter to a raw TCP socket so the kernel only delivers TCP segments
+/// with the RST flag set whose destination port matches `sport` (the worker's
+/// source port), dropping all other TCP traffic — which on a raw TCP socket
+/// includes a copy of every TCP segment on the host (SSH, the gRPC control
+/// connection to the orchestrator, etc.).
+///
+/// # Arguments
+/// * `socket` - the raw TCP socket to attach the filter to
+/// * `sport` - the worker's source port (TCP replies carry it as their dport)
+/// * `is_ipv6` - whether this is an IPv6 socket
+#[cfg(target_os = "linux")]
+pub(crate) fn attach_tcp_filter(
+    socket: &Socket,
+    sport: u16,
+    is_ipv6: bool,
+) -> std::io::Result<()> {
+    use op::*;
+
+    const TCP_RST: u32 = 0x04; // RST flag in the TCP flags byte (offset 13)
+    let dport = sport as u32;
+
+    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+        vec![
+            sf(LDX | B | MSH, 0, 0, 0),   // X = IP header length
+            sf(LD | H | IND, 0, 0, 2),    // A = TCP destination port
+            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
+            sf(LD | B | IND, 0, 0, 13),   // A = TCP flags byte
+            sf(ALU | AND | K, 0, 0, TCP_RST), // A = flags & RST
+            sf(JMP | JEQ | K, 0, 1, TCP_RST), // RST set ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    } else {
+        vec![
+            sf(LD | H | ABS, 0, 0, 2),    // A = TCP destination port
+            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
+            sf(LD | B | ABS, 0, 0, 13),   // A = TCP flags byte
+            sf(ALU | AND | K, 0, 0, TCP_RST), // A = flags & RST
+            sf(JMP | JEQ | K, 0, 1, TCP_RST), // RST set ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    };
+
+    attach(socket, &mut prog)
+}
+
+/// Attach a filter to a raw UDP socket so the kernel only delivers DNS replies
+/// destined to `sport` whose DNS transaction ID carries our 6-bit identifier,
+/// dropping all other UDP traffic (e.g. the host's own DNS resolution).
+///
+/// # Arguments
+/// * `socket` - the raw UDP socket to attach the filter to
+/// * `sport` - the worker's source port (DNS replies carry it as their dport)
+/// * `dns_identifier` - the 6-bit DNS identifier encoded in outgoing queries
+/// * `is_ipv6` - whether this is an IPv6 socket
+#[cfg(target_os = "linux")]
+pub(crate) fn attach_dns_filter(
+    socket: &Socket,
+    sport: u16,
+    dns_identifier: u8,
+    is_ipv6: bool,
+) -> std::io::Result<()> {
+    use op::*;
+
+    let dport = sport as u32;
+    let id = dns_identifier as u32;
+
+    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+        vec![
+            sf(LDX | B | MSH, 0, 0, 0),   // X = IP header length
+            sf(LD | H | IND, 0, 0, 2),    // A = UDP destination port
+            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
+            sf(LD | B | IND, 0, 0, 8),    // A = first byte of DNS transaction ID
+            sf(ALU | RSH | K, 0, 0, 2),   // A = first_byte >> 2  (top 6 bits)
+            sf(JMP | JEQ | K, 0, 1, id),  // identifier matches ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    } else {
+        vec![
+            sf(LD | H | ABS, 0, 0, 2),    // A = UDP destination port
+            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
+            sf(LD | B | ABS, 0, 0, 8),    // A = first byte of DNS transaction ID
+            sf(ALU | RSH | K, 0, 0, 2),   // A = first_byte >> 2  (top 6 bits)
+            sf(JMP | JEQ | K, 0, 1, id),  // identifier matches ? else -> drop
+            sf(RET | K, 0, 0, ACCEPT),
+            sf(RET | K, 0, 0, DROP),
+        ]
+    };
+
+    attach(socket, &mut prog)
+}
+
+// --- Non-Linux stubs (cBPF socket filters are Linux-specific) -----------------
+
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn attach_icmp_filter(
     _socket: &Socket,
     _icmp_id: u16,
+    _is_ipv6: bool,
+) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn attach_tcp_filter(
+    _socket: &Socket,
+    _sport: u16,
+    _is_ipv6: bool,
+) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn attach_dns_filter(
+    _socket: &Socket,
+    _sport: u16,
+    _dns_identifier: u8,
     _is_ipv6: bool,
 ) -> std::io::Result<()> {
     Ok(())
