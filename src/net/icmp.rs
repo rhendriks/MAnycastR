@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{address, Address};
-use crate::net::{record_route_option, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::net::{record_route_option, IPv4Packet, PacketPayload};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 
@@ -127,21 +127,8 @@ impl ICMPPacket {
 
                 packet.checksum = ICMPPacket::calc_checksum(&pseudo);
 
-                if is_dgram {
-                    // dgram socket: Kernel adds IP header
-                    (&packet).into()
-                } else {
-                    let v6_packet = IPv6Packet {
-                        payload_length: 8 + (packet.payload.len() as u16),
-                        flow_label: 15037,
-                        next_header: 58,
-                        hop_limit: ttl,
-                        src: src_u128,
-                        dst: dst_u128,
-                        payload: PacketPayload::Icmp { value: packet },
-                    };
-                    (&v6_packet).into()
-                }
+                // TODO IPV6_HDRINCL for ICMPv6 sockets is currently broken in socket2
+                (&packet).into()
             }
 
             _ => panic!("Source and Destination IP versions must match"),
