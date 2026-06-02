@@ -165,10 +165,15 @@ impl Worker {
         }
     }
 
-    /// Obtain a socket, always preferring SOCK_RAW (SOCK_DGRAM only as an
-    /// unprivileged fall-back for plain ICMP echo measurements).
+    /// Obtain a socket.
     /// Type of socket depends on the IP version (IPv4 or IPv6)
     /// And the protocol type (ICMP, UDP, TCP)
+    ///
+    /// ICMP and TCP prefer SOCK_RAW (plain ICMP echo falls back to an unprivileged
+    /// SOCK_DGRAM ICMP socket if no raw socket is available). DNS instead *prefers*
+    /// SOCK_DGRAM UDP even when a raw socket is available: a raw socket registers no
+    /// UDP listener, so the kernel answers every DNS reply with an ICMP/ICMPv6 port
+    /// unreachable to the resolver — a bound UDP socket avoids that.
     ///
     /// # Arguments
     /// * `is_ipv6` - IP version used (true: IPv6)
@@ -204,38 +209,44 @@ impl Worker {
         let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
         let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
-        let (socket, is_dgram) = match Self::try_raw_socket(domain, protocol, is_ipv6) {
-            Some(s) => {
-                info!("[Worker] Using raw socket");
-                (s, false)
-            }
-            None if is_ping => {
-                // Fall back to an unprivileged SOCK_DGRAM ICMP socket bound to the ICMP identifier.
-                let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
-                match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
-                    Some(s) => {
-                        info!("[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)");
-                        (s, true)
-                    }
-                    None => panic!(
-                        "Failed to create raw or unprivileged ICMP socket. Grant CAP_NET_RAW or set net.ipv4.ping_group_range."
-                    ),
+        // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies)
+        let (socket, is_dgram) = if is_dns {
+            let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
+            match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
+                Some(s) => {
+                    info!("[Worker] Using UDP datagram socket for DNS");
+                    (s, true)
                 }
-            }
-            None if is_dns => {
-                // Fall back to an unprivileged SOCK_DGRAM UDP socket bound to the source port.
-                let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
-                match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
+                None => match Self::try_raw_socket(domain, protocol, is_ipv6) {
                     Some(s) => {
-                        info!("[Worker] Raw socket unavailable, using unprivileged UDP socket (no sudo required)");
-                        (s, true)
+                        warn!("[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)");
+                        (s, false)
                     }
-                    None => panic!(
-                        "Failed to create raw or unprivileged UDP socket. Grant CAP_NET_RAW."
-                    ),
-                }
+                    None => panic!("Failed to create UDP socket for DNS. Check the source address is local."),
+                },
             }
-            None => panic!("Failed to create raw socket. sudo or CAP_NET_RAW required."),
+        } else {
+            // ICMP and TCP prefer a raw socket for better performance and timestamp accuracy
+            match Self::try_raw_socket(domain, protocol, is_ipv6) {
+                Some(s) => {
+                    info!("[Worker] Using raw socket");
+                    (s, false)
+                }
+                None if is_ping => {
+                    // Fall back to an unprivileged SOCK_DGRAM ICMP socket bound to the ICMP identifier.
+                    let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
+                    match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
+                        Some(s) => {
+                            info!("[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)");
+                            (s, true)
+                        }
+                        None => panic!(
+                            "Failed to create raw or unprivileged ICMP socket. Grant CAP_NET_RAW or set net.ipv4.ping_group_range."
+                        ),
+                    }
+                }
+                None => panic!("Failed to create raw socket. sudo or CAP_NET_RAW required."),
+            }
         };
 
         if !is_dgram {
