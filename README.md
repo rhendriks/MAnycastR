@@ -221,9 +221,8 @@ All values are stored as text. Columns depend on the measurement type:
 | `rx` | `String` | Hostname of the receiving worker | All |
 | `addr` | `String` | Source IP of the reply, or traceroute hop address (`*` if no reply) | All |
 | `ttl` | `String (integer)` | TTL of the reply | All |
-| `rtt` | `String (float)` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `rtt` | `String (float)` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
 | `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
-| `offset` | `String (integer)` | Signed time offset `rx_time - tx_time` in microseconds (see note) | LACeS |
 | `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
 | `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
@@ -235,10 +234,13 @@ All values are stored as text. Columns depend on the measurement type:
 |------------------|--------------------|
 | Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
 | Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
-| LACeS | `rx`, `addr`, `ttl`, `tx`, `offset` [, `chaos_data`] [, `origin_id`] |
+| LACeS | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
 | Traceroute | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
 
-> **LACeS `offset`**: `rx_time - tx_time` in microseconds. Under anycast the probe sender (`tx`) and the reply receiver (`rx`) may be different PoPs, so this is a one-way delay plus any clock offset between them — not a round-trip — and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the offset is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
+> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time.
+> It is the signed offset `rx_time - tx_time` (milliseconds).
+> Under anycast the probe sender (`tx`) and the reply receiver (`rx`) may be **different PoPs**,
+> and it can be **negative** when PoP clocks are slightly desynchronized.
 
 ### Reading CSV files
 
@@ -270,15 +272,14 @@ Columns depend on the measurement type:
 | `rx` | `ENUM` | Hostname of the receiving worker | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
 | `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
-| `offset` | `INT64` (signed) | Signed time offset `rx_time - tx_time` in microseconds (see note) | LACeS |
 | `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
 | `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
 
-> **LACeS `offset`**: `rx_time - tx_time` in microseconds. Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be different PoPs, so this is not a round-trip and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the offset is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
+> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time — it is the signed offset `rx_time - tx_time` (milliseconds). Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be **different PoPs**, so this is a one-way delay plus clock offset rather than a round-trip, and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the value is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
 
 ### IP address encoding
 
