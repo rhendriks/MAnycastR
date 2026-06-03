@@ -220,6 +220,7 @@ pub async fn handle(
             max_hops: *matches.get_one::<u32>("trace_max_hop").unwrap(),
             timeout: *matches.get_one::<u32>("trace_timeout").unwrap(),
             initial_hop: *matches.get_one::<u32>("trace_initial_hop").unwrap(),
+            star_unresponsive: *matches.get_one::<bool>("trace_star").unwrap(),
         })
     } else {
         None
