@@ -208,6 +208,10 @@ Measure the path from the catching PoP to the target.
 First, a single `discovery probe` is sent to infer the catching worker.
 Next, multiple traceroute packets are sent from the catching worker to measure the path.
 
+Hops that do not respond within `--trace_timeout` are advanced after `--trace_max_failures` consecutive timeouts (up to `--trace_max_hop`).
+By default, each unresponsive hop is recorded as a `*` row (no reply);
+pass `--trace_star false` to omit these rows and leave a gap in `hop_count` instead.
+
 ## CSV output format
 
 By default, results are written as gzip-compressed CSV files (`.csv.gz`).
