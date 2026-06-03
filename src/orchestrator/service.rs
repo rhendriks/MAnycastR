@@ -374,11 +374,18 @@ impl Controller for ControllerService {
                 max_hops: trace_options.max_hops,
                 initial_hop: trace_options.initial_hop,
                 max_failures: trace_options.max_failures,
+                star_unresponsive: trace_options.star_unresponsive,
             });
             let trace_config_clone = self.trace_config.clone();
+            let cli_sender_clone = self.cli_sender.clone();
 
             std::thread::spawn(move || {
-                check_trace_timeouts(stacks_clone, ongoing_measurement, trace_config_clone);
+                check_trace_timeouts(
+                    stacks_clone,
+                    ongoing_measurement,
+                    trace_config_clone,
+                    cli_sender_clone,
+                );
             });
         }
 
