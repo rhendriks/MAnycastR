@@ -437,7 +437,13 @@ impl Controller for ControllerService {
             round_robin_distributor(task_config).await;
         } else if send_discovery {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
-            round_robin_discovery(task_config, self.worker_stacks.clone(), is_responsive).await;
+            round_robin_discovery(
+                task_config,
+                self.worker_stacks.clone(),
+                is_responsive,
+                self.trace_config.clone(),
+            )
+            .await;
         } else {
             // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
             broadcast_distributor(task_config).await;
