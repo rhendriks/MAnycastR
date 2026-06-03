@@ -213,7 +213,7 @@ pub fn get_header(
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
-            vec!["rx", "addr", "ttl", "tx", "offset"]
+            vec!["rx", "addr", "ttl", "tx", "rtt"]
         }
     };
 
@@ -236,16 +236,21 @@ pub fn format_rtt(rtt: f64) -> String {
     format!("{rtt:.3}")
 }
 
-/// Calculate RTT
+/// Calculate the time delta `rx_time - tx_time` in milliseconds.
+///
+/// For latency, unicast, and traceroute measurements this is a traditional RTT.
+/// However, for LACeS mode the sending and receiving anycast PoP may differ,
+/// in which case this RTT may be negative if the clocks are desynchronized.
 ///
 /// # Arguments
 /// `rx_time` - receive time (64 bit microseconds EPOCH)
 /// `tx_time` - transmit time (64 bit microseconds EPOCH)
 /// `is_tcp` - whether it is a TCP encoded timestamp
+/// `is_traceroute` - whether it is a traceroute encoded timestamp
 ///
 /// # Note
-/// TCP timestamps are masked to 21-bit microseconds EPOCH
-/// Traceroute timestamps are 14-bit milliseconds EPOCH
+/// TCP timestamps are masked to 21-bit microseconds EPOCH.
+/// Traceroute timestamps are 14-bit milliseconds EPOCH.
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
     if is_tcp {
         // 21 bit microseconds timestamp (2^21 = 2,097,152)
@@ -277,41 +282,7 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
 
         rtt_ms as f64
     } else {
-        (rx_time - tx_time) as f64 / 1_000.0
-    }
-}
-
-/// Compute the LACeS time offset `rx_time - tx_time` in microseconds.
-///
-/// Unlike `calculate_rtt`, this is **signed**: under anycast the probe sender and
-/// the reply receiver may be different PoPs, so the value is a one-way delay plus
-/// any clock offset between those PoPs rather than a round-trip — and it can be
-/// negative when clocks are slightly desynchronised.
-///
-/// # Note
-/// For TCP the send time is only a 21-bit microsecond value (carried in the
-/// sequence number), so the result is the 21-bit-wrapped delta in
-/// `0..2^21` microseconds (~2.097 s) and cannot represent a negative offset.
-///
-/// # Arguments
-/// `rx_time` - receive time (64-bit microseconds EPOCH)
-/// `tx_time` - transmit time (64-bit microseconds EPOCH, or 21-bit for TCP)
-/// `is_tcp` - whether the transmit time is a 21-bit TCP-encoded timestamp
-pub fn calculate_offset(rx_time: u64, tx_time: u64, is_tcp: bool) -> i64 {
-    if is_tcp {
-        // 21-bit microseconds timestamp (2^21 = 2,097,152)
-        const MODULUS: u64 = 1 << 21;
-        const MASK: u64 = MODULUS - 1; // 0x1FFFFF
-        let rx_21b = rx_time & MASK;
-        let tx_21b = tx_time & MASK;
-        let delta_us = if rx_21b >= tx_21b {
-            rx_21b - tx_21b
-        } else {
-            // wrap-around case
-            (rx_21b + MODULUS) - tx_21b
-        };
-        delta_us as i64
-    } else {
-        rx_time as i64 - tx_time as i64
+        // Signed: for LACeS rx may precede tx (different PoPs / clock skew).
+        (rx_time as i64 - tx_time as i64) as f64 / 1_000.0
     }
 }
