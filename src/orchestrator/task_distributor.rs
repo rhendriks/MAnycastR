@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{OngoingMeasurement, ALL_WORKERS_END, BREAK_SIGNAL};
+use crate::orchestrator::{OngoingMeasurement, TracerouteConfig, ALL_WORKERS_END, BREAK_SIGNAL};
 use crate::ALL_WORKERS;
 use log::{info, warn};
 use std::collections::{HashMap, VecDeque};
@@ -225,10 +225,14 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
 /// * `config` - TaskDistributorConfig with all necessary parameters.
 /// * `worker_stacks` - stacks of follow-up tasks for each worker
 /// * `is_responsive` - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
+/// * `traceroute_config` - traceroute state (`None` for non-traceroute measurements);
+///   used to keep the measurement alive while traceroute sessions are still
+///   walking hops / waiting on per-hop timeouts.
 pub async fn round_robin_discovery(
     config: TaskDistributorConfig,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     is_responsive: bool,
+    traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
 ) {
     info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
@@ -356,23 +360,34 @@ pub async fn round_robin_discovery(
 
             // Check if we finished sending all discovery probes and all stacks are empty
             if hitlist_is_empty {
-                if let Some(start_time) = cooldown_timer {
-                    if start_time.elapsed() >= Duration::from_secs(cooldown) {
-                        info!("[Orchestrator] Task distribution finished.");
-                        break;
-                    }
-                } else {
-                    // Make sure all stacks are empty before we start the cooldown timer
-                    let all_stacks_empty = {
-                        let stacks_guard = worker_stacks.lock().unwrap();
-                        stacks_guard.values().all(|queue| queue.is_empty())
-                    };
-                    if all_stacks_empty {
+                let all_stacks_empty = {
+                    let stacks_guard = worker_stacks.lock().unwrap();
+                    stacks_guard.values().all(|queue| queue.is_empty())
+                };
+
+                // Check for ongoing traceroutes
+                let trace_sessions_active = traceroute_config
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|c| !c.session_tracker.sessions.is_empty());
+
+                // Ensure there is no ongoing worker tasks (follow-ups/traceroutes)
+                if all_stacks_empty && !trace_sessions_active {
+                    if let Some(start_time) = cooldown_timer {
+                        if start_time.elapsed() >= Duration::from_secs(cooldown) {
+                            info!("[Orchestrator] Task distribution finished.");
+                            break;
+                        }
+                    } else {
                         info!(
                             "[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",
                         );
                         cooldown_timer = Some(Instant::now());
                     }
+                } else {
+                    // Activity resumed -> cancel any pending cooldown.
+                    cooldown_timer = None;
                 }
             }
 
