@@ -1,4 +1,4 @@
-use crate::cli::writer::calculate_offset;
+use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::MeasurementReply;
 use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
@@ -14,6 +14,11 @@ use bimap::BiHashMap;
 ///
 /// # Returns
 /// A vector of strings representing the row in the CSV file
+///
+/// # Note
+/// The `rtt` column carries the signed offset `rx_time - tx_time` (milliseconds).
+/// Under anycast the sender (`tx`) and receiver (`rx`) may be different PoPs,
+/// and may be negative; see [`calculate_rtt`].
 pub fn get_laces_row(
     reply: MeasurementReply,
     rx_worker_id: &u32,
@@ -32,14 +37,14 @@ pub fn get_laces_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let offset = calculate_offset(reply.rx_time, reply.tx_time, is_tcp);
+    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, is_tcp, false);
 
     let mut row = vec![
         rx_hostname,
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
         tx_hostname,
-        offset.to_string(),
+        rtt.to_string(),
     ];
 
     // Optional fields

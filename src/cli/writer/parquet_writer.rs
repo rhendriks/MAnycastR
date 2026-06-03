@@ -1,10 +1,10 @@
-use crate::cli::writer::{calculate_offset, calculate_rtt, get_header, MetadataArgs, WriteConfig};
+use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
-use parquet::data_type::{ByteArray, FixedLenByteArray, FloatType, Int32Type, Int64Type};
+use parquet::data_type::{ByteArray, FixedLenByteArray, FloatType, Int32Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{Type as SchemaType, TypePtr};
@@ -177,11 +177,9 @@ pub struct ParquetDataRow {
     addr: Option<[u8; 16]>,
     /// Time-to-live (TTL) value of the reply.
     ttl: Option<u8>,
-    /// LACeS time offset rx_time - tx_time, in microseconds (signed; see `calculate_offset`).
-    offset: Option<i64>, // TODO can be i32?
     /// Hostname of the probe sender.
     tx: Option<String>,
-    /// Round-trip time (RTT) in milliseconds.
+    /// Round-trip time in milliseconds (offset in LACeS mode, see `calculate_rtt`)
     rtt: Option<f32>,
     /// DNS TXT CHAOS record value.
     chaos_data: Option<String>,
@@ -206,7 +204,6 @@ fn measurement_reply_to_parquet_row(
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         addr: result.src.map(|s| s.to_ipv6_mapped_bytes()),
         ttl: Some(result.ttl as u8),
-        offset: None,
         tx: None,
         rtt: None,
         chaos_data: result.chaos,
@@ -227,7 +224,7 @@ fn measurement_reply_to_parquet_row(
         }
         MeasurementType::Laces => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-            row.offset = Some(calculate_offset(result.rx_time, result.tx_time, is_tcp));
+            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false) as f32);
         }
     }
 
@@ -252,7 +249,6 @@ fn trace_reply_to_parquet_row(
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         ttl: Some(reply.ttl as u8),
-        offset: None,
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
         chaos_data: None,
@@ -293,16 +289,6 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "offset" => {
-                SchemaType::primitive_type_builder(header, parquet::basic::Type::INT64)
-                    .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Integer {
-                        bit_width: 64,
-                        is_signed: true,
-                    }))
-                    .build()
-                    .unwrap()
-            }
             "ttl" | "origin_id" | "hop_count" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
@@ -385,25 +371,6 @@ pub fn write_batch_to_parquet(
                     col_writer
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
-                }
-                "offset" => {
-                    let mut values = Vec::with_capacity(batch.len());
-                    let def_levels: Vec<i16> = batch
-                        .iter()
-                        .map(|row| {
-                            if let Some(val) = row.offset {
-                                values.push(val);
-                                1
-                            } else {
-                                0
-                            }
-                        })
-                        .collect();
-                    col_writer.typed::<Int64Type>().write_batch(
-                        &values,
-                        Some(&def_levels),
-                        None,
-                    )?;
                 }
                 "ttl" | "origin_id" | "hop_count" => {
                     let mut values = Vec::with_capacity(batch.len());
