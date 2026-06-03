@@ -1,5 +1,5 @@
 use crate::cli::client::CliClient;
-use crate::cli::config::{get_hitlist, parse_configurations};
+use crate::cli::config::{get_hitlist, get_targets, parse_configurations};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::address::Value::Unicast;
 use crate::custom_module::manycastr::{
@@ -144,10 +144,18 @@ pub async fn handle(
         configs
     };
 
-    // Get the target IP addresses
-    let hitlist_path = matches.get_one::<String>("hitlist").unwrap();
+    // Get the target IP addresses (either --hitlist or --target)
     let is_shuffle = matches.get_flag("shuffle");
-    let (targets, is_ipv6) = get_hitlist(hitlist_path, &configurations, is_shuffle);
+    let (hitlist_path, (targets, is_ipv6)) =
+        if let Some(target_str) = matches.get_one::<String>("target") {
+            (
+                target_str.as_str(),
+                get_targets(target_str, &configurations, is_shuffle),
+            )
+        } else {
+            let path = matches.get_one::<String>("hitlist").unwrap().as_str();
+            (path, get_hitlist(path, &configurations, is_shuffle))
+        };
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
