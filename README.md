@@ -63,7 +63,7 @@ When creating a measurement you can specify (for more information run --help):
 * **Source port** - source port to use for probes (default: 62321)
 * **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
 * **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
-* **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
+* **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)
 * **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported)
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
@@ -168,7 +168,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -p tcp -a 10.0.0.0 -m latency
+cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -179,7 +179,7 @@ The second probe is a `measurement probe` send from the catching worker to measu
 ### Unicast latency measurement using ICMPv6
 
 ```
-cli -a [::1]:50001 start hitlistv6.txt -p icmp -m unicast
+cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
 ```
 
 Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -190,7 +190,7 @@ Furthermore, if the target does not currently route optimally, the performance g
 ### LACeS measurement
 
 ```
-cli -a [::1]:50001 start hitlist.txt -p icmp -m laces --responsive
+cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
 ```
 
 Anycast probes will be sent from all workers.
@@ -201,7 +201,12 @@ Targets are scanned for responsiveness, using a single worker probe, before prob
 ### Anycast traceroute measurement
 
 ```
-cli -a [::1]:50001 start hitlist.txt -p icmp -m anycast-traceroute
+cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
+```
+
+Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
+```
+cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 ```
 
 Measure the path from the catching PoP to the target.
