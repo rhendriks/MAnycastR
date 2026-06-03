@@ -1,5 +1,6 @@
-use crate::custom_module::manycastr::{task, Address, Task, Trace};
-use crate::orchestrator::{OngoingMeasurement, TracerouteConfig};
+use crate::custom_module::manycastr::reply::ReplyData;
+use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
+use crate::orchestrator::{CliHandle, OngoingMeasurement, TracerouteConfig};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -57,12 +58,18 @@ pub fn check_trace_timeouts(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
     traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
+    cli_sender: CliHandle,
 ) {
     // Get traceroute parameters
-    let (timeout, max_hops, max_failures) = {
+    let (timeout, max_hops, max_failures, star_unresponsive) = {
         let guard = traceroute_config.read().unwrap();
         let config = guard.as_ref().expect("TracerouteConfig not initialized");
-        (config.timeout, config.max_hops, config.max_failures)
+        (
+            config.timeout,
+            config.max_hops,
+            config.max_failures,
+            config.star_unresponsive,
+        )
     };
 
     loop {
@@ -73,6 +80,8 @@ pub fn check_trace_timeouts(
 
         // Keep track of tasks to send to the workers
         let mut tasks_to_send = Vec::new();
+        // `*` (no-reply) hops to forward to the CLI for timed-out hops: (rx_id, origin_id, reply)
+        let mut star_replies: Vec<(u32, u32, TraceReply)> = Vec::new();
         let now = Instant::now();
 
         {
@@ -100,7 +109,23 @@ pub fn check_trace_timeouts(
                         // Still alive (received update during check) -> update deadline
                         Some((id.clone(), expiration))
                     } else {
-                        // No longer alive
+                        // No longer alive: Emit a '*' hop to the CLI for it, if enabled
+                        if star_unresponsive {
+                            star_replies.push((
+                                session.worker_id,
+                                session.origin_id,
+                                TraceReply {
+                                    hop_addr: None,
+                                    ttl: 0,
+                                    rx_time: 0,
+                                    tx_time: 0,
+                                    tx_id: session.worker_id,
+                                    trace_dst: session.target,
+                                    hop_count: session.current_ttl as u32,
+                                },
+                            ));
+                        }
+
                         session.consecutive_failures += 1;
                         session.last_updated = now;
                         session.current_ttl += 1;
@@ -145,6 +170,22 @@ pub fn check_trace_timeouts(
             let mut stacks = worker_stacks.lock().unwrap();
             for (worker_id, task_to_send) in tasks_to_send {
                 stacks.entry(worker_id).or_default().push_back(task_to_send);
+            }
+        }
+
+        // Forward '*' hops for timed-out hops to the CLI
+        if !star_replies.is_empty() {
+            let tx_opt = cli_sender.lock().unwrap().clone();
+            if let Some(tx) = tx_opt {
+                for (rx_id, origin_id, reply) in star_replies {
+                    let _ = tx.blocking_send(Ok(ReplyBatch {
+                        rx_id,
+                        results: vec![Reply {
+                            reply_data: Some(ReplyData::Trace(reply)),
+                        }],
+                        origin_id,
+                    }));
+                }
             }
         }
 
