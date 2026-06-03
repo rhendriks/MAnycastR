@@ -198,7 +198,7 @@ message DiscoveryReply {
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3;
+  uint64 rx_time = 3; // TODO return float32 rtt instead?
   uint64 tx_time = 4;
   fixed32 tx_id = 5;
   optional string chaos = 6;
