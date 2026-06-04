@@ -365,7 +365,7 @@ df = df.with_columns(
 
 #### Download
 ```bash
-curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/download/latest/manycastr
+curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/latest/download/manycastr
 chmod +x manycastr
 ```
 
