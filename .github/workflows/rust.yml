@@ -3,6 +3,7 @@ name: Rust CI (MUSL Target)
 on:
   push:
     branches: [ "master" ]
+    tags: [ "v*.*.*" ]
   pull_request:
     branches: [ "master" ]
 
@@ -52,11 +53,11 @@ jobs:
         RUSTFLAGS="-C target-cpu=x86-64-v3" \
         cargo build --release --target ${{ env.RUST_TARGET }} --verbose
 
-    - name: Upload to GitHub Release
+    - name: Attach binary to the version release
+      if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: latest
-        name: Latest Release
         files: target/${{ env.RUST_TARGET }}/release/manycastr
+        make_latest: "true"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
