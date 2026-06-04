@@ -1,10 +1,10 @@
-use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
+use crate::custom_module::manycastr::{instruction, Address, End, Instruction, Probe, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::{OngoingMeasurement, TracerouteConfig, ALL_WORKERS_END, BREAK_SIGNAL};
 use crate::ALL_WORKERS;
 use log::{info, warn};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::spawn;
@@ -233,6 +233,9 @@ pub async fn round_robin_discovery(
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     is_responsive: bool,
     traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
+    is_any_protocol: bool,
+    origin_ids: Vec<u32>,
+    resolved_targets: Arc<Mutex<HashSet<Address>>>,
 ) {
     info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
     let mut cooldown_timer: Option<Instant> = None;
@@ -242,6 +245,10 @@ pub async fn round_robin_discovery(
     let mut current_index = 0;
     // We create a manual iterator over the general hitlist.
     let mut hitlist_iter = config.tasks.into_iter();
+
+    // For --any: track remaining origin_ids to try and the original hitlist addresses
+    let mut any_origin_index: usize = 0;
+    let mut any_hitlist: Vec<Address> = Vec::new();
 
     spawn(async move {
         let mut hitlist_is_empty = false;
@@ -324,6 +331,20 @@ pub async fn round_robin_discovery(
                 let discovery_tasks: Vec<Task> =
                     hitlist_iter.by_ref().take(remainder_needed).collect();
 
+                // Collect target addresses during the first --any round (for re-queuing unresolved targets later)
+                if is_any_protocol && any_origin_index == 0 {
+                    for task in &discovery_tasks {
+                        if let Some(crate::custom_module::manycastr::task::TaskType::Discovery(
+                            probe,
+                        )) = &task.task_type
+                        {
+                            if let Some(addr) = probe.dst {
+                                any_hitlist.push(addr);
+                            }
+                        }
+                    }
+                }
+
                 // If we could not fill up the entire batch, we mark the hitlist as empty (only once)
                 if discovery_tasks.len() < remainder_needed {
                     info!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
@@ -376,6 +397,59 @@ pub async fn round_robin_discovery(
                 if all_stacks_empty && !trace_sessions_active {
                     if let Some(start_time) = cooldown_timer {
                         if start_time.elapsed() >= Duration::from_secs(cooldown) {
+                            // --any: try next protocol for unresolved targets
+                            if is_any_protocol {
+                                any_origin_index += 1;
+                                if any_origin_index < origin_ids.len() {
+                                    let next_origin_id = origin_ids[any_origin_index];
+                                    let resolved = resolved_targets.lock().unwrap();
+                                    let unresolved: Vec<Address> = any_hitlist
+                                        .iter()
+                                        .filter(|addr| !resolved.contains(addr))
+                                        .copied()
+                                        .collect();
+
+                                    let resolved_count = resolved.len();
+                                    let unresolved_count = unresolved.len();
+                                    drop(resolved);
+
+                                    if unresolved_count > 0 {
+                                        info!(
+                                            "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
+                                        );
+
+                                        // Re-queue unresolved as discovery tasks with the next protocol
+                                        let new_tasks: Vec<Task> = unresolved
+                                            .into_iter()
+                                            .map(|addr| Task {
+                                                task_type: Some(
+                                                    crate::custom_module::manycastr::task::TaskType::Discovery(
+                                                        Probe { dst: Some(addr) },
+                                                    ),
+                                                ),
+                                                origin_id: next_origin_id,
+                                            })
+                                            .collect();
+
+                                        hitlist_iter = new_tasks.into_iter();
+                                        hitlist_is_empty = false;
+                                        cooldown_timer = None;
+                                        continue;
+                                    } else {
+                                        info!(
+                                            "[Orchestrator] --any: all {resolved_count} targets resolved."
+                                        );
+                                    }
+                                } else {
+                                    let resolved_count =
+                                        resolved_targets.lock().unwrap().len();
+                                    let total = any_hitlist.len();
+                                    info!(
+                                        "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
+                                    );
+                                }
+                            }
+
                             info!("[Orchestrator] Task distribution finished.");
                             break;
                         }
