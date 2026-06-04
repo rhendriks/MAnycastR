@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn send_trace(
     worker_id: u32,
     m_id: u32,
-    info_url: Option<String>,
+    info_url: Option<&str>,
     trace_task: &Trace,
     socket: &Socket,
     src: &Address,
@@ -56,12 +56,14 @@ pub fn send_trace(
         sequence_number, // encode TTL (8 bits) and trace ID (8 bits) into seq number
         &payload_fields,
         trace_task.ttl as u8,
+        false, // traceroute always uses raw sockets
     );
 
     match send_packet(
         socket,
         packet,
         &trace_task.dst.expect("invalid destination"),
+        0,
     ) {
         Ok(()) => return (1, 0),
         Err(e) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),

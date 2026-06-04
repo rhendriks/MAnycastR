@@ -23,7 +23,7 @@ use std::str::FromStr;
 /// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
 /// * If the hitlist addresses are of mixed types (v4 and v6).
 pub fn get_hitlist(
-    hitlist_path: &String,
+    hitlist_path: &str,
     configurations: &[Configuration],
     is_shuffle: bool,
 ) -> (Vec<Address>, bool) {
@@ -38,12 +38,59 @@ pub fn get_hitlist(
         Box::new(BufReader::new(file))
     };
 
-    let mut ips: Vec<Address> = reader // Create a vector of addresses from the file
+    let ips: Vec<Address> = reader // Create a vector of addresses from the file
         .lines()
         .map_while(Result::ok) // Handle potential errors
         .filter(|l| !l.trim().is_empty()) // Skip empty lines
         .map(Address::from)
         .collect();
+
+    finalize_hitlist(ips, configurations, is_shuffle)
+}
+
+/// Build a hitlist from a comma-separated list of target addresses (e.g. from the
+/// `--target` CLI flag), as an alternative to a hitlist file. The targets are
+/// treated exactly like a hitlist containing those addresses.
+///
+/// # Arguments
+/// * `targets` - comma-separated address list, e.g. "1.1.1.1" or "1.1.1.1,8.8.8.8"
+/// * `configurations` - list of configurations to check the source address type
+/// * `is_shuffle` - whether the resulting hitlist should be shuffled
+///
+/// # Returns
+/// * A tuple of the parsed addresses and whether they are IPv6.
+pub fn get_targets(
+    targets: &str,
+    configurations: &[Configuration],
+    is_shuffle: bool,
+) -> (Vec<Address>, bool) {
+    let ips: Vec<Address> = targets
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(Address::from)
+        .collect();
+
+    finalize_hitlist(ips, configurations, is_shuffle)
+}
+
+/// Validate a parsed hitlist (non-empty, single IP version, matching source
+/// address type) and optionally shuffle it. Shared by [`get_hitlist`] (file) and
+/// [`get_targets`] (inline `--target` list).
+///
+/// # Panics
+/// * If the hitlist is empty.
+/// * If the addresses are of mixed types (v4 and v6).
+/// * If the anycast source address type does not match the hitlist addresses.
+fn finalize_hitlist(
+    mut ips: Vec<Address>,
+    configurations: &[Configuration],
+    is_shuffle: bool,
+) -> (Vec<Address>, bool) {
+    if ips.is_empty() {
+        panic!("No target addresses provided (empty hitlist / target list)");
+    }
+
     let hitlist_is_v6 = ips[0].is_v6();
     // Panic if the ips in the hitlist are not all the same type
     if ips.iter().any(|ip| ip.is_v6() != hitlist_is_v6) {

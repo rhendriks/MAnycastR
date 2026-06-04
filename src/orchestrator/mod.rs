@@ -30,7 +30,7 @@ use tonic::{transport::Server, Status};
 
 type ResultMessage = Result<ReplyBatch, Status>;
 type CliSender = Sender<ResultMessage>;
-type CliHandle = Arc<Mutex<Option<CliSender>>>;
+pub(crate) type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
 type TaskMessage = Result<Instruction, Status>;
 
@@ -59,6 +59,8 @@ pub struct TracerouteConfig {
     pub initial_hop: u32,
     /// Maximum number of unresponsive hops before terminating the traceroute (default 3)
     pub max_failures: u32,
+    /// Whether to emit a '*' hop (no reply) to the CLI when a hop times out
+    pub star_unresponsive: bool,
 }
 
 /// The main orchestrator service struct.

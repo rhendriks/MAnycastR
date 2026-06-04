@@ -75,7 +75,7 @@ impl TCPPacket {
         dport: u16,
         ack: u32,
         ttl: u8,
-        info_url: Option<String>,
+        info_url: Option<&str>,
     ) -> Vec<u8> {
         let body: Vec<u8> = if let Some(info_url) = info_url {
             info_url.bytes().collect()

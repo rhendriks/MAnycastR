@@ -140,6 +140,7 @@ message TraceOptions {
   uint32 max_hops = 2; // Maximum number of hops to discover (to avoid routing loops)
   uint32 timeout = 3; // Maximum time to wait for trace replies before triggering timeout (in seconds)
   uint32 initial_hop = 4; // Initial TTL value for traceroute measurements
+  bool star_unresponsive = 5; // Emit a '*' hop (no reply) to the CLI when a hop times out
 }
 
 // An end message, indicates the worker should stop sending out probes
@@ -198,7 +199,7 @@ message DiscoveryReply {
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3;
+  uint64 rx_time = 3; // TODO return float32 rtt instead?
   uint64 tx_time = 4;
   fixed32 tx_id = 5;
   optional string chaos = 6;

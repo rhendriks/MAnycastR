@@ -185,7 +185,9 @@
 //!
 //! Next, distribute the binary to the workers.
 //!
-//! Workers need either sudo or the CAP_NET_RAW capability to send out packets.
+//! For ICMP-only measurements (no traceroute or record route), workers can run without sudo.
+//!
+//! For TCP, DNS, traceroute, or record route measurements, workers need sudo or CAP_NET_RAW:
 //! ```bash
 //! sudo setcap cap_net_raw,cap_net_admin=eip manycast
 //! ```
@@ -301,7 +303,12 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
-                    .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)").required(true).value_parser(value_parser!(String)))
+                    .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
+                        .value_parser(value_parser!(String))
+                        .conflicts_with("target"))
+                    .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
+                        .value_parser(value_parser!(String))
+                        .required_unless_present("hitlist"))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
@@ -331,6 +338,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--trace_timeout <N> "Timeout for hops (in seconds)").value_parser(value_parser!(u32)).default_value("3"))
                     .arg(arg!(--trace_max_hop <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
                     .arg(arg!(--trace_initial_hop <N> "Starting TTL value").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(--trace_star <BOOL> "Emit a '*' hop to the output for unresponsive (timed-out) hops").value_parser(value_parser!(bool)).default_value("true"))
                     .arg(arg!(-w --worker_interval <N> "Interval between workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-i --probe_interval <N> "Interval between probes from the same worker to the same target").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-c --nprobes <N> "Number of probes to send for each origin,target pair [NOTE: violates probing rate]").value_parser(value_parser!(u32)).default_value("1"))

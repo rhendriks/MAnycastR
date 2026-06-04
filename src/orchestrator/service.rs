@@ -374,11 +374,18 @@ impl Controller for ControllerService {
                 max_hops: trace_options.max_hops,
                 initial_hop: trace_options.initial_hop,
                 max_failures: trace_options.max_failures,
+                star_unresponsive: trace_options.star_unresponsive,
             });
             let trace_config_clone = self.trace_config.clone();
+            let cli_sender_clone = self.cli_sender.clone();
 
             std::thread::spawn(move || {
-                check_trace_timeouts(stacks_clone, ongoing_measurement, trace_config_clone);
+                check_trace_timeouts(
+                    stacks_clone,
+                    ongoing_measurement,
+                    trace_config_clone,
+                    cli_sender_clone,
+                );
             });
         }
 
@@ -437,7 +444,13 @@ impl Controller for ControllerService {
             round_robin_distributor(task_config).await;
         } else if send_discovery {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
-            round_robin_discovery(task_config, self.worker_stacks.clone(), is_responsive).await;
+            round_robin_discovery(
+                task_config,
+                self.worker_stacks.clone(),
+                is_responsive,
+                self.trace_config.clone(),
+            )
+            .await;
         } else {
             // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
             broadcast_distributor(task_config).await;

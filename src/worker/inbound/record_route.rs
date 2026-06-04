@@ -35,5 +35,5 @@ pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32
         return None;
     };
 
-    parse_icmp_inner(icmp_packet, m_id, recorded_hops, false, src, ttl)
+    parse_icmp_inner(icmp_packet, m_id, recorded_hops, false, src, ttl, 0)
 }
