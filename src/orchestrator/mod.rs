@@ -6,14 +6,14 @@ mod task_distributor;
 mod trace;
 mod worker;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::custom_module;
-use crate::custom_module::manycastr::MeasurementType;
+use crate::custom_module::manycastr::{Address, MeasurementType};
 use crate::orchestrator::config::{load_tls, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::result_handler::SessionTracker;
@@ -77,12 +77,16 @@ pub struct ControllerService {
     unique_id: Arc<Mutex<u32>>,
     /// Indicates the type of measurement currently active
     m_type: Arc<Mutex<Option<MeasurementType>>>,
+    /// Whether the current measurement uses --any protocol fallback
+    is_any_protocol: Arc<Mutex<bool>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
     /// Stacks of tasks coupled to workers, used for follow-up probes
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
     /// Traceroute Configuration
     trace_config: Arc<RwLock<Option<TracerouteConfig>>>,
+    /// Targets that have responded to discovery (used by --any to skip resolved targets in subsequent protocol rounds)
+    resolved_targets: Arc<Mutex<HashSet<Address>>>,
 }
 
 impl ControllerService {
@@ -162,6 +166,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         worker_config,
         worker_stacks: Arc::new(Mutex::new(HashMap::new())),
         trace_config: Arc::new(RwLock::new(None)),
+        is_any_protocol: Arc::new(Mutex::new(false)),
+        resolved_targets: Arc::new(Mutex::new(HashSet::new())),
     };
 
     let svc = ControllerServer::new(controller)
