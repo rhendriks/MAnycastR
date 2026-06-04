@@ -98,7 +98,7 @@ pub fn send_probe(
     } else {
         0
     };
-    match send_packet(socket, &packet_buffer, dst, dest_port) {
+    match send_packet(socket, packet_buffer, dst, dest_port) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!(

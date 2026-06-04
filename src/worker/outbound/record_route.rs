@@ -52,7 +52,7 @@ pub fn send_record_route_probe(
         255,
     ));
 
-    match send_packet(socket, &packet_buffer, dst, 0) {
+    match send_packet(socket, packet_buffer, dst, 0) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!("[Worker outbound] Failed to send ICMP packet: {e}");
