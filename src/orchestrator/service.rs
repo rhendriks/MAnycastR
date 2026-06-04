@@ -67,6 +67,10 @@ impl Controller for ControllerService {
 
                     // Set the current measurement to None, allowing for a new measurement
                     *lock = None;
+
+                    // Reset --any protocol state
+                    *self.is_any_protocol.lock().unwrap() = false;
+                    self.resolved_targets.lock().unwrap().clear();
                 }
             } else {
                 warn!(
@@ -358,6 +362,7 @@ impl Controller for ControllerService {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         self.m_type.lock().unwrap().replace(m_type);
+        *self.is_any_protocol.lock().unwrap() = m_def.is_any_protocol;
 
         if is_traceroute {
             // Start `TraceSession` timeout handler
@@ -389,6 +394,8 @@ impl Controller for ControllerService {
             });
         }
 
+        let is_any_protocol = m_def.is_any_protocol;
+
         // Send discovery probes before measurement probes if true
         let send_discovery = is_responsive
             | matches!(
@@ -407,6 +414,28 @@ impl Controller for ControllerService {
             tokio::time::interval(Duration::from_secs(1))
         };
 
+        // Build ordered list of origin_ids for --any protocol fallback
+        let origin_ids: Vec<u32> = if is_any_protocol {
+            let mut seen = Vec::new();
+            for config in &m_def.configurations {
+                if let Some(origin) = &config.origin {
+                    if !seen.contains(&origin.origin_id) {
+                        seen.push(origin.origin_id);
+                    }
+                }
+            }
+            seen
+        } else {
+            vec![]
+        };
+
+        // For --any, the first discovery round uses the first protocol's origin_id
+        let first_origin_id = if is_any_protocol {
+            origin_ids[0]
+        } else {
+            ALL_ORIGINS
+        };
+
         // Convert hitlist targets into the appropriate TaskType
         let tasks = if send_discovery {
             // Send Discovery tasks
@@ -414,7 +443,7 @@ impl Controller for ControllerService {
                 .iter()
                 .map(|addr| Task {
                     task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
-                    origin_id: ALL_ORIGINS,
+                    origin_id: first_origin_id,
                 })
                 .collect::<Vec<Task>>()
         } else {
@@ -449,6 +478,9 @@ impl Controller for ControllerService {
                 self.worker_stacks.clone(),
                 is_responsive,
                 self.trace_config.clone(),
+                is_any_protocol,
+                origin_ids,
+                self.resolved_targets.clone(),
             )
             .await;
         } else {
@@ -533,6 +565,17 @@ impl Controller for ControllerService {
                     );
                 }
             };
+
+            let is_any = *self.is_any_protocol.lock().unwrap();
+
+            if is_any {
+                let mut resolved = self.resolved_targets.lock().unwrap();
+                for reply in &discovery_bucket {
+                    if let Some(addr) = reply.src {
+                        resolved.insert(addr);
+                    }
+                }
+            }
 
             let mut worker_stacks = self.worker_stacks.lock().unwrap();
 
