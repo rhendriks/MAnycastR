@@ -16,7 +16,13 @@ use crate::net::TCPPacket;
 ///
 /// # Remarks
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
-pub fn parse_tcp(packet_bytes: &[u8], src: Address, ttl: u32, sport: u16, rx_time: u64) -> Option<Reply> {
+pub fn parse_tcp(
+    packet_bytes: &[u8],
+    src: Address,
+    ttl: u32,
+    sport: u16,
+    rx_time: u64,
+) -> Option<Reply> {
     // Verify RST flag is set
     if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
         || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)
