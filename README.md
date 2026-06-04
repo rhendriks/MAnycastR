@@ -78,7 +78,7 @@ When creating a measurement you can specify (for more information run --help):
 
 First, run the central orchestrator.
 ```
-orchestrator -p [PORT NUMBER]
+manycastr orchestrator -p [PORT NUMBER]
 ```
 
 Next, run one or more workers.
@@ -90,19 +90,19 @@ sudo sysctl -w net.core.rmem_max=33554432
 To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf`.
 
 ```
-worker -a [ORC ADDRESS]
+manycastr worker -a [ORC ADDRESS]
 ```
 Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
 
 To confirm that the workers are connected, you can run the worker-list command on the CLI.
 ```
-cli -a [ORC ADDRESS] worker-list
+manycastr cli -a [ORC ADDRESS] worker-list
 ```
 
 Finally, you can perform a measurement.
 See [Socket privileges](#socket-privileges) below for what the worker needs in order to send and receive probes.
 ```
-cli -a [ORC ADDRESS] start [parameters]
+manycastr cli -a [ORC ADDRESS] start [parameters]
 ```
 
 ## Socket privileges
@@ -156,7 +156,7 @@ sudo sysctl --system
 #### Catchment mapping
 
 ```
-cli -a [::1]:50001 start -m catchment -h hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+manycastr cli -a [::1]:50001 start -m catchment -h hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
 All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -168,7 +168,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -179,7 +179,7 @@ The second probe is a `measurement probe` send from the catching worker to measu
 ### Unicast latency measurement using ICMPv6
 
 ```
-cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
+manycastr cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
 ```
 
 Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -190,7 +190,7 @@ Furthermore, if the target does not currently route optimally, the performance g
 ### LACeS measurement
 
 ```
-cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
 ```
 
 Anycast probes will be sent from all workers.
@@ -201,12 +201,12 @@ Targets are scanned for responsiveness, using a single worker probe, before prob
 ### Anycast traceroute measurement
 
 ```
-cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
 ```
 
 Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
 ```
-cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
+manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 ```
 
 Measure the path from the catching PoP to the target.
