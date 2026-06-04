@@ -334,6 +334,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--stream "Stream to stdout").action(ArgAction::SetTrue))
                     .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
+                    .arg(arg!(--any "Try protocols in order (as specified by -p); stop per-target on first responsive protocol. Implies --responsive").action(ArgAction::SetTrue))
                     .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures").value_parser(value_parser!(u32)).default_value("5"))
                     .arg(arg!(--trace_timeout <N> "Timeout for hops (in seconds)").value_parser(value_parser!(u32)).default_value("3"))
                     .arg(arg!(--trace_max_hop <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
