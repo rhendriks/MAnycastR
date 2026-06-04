@@ -3,7 +3,6 @@ use crate::custom_module::manycastr::{Address, Reply, TraceReply};
 use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
 use crate::worker::inbound::ping::parse_icmp;
 use parquet::data_type::AsBytes;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
 /// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
@@ -19,7 +18,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Option<Reply> {
+pub fn parse_trace(
+    packet_bytes: &[u8],
+    m_id: u32,
+    src: Address,
+    ttl: u32,
+    rx_time: u64,
+) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
     let (min_len, type_idx, expected_type) = if src.is_v6() {
         (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3
@@ -29,7 +34,7 @@ pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Op
 
     if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
         // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
-        return parse_icmp(packet_bytes, m_id, true, src, ttl);
+        return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
     }
 
     let ip_header = if src.is_v6() {
@@ -81,10 +86,7 @@ pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Op
         reply_data: Some(ReplyData::Trace(TraceReply {
             hop_addr: Some(hop_addr),
             ttl: ip_header.ttl() as u32,
-            rx_time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            rx_time,
             tx_time,
             tx_id,
             trace_dst,

@@ -1,3 +1,4 @@
+use crate::cli::writer::calculate_rtt;
 use crate::custom_module::manycastr::MeasurementReply;
 use crate::SINGLE_ORIGIN;
 use bimap::BiHashMap;
@@ -7,12 +8,17 @@ use bimap::BiHashMap;
 /// # Arguments
 /// * `reply` - The Reply that is being written to this row
 /// * `rx_worker_id` - The worker ID of the receiver
-/// * `is_tcp` - TCP measurements have different tx time formats
+/// * `is_tcp` - TCP measurements encode the tx time as a 21-bit timestamp
 /// * `worker_map` - A map of worker IDs to hostnames, used to convert worker IDs to hostnames in the results
 /// * `origin_id` - Associated origin ID of the reply
 ///
 /// # Returns
 /// A vector of strings representing the row in the CSV file
+///
+/// # Note
+/// The `rtt` column carries the signed offset `rx_time - tx_time` (milliseconds).
+/// Under anycast the sender (`tx`) and receiver (`rx`) may be different PoPs,
+/// and may be negative; see [`calculate_rtt`].
 pub fn get_laces_row(
     reply: MeasurementReply,
     rx_worker_id: &u32,
@@ -31,21 +37,14 @@ pub fn get_laces_row(
         .unwrap_or(&String::from("Unknown"))
         .to_string();
 
-    let rx_time = if is_tcp {
-        // Mask to 21 bits
-        let rx_wrapped = reply.rx_time & 0x1FFFFF;
-        rx_wrapped.to_string()
-    } else {
-        reply.rx_time.to_string()
-    };
+    let rtt = calculate_rtt(reply.rx_time, reply.tx_time, is_tcp, false);
 
     let mut row = vec![
         rx_hostname,
-        rx_time,
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
-        reply.tx_time.to_string(),
         tx_hostname,
+        rtt.to_string(),
     ];
 
     // Optional fields

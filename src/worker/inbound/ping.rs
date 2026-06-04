@@ -3,7 +3,6 @@ use crate::custom_module::manycastr::{
     Address, DiscoveryReply, MeasurementReply, RecordedHops, Reply, TraceReply,
 };
 use crate::net::ICMPPacket;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse ICMP ping packets into a Reply result.
 /// Filters out spoofed packets and only parses ICMP echo replies valid for the current measurement.
@@ -26,21 +25,31 @@ pub fn parse_icmp(
     is_traceroute: bool,
     src: Address,
     ttl: u32,
+    is_dgram: bool,
+    rx_time: u64,
 ) -> Option<Reply> {
-    // ICMPv6 minimum length 56 bytes (ICMP header 8 + ICMP body 48) + check it is an ICMP Echo reply
-    if (src.is_v6() && (packet_bytes.len() < 56 || packet_bytes[0] != 129))
-        || (!src.is_v6() && (packet_bytes.len() < 52 || packet_bytes[20] != 0))
-    {
-        return None;
-    }
-
-    let icmp_packet = if src.is_v6() {
-        ICMPPacket::from(packet_bytes) // no IP header
+    if src.is_v6() {
+        // ICMPv6: no IP header in received data (both RAW and DGRAM)
+        if packet_bytes.len() < 56 || packet_bytes[0] != 129 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(packet_bytes);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl, rx_time)
+    } else if is_dgram {
+        // DGRAM: kernel strips IPv4 header, ICMP data starts at offset 0
+        if packet_bytes.len() < 32 || packet_bytes[0] != 0 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(packet_bytes);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl, rx_time)
     } else {
-        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
-    };
-
-    parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl)
+        // RAW: IPv4 header included, ICMP starts at offset 20
+        if packet_bytes.len() < 52 || packet_bytes[20] != 0 {
+            return None;
+        }
+        let icmp_packet = ICMPPacket::from(&packet_bytes[20..]);
+        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, src, ttl, rx_time)
+    }
 }
 
 /// Parse ICMP ping packets into a Reply result (excluding the IP header).
@@ -62,6 +71,7 @@ pub fn parse_icmp_inner(
     is_traceroute: bool,
     src: Address,
     ttl: u32,
+    rx_time: u64,
 ) -> Option<Reply> {
     // Make sure that this packet belongs to this measurement
     let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?;
@@ -86,11 +96,6 @@ pub fn parse_icmp_inner(
     if probe_dst != src {
         return None; // spoofed reply
     }
-
-    let rx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;

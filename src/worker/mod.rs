@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 pub(crate) use crate::worker::config::Worker;
 
+mod bpf;
 mod client;
 mod config;
 mod inbound;

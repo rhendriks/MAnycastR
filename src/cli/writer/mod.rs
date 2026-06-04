@@ -213,7 +213,7 @@ pub fn get_header(
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
-            vec!["rx", "rx_time", "addr", "ttl", "tx_time", "tx"]
+            vec!["rx", "addr", "ttl", "tx", "rtt"]
         }
     };
 
@@ -236,16 +236,21 @@ pub fn format_rtt(rtt: f64) -> String {
     format!("{rtt:.3}")
 }
 
-/// Calculate RTT
+/// Calculate the time delta `rx_time - tx_time` in milliseconds.
+///
+/// For latency, unicast, and traceroute measurements this is a traditional RTT.
+/// However, for LACeS mode the sending and receiving anycast PoP may differ,
+/// in which case this RTT may be negative if the clocks are desynchronized.
 ///
 /// # Arguments
 /// `rx_time` - receive time (64 bit microseconds EPOCH)
 /// `tx_time` - transmit time (64 bit microseconds EPOCH)
 /// `is_tcp` - whether it is a TCP encoded timestamp
+/// `is_traceroute` - whether it is a traceroute encoded timestamp
 ///
 /// # Note
-/// TCP timestamps are masked to 21-bit microseconds EPOCH
-/// Traceroute timestamps are 14-bit milliseconds EPOCH
+/// TCP timestamps are masked to 21-bit microseconds EPOCH.
+/// Traceroute timestamps are 14-bit milliseconds EPOCH.
 pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
     if is_tcp {
         // 21 bit microseconds timestamp (2^21 = 2,097,152)
@@ -266,7 +271,8 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
         const MODULUS: u64 = 1 << 14;
         const MASK: u64 = MODULUS - 1; // 0x3FFF
 
-        let rx_14b = rx_time & MASK;
+        // Convert traceroute 14-bit value to microseconds
+        let rx_14b = (rx_time / 1_000) & MASK;
 
         let rtt_ms = if rx_14b >= tx_time {
             rx_14b - tx_time
@@ -277,6 +283,7 @@ pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bo
 
         rtt_ms as f64
     } else {
-        (rx_time - tx_time) as f64 / 1_000.0
+        // Signed: for LACeS rx may precede tx (different PoPs / clock skew).
+        (rx_time as i64 - tx_time as i64) as f64 / 1_000.0
     }
 }

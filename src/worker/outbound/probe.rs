@@ -26,6 +26,7 @@ pub fn send_probe(
     socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     is_discovery: bool,
+    packet_buffer: &mut Vec<u8>,
 ) -> (u32, u32) {
     let worker_id = if is_discovery {
         config.worker_id as u32 + DISCOVERY_WORKER_ID_OFFSET // Use a different worker ID range for discovery probes
@@ -36,16 +37,12 @@ pub fn send_probe(
     let mut sent = 0;
     let mut failed = 0;
 
-    // Payload to encode in outgoing probes
     let icmp_payload = ProbePayload {
         worker_id,
         m_id: config.m_id,
         trace_ttl: None,
-        info_url: config.info_url.clone(),
+        info_url: config.info_url.as_deref(),
     };
-
-    // Write packets to send to a one-time allocated buffer
-    let mut packet_buffer = Vec::with_capacity(256);
 
     // Rate limit
     if let Err(not_until) = limiter.check() {
@@ -55,7 +52,6 @@ pub fn send_probe(
         }
     }
 
-    // Write new packet to buffer
     packet_buffer.clear();
 
     match config.p_type {
@@ -67,6 +63,7 @@ pub fn send_probe(
                 2,            // ICMP seq
                 &icmp_payload,
                 255,
+                config.is_dgram,
             ));
         }
         ProtocolType::ADns | ProtocolType::ChaosDns => {
@@ -76,7 +73,8 @@ pub fn send_probe(
                 config.sport,
                 worker_id,
                 config.p_type == ProtocolType::ChaosDns,
-                config.qname.clone().expect("qname missing"),
+                config.qname.as_deref().expect("qname missing"),
+                config.is_dgram,
             ));
         }
         ProtocolType::Tcp => {
@@ -87,12 +85,20 @@ pub fn send_probe(
                 config.dport,
                 worker_id,
                 is_discovery,
-                config.info_url.clone(),
+                config.info_url.as_deref(),
             ));
         }
     }
 
-    match send_packet(socket, &packet_buffer, dst) {
+    // dport must be 0 for IPv6 SOCK_RAW
+    let dest_port = if config.is_dgram
+        && matches!(config.p_type, ProtocolType::ADns | ProtocolType::ChaosDns)
+    {
+        config.dport
+    } else {
+        0
+    };
+    match send_packet(socket, packet_buffer, dst, dest_port) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!(

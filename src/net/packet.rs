@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// ICMP arguments to encode in the payload.
 #[derive(Debug)]
-pub struct ProbePayload {
+pub struct ProbePayload<'a> {
     /// Sender worker ID
     pub worker_id: u32,
     /// Unique measurement ID (to verify reply)
@@ -12,7 +12,7 @@ pub struct ProbePayload {
     /// Optional TTL value of the IP header (for traceroute)
     pub trace_ttl: Option<u8>,
     /// Optional URL (e.g., opt-out information)
-    pub info_url: Option<String>,
+    pub info_url: Option<&'a str>,
 }
 
 /// Creates a ping packet to send.
@@ -24,6 +24,7 @@ pub struct ProbePayload {
 /// * `seq` - the sequence number to use in the ICMP header
 /// * `payload` - information to encode in the payload
 /// * `ttl` - the time-to-live (TTL) value to set in the IP header
+/// * `is_dgram` - datagram socket (true) or raw socket (false)
 ///
 /// # Returns
 /// A ping packet (including the IP header) as a byte vector.
@@ -34,6 +35,7 @@ pub fn create_icmp(
     seq: u16,
     payload: &ProbePayload,
     ttl: u8,
+    is_dgram: bool,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -60,7 +62,7 @@ pub fn create_icmp(
         payload_bytes.extend_from_slice(info_url.as_bytes());
     }
 
-    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl)
+    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl, is_dgram)
 }
 
 /// Create a Record Route ICMP packet to send.
@@ -121,7 +123,8 @@ pub fn create_dns(
     sport: u16,
     worker_id: u32,
     is_chaos: bool,
-    qname: String,
+    qname: &str,
+    is_dgram: bool,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -129,9 +132,9 @@ pub fn create_dns(
         .as_micros() as u64;
 
     if !is_chaos {
-        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255)
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255, is_dgram)
     } else {
-        UDPPacket::chaos_request(src, dst, sport, worker_id, qname)
+        UDPPacket::chaos_request(src, dst, sport, worker_id, qname, is_dgram)
     }
 }
 
@@ -153,7 +156,7 @@ pub fn create_tcp(
     dport: u16,
     worker_id: u32,
     is_discovery: bool,
-    info_url: Option<String>,
+    info_url: Option<&str>,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)

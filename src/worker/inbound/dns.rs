@@ -1,8 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
-use crate::net::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
+use crate::net::{DNSAnswer, DNSRecord, TXTRecord};
 use crate::DNS_IDENTIFIER;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Parse DNS packets into a Reply result.
 /// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
@@ -13,6 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `src` - source address for this packet
 /// * `ttl` - TTL value of this packet
 /// * `sport` - Source port used for outgoing packets (destination port of replies)
+/// * `rx_time` - kernel receive timestamp (microseconds since epoch)
+/// * `is_dgram` - whether the socket is SOCK_DGRAM (kernel stripped IP + UDP headers)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
@@ -22,42 +23,44 @@ pub fn parse_dns(
     src: Address,
     ttl: u32,
     sport: u16,
+    rx_time: u64,
+    is_dgram: bool,
 ) -> Option<Reply> {
-    // DNS header offset
-    let dns_offset = if src.is_v6() { 8 } else { 28 };
-
-    // Verify 6 leftmost bits of transaction ID
-    let first_tx_byte = packet_bytes[dns_offset];
-    let dns_identifier = first_tx_byte >> 2; // Shift right by 2 to isolate the top 6 bits
-
-    if dns_identifier != DNS_IDENTIFIER {
-        return None;
-    }
-
-    let udp_packet = if src.is_v6() {
-        UDPPacket::from(packet_bytes)
+    // Obtain the DNS message and the reply's destination port (our source port).
+    let (dns_msg, reply_dport): (&[u8], u16) = if is_dgram {
+        // SOCK_DGRAM, kernel strips the IP and UDP headers
+        (packet_bytes, sport)
     } else {
-        UDPPacket::from(&packet_bytes[20..]) // skip IPv4 header
+        // Raw socket: IPv4 includes the IP header (skip 20 bytes); IPv6 does not.
+        let udp_bytes = if src.is_v6() {
+            packet_bytes
+        } else {
+            packet_bytes.get(20..)?
+        };
+        if udp_bytes.len() < 8 {
+            return None;
+        }
+        let dport = u16::from_be_bytes([udp_bytes[2], udp_bytes[3]]);
+        (&udp_bytes[8..], dport)
     };
 
-    // The UDP responses will be from DNS services, the body length has to be large enough to contain a DNS A reply
-    if (!is_chaos & (udp_packet.body.len() < 66)) | (is_chaos & (udp_packet.body.len() < 10)) {
+    // Verify our destination port (i.e. the probe's source port)
+    if reply_dport != sport {
         return None;
     }
 
-    // Verify port
-    if udp_packet.dport != sport {
+    // Verify 6 leftmost bits of the DNS transaction ID
+    if dns_msg.is_empty() || (dns_msg[0] >> 2) != DNS_IDENTIFIER {
         return None;
     }
 
-    let reply_dport = udp_packet.dport;
-    let rx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
+    // The body length has to be large enough to contain a DNS A / TXT reply
+    if (!is_chaos & (dns_msg.len() < 66)) | (is_chaos & (dns_msg.len() < 10)) {
+        return None;
+    }
 
     let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
-        let dns_result = parse_dns_a_record(udp_packet.body.as_slice(), src.is_v6())?;
+        let dns_result = parse_dns_a_record(dns_msg, src.is_v6())?;
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
             return None; // spoofed reply
@@ -70,7 +73,7 @@ pub fn parse_dns(
             dns_result.is_discovery,
         )
     } else {
-        let (tx_time, tx_worker_id, chaos) = parse_chaos(udp_packet.body.as_slice())?;
+        let (tx_time, tx_worker_id, chaos) = parse_chaos(dns_msg)?;
         (tx_time, tx_worker_id, Some(chaos), false)
     };
 

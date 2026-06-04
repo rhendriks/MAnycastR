@@ -41,6 +41,8 @@ pub struct OutboundConfig {
     pub probing_rate: u32,
     /// Whether to add the Record Route option to IPv4 probes
     pub is_record: bool,
+    /// Whether the socket is DGRAM (unprivileged ICMP, kernel writes IP headers)
+    pub is_dgram: bool,
     /// Source address to use
     pub src: Address,
     /// Source port to use
@@ -69,8 +71,8 @@ pub fn outbound(
             let mut sent_discovery = 0u32;
             let mut traces_sent = 0u32;
             let mut failed = 0u32;
+            let mut packet_buffer = Vec::with_capacity(256);
 
-            // Calculate probing rate (multiple origins multiply the probing rate)
             let total_rate = config.probing_rate;
             // Rate limiter bucket
             let mut limiter =
@@ -103,7 +105,8 @@ pub fn outbound(
                                             &task.dst.unwrap(),
                                             &socket,
                                             &mut limiter,
-                                            false, // Not a discovery probe
+                                            false,
+                                            &mut packet_buffer,
                                         )
                                     } else {
                                         send_record_route_probe(
@@ -111,6 +114,7 @@ pub fn outbound(
                                             &task.dst.unwrap(),
                                             &socket,
                                             &mut limiter,
+                                            &mut packet_buffer,
                                         )
                                     };
                                     sent += s;
@@ -122,7 +126,8 @@ pub fn outbound(
                                         &task.dst.unwrap(),
                                         &socket,
                                         &mut limiter,
-                                        true, // This is a discovery probe
+                                        true,
+                                        &mut packet_buffer,
                                     );
                                     sent_discovery += s;
                                     failed += f;
@@ -131,7 +136,7 @@ pub fn outbound(
                                     let (s, f) = send_trace(
                                         config.worker_id as u32,
                                         config.m_id,
-                                        config.info_url.clone(),
+                                        config.info_url.as_deref(),
                                         trace,
                                         &socket,
                                         &config.src,
@@ -157,26 +162,24 @@ pub fn outbound(
         .expect("Failed to spawn outbound thread");
 }
 
-/// Send a packet (vector of bytes) using the socket
+/// Send a packet (vector of bytes) to a destination using the socket
 /// IPv4: Send IPv4 header (optional Record Route option) and IP payload
 /// IPv6: Send only payload (kernel writes IPv6 header)
 ///
 /// # Arguments
 /// * `socket` - attached socket to send probes from
 /// * `packet_buffer` - Packet to send (as bytes)
-/// * `dst` - Destination address to send the packet to
+/// * `dst` - Destination address to send to
+/// * `port` - Destination port. Ignored by raw sockets (the destination is in
+///   the IP header we craft, so callers pass 0); required for SOCK_DGRAM UDP
+///   sockets, where the kernel writes the UDP header (e.g. 53 for DNS).
 pub fn send_packet(
     socket: &Socket,
     packet_buffer: &[u8],
     dst: &Address,
+    port: u16,
 ) -> Result<(), std::io::Error> {
-    if packet_buffer.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "Empty packet",
-        ));
-    }
-    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
+    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), port));
     socket.send_to(packet_buffer, &dest_addr)?;
 
     Ok(())

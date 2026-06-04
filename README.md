@@ -50,7 +50,8 @@ Measurements can be;
 When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** - addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Hitlist** (`-h`/`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
 * **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, or `anycast-traceroute`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
@@ -62,7 +63,7 @@ When creating a measurement you can specify (for more information run --help):
 * **Source port** - source port to use for probes (default: 62321)
 * **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
 * **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
-* **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: google.com)
+* **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)
 * **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported)
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
@@ -77,23 +78,77 @@ When creating a measurement you can specify (for more information run --help):
 
 First, run the central orchestrator.
 ```
-orchestrator -p [PORT NUMBER]
+manycastr orchestrator -p [PORT NUMBER]
 ```
 
 Next, run one or more workers.
+
+To minimize packet loss at high probing rates, increase the kernel receive buffer limit to 32 MB on each worker:
+```bash
+sudo sysctl -w net.core.rmem_max=33554432
 ```
-worker -a [ORC ADDRESS]
+To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf`.
+
+```
+manycastr worker -a [ORC ADDRESS]
 ```
 Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
 
 To confirm that the workers are connected, you can run the worker-list command on the CLI.
 ```
-cli -a [ORC ADDRESS] worker-list
+manycastr cli -a [ORC ADDRESS] worker-list
 ```
 
 Finally, you can perform a measurement.
+See [Socket privileges](#socket-privileges) below for what the worker needs in order to send and receive probes.
 ```
-cli -a [ORC ADDRESS] start [parameters]
+manycastr cli -a [ORC ADDRESS] start [parameters]
+```
+
+## Socket privileges
+
+Workers send and receive probes, which requires opening sockets.
+How much privilege this needs depends on the protocol.
+This section explains the options and the trade-offs, so that operators can make an informed decision about what to grant.
+
+### What each protocol needs
+
+| Protocol | Raw socket required? | Notes |
+|----------|----------------------|-------|
+| ICMP | No (with a sysctl) — see below | Can use an *unprivileged ICMP socket* if `net.ipv4.ping_group_range` permits, otherwise falls back to a raw socket |
+| DNS (UDP) | No | Always uses an unprivileged UDP datagram socket (see below) to avoid ICMP port-unreachable replies |
+| CHAOS (UDP) | No | Same as DNS |
+| TCP (SYN/ACK) | Yes | Crafting custom TCP SYN/ACK packets requires a raw socket |
+
+The worker prefers raw sockets when available for ICMP and TCP, as used by the standard `ping` utility, because they allow for more accurate RTT measurements and more control over packet contents (e.g., TTL, IP options).
+As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissions.
+
+For DNS measurements we prefer `SOCK_DGRAM` to avoid generating ICMP port-unreachable replies, which would be generated for every DNS reply if a raw socket were used (since the kernel has no UDP listener bound to the source port).
+
+### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
+
+We recommend granting `CAP_NET_RAW` to the worker binary, which allows it to open raw sockets without running as root.
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip manycastr
+```
+Or, under systemd, without setuid or root:
+```ini
+[Service]
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+```
+
+### Running ICMP measurements without a raw socket
+
+If granting `CAP_NET_RAW` is not possible/undesirable,
+the worker can still send ICMP echo requests using an unprivileged ICMP socket,
+but this requires a one-time configuration change to the kernel's `ping_group_range`.
+
+To enable the unprivileged ICMP path for all groups (one-time, persists across reboots):
+```bash
+echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-manycastr.conf
+sudo sysctl --system
 ```
 
 ### Examples
@@ -101,7 +156,7 @@ cli -a [ORC ADDRESS] start [parameters]
 #### Catchment mapping
 
 ```
-cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+manycastr cli -a [::1]:50001 start -m catchment -h hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
 All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -113,7 +168,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -124,7 +179,7 @@ The second probe is a `measurement probe` send from the catching worker to measu
 ### Unicast latency measurement using ICMPv6
 
 ```
-cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
+manycastr cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
 ```
 
 Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -135,7 +190,7 @@ Furthermore, if the target does not currently route optimally, the performance g
 ### LACeS measurement
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
 ```
 
 Anycast probes will be sent from all workers.
@@ -146,12 +201,21 @@ Targets are scanned for responsiveness, using a single worker probe, before prob
 ### Anycast traceroute measurement
 
 ```
-cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
+```
+
+Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
+```
+manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 ```
 
 Measure the path from the catching PoP to the target.
 First, a single `discovery probe` is sent to infer the catching worker.
 Next, multiple traceroute packets are sent from the catching worker to measure the path.
+
+Hops that do not respond within `--trace_timeout` are advanced after `--trace_max_failures` consecutive timeouts (up to `--trace_max_hop`).
+By default, each unresponsive hop is recorded as a `*` row (no reply);
+pass `--trace_star false` to omit these rows and leave a gap in `hop_count` instead.
 
 ## CSV output format
 
@@ -167,10 +231,8 @@ All values are stored as text. Columns depend on the measurement type:
 | `rx` | `String` | Hostname of the receiving worker | All |
 | `addr` | `String` | Source IP of the reply, or traceroute hop address (`*` if no reply) | All |
 | `ttl` | `String (integer)` | TTL of the reply | All |
-| `rtt` | `String (float)` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `rtt` | `String (float)` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
 | `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
-| `rx_time` | `String (integer)` | Receive timestamp (microseconds since epoch; 21-bit masked for TCP) | LACeS |
-| `tx_time` | `String (integer)` | Send timestamp (microseconds since epoch) | LACeS |
 | `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
 | `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
@@ -182,8 +244,13 @@ All values are stored as text. Columns depend on the measurement type:
 |------------------|--------------------|
 | Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
 | Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
-| LACeS | `rx`, `rx_time`, `addr`, `ttl`, `tx_time`, `tx` [, `chaos_data`] [, `origin_id`] |
+| LACeS | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
 | Traceroute | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
+
+> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time.
+> It is the signed offset `rx_time - tx_time` (milliseconds).
+> Under anycast the probe sender (`tx`) and the reply receiver (`rx`) may be **different PoPs**,
+> and it can be **negative** when PoP clocks are slightly desynchronized.
 
 ### Reading CSV files
 
@@ -215,14 +282,14 @@ Columns depend on the measurement type:
 | `rx` | `ENUM` | Hostname of the receiving worker | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time (ms) | Latency, Unicast, Traceroute |
+| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
 | `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
-| `rx_time` | `TIMESTAMP(MICROS, UTC)` | Receive timestamp | LACeS |
-| `tx_time` | `TIMESTAMP(MICROS, UTC)` | Send timestamp | LACeS |
 | `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
 | `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
+
+> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time — it is the signed offset `rx_time - tx_time` (milliseconds). Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be **different PoPs**, so this is a one-way delay plus clock offset rather than a round-trip, and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the value is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
 
 ### IP address encoding
 
