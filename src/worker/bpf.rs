@@ -42,7 +42,8 @@ fn attach(socket: &Socket, prog: &mut [libc::sock_filter]) -> std::io::Result<()
         filter: prog.as_mut_ptr(),
     };
 
-    let ret = unsafe { // TODO unsafe
+    let ret = unsafe {
+        // TODO unsafe
         libc::setsockopt(
             socket.as_raw_fd(),
             libc::SOL_SOCKET,
@@ -79,20 +80,20 @@ pub(crate) fn attach_icmp_filter(
 
     let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
         vec![
-            sf(LDX | B | MSH, 0, 0, 0), // X = IP header length
-            sf(LD | B | IND, 0, 0, 0),  // A = ICMP type
+            sf(LDX | B | MSH, 0, 0, 0),                  // X = IP header length
+            sf(LD | B | IND, 0, 0, 0),                   // A = ICMP type
             sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V4), // type == 0 ? else -> drop
-            sf(LD | H | IND, 0, 0, 4),  // A = ICMP identifier
-            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
+            sf(LD | H | IND, 0, 0, 4),                   // A = ICMP identifier
+            sf(JMP | JEQ | K, 0, 1, id),                 // id == icmp_id ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
     } else {
         vec![
-            sf(LD | B | ABS, 0, 0, 0), // A = ICMPv6 type
+            sf(LD | B | ABS, 0, 0, 0),                   // A = ICMPv6 type
             sf(JMP | JEQ | K, 0, 3, ICMP_ECHO_REPLY_V6), // type == 129 ? else -> drop
-            sf(LD | H | ABS, 0, 0, 4), // A = identifier
-            sf(JMP | JEQ | K, 0, 1, id), // id == icmp_id ? else -> drop
+            sf(LD | H | ABS, 0, 0, 4),                   // A = identifier
+            sf(JMP | JEQ | K, 0, 1, id),                 // id == icmp_id ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
@@ -119,18 +120,18 @@ pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::i
 
     let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
         vec![
-            sf(LDX | B | MSH, 0, 0, 0), // X = IP header length
-            sf(LD | B | IND, 0, 0, 0),  // A = ICMP type
+            sf(LDX | B | MSH, 0, 0, 0),                     // X = IP header length
+            sf(LD | B | IND, 0, 0, 0),                      // A = ICMP type
             sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V4), // type == 11 -> accept
-            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V4), // type == 0 -> accept, else drop
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V4),    // type == 0 -> accept, else drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
     } else {
         vec![
-            sf(LD | B | ABS, 0, 0, 0), // A = ICMPv6 type
+            sf(LD | B | ABS, 0, 0, 0),                      // A = ICMPv6 type
             sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V6), // type == 3 -> accept
-            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V6), // type == 129 -> accept, else drop
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V6),    // type == 129 -> accept, else drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
@@ -150,11 +151,7 @@ pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::i
 /// * `sport` - the worker's source port (TCP replies carry it as their dport)
 /// * `is_ipv6` - whether this is an IPv6 socket
 #[cfg(target_os = "linux")]
-pub(crate) fn attach_tcp_filter(
-    socket: &Socket,
-    sport: u16,
-    is_ipv6: bool,
-) -> std::io::Result<()> {
+pub(crate) fn attach_tcp_filter(socket: &Socket, sport: u16, is_ipv6: bool) -> std::io::Result<()> {
     use op::*;
 
     const TCP_RST: u32 = 0x04; // RST flag in the TCP flags byte (offset 13)
@@ -162,10 +159,10 @@ pub(crate) fn attach_tcp_filter(
 
     let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
         vec![
-            sf(LDX | B | MSH, 0, 0, 0),   // X = IP header length
-            sf(LD | H | IND, 0, 0, 2),    // A = TCP destination port
-            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
-            sf(LD | B | IND, 0, 0, 13),   // A = TCP flags byte
+            sf(LDX | B | MSH, 0, 0, 0),       // X = IP header length
+            sf(LD | H | IND, 0, 0, 2),        // A = TCP destination port
+            sf(JMP | JEQ | K, 0, 4, dport),   // dport == sport ? else -> drop
+            sf(LD | B | IND, 0, 0, 13),       // A = TCP flags byte
             sf(ALU | AND | K, 0, 0, TCP_RST), // A = flags & RST
             sf(JMP | JEQ | K, 0, 1, TCP_RST), // RST set ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
@@ -173,9 +170,9 @@ pub(crate) fn attach_tcp_filter(
         ]
     } else {
         vec![
-            sf(LD | H | ABS, 0, 0, 2),    // A = TCP destination port
-            sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
-            sf(LD | B | ABS, 0, 0, 13),   // A = TCP flags byte
+            sf(LD | H | ABS, 0, 0, 2),        // A = TCP destination port
+            sf(JMP | JEQ | K, 0, 4, dport),   // dport == sport ? else -> drop
+            sf(LD | B | ABS, 0, 0, 13),       // A = TCP flags byte
             sf(ALU | AND | K, 0, 0, TCP_RST), // A = flags & RST
             sf(JMP | JEQ | K, 0, 1, TCP_RST), // RST set ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
@@ -209,22 +206,22 @@ pub(crate) fn attach_dns_filter(
 
     let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
         vec![
-            sf(LDX | B | MSH, 0, 0, 0),   // X = IP header length
-            sf(LD | H | IND, 0, 0, 2),    // A = UDP destination port
+            sf(LDX | B | MSH, 0, 0, 0),     // X = IP header length
+            sf(LD | H | IND, 0, 0, 2),      // A = UDP destination port
             sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
-            sf(LD | B | IND, 0, 0, 8),    // A = first byte of DNS transaction ID
-            sf(ALU | RSH | K, 0, 0, 2),   // A = first_byte >> 2  (top 6 bits)
-            sf(JMP | JEQ | K, 0, 1, id),  // identifier matches ? else -> drop
+            sf(LD | B | IND, 0, 0, 8),      // A = first byte of DNS transaction ID
+            sf(ALU | RSH | K, 0, 0, 2),     // A = first_byte >> 2  (top 6 bits)
+            sf(JMP | JEQ | K, 0, 1, id),    // identifier matches ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
     } else {
         vec![
-            sf(LD | H | ABS, 0, 0, 2),    // A = UDP destination port
+            sf(LD | H | ABS, 0, 0, 2),      // A = UDP destination port
             sf(JMP | JEQ | K, 0, 4, dport), // dport == sport ? else -> drop
-            sf(LD | B | ABS, 0, 0, 8),    // A = first byte of DNS transaction ID
-            sf(ALU | RSH | K, 0, 0, 2),   // A = first_byte >> 2  (top 6 bits)
-            sf(JMP | JEQ | K, 0, 1, id),  // identifier matches ? else -> drop
+            sf(LD | B | ABS, 0, 0, 8),      // A = first byte of DNS transaction ID
+            sf(ALU | RSH | K, 0, 0, 2),     // A = first_byte >> 2  (top 6 bits)
+            sf(JMP | JEQ | K, 0, 1, id),    // identifier matches ? else -> drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]

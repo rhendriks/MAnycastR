@@ -18,7 +18,13 @@ use parquet::data_type::AsBytes;
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
-pub fn parse_trace(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32, rx_time: u64) -> Option<Reply> {
+pub fn parse_trace(
+    packet_bytes: &[u8],
+    m_id: u32,
+    src: Address,
+    ttl: u32,
+    rx_time: u64,
+) -> Option<Reply> {
     // Check for ICMP Time Exceeded code
     let (min_len, type_idx, expected_type) = if src.is_v6() {
         (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3

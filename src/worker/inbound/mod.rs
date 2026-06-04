@@ -94,9 +94,15 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
 
                     (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
 
-                    (_, _, ProtocolType::Icmp) => {
-                        parse_icmp(packet, config.m_id, false, src.into(), ttl, is_dgram, rx_time)
-                    }
+                    (_, _, ProtocolType::Icmp) => parse_icmp(
+                        packet,
+                        config.m_id,
+                        false,
+                        src.into(),
+                        ttl,
+                        is_dgram,
+                        rx_time,
+                    ),
 
                     (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
                         packet,
@@ -140,7 +146,13 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
     Builder::new()
         .name("result_sender_thread".to_string())
         .spawn(move || {
-            handle_results(&tx, config.abort_s, config.worker_id, reply_rx, config.origin_id);
+            handle_results(
+                &tx,
+                config.abort_s,
+                config.worker_id,
+                reply_rx,
+                config.origin_id,
+            );
         })
         .expect("Failed to spawn result_sender_thread");
 }
@@ -170,12 +182,10 @@ fn get_packet<'a>(
                 .as_socket()
                 .ok_or_else(|| std::io::Error::other("invalid source address"))?;
 
-            let (packet_data, ancillary_data) = unsafe { // TODO remove unsafe
+            let (packet_data, ancillary_data) = unsafe {
+                // TODO remove unsafe
                 let p = std::slice::from_raw_parts(buf.as_ptr() as *const u8, bytes_read);
-                let c = std::slice::from_raw_parts(
-                    control_buf.as_ptr() as *const u8,
-                    control_len,
-                );
+                let c = std::slice::from_raw_parts(control_buf.as_ptr() as *const u8, control_len);
                 (p, c)
             };
 
@@ -191,10 +201,12 @@ fn get_packet<'a>(
                 packet_data[8] as u32
             };
             // Get timestamp from the kernel, or current time if unavailable
-            let rx_time = parse_kernel_timestamp(ancillary_data).unwrap_or_else(|| std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_micros() as u64);
+            let rx_time = parse_kernel_timestamp(ancillary_data).unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros() as u64
+            });
             Ok((packet_data, hop_limit, source, rx_time))
         }
         Err(e) => Err(e),

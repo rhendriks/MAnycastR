@@ -5,10 +5,10 @@ use crate::custom_module::manycastr::{
 use crate::worker::bpf::{
     attach_dns_filter, attach_icmp_filter, attach_tcp_filter, attach_traceroute_filter,
 };
-use crate::DNS_IDENTIFIER;
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
+use crate::DNS_IDENTIFIER;
 use log::{error, info, warn};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
@@ -222,7 +222,9 @@ impl Worker {
                         warn!("[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)");
                         (s, false)
                     }
-                    None => panic!("Failed to create UDP socket for DNS. Check the source address is local."),
+                    None => panic!(
+                        "Failed to create UDP socket for DNS. Check the source address is local."
+                    ),
                 },
             }
         } else {
@@ -301,7 +303,10 @@ impl Worker {
             )
         };
         if ts_ret != 0 {
-            warn!("[Worker] Failed to enable SO_TIMESTAMP: {}", std::io::Error::last_os_error());
+            warn!(
+                "[Worker] Failed to enable SO_TIMESTAMP: {}",
+                std::io::Error::last_os_error()
+            );
         }
 
         socket
@@ -382,7 +387,8 @@ impl Worker {
         use std::os::unix::io::AsRawFd;
         let fd = socket.as_raw_fd();
         let val: libc::c_int = 1;
-        let ret = unsafe { // TODO unsafe
+        let ret = unsafe {
+            // TODO unsafe
             libc::setsockopt(
                 fd,
                 libc::IPPROTO_IP,
