@@ -60,6 +60,7 @@ message ScheduleMeasurement {
   bool is_record = 11; // whether to send IPv4 probes with the Record Route options
   optional TraceOptions trace_options = 12; // Optional traceroute options
   bool is_responsive = 13; // Whether to probe a target once for responsiveness before sending measurement probes
+  bool is_any_protocol = 14; // Try protocols in order; stop per-target on first responsive protocol
 }
 
 // A list of workers
