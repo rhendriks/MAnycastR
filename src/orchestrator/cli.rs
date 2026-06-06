@@ -1,8 +1,7 @@
-use crate::orchestrator::OngoingMeasurement;
+use crate::orchestrator::MeasurementHandle;
 use futures_core::Stream;
 use log::warn;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 
@@ -12,8 +11,8 @@ use tokio::sync::mpsc;
 pub struct CLIReceiver<T> {
     /// Receiver that connects to the CLI
     pub(crate) inner: mpsc::Receiver<T>,
-    /// Shared measurement data for the current ongoing measurement, None if no measurement is ongoing
-    pub(crate) ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
+    /// All per-measurement state. `None` when idle.
+    pub(crate) measurement: MeasurementHandle,
 }
 
 impl<T> Stream for CLIReceiver<T> {
@@ -26,14 +25,14 @@ impl<T> Stream for CLIReceiver<T> {
 
 impl<T> Drop for CLIReceiver<T> {
     fn drop(&mut self) {
-        let mut measurement_lock = self.ongoing_measurement.write().unwrap();
+        let mut lock = self.measurement.write().unwrap();
 
         // If there is an active measurement we need to cancel it and notify the workers
-        if measurement_lock.is_some() {
+        if lock.is_some() {
             warn!(
                 "[Orchestrator] CLI dropped during an active measurement, terminating measurement"
             );
-            *measurement_lock = None; // No longer an active measurement
+            *lock = None; // No longer an active measurement
         }
     }
 }
