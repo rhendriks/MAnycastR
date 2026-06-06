@@ -60,6 +60,12 @@ impl Controller for ControllerService {
                 // Decrement the participating workers count
                 state.workers_count -= 1;
 
+                // Set state to IDLE
+                let workers = self.saved_workers.lock().unwrap();
+                if let Some(w) = workers.iter().find(|w| w.worker_id == finished_worker_id) {
+                    w.finished();
+                }
+
                 if state.workers_count == 0 {
                     // This is the last worker
                     info!(
