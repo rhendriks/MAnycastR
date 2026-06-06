@@ -15,10 +15,11 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{ControllerService, OngoingMeasurement, TracerouteConfig};
+use crate::orchestrator::{ControllerService, MeasurementState, TracerouteConfig};
 use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
 use log::{error, info, warn};
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
@@ -49,30 +50,28 @@ impl Controller for ControllerService {
         let mut should_notify = false;
 
         {
-            let mut lock = self.ongoing_measurement.write().unwrap();
-            if let Some(ref mut measurement) = *lock {
-                // Remove this worker from the probing workers list (if it was probing)
-                measurement
+            let mut lock = self.measurement.write().unwrap();
+            if let Some(ref mut state) = *lock {
+                // Active measurement, remove this worker from the probing workers list (if it was probing)
+                state
                     .probing_workers
                     .retain(|&id| id != finished_worker_id);
 
                 // Decrement the participating workers count
-                measurement.workers_count -= 1;
+                state.workers_count -= 1;
 
-                if measurement.workers_count == 0 {
+                if state.workers_count == 0 {
+                    // This is the last worker
                     info!(
                         "[Orchestrator] All workers finished for measurement {m_id}. Notifying CLI"
                     );
                     should_notify = true;
 
-                    // Set the current measurement to None, allowing for a new measurement
+                    // Drop all measurement state at once
                     *lock = None;
-
-                    // Reset --any protocol state
-                    *self.is_any_protocol.lock().unwrap() = false;
-                    self.resolved_targets.lock().unwrap().clear();
                 }
             } else {
+                // Worker finished whilst there is no measurement active
                 warn!(
                 "[Orchestrator] Received measurement finished signal for worker {finished_worker_id}, but no measurement is active."
             );
@@ -154,7 +153,7 @@ impl Controller for ControllerService {
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
             inner: rx,
-            ongoing_measurement: self.ongoing_measurement.clone(),
+            measurement: self.measurement.clone(),
             cli_sender: self.cli_sender.clone(),
             hostname,
             status: worker_status,
@@ -266,9 +265,9 @@ impl Controller for ControllerService {
 
         // Initialize a new measurement
         {
-            let mut measurement_lock = self.ongoing_measurement.write().unwrap();
-            // Exit if we have an ongoing measurement
-            if measurement_lock.is_some() {
+            let mut lock = self.measurement.write().unwrap();
+            if lock.is_some() {
+                // We already have an ongoing measurement -> exit
                 error!("[Orchestrator] There is already an active measurement, returning");
                 return Err(Status::new(
                     tonic::Code::Cancelled,
@@ -277,9 +276,14 @@ impl Controller for ControllerService {
             }
 
             probing_workers_count = probing_worker_ids.len();
-            *measurement_lock = Some(OngoingMeasurement {
+            *lock = Some(MeasurementState {
                 workers_count: participating_worker_ids.len() as u32,
                 probing_workers: probing_worker_ids.clone(),
+                m_type,
+                is_any_protocol: m_def.is_any_protocol,
+                worker_stacks: HashMap::new(),
+                trace_config: None,
+                resolved_targets: HashSet::new(),
             });
         }
 
@@ -361,36 +365,28 @@ impl Controller for ControllerService {
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        self.m_type.lock().unwrap().replace(m_type);
-        *self.is_any_protocol.lock().unwrap() = m_def.is_any_protocol;
-
         if is_traceroute {
-            // Start `TraceSession` timeout handler
-            let stacks_clone = self.worker_stacks.clone();
-            let ongoing_measurement = self.ongoing_measurement.clone();
+            // Traceroute measurement, create its config within the measurement state
             let trace_options = m_def.trace_options.expect("Tracer options not initialized");
+            {
+                let mut lock = self.measurement.write().unwrap();
+                if let Some(ref mut state) = *lock {
+                    state.trace_config = Some(TracerouteConfig {
+                        session_tracker: SessionTracker::new(),
+                        timeout: trace_options.timeout as u64,
+                        max_hops: trace_options.max_hops,
+                        initial_hop: trace_options.initial_hop,
+                        max_failures: trace_options.max_failures,
+                        star_unresponsive: trace_options.star_unresponsive,
+                    });
+                }
+            }
 
-            // Create the traceroute config
-            let mut tr_guard = self.trace_config.write().unwrap();
-
-            *tr_guard = Some(TracerouteConfig {
-                session_tracker: SessionTracker::new(),
-                timeout: trace_options.timeout as u64,
-                max_hops: trace_options.max_hops,
-                initial_hop: trace_options.initial_hop,
-                max_failures: trace_options.max_failures,
-                star_unresponsive: trace_options.star_unresponsive,
-            });
-            let trace_config_clone = self.trace_config.clone();
+            // Start `TraceSession` timeout handler
+            let measurement_clone = self.measurement.clone();
             let cli_sender_clone = self.cli_sender.clone();
-
             std::thread::spawn(move || {
-                check_trace_timeouts(
-                    stacks_clone,
-                    ongoing_measurement,
-                    trace_config_clone,
-                    cli_sender_clone,
-                );
+                check_trace_timeouts(measurement_clone, cli_sender_clone);
             });
         }
 
@@ -459,7 +455,7 @@ impl Controller for ControllerService {
 
         let task_config = TaskDistributorConfig {
             tasks,
-            ongoing_measurement: self.ongoing_measurement.clone(),
+            measurement: self.measurement.clone(),
             tx_t,
             probing_rate,
             probing_rate_interval,
@@ -475,12 +471,9 @@ impl Controller for ControllerService {
             // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
             round_robin_discovery(
                 task_config,
-                self.worker_stacks.clone(),
                 is_responsive,
-                self.trace_config.clone(),
                 is_any_protocol,
                 origin_ids,
-                self.resolved_targets.clone(),
             )
             .await;
         } else {
@@ -490,7 +483,7 @@ impl Controller for ControllerService {
 
         let rx = CLIReceiver {
             inner: rx,
-            ongoing_measurement: self.ongoing_measurement.clone(),
+            measurement: self.measurement.clone(),
         };
 
         Ok(Response::new(rx))
@@ -555,78 +548,79 @@ impl Controller for ControllerService {
             }
         }
 
-        if !discovery_bucket.is_empty() {
-            let m_type_guard = self.m_type.lock().unwrap();
-            let m_type = match m_type_guard.as_ref() {
-                Some(t) => t,
-                None => {
-                    panic!(
-                        "[Orchestrator] Discovery results received but no measurement style set"
-                    );
-                }
-            };
+        // Process discovery and traceroute replies under a single measurement lock
+        if !discovery_bucket.is_empty() || !trace_bucket.is_empty() {
+            let mut lock = self.measurement.write().unwrap();
+            let state = lock
+                .as_mut()
+                .expect("[Orchestrator] Results received but no measurement is active");
 
-            let is_any = *self.is_any_protocol.lock().unwrap();
-
-            if is_any {
-                let mut resolved = self.resolved_targets.lock().unwrap();
-                for reply in &discovery_bucket {
-                    if let Some(addr) = reply.src {
-                        resolved.insert(addr);
+            if !discovery_bucket.is_empty() {
+                if state.is_any_protocol {
+                    for reply in &discovery_bucket {
+                        if let Some(addr) = reply.src {
+                            state.resolved_targets.insert(addr);
+                        }
                     }
                 }
-            }
 
-            let mut worker_stacks = self.worker_stacks.lock().unwrap();
-
-            match m_type {
-                // Perform follow-up from ALL workers
-                MeasurementType::Laces | MeasurementType::UnicastLatency => {
-                    discovery_handler(discovery_bucket, ALL_WORKERS, &mut worker_stacks, origin_id);
-                }
-
-                // Follow up from only the catching worker
-                MeasurementType::AnycastLatency => {
-                    discovery_handler(discovery_bucket, catcher_id, &mut worker_stacks, origin_id);
-                }
-
-                // Special handling for Traceroute
-                MeasurementType::AnycastTraceroute => {
-                    let mut config_guard = self.trace_config.write().unwrap();
-                    if let Some(config) = config_guard.as_mut() {
-                        trace_discovery_handler(
+                match state.m_type {
+                    // Perform follow-up from ALL workers
+                    MeasurementType::Laces | MeasurementType::UnicastLatency => {
+                        discovery_handler(
                             discovery_bucket,
-                            catcher_id,
-                            &mut worker_stacks,
-                            config,
+                            ALL_WORKERS,
+                            &mut state.worker_stacks,
                             origin_id,
                         );
                     }
+
+                    // Follow up from only the catching worker
+                    MeasurementType::AnycastLatency => {
+                        discovery_handler(
+                            discovery_bucket,
+                            catcher_id,
+                            &mut state.worker_stacks,
+                            origin_id,
+                        );
+                    }
+
+                    // Special handling for Traceroute
+                    MeasurementType::AnycastTraceroute => {
+                        if let Some(config) = state.trace_config.as_mut() {
+                            trace_discovery_handler(
+                                discovery_bucket,
+                                catcher_id,
+                                &mut state.worker_stacks,
+                                config,
+                                origin_id,
+                            );
+                        }
+                    }
+
+                    MeasurementType::Catchment => warn!(
+                        "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {}",
+                        state.m_type
+                    ),
+                }
+            }
+
+            if !trace_bucket.is_empty() {
+                if let Some(config) = state.trace_config.as_mut() {
+                    trace_replies_handler(
+                        trace_bucket.clone(),
+                        &mut state.worker_stacks,
+                        config,
+                        origin_id,
+                    );
                 }
 
-                MeasurementType::Catchment => warn!(
-                    "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {m_type}"
-                ),
-            }
-        }
-
-        if !trace_bucket.is_empty() {
-            // Handle traceroute replies (and target replies)
-            let mut config_guard = self.trace_config.write().unwrap();
-            if let Some(config) = config_guard.as_mut() {
-                trace_replies_handler(
-                    trace_bucket.clone(),
-                    &mut self.worker_stacks.lock().unwrap(),
-                    config,
-                    origin_id,
-                );
-            }
-
-            // Add trace replies to the results bucket
-            for t in trace_bucket {
-                results_bucket.push(Reply {
-                    reply_data: Some(ReplyData::Trace(t)),
-                });
+                // Add trace replies to the results bucket
+                for t in trace_bucket {
+                    results_bucket.push(Reply {
+                        reply_data: Some(ReplyData::Trace(t)),
+                    });
+                }
             }
         }
 
