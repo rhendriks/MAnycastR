@@ -9,8 +9,7 @@ use crate::orchestrator::result_handler::{
     discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker,
 };
 use crate::orchestrator::task_distributor::{
-    broadcast_distributor, round_robin_discovery, round_robin_distributor, task_sender,
-    TaskDistributorConfig,
+    distribute_tasks, task_sender, DistributionStrategy, TaskDistributorConfig,
 };
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
@@ -469,23 +468,19 @@ impl Controller for ControllerService {
             worker_interval,
         };
 
-        // Spawn appropriate task distributor thread
-        if m_def.m_type == MeasurementType::Catchment as i32 {
-            // Distribute tasks round-robin
-            round_robin_distributor(task_config).await;
+        // Select distribution strategy
+        let strategy = if m_def.m_type == MeasurementType::Catchment as i32 {
+            DistributionStrategy::RoundRobin
         } else if send_discovery {
-            // Distribute discovery tasks round-robin, handle follow-up tasks using the worker stacks
-            round_robin_discovery(
-                task_config,
+            DistributionStrategy::Discovery {
                 is_responsive,
                 is_any_protocol,
                 origin_ids,
-            )
-            .await;
+            }
         } else {
-            // Broadcast tasks to all workers (regular anycast, --unicast, --record measurements)
-            broadcast_distributor(task_config).await;
-        }
+            DistributionStrategy::Broadcast
+        };
+        distribute_tasks(task_config, strategy).await;
 
         let rx = CLIReceiver {
             inner: rx,
