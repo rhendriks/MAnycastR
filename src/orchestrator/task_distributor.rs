@@ -222,12 +222,10 @@ pub async fn round_robin_distributor(config: TaskDistributorConfig) {
 /// Also used when --responsive is set.
 ///
 /// # Arguments
-/// * `config` - TaskDistributorConfig with all necessary parameters.
+/// * `config` - TaskDistributorConfig with all necessary parameters
 /// * `worker_stacks` - stacks of follow-up tasks for each worker
 /// * `is_responsive` - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
-/// * `traceroute_config` - traceroute state (`None` for non-traceroute measurements);
-///   used to keep the measurement alive while traceroute sessions are still
-///   walking hops / waiting on per-hop timeouts.
+/// * `traceroute_config` - traceroute configurations set by the CLI
 pub async fn round_robin_discovery(
     config: TaskDistributorConfig,
     worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
@@ -243,12 +241,20 @@ pub async fn round_robin_discovery(
 
     // Index to cycle over the probing workers
     let mut current_index = 0;
-    // We create a manual iterator over the general hitlist.
-    let mut hitlist_iter = config.tasks.into_iter();
 
-    // For --any: track remaining origin_ids to try and the original hitlist addresses
+    // For --any: keep the original task list to re-filter for subsequent protocol rounds.
+    // For non-any: the original vec is consumed directly (no clone).
+    let (all_tasks, initial_tasks) = if is_any_protocol {
+        let tasks = config.tasks;
+        let initial = tasks.clone();
+        (tasks, initial)
+    } else {
+        (Vec::new(), config.tasks)
+    };
+    let mut hitlist_iter = initial_tasks.into_iter();
+
+    // For --any: track which protocol round we're on
     let mut any_origin_index: usize = 0;
-    let mut any_hitlist: Vec<Address> = Vec::new();
 
     spawn(async move {
         let mut hitlist_is_empty = false;
@@ -331,20 +337,6 @@ pub async fn round_robin_discovery(
                 let discovery_tasks: Vec<Task> =
                     hitlist_iter.by_ref().take(remainder_needed).collect();
 
-                // Collect target addresses during the first --any round (for re-queuing unresolved targets later)
-                if is_any_protocol && any_origin_index == 0 {
-                    for task in &discovery_tasks {
-                        if let Some(crate::custom_module::manycastr::task::TaskType::Discovery(
-                            probe,
-                        )) = &task.task_type
-                        {
-                            if let Some(addr) = probe.dst {
-                                any_hitlist.push(addr);
-                            }
-                        }
-                    }
-                }
-
                 // If we could not fill up the entire batch, we mark the hitlist as empty (only once)
                 if discovery_tasks.len() < remainder_needed {
                     info!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
@@ -403,14 +395,27 @@ pub async fn round_robin_discovery(
                                 if any_origin_index < origin_ids.len() {
                                     let next_origin_id = origin_ids[any_origin_index];
                                     let resolved = resolved_targets.lock().unwrap();
-                                    let unresolved: Vec<Address> = any_hitlist
-                                        .iter()
-                                        .filter(|addr| !resolved.contains(addr))
-                                        .copied()
-                                        .collect();
-
                                     let resolved_count = resolved.len();
-                                    let unresolved_count = unresolved.len();
+
+                                    // Probe targets for which no response was received yet
+                                    let unresolved_iter = all_tasks.iter().filter_map(|task| {
+                                        if let Some(crate::custom_module::manycastr::task::TaskType::Discovery(probe)) = &task.task_type {
+                                            if let Some(addr) = probe.dst {
+                                                if !resolved.contains(&addr) {
+                                                    return Some(Task {
+                                                        task_type: Some(
+                                                            crate::custom_module::manycastr::task::TaskType::Discovery(
+                                                                Probe { dst: Some(addr) },
+                                                            ),
+                                                        ),
+                                                        origin_id: next_origin_id,
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        None
+                                    }).collect::<Vec<_>>();
+                                    let unresolved_count = unresolved_iter.len();
                                     drop(resolved);
 
                                     if unresolved_count > 0 {
@@ -418,20 +423,7 @@ pub async fn round_robin_discovery(
                                             "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
                                         );
 
-                                        // Re-queue unresolved as discovery tasks with the next protocol
-                                        let new_tasks: Vec<Task> = unresolved
-                                            .into_iter()
-                                            .map(|addr| Task {
-                                                task_type: Some(
-                                                    crate::custom_module::manycastr::task::TaskType::Discovery(
-                                                        Probe { dst: Some(addr) },
-                                                    ),
-                                                ),
-                                                origin_id: next_origin_id,
-                                            })
-                                            .collect();
-
-                                        hitlist_iter = new_tasks.into_iter();
+                                        hitlist_iter = unresolved_iter.into_iter();
                                         hitlist_is_empty = false;
                                         cooldown_timer = None;
                                         continue;
@@ -443,7 +435,7 @@ pub async fn round_robin_discovery(
                                 } else {
                                     let resolved_count =
                                         resolved_targets.lock().unwrap().len();
-                                    let total = any_hitlist.len();
+                                    let total = all_tasks.len();
                                     info!(
                                         "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
                                     );
