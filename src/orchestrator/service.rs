@@ -1,8 +1,8 @@
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    instruction, task, Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType,
-    Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceReply, Worker,
+    instruction, Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType, Reply,
+    ReplyBatch, ScheduleMeasurement, Start, TraceReply, Worker,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -187,7 +187,7 @@ impl Controller for ControllerService {
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         info!("[Orchestrator] Received CLI measurement request for measurement");
-        let m_def = request.into_inner();
+        let mut m_def = request.into_inner();
         let is_responsive = m_def.is_responsive;
         let worker_interval = m_def.worker_interval as u64;
         let probe_interval = m_def.probe_interval as u64;
@@ -195,7 +195,6 @@ impl Controller for ControllerService {
         let is_traceroute = m_def.trace_options.is_some();
         let is_record = m_def.is_record;
         let probing_rate = m_def.probing_rate;
-        let hitlist = &m_def.hitlist;
         let dns_record = &m_def.record;
         let info_url = &m_def.url;
         let m_type = m_def.m_type();
@@ -423,29 +422,13 @@ impl Controller for ControllerService {
             ALL_ORIGINS
         };
 
-        // Convert hitlist targets into the appropriate TaskType
-        let tasks = if send_discovery {
-            // Send Discovery tasks
-            hitlist
-                .iter()
-                .map(|addr| Task {
-                    task_type: Some(task::TaskType::Discovery(Probe { dst: Some(*addr) })),
-                    origin_id: first_origin_id,
-                })
-                .collect::<Vec<Task>>()
-        } else {
-            // Send Probe tasks
-            hitlist
-                .iter()
-                .map(|addr| Task {
-                    task_type: Some(task::TaskType::Probe(Probe { dst: Some(*addr) })),
-                    origin_id: ALL_ORIGINS,
-                })
-                .collect::<Vec<Task>>()
-        };
+        // Move the hitlist out of m_def (zero-copy)
+        let hitlist = std::mem::take(&mut m_def.hitlist);
 
         let task_config = TaskDistributorConfig {
-            tasks,
+            hitlist,
+            is_discovery: send_discovery,
+            first_origin_id,
             measurement: self.measurement.clone(),
             workers,
             probing_rate,
