@@ -1,11 +1,11 @@
 [package]
 name = "manycastr"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2021"
 
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
-chrono = "0.4.44"# get current time
+chrono = "0.4.45"# get current time
 clap = "4.6.1"# parse command line arguments
 csv = "1.4.0" # write to CSV
 futures-core = "0.3.32" # async runtime
@@ -25,7 +25,7 @@ bimap = "0.6.3"
 tonic-prost = "0.14.6"
 parquet = { version = "58.3.0", features = ["snap"]}
 serde_json = "1.0.150"
-log = "0.4.31"
+log = "0.4.32"
 pretty_env_logger = "0.5.0"
 [build-dependencies]
 tonic-prost-build = "0.14.6"
