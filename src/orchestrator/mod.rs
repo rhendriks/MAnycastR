@@ -34,16 +34,29 @@ pub(crate) type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
 type TaskMessage = Result<Instruction, Status>;
 
+/// Shared handle to the active measurement state. `None` when no measurement is running.
+pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
+
 const BREAK_SIGNAL: u32 = u32::MAX - 1;
 const ALL_WORKERS_END: u32 = u32::MAX - 2;
 
-/// State to keep track of an ongoing measurement
+/// All state associated with a single active measurement.
 #[derive(Debug)]
-pub struct OngoingMeasurement {
-    /// Number of Workers still participating in the measurement (decremented when a Worker finishes)
-    workers_count: u32,
+pub struct MeasurementState {
+    /// Number of Workers still participating (decremented when a Worker finishes)
+    pub workers_count: u32,
     /// Worker IDs of connected Workers that are actively probing
-    probing_workers: Vec<u32>,
+    pub probing_workers: Vec<u32>,
+    /// The measurement type (LACeS, catchment, latency, …)
+    pub m_type: MeasurementType,
+    /// Whether this measurement uses --any protocol fallback
+    pub is_any_protocol: bool,
+    /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
+    pub worker_stacks: HashMap<u32, VecDeque<Task>>,
+    /// Traceroute configuration and session tracker (None for non-traceroute measurements)
+    pub trace_config: Option<TracerouteConfig>,
+    /// Targets that responded to discovery (used by --any to skip resolved targets)
+    pub resolved_targets: HashSet<Address>,
 }
 
 /// Traceroute configuration
@@ -70,23 +83,12 @@ pub struct ControllerService {
     saved_workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
     /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
-    /// Number of workers participating in the current measurement (None if no measurement is active)
-    //workers_count: Arc<Mutex<Option<u32>>>,
-    ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
+    /// All per-measurement state. `None` when idle.
+    measurement: MeasurementHandle,
     /// Last used unique worker ID
     unique_id: Arc<Mutex<u32>>,
-    /// Indicates the type of measurement currently active
-    m_type: Arc<Mutex<Option<MeasurementType>>>,
-    /// Whether the current measurement uses --any protocol fallback
-    is_any_protocol: Arc<Mutex<bool>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
-    /// Stacks of tasks coupled to workers, used for follow-up probes
-    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    /// Traceroute Configuration
-    trace_config: Arc<RwLock<Option<TracerouteConfig>>>,
-    /// Targets that have responded to discovery (used by --any to skip resolved targets in subsequent protocol rounds)
-    resolved_targets: Arc<Mutex<HashSet<Address>>>,
 }
 
 impl ControllerService {
@@ -160,14 +162,9 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     let controller = ControllerService {
         saved_workers: Arc::new(Mutex::new(Vec::new())),
         cli_sender: Arc::new(Mutex::new(None)),
-        ongoing_measurement: Arc::new(RwLock::new(None)),
+        measurement: Arc::new(RwLock::new(None)),
         unique_id: current_worker_id,
-        m_type: Arc::new(Mutex::new(None)),
         worker_config,
-        worker_stacks: Arc::new(Mutex::new(HashMap::new())),
-        trace_config: Arc::new(RwLock::new(None)),
-        is_any_protocol: Arc::new(Mutex::new(false)),
-        resolved_targets: Arc::new(Mutex::new(HashSet::new())),
     };
 
     let svc = ControllerServer::new(controller)
