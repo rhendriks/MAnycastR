@@ -37,9 +37,6 @@ type TaskMessage = Result<Instruction, Status>;
 /// Shared handle to the active measurement state. `None` when no measurement is running.
 pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
 
-const BREAK_SIGNAL: u32 = u32::MAX - 1;
-const ALL_WORKERS_END: u32 = u32::MAX - 2;
-
 /// All state associated with a single active measurement.
 #[derive(Debug)]
 pub struct MeasurementState {

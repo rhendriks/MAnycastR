@@ -1,13 +1,11 @@
 use crate::custom_module::manycastr::{instruction, End, Instruction, Probe, Task, Tasks};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{MeasurementHandle, ALL_WORKERS_END, BREAK_SIGNAL};
+use crate::orchestrator::MeasurementHandle;
 use crate::ALL_WORKERS;
 use log::{info, warn};
 use std::time::Duration;
 use tokio::spawn;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
 use tokio::time::{Instant, Interval};
 use tonic::Status;
 
@@ -33,16 +31,123 @@ pub struct TaskDistributorConfig {
     pub tasks: Vec<Task>,
     /// All per-measurement state. `None` when idle.
     pub measurement: MeasurementHandle,
-    /// Channel to send tasks to the TaskDistributor
-    pub tx_t: Sender<(u32, Instruction, bool)>,
+    /// Worker senders (cloned from the saved_workers list at measurement start)
+    pub workers: Vec<WorkerSender<Result<Instruction, Status>>>,
     /// Number of tasks to send per interval (equal to probing rate)
     pub probing_rate: u32,
     /// Interval at which to send tasks
     pub probing_rate_interval: Interval,
     /// Number of probing workers
     pub number_of_probing_workers: usize,
-    /// Inter-worker interval between workers
+    /// Inter-worker interval in seconds between workers
     pub worker_interval: u64,
+    /// Number of times to repeat each measurement probe (discovery probes are always sent once)
+    pub number_of_probes: u8,
+    /// Inter-probe interval in seconds between repeated probes
+    pub probe_interval: u64,
+}
+
+/// Send an instruction to specified workers, using measurement configurations.
+///
+/// # Arguments
+/// * `workers` - the list of worker senders
+/// * `worker_id` - target: `ALL_WORKERS` for broadcast, or a specific worker ID
+/// * `instruction` - the instruction to send
+/// * `nprobes` - how many times to send (1 = no repeat)
+/// * `inter_worker_interval` - seconds between workers for broadcast sends
+/// * `inter_probe_interval` - seconds between repeated probes
+async fn send_to_workers(
+    workers: &[WorkerSender<Result<Instruction, Status>>],
+    worker_id: u32,
+    instruction: Instruction,
+    nprobes: u8,
+    inter_worker_interval: u64,
+    inter_probe_interval: u64,
+) {
+    if worker_id == ALL_WORKERS {
+        // Broadcast to all probing workers with inter-worker delay
+        let mut probing_index: u64 = 0;
+
+        for sender in workers {
+            if *sender.status == Probing {
+                let sender_c = sender.clone();
+                let task_c = instruction.clone();
+                spawn(async move {
+                    // Wait inter-client probing interval
+                    tokio::time::sleep(Duration::from_secs(
+                        probing_index * inter_worker_interval,
+                    ))
+                    .await;
+
+                    spawn(async move {
+                        for _ in 0..nprobes {
+                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
+                                sender_c.cleanup();
+                                warn!(
+                                    "[Orchestrator] Failed to send task to probing worker {}: {e:?}",
+                                    sender_c.hostname
+                                );
+                            });
+                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                        }
+                    });
+                });
+                probing_index += 1;
+            }
+        }
+    } else {
+        // Send to a specific worker
+        if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
+            if nprobes < 2 {
+                sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
+                    sender.cleanup();
+                    warn!(
+                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
+                        sender.hostname
+                    );
+                });
+            } else {
+                let sender_c = sender.clone();
+                spawn(async move {
+                    for _ in 0..nprobes {
+                        sender_c
+                            .send(Ok(instruction.clone()))
+                            .await
+                            .unwrap_or_else(|e| {
+                                sender_c.cleanup();
+                                warn!(
+                                    "[Orchestrator] Failed to send task to worker {}: {e:?}",
+                                    sender_c.hostname
+                                );
+                            });
+                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                    }
+                });
+            }
+        } else {
+            warn!("[Orchestrator] No sender found for worker ID {worker_id}");
+        }
+    }
+}
+
+/// Send end-of-measurement to all workers and mark them as finished.
+async fn end_measurement(workers: &[WorkerSender<Result<Instruction, Status>>]) {
+    let end = Instruction {
+        instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
+    };
+    for sender in workers {
+        sender
+            .send(Ok(end.clone()))
+            .await
+            .unwrap_or_else(|e| {
+                sender.cleanup();
+                warn!(
+                    "[Orchestrator] Failed to send end to worker {}: {e:?}",
+                    sender.hostname
+                );
+            });
+        sender.finished();
+    }
 }
 
 /// Task distributor. Spawns a background task that distributes tasks to workers
@@ -91,6 +196,11 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     };
     let mut hitlist_iter = initial_tasks.into_iter();
     let mut any_origin_index: usize = 0;
+
+    // nprobes: measurement probes are repeated, discovery probes are not
+    let nprobes = config.number_of_probes;
+    let inter_worker_interval = config.worker_interval;
+    let inter_probe_interval = config.probe_interval;
 
     spawn(async move {
         let mut hitlist_is_empty = false;
@@ -147,21 +257,19 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
                 let count = follow_up_tasks.len();
                 if !follow_up_tasks.is_empty() {
-                    config
-                        .tx_t
-                        .send((
-                            f_worker_id,
-                            Instruction {
-                                instruction_type: Some(instruction::InstructionType::Tasks(
-                                    Tasks {
-                                        tasks: follow_up_tasks,
-                                    },
-                                )),
-                            },
-                            true,
-                        ))
-                        .await
-                        .expect("Failed to send follow-up tasks to TaskDistributor");
+                    send_to_workers(
+                        &config.workers,
+                        f_worker_id,
+                        Instruction {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                                tasks: follow_up_tasks,
+                            })),
+                        },
+                        nprobes,
+                        inter_worker_interval,
+                        inter_probe_interval,
+                    )
+                    .await;
                 }
                 count
             } else {
@@ -184,19 +292,22 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                 }
 
                 if !tasks.is_empty() {
-                    config
-                        .tx_t
-                        .send((
-                            worker_id,
-                            Instruction {
-                                instruction_type: Some(instruction::InstructionType::Tasks(
-                                    Tasks { tasks },
-                                )),
-                            },
-                            !has_follow_ups, // Always send single discovery probes
-                        ))
-                        .await
-                        .expect("Failed to send tasks to TaskDistributor");
+                    // Discovery probes are sent once; measurement probes are repeated nprobes times
+                    let hitlist_nprobes = if has_follow_ups { 1 } else { nprobes };
+
+                    send_to_workers(
+                        &config.workers,
+                        worker_id,
+                        Instruction {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                                tasks,
+                            })),
+                        },
+                        hitlist_nprobes,
+                        inter_worker_interval,
+                        inter_probe_interval,
+                    )
+                    .await;
                 }
             }
 
@@ -265,36 +376,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
         info!("[Orchestrator] Task distribution finished.");
 
-        // Send end instruction to all workers
-        config
-            .tx_t
-            .send((
-                ALL_WORKERS_END,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
+        // Notify all workers that the measurement is over
+        end_measurement(&config.workers).await;
 
         // Wait for all workers to finish
         while config.measurement.read().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-
-        // Close the TaskDistributor channel
-        config
-            .tx_t
-            .send((
-                BREAK_SIGNAL,
-                Instruction {
-                    instruction_type: None,
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send break signal to TaskDistributor");
     });
 }
 
@@ -365,116 +453,4 @@ fn try_next_any_protocol(
     }
 
     false // No more protocols to try
-}
-
-/// Reads from a channel containing Tasks and sends them to the workers, at specified inter-worker intervals.
-/// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
-///
-/// Used for starting a measurement, sending tasks to the workers, ending a measurement.
-///
-/// # Arguments
-///
-/// * `rx` - the channel containing the tuple (task_ID, task, multiple_times)
-/// * `workers` - the list of worker senders to which the tasks will be sent
-/// * `inter_worker_interval` - the interval in seconds between sending tasks to different workers
-/// * `inter_probe_interval` - the interval in seconds between sending multiple probes to the same worker
-/// * `number_of_probes` - the number of times to probe the same target (for non-discovery probes)
-pub async fn task_sender(
-    mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
-    workers: Vec<WorkerSender<Result<Instruction, Status>>>,
-    inter_worker_interval: u64,
-    inter_probe_interval: u64,
-    number_of_probes: u8,
-) {
-    // Loop over the tasks in the channel
-    while let Some((worker_id, instruction, multiple)) = rx.recv().await {
-        let nprobes = if multiple { number_of_probes } else { 1 };
-
-        if worker_id == BREAK_SIGNAL {
-            break;
-        } else if worker_id == ALL_WORKERS_END {
-            // To all direct (used for 'end measurement' only)
-            for sender in &workers {
-                sender
-                    .send(Ok(instruction.clone()))
-                    .await
-                    .unwrap_or_else(|e| {
-                        sender.cleanup();
-                        warn!(
-                            "[Orchestrator] Failed to send broadcast task to worker {}: {e:?}",
-                            sender.hostname
-                        );
-                    });
-                sender.finished();
-            }
-        } else if worker_id == ALL_WORKERS {
-            // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
-            let mut probing_index = 0;
-
-            for sender in &workers {
-                if *sender.status == Probing {
-                    let sender_c = sender.clone();
-                    let task_c = instruction.clone();
-                    spawn(async move {
-                        // Wait inter-client probing interval
-                        tokio::time::sleep(Duration::from_secs(
-                            probing_index * inter_worker_interval,
-                        ))
-                        .await;
-
-                        spawn(async move {
-                            for _ in 0..nprobes {
-                                sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
-                                    sender_c.cleanup();
-                                    warn!(
-                                        "[Orchestrator] Failed to send broadcast task to probing worker {}: {e:?}",
-                                        sender_c.hostname
-                                    );
-                                });
-                                // Sleep for the inter-probe interval
-                                tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                            }
-                        });
-                    });
-                    probing_index += 1;
-                }
-            }
-        } else {
-            // to specific worker (used for --latency follow-up probes)
-            if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
-                if nprobes < 2 {
-                    sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
-                        sender.cleanup();
-                        warn!(
-                            "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                            sender.hostname
-                        );
-                    });
-                } else {
-                    // Probe multiple times (in separate thread)
-                    let sender_clone = sender.clone();
-                    spawn(async move {
-                        for _ in 0..number_of_probes {
-                            sender_clone
-                                .send(Ok(instruction.clone()))
-                                .await
-                                .unwrap_or_else(|e| {
-                                    sender_clone.cleanup();
-                                    warn!(
-                                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                                        sender_clone.hostname
-                                    );
-                                });
-                            // Wait inter-probe interval
-                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                        }
-                    });
-                }
-            } else {
-                warn!("[Orchestrator] No sender found for worker ID {worker_id}");
-            }
-        }
-    }
-
-    info!("[Orchestrator] Task distributor finished");
 }

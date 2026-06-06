@@ -9,7 +9,7 @@ use crate::orchestrator::result_handler::{
     discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker,
 };
 use crate::orchestrator::task_distributor::{
-    distribute_tasks, task_sender, DistributionStrategy, TaskDistributorConfig,
+    distribute_tasks, DistributionStrategy, TaskDistributorConfig,
 };
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
@@ -21,7 +21,6 @@ use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::spawn;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
@@ -316,9 +315,6 @@ impl Controller for ControllerService {
             }
         }
 
-        // Create channel for TaskDistributor (client_id, task, number_of_times)
-        let (tx_t, rx_t) = mpsc::channel::<(u32, Instruction, bool)>(1000);
-
         // Notify all participating workers that a measurement is starting
         for worker in workers.iter() {
             if !worker.is_participating() {
@@ -351,21 +347,11 @@ impl Controller for ControllerService {
                 })),
             };
 
-            tx_t.send((worker_id, start_instruction, false))
+            worker
+                .send(Ok(start_instruction))
                 .await
-                .expect("Failed to send task to TaskDistributor");
+                .expect("Failed to send Start instruction to worker");
         }
-
-        spawn(async move {
-            task_sender(
-                rx_t,
-                workers,
-                worker_interval,
-                probe_interval,
-                number_of_probes,
-            )
-            .await;
-        });
 
         // Sleep 1 second to let the workers start listening for probe replies
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -461,11 +447,13 @@ impl Controller for ControllerService {
         let task_config = TaskDistributorConfig {
             tasks,
             measurement: self.measurement.clone(),
-            tx_t,
+            workers,
             probing_rate,
             probing_rate_interval,
             number_of_probing_workers: probing_workers_count,
             worker_interval,
+            number_of_probes,
+            probe_interval,
         };
 
         // Select distribution strategy
