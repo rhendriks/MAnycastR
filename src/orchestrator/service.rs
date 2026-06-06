@@ -236,15 +236,16 @@ impl Controller for ControllerService {
 
         // Build ordered list of origin_ids for --any protocol fallback
         let origin_ids: Vec<u32> = if is_any_protocol {
-            let mut seen = Vec::new();
+            let mut seen = HashSet::new();
+            let mut ids = Vec::new();
             for config in &m_def.configurations {
                 if let Some(origin) = &config.origin {
-                    if !seen.contains(&origin.origin_id) {
-                        seen.push(origin.origin_id);
+                    if seen.insert(origin.origin_id) {
+                        ids.push(origin.origin_id);
                     }
                 }
             }
-            seen
+            ids
         } else {
             vec![]
         };
@@ -594,10 +595,11 @@ async fn send_start_instructions(
     m_id: u32,
 ) {
     // Collect unique RX origins across all configurations
+    let mut seen_origins = HashSet::new();
     let mut rx_origins = vec![];
     for configuration in m_def.configurations.iter() {
         if let Some(origin) = &configuration.origin {
-            if !rx_origins.contains(origin) {
+            if seen_origins.insert(origin.origin_id) {
                 rx_origins.push(*origin);
             }
         }
