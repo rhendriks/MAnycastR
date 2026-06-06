@@ -24,6 +24,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
+/// Workers classified by role for a measurement.
+struct ClassifiedWorkers {
+    senders: Vec<WorkerSender<Result<Instruction, Status>>>,
+    participating_ids: Vec<u32>,
+    probing_ids: Vec<u32>,
+}
+
 /// Implementation of the Controller trait for the ControllerService
 /// Handles communication with the workers and the CLI
 #[tonic::async_trait]
@@ -51,9 +58,7 @@ impl Controller for ControllerService {
             let mut lock = self.measurement.write().unwrap();
             if let Some(ref mut state) = *lock {
                 // Active measurement, remove this worker from the probing workers list (if it was probing)
-                state
-                    .probing_workers
-                    .retain(|&id| id != finished_worker_id);
+                state.probing_workers.retain(|&id| id != finished_worker_id);
 
                 // Decrement the participating workers count
                 state.workers_count -= 1;
@@ -193,7 +198,11 @@ impl Controller for ControllerService {
         let m_type = m_def.m_type();
 
         // Classify workers and validate configuration
-        let (workers, participating_ids, probing_ids) = self.classify_workers(&m_def)?;
+        let ClassifiedWorkers {
+            senders: workers,
+            participating_ids,
+            probing_ids,
+        } = self.classify_workers(&m_def)?;
         let probing_workers_count = probing_ids.len();
 
         // Initialize measurement state (errors if already active)
@@ -454,18 +463,11 @@ impl ControllerService {
     /// configuration. Validates that at least one worker can participate and that all
     /// configured worker IDs correspond to connected workers.
     ///
-    /// Returns `(worker_senders, participating_worker_ids, probing_worker_ids)`.
+    /// Returns the worker senders plus the participating and probing worker ID lists.
     fn classify_workers(
         &self,
         m_def: &ScheduleMeasurement,
-    ) -> Result<
-        (
-            Vec<WorkerSender<Result<Instruction, Status>>>,
-            Vec<u32>,
-            Vec<u32>,
-        ),
-        Status,
-    > {
+    ) -> Result<ClassifiedWorkers, Status> {
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();
 
@@ -518,8 +520,7 @@ impl ControllerService {
 
         // Validate: no unknown worker IDs in configuration
         if m_def.configurations.iter().any(|conf| {
-            conf.worker_id != ALL_WORKERS
-                && !workers.iter().any(|w| w.worker_id == conf.worker_id)
+            conf.worker_id != ALL_WORKERS && !workers.iter().any(|w| w.worker_id == conf.worker_id)
         }) {
             error!("[Orchestrator] Configuration contains unknown worker IDs.");
             return Err(Status::new(
@@ -528,7 +529,11 @@ impl ControllerService {
             ));
         }
 
-        Ok((workers, participating_worker_ids, probing_worker_ids))
+        Ok(ClassifiedWorkers {
+            senders: workers,
+            participating_ids: participating_worker_ids,
+            probing_ids: probing_worker_ids,
+        })
     }
 
     /// Initialize the shared measurement state. Errors if a measurement is already active.
