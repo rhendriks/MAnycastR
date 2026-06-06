@@ -1,4 +1,6 @@
-use crate::custom_module::manycastr::{instruction, End, Instruction, Probe, Task, Tasks};
+use crate::custom_module::manycastr::{
+    instruction, task, Address, End, Instruction, Probe, Task, Tasks,
+};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
 use crate::orchestrator::MeasurementHandle;
@@ -27,8 +29,12 @@ pub enum DistributionStrategy {
 }
 
 pub struct TaskDistributorConfig {
-    /// Vector of tasks to distribute
-    pub tasks: Vec<Task>,
+    /// Target addresses to probe
+    pub hitlist: Vec<Address>,
+    /// Whether to wrap addresses in Discovery tasks (true) or Probe tasks (false)
+    pub is_discovery: bool,
+    /// Origin ID for the first (or only) probing round
+    pub first_origin_id: u32,
     /// All per-measurement state. `None` when idle.
     pub measurement: MeasurementHandle,
     /// Worker senders (cloned from the saved_workers list at measurement start)
@@ -47,7 +53,20 @@ pub struct TaskDistributorConfig {
     pub probe_interval: u64,
 }
 
-/// Send an instruction to specified workers, using measurement configurations.
+/// Build a `Task` from a raw address and the current distribution metadata.
+#[inline]
+fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
+    Task {
+        task_type: Some(if is_discovery {
+            task::TaskType::Discovery(Probe { dst: Some(addr) })
+        } else {
+            task::TaskType::Probe(Probe { dst: Some(addr) })
+        }),
+        origin_id,
+    }
+}
+
+/// Send an instruction to workers according to the specified parameters.
 ///
 /// # Arguments
 /// * `workers` - the list of worker senders
@@ -166,6 +185,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
     let is_broadcast = matches!(&strategy, DistributionStrategy::Broadcast);
     let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. });
+    let is_discovery = config.is_discovery;
     let (is_responsive, is_any_protocol, origin_ids) = match strategy {
         DistributionStrategy::Discovery {
             is_responsive,
@@ -184,18 +204,19 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     };
 
     let mut probing_rate_interval = config.probing_rate_interval;
-
-    // For --any: keep the original task list to re-filter for subsequent protocol rounds.
-    // For non-any: the original vec is consumed directly (no clone).
-    let (all_tasks, initial_tasks) = if is_any_protocol {
-        let tasks = config.tasks;
-        let initial = tasks.clone();
-        (tasks, initial)
+    
+    let (all_addresses, initial_addresses) = if is_any_protocol {
+        // Keep the original address list to re-filter for subsequent protocol rounds
+        let addrs = config.hitlist;
+        let initial = addrs.clone();
+        (addrs, initial)
     } else {
-        (Vec::new(), config.tasks)
+        // Keep only the original vec (which gets consumed directly)
+        (Vec::new(), config.hitlist)
     };
-    let mut hitlist_iter = initial_tasks.into_iter();
+    let mut hitlist_iter = initial_addresses.into_iter();
     let mut any_origin_index: usize = 0;
+    let mut current_origin_id = config.first_origin_id;
 
     // nprobes: measurement probes are repeated, discovery probes are not
     let nprobes = config.number_of_probes;
@@ -280,7 +301,12 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             let remainder = (config.probing_rate as usize).saturating_sub(follow_up_count);
 
             if remainder > 0 && !hitlist_is_empty {
-                let tasks: Vec<Task> = hitlist_iter.by_ref().take(remainder).collect();
+                // Wrap target addresses into tasks
+                let tasks: Vec<Task> = hitlist_iter
+                    .by_ref()
+                    .take(remainder)
+                    .map(|addr| make_task(addr, is_discovery, current_origin_id))
+                    .collect();
 
                 if tasks.len() < remainder {
                     hitlist_is_empty = true;
@@ -337,12 +363,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 if is_any_protocol
                                     && try_next_any_protocol(
                                         &config.measurement,
-                                        &all_tasks,
+                                        &all_addresses,
                                         &origin_ids,
                                         &mut any_origin_index,
                                         &mut hitlist_iter,
                                         &mut hitlist_is_empty,
                                         &mut cooldown_timer,
+                                        &mut current_origin_id,
                                     )
                                 {
                                     continue; // Restart loop with next protocol
@@ -391,12 +418,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 /// `false` if all protocols are exhausted or all targets are resolved.
 fn try_next_any_protocol(
     measurement: &MeasurementHandle,
-    all_tasks: &[Task],
+    all_addresses: &[Address],
     origin_ids: &[u32],
     any_origin_index: &mut usize,
-    hitlist_iter: &mut std::vec::IntoIter<Task>,
+    hitlist_iter: &mut std::vec::IntoIter<Address>,
     hitlist_is_empty: &mut bool,
     cooldown_timer: &mut Option<Instant>,
+    current_origin_id: &mut u32,
 ) -> bool {
     *any_origin_index += 1;
 
@@ -406,28 +434,11 @@ fn try_next_any_protocol(
         let state = lock.as_ref().unwrap();
         let resolved_count = state.resolved_targets.len();
 
-        // Build tasks for targets that have not responded yet
-        let unresolved: Vec<Task> = all_tasks
+        // Collect addresses that have not responded yet
+        let unresolved: Vec<Address> = all_addresses
             .iter()
-            .filter_map(|task| {
-                if let Some(crate::custom_module::manycastr::task::TaskType::Discovery(probe)) =
-                    &task.task_type
-                {
-                    if let Some(addr) = probe.dst {
-                        if !state.resolved_targets.contains(&addr) {
-                            return Some(Task {
-                                task_type: Some(
-                                    crate::custom_module::manycastr::task::TaskType::Discovery(
-                                        Probe { dst: Some(addr) },
-                                    ),
-                                ),
-                                origin_id: next_origin_id,
-                            });
-                        }
-                    }
-                }
-                None
-            })
+            .filter(|addr| !state.resolved_targets.contains(addr))
+            .cloned()
             .collect();
         let unresolved_count = unresolved.len();
         drop(lock);
@@ -439,6 +450,7 @@ fn try_next_any_protocol(
             *hitlist_iter = unresolved.into_iter();
             *hitlist_is_empty = false;
             *cooldown_timer = None;
+            *current_origin_id = next_origin_id;
             return true; // Caller should continue the loop
         }
 
@@ -446,7 +458,7 @@ fn try_next_any_protocol(
     } else {
         let lock = measurement.read().unwrap();
         let resolved_count = lock.as_ref().map(|s| s.resolved_targets.len()).unwrap_or(0);
-        let total = all_tasks.len();
+        let total = all_addresses.len();
         info!(
             "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
         );
