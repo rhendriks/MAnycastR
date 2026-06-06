@@ -409,7 +409,7 @@ impl Controller for ControllerService {
             if !trace_bucket.is_empty() {
                 if let Some(config) = state.trace_config.as_mut() {
                     trace_replies_handler(
-                        trace_bucket.clone(),
+                        &trace_bucket,
                         &mut state.worker_stacks,
                         config,
                         origin_id,
