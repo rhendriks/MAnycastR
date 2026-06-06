@@ -468,6 +468,15 @@ impl ControllerService {
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();
 
+        // Whether non-probing workers should listen (true when any configuration probes with anycast).
+        let has_anycast_origin = m_def.configurations.iter().any(|config| {
+            !config
+                .origin
+                .as_ref()
+                .and_then(|o| o.src.as_ref())
+                .is_none_or(|s| s.is_unicast())
+        });
+
         let workers = {
             let mut workers = self.saved_workers.lock().unwrap().clone();
 
@@ -489,22 +498,11 @@ impl ControllerService {
                     *status_lock = Probing;
                     probing_worker_ids.push(worker.worker_id);
                     participating_worker_ids.push(worker.worker_id);
+                } else if has_anycast_origin {
+                    *status_lock = Listening;
+                    participating_worker_ids.push(worker.worker_id);
                 } else {
-                    // Listening if any configuration probes with anycast
-                    let is_listening = m_def.configurations.iter().any(|config| {
-                        !config
-                            .origin
-                            .as_ref()
-                            .and_then(|o| o.src.as_ref())
-                            .is_none_or(|s| s.is_unicast())
-                    });
-
-                    if is_listening {
-                        *status_lock = Listening;
-                        participating_worker_ids.push(worker.worker_id);
-                    } else {
-                        *status_lock = Idle;
-                    }
+                    *status_lock = Idle;
                 };
             }
 
