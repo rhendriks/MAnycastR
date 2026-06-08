@@ -22,6 +22,10 @@ orchestrator internals.
 - **Orchestrator no longer panics when the CLI disconnects** during an active
   measurement. Result forwarding and measurement-finished notifications now
   handle a dropped CLI gracefully.
+- **Orchestrator no longer finishes measurements prematurely** —
+  a 5-second reply grace period after the hitlist is exhausted gives discovery
+  replies time to arrive and create follow-up tasks before the idle cooldown
+  can start.
 
 ### Changed
 - **Consolidated per-measurement state** into a single `MeasurementState` struct
