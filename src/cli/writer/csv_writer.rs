@@ -23,7 +23,7 @@ pub fn get_csv_metadata(
         let origin = configuration.origin.unwrap();
         let src = origin.src.expect("Invalid source address");
         let hostname = if configuration.worker_id == ALL_WORKERS {
-            format!("ALL {}", worker_map.len()).to_string()
+            format!("ALL {}", worker_map.len())
         } else {
             worker_map
                 .get_by_left(&configuration.worker_id)

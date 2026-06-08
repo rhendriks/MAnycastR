@@ -23,13 +23,13 @@ impl Worker {
         fqdn: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let scheme = if fqdn.is_some() { "https" } else { "http" };
-        let uri = format!("{}://{}", scheme, address);
+        let uri = format!("{scheme}://{address}");
         let mut endpoint = Channel::from_shared(uri)?;
 
         if let Some(domain_name) = fqdn {
             let cert_path = "tls/orchestrator.crt";
             let pem = std::fs::read_to_string(cert_path)
-                .map_err(|e| format!("Failed to read CA cert at {}: {}", cert_path, e))?;
+                .map_err(|e| format!("Failed to read CA cert at {cert_path}: {e}"))?;
 
             let ca = Certificate::from_pem(pem);
             let tls = ClientTlsConfig::new()
