@@ -227,7 +227,12 @@ mod worker;
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
-pub const DNS_IDENTIFIER: u8 = 0b101010; // 42 encoded in DNS transaction field
+
+/// Derive a 6-bit DNS identifier from a measurement ID for filtering.
+#[inline]
+pub fn dns_identifier(m_id: u32) -> u8 {
+    (m_id & 0x3F) as u8
+}
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
 ///
