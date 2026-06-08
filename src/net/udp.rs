@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::{address, Address};
+use crate::dns_identifier;
+use crate::net::packet::DnsProbeId;
 use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
-use crate::DNS_IDENTIFIER;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use std::io::{Cursor, Read, Write};
@@ -228,20 +229,18 @@ impl From<&[u8]> for TXTRecord {
 
 impl UDPPacket {
     /// Create a UDP packet with a DNS A record request.
-    /// In the domain of the A record, we encode the transmit time, source and destination addresses, sender worker ID, and source port.
-    #[allow(clippy::too_many_arguments)]
+    /// In the domain of the A record, we encode the transmit time, source and destination addresses, sender worker ID, source port, and measurement ID.
     pub fn dns_request(
         src: &Address,
         dst: &Address,
         sport: u16,
         domain_name: &str,
         tx_time: u64,
-        tx_id: u32,
-        ttl: u8,
+        id: &DnsProbeId,
         is_dgram: bool,
     ) -> Vec<u8> {
-        let dns_packet =
-            Self::create_a_record_request(domain_name, tx_time, src, dst, tx_id, sport);
+        let ttl: u8 = 255;
+        let dns_packet = Self::create_a_record_request(domain_name, tx_time, src, dst, id, sport);
 
         // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
         if is_dgram {
@@ -298,23 +297,21 @@ impl UDPPacket {
         tx_time: u64,
         src: &Address,
         dst: &Address,
-        tx_id: u32,
+        id: &DnsProbeId,
         sport: u16,
     ) -> Vec<u8> {
         let src_num = src.as_numeric();
         let dst_num = dst.as_numeric();
-        // Max length of DNS domain name is 253 character
-        // Each label has a max length of 63 characters
-        // 20 + 10 + 10 + 3 + 5 + (4 '-' symbols) = 52 characters at most for subdomain
-        let subdomain = format!(
-            "{}.{}.{}.{}.{}.{}",
-            tx_time, src_num, dst_num, tx_id, sport, domain_name
-        );
+        let tx_id = id.worker_id;
+        let m_id = id.m_id;
+
+        let subdomain =
+            format!("{tx_time}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{domain_name}");
         let mut dns_body: Vec<u8> = Vec::new();
 
-        // Transaction ID (6 bit identifer + 10 bit tx worker ID)
+        // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID)
         let tx_id_raw: u16 = tx_id as u16;
-        let encoded_tx_id = ((DNS_IDENTIFIER as u16) << 10) | (tx_id_raw & 0x03FF);
+        let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
         dns_body
@@ -343,11 +340,11 @@ impl UDPPacket {
         src: &Address,
         dst: &Address,
         sport: u16,
-        tx: u32,
+        id: &DnsProbeId,
         chaos: &str,
         is_dgram: bool,
     ) -> Vec<u8> {
-        let dns_body = Self::create_chaos_request(tx, chaos);
+        let dns_body = Self::create_chaos_request(id, chaos);
 
         // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
         if is_dgram {
@@ -400,12 +397,12 @@ impl UDPPacket {
     }
 
     /// Creating a DNS TXT record request for CHAOS
-    fn create_chaos_request(tx_id: u32, chaos: &str) -> Vec<u8> {
+    fn create_chaos_request(id: &DnsProbeId, chaos: &str) -> Vec<u8> {
         let mut dns_body: Vec<u8> = Vec::new();
 
-        // Transaction ID (6 bit identifer + 10 bit tx worker ID)
-        let tx_id_raw: u16 = tx_id as u16;
-        let encoded_tx_id = ((DNS_IDENTIFIER as u16) << 10) | (tx_id_raw & 0x03FF);
+        // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID)
+        let tx_id_raw: u16 = id.worker_id as u16;
+        let encoded_tx_id = ((dns_identifier(id.m_id) as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
         dns_body

@@ -1,546 +1,483 @@
-use crate::custom_module::manycastr::{instruction, End, Instruction, Task, Tasks};
+use crate::custom_module::manycastr::{
+    instruction, task, Address, End, Instruction, Probe, Task, Tasks,
+};
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::{OngoingMeasurement, TracerouteConfig, ALL_WORKERS_END, BREAK_SIGNAL};
+use crate::orchestrator::MeasurementHandle;
 use crate::ALL_WORKERS;
 use log::{info, warn};
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::spawn;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
 use tokio::time::{Instant, Interval};
 use tonic::Status;
 
+/// Grace period (seconds) after the hitlist is exhausted
+const REPLY_GRACE_SECS: u64 = 5;
+
+/// How tasks should be distributed to workers
+pub enum DistributionStrategy {
+    /// Broadcast tasks to all probing workers simultaneously (LACeS, and unicast mode)
+    Broadcast,
+    /// Send tasks to probing workers in round-robin fashion (catchment mode)
+    RoundRobin,
+    /// Send discovery tasks round-robin, with follow-up task interleaving (latency, traceroute, responsive modes)
+    Discovery {
+        /// --responsive sends follow-ups to ALL workers; otherwise to the catching worker
+        is_responsive: bool,
+        /// --any protocol fallback mode
+        is_any_protocol: bool,
+        /// Ordered origin IDs for --any fallback
+        origin_ids: Vec<u32>,
+    },
+}
+
 pub struct TaskDistributorConfig {
-    /// Vector of tasks to distribute
-    pub tasks: Vec<Task>,
-    /// Active workers (None if no measurement is active)
-    pub ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
-    /// Channel to send tasks to the TaskDistributor
-    pub tx_t: Sender<(u32, Instruction, bool)>,
+    /// Target addresses to probe
+    pub hitlist: Vec<Address>,
+    /// Whether to wrap addresses in Discovery tasks (true) or Probe tasks (false)
+    pub is_discovery: bool,
+    /// Origin ID for the first (or only) probing round
+    pub first_origin_id: u32,
+    /// All per-measurement state. `None` when idle.
+    pub measurement: MeasurementHandle,
+    /// Worker senders (cloned from the saved_workers list at measurement start)
+    pub workers: Vec<WorkerSender<Result<Instruction, Status>>>,
     /// Number of tasks to send per interval (equal to probing rate)
     pub probing_rate: u32,
     /// Interval at which to send tasks
     pub probing_rate_interval: Interval,
     /// Number of probing workers
     pub number_of_probing_workers: usize,
-    /// Inter-worker interval between workers
+    /// Inter-worker interval in seconds between workers
     pub worker_interval: u64,
+    /// Number of times to repeat each measurement probe (discovery probes are always sent once)
+    pub number_of_probes: u8,
+    /// Inter-probe interval in seconds between repeated probes
+    pub probe_interval: u64,
 }
 
-/// Broadcast task distributor.
-/// Distributes tasks from the hitlist in broadcast fashion to all probing workers.
-/// Ends the measurement when all probes have been sent.
-///
-/// Used for --unicast and regular anycast measurements.
-///
-/// # Arguments
-/// * `config` - TaskDistributorConfig with all necessary parameters.
-pub async fn broadcast_distributor(config: TaskDistributorConfig) {
-    info!("[Orchestrator] Starting Broadcast Task Distributor.");
-    let mut probing_rate_interval = config.probing_rate_interval;
-    spawn(async move {
-        // Iterate over the hitlist in chunks of the specified probing rate.
-        for chunk in config.tasks.chunks(config.probing_rate as usize) {
-            if config.ongoing_measurement.read().unwrap().is_none() {
-                warn!("[Orchestrator] Measurement no longer active");
-                break;
-            }
-
-            config
-                .tx_t
-                .send((
-                    ALL_WORKERS,
-                    Instruction {
-                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                            tasks: chunk.to_vec(),
-                        })),
-                    },
-                    true,
-                ))
-                .await
-                .expect("Failed to send task to TaskDistributor");
-
-            probing_rate_interval.tick().await;
-        }
-
-        let cooldown = (config.number_of_probing_workers as u64 * config.worker_interval) + 1;
-        // Wait for the workers to finish their tasks
-        info!("[Orchestrator] Last tasks being sent, awaiting a {cooldown}-second cooldown.");
-        tokio::time::sleep(Duration::from_secs(cooldown)).await;
-
-        info!("[Orchestrator] Task distribution finished");
-
-        // Send end instruction to all workers directly to let them know the measurement is finished
-        config
-            .tx_t
-            .send((
-                ALL_WORKERS_END,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-
-        // Wait till all workers are finished
-        while config.ongoing_measurement.read().unwrap().is_some() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        // Close the TaskDistributor channel
-        config
-            .tx_t
-            .send((
-                BREAK_SIGNAL,
-                Instruction {
-                    instruction_type: None,
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-    });
+/// Build a `Task` from a raw address and the current distribution metadata.
+#[inline]
+fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
+    Task {
+        task_type: Some(if is_discovery {
+            task::TaskType::Discovery(Probe { dst: Some(addr) })
+        } else {
+            task::TaskType::Probe(Probe { dst: Some(addr) })
+        }),
+        origin_id,
+    }
 }
 
-/// Round-robin task distributor.
-/// Distributes tasks from the hitlist in a round-robin fashion to the probing workers.
-/// Also checks the worker stacks for follow-up tasks and sends them to the appropriate workers.
-/// Ends the measurement when all discovery probes have been sent and all stacks are empty.
-///
-/// Used for Catchment and --responsive LACes/Unicast measurement
+/// Send an instruction to workers according to the specified parameters.
 ///
 /// # Arguments
-/// * `config` - TaskDistributorConfig with all necessary parameters.
-pub async fn round_robin_distributor(config: TaskDistributorConfig) {
-    info!("[Orchestrator] Starting Round-Robin Task Distributor.");
-    let mut probing_rate_interval = config.probing_rate_interval;
-
-    // Index to cycle over the probing workers
-    let mut current_index = 0;
-
-    spawn(async move {
-        for chunk in config.tasks.chunks(config.probing_rate as usize) {
-            if config.ongoing_measurement.read().unwrap().is_none() {
-                warn!("[Orchestrator] CLI disconnected; ending measurement");
-                break;
-            }
-
-            // Get the next probing Worker
-            let worker_id = {
-                let lock = config.ongoing_measurement.read().unwrap();
-
-                // If the measurement was canceled (None), exit the loop
-                let measurement = match *lock {
-                    Some(ref m) => m,
-                    None => {
-                        warn!("[Orchestrator] CLI disconnected; ending measurement");
-                        break;
-                    }
-                };
-
-                let workers = &measurement.probing_workers;
-
-                if workers.is_empty() {
-                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
-                    break;
-                }
-
-                current_index %= workers.len();
-                let id = workers[current_index];
-
-                // Move to next worker for the next loop iteration
-                current_index = (current_index + 1) % workers.len();
-                id
-            };
-
-            // Send the instruction to the current round-robin worker
-            config
-                .tx_t
-                .send((
-                    worker_id,
-                    Instruction {
-                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                            tasks: chunk.to_vec(),
-                        })),
-                    },
-                    true,
-                ))
-                .await
-                .expect("Failed to send task to TaskDistributor");
-
-            probing_rate_interval.tick().await;
-        } // end of round-robin loop
-
-        // Wait for the workers to finish their tasks
-        info!("[Orchestrator] All tasks sent, awaiting a 1-second cooldown for replies.");
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        info!("[Orchestrator] Task distribution finished");
-
-        // Send end message to all workers directly to let them know the measurement is finished
-        config
-            .tx_t
-            .send((
-                ALL_WORKERS_END,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-
-        // Wait till all workers are finished
-        while config.ongoing_measurement.read().unwrap().is_some() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        // Close the TaskDistributor channel
-        config
-            .tx_t
-            .send((
-                BREAK_SIGNAL,
-                Instruction {
-                    instruction_type: None,
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-    });
-}
-
-/// Sends discovery tasks to all probing workers in round-robin fashion.
-/// Also checks the worker stacks for follow-up tasks and sends them to the appropriate workers.
-/// Ends the measurement when all discovery probes have been sent and all stacks are empty.
-///
-/// Used for latency and traceroute measurements.
-/// Also used when --responsive is set.
-///
-/// # Arguments
-/// * `config` - TaskDistributorConfig with all necessary parameters.
-/// * `worker_stacks` - stacks of follow-up tasks for each worker
-/// * `is_responsive` - whether the measurement type is --responsive (true) or --latency/--traceroute (false)
-/// * `traceroute_config` - traceroute state (`None` for non-traceroute measurements);
-///   used to keep the measurement alive while traceroute sessions are still
-///   walking hops / waiting on per-hop timeouts.
-pub async fn round_robin_discovery(
-    config: TaskDistributorConfig,
-    worker_stacks: Arc<Mutex<HashMap<u32, VecDeque<Task>>>>,
-    is_responsive: bool,
-    traceroute_config: Arc<RwLock<Option<TracerouteConfig>>>,
-) {
-    info!("[Orchestrator] Starting Round-Robin Discovery Task Distributor.");
-    let mut cooldown_timer: Option<Instant> = None;
-    let mut probing_rate_interval = config.probing_rate_interval;
-
-    // Index to cycle over the probing workers
-    let mut current_index = 0;
-    // We create a manual iterator over the general hitlist.
-    let mut hitlist_iter = config.tasks.into_iter();
-
-    spawn(async move {
-        let mut hitlist_is_empty = false;
-
-        loop {
-            // Get the next probing Worker
-            let worker_id = {
-                let lock = config.ongoing_measurement.read().unwrap();
-
-                // If the measurement was canceled (None), exit the loop
-                let measurement = match *lock {
-                    Some(ref m) => m,
-                    None => {
-                        warn!("[Orchestrator] CLI disconnected; ending measurement");
-                        break;
-                    }
-                };
-
-                let workers = &measurement.probing_workers;
-
-                if workers.is_empty() {
-                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
-                    break;
-                }
-
-                current_index %= workers.len();
-                let id = workers[current_index];
-
-                // Move to next worker for the next loop iteration
-                current_index = (current_index + 1) % workers.len();
-                id
-            };
-
-            // Worker to send follow-up tasks to
-            let f_worker_id = if is_responsive {
-                // --responsive sends follow-up tasks to all probing workers
-                ALL_WORKERS
-            } else {
-                // Latency and Traceroute measurements send follow-up tasks to the catching worker
-                worker_id
-            };
-
-            // Check for follow-up tasks
-            let follow_up_tasks: Vec<Task> = {
-                let mut stacks = worker_stacks.lock().unwrap();
-                // Fill up till the probing rate for 'f_worker_id'
-                if let Some(follow_up_tasks) = stacks.get_mut(&f_worker_id) {
-                    let num_to_take =
-                        std::cmp::min(config.probing_rate as usize, follow_up_tasks.len());
-
-                    follow_up_tasks.drain(..num_to_take).collect::<Vec<Task>>()
-                } else {
-                    Vec::new() // No follow-up tasks for this worker
-                }
-            };
-
-            let follow_up_count = follow_up_tasks.len();
-
-            // Send follow-up tasks to 'f_worker_id'
-            if !follow_up_tasks.is_empty() {
-                let instruction = Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                        tasks: follow_up_tasks,
-                    })),
-                };
-
-                // Send the instruction to the follow-up worker
-                config
-                    .tx_t
-                    .send((f_worker_id, instruction, true))
-                    .await
-                    .expect("Failed to send task to TaskDistributor");
-            }
-
-            // Get remaining discovery tasks (fill up bucket)
-            let remainder_needed = (config.probing_rate as usize).saturating_sub(follow_up_count);
-
-            let discovery_tasks = if remainder_needed > 0 && !hitlist_is_empty {
-                // Fill up the remainder with new discovery probes from the hitlist
-                let discovery_tasks: Vec<Task> =
-                    hitlist_iter.by_ref().take(remainder_needed).collect();
-
-                // If we could not fill up the entire batch, we mark the hitlist as empty (only once)
-                if discovery_tasks.len() < remainder_needed {
-                    info!("[Orchestrator] All discovery probes sent, awaiting follow-up probes.");
-                    hitlist_is_empty = true;
-                }
-
-                discovery_tasks
-            } else {
-                Vec::new() // No discovery tasks needed
-            };
-
-            // Send discovery tasks only to the current worker
-            if !discovery_tasks.is_empty() {
-                // Send the Tasks to the worker
-                let instruction = Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
-                        tasks: discovery_tasks,
-                    })),
-                };
-
-                // Send the instruction to the current round-robin worker
-                config
-                    .tx_t
-                    .send((worker_id, instruction, false))
-                    .await
-                    .expect("Failed to send task to TaskDistributor");
-            }
-
-            let cooldown = if is_responsive {
-                (config.number_of_probing_workers as u64 * config.worker_interval) + 1
-            } else {
-                5
-            };
-
-            // Check if we finished sending all discovery probes and all stacks are empty
-            if hitlist_is_empty {
-                let all_stacks_empty = {
-                    let stacks_guard = worker_stacks.lock().unwrap();
-                    stacks_guard.values().all(|queue| queue.is_empty())
-                };
-
-                // Check for ongoing traceroutes
-                let trace_sessions_active = traceroute_config
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .is_some_and(|c| !c.session_tracker.sessions.is_empty());
-
-                // Ensure there is no ongoing worker tasks (follow-ups/traceroutes)
-                if all_stacks_empty && !trace_sessions_active {
-                    if let Some(start_time) = cooldown_timer {
-                        if start_time.elapsed() >= Duration::from_secs(cooldown) {
-                            info!("[Orchestrator] Task distribution finished.");
-                            break;
-                        }
-                    } else {
-                        info!(
-                            "[Orchestrator] No more tasks. Awaiting a {cooldown}-second cooldown.",
-                        );
-                        cooldown_timer = Some(Instant::now());
-                    }
-                } else {
-                    // Activity resumed -> cancel any pending cooldown.
-                    cooldown_timer = None;
-                }
-            }
-
-            probing_rate_interval.tick().await;
-        } // end of round-robin loop
-
-        // Send end message to all workers directly to let them know the measurement is finished
-        config
-            .tx_t
-            .send((
-                ALL_WORKERS_END,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-
-        // Wait till all workers are finished
-        while config.ongoing_measurement.read().unwrap().is_some() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        // Empty the stacks
-        {
-            let mut stacks_guard = worker_stacks.lock().unwrap();
-            *stacks_guard = HashMap::new();
-        }
-
-        // Close the TaskDistributor channel
-        config
-            .tx_t
-            .send((
-                BREAK_SIGNAL,
-                Instruction {
-                    instruction_type: None,
-                },
-                false,
-            ))
-            .await
-            .expect("Failed to send end task to TaskDistributor");
-    });
-}
-
-/// Reads from a channel containing Tasks and sends them to the workers, at specified inter-worker intervals.
-/// Sends repeated tasks (at inter-probe interval) if multiple probes per target are configured.
-///
-/// Used for starting a measurement, sending tasks to the workers, ending a measurement.
-///
-/// # Arguments
-///
-/// * `rx` - the channel containing the tuple (task_ID, task, multiple_times)
-/// * `workers` - the list of worker senders to which the tasks will be sent
-/// * `inter_worker_interval` - the interval in seconds between sending tasks to different workers
-/// * `inter_probe_interval` - the interval in seconds between sending multiple probes to the same worker
-/// * `number_of_probes` - the number of times to probe the same target (for non-discovery probes)
-pub async fn task_sender(
-    mut rx: mpsc::Receiver<(u32, Instruction, bool)>,
-    workers: Vec<WorkerSender<Result<Instruction, Status>>>,
+/// * `workers` - the list of worker senders
+/// * `worker_id` - target: `ALL_WORKERS` for broadcast, or a specific worker ID
+/// * `instruction` - the instruction to send
+/// * `nprobes` - how many times to send (1 = no repeat)
+/// * `inter_worker_interval` - seconds between workers for broadcast sends
+/// * `inter_probe_interval` - seconds between repeated probes
+async fn send_to_workers(
+    workers: &[WorkerSender<Result<Instruction, Status>>],
+    worker_id: u32,
+    instruction: Instruction,
+    nprobes: u8,
     inter_worker_interval: u64,
     inter_probe_interval: u64,
-    number_of_probes: u8,
 ) {
-    // Loop over the tasks in the channel
-    while let Some((worker_id, instruction, multiple)) = rx.recv().await {
-        let nprobes = if multiple { number_of_probes } else { 1 };
+    if worker_id == ALL_WORKERS {
+        // Broadcast to all probing workers with inter-worker delay
+        let mut probing_index: u64 = 0;
 
-        if worker_id == BREAK_SIGNAL {
-            break;
-        } else if worker_id == ALL_WORKERS_END {
-            // To all direct (used for 'end measurement' only)
-            for sender in &workers {
-                sender
-                    .send(Ok(instruction.clone()))
-                    .await
-                    .unwrap_or_else(|e| {
-                        sender.cleanup();
-                        warn!(
-                            "[Orchestrator] Failed to send broadcast task to worker {}: {e:?}",
-                            sender.hostname
-                        );
-                    });
-                sender.finished();
-            }
-        } else if worker_id == ALL_WORKERS {
-            // To all workers with an interval (used for --unicast, anycast, --responsive follow-up probes)
-            let mut probing_index = 0;
-
-            for sender in &workers {
-                if *sender.status == Probing {
-                    let sender_c = sender.clone();
-                    let task_c = instruction.clone();
-                    spawn(async move {
-                        // Wait inter-client probing interval
-                        tokio::time::sleep(Duration::from_secs(
-                            probing_index * inter_worker_interval,
-                        ))
+        for sender in workers {
+            if *sender.status == Probing {
+                let sender_c = sender.clone();
+                let task_c = instruction.clone();
+                spawn(async move {
+                    // Wait inter-client probing interval
+                    tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
                         .await;
 
-                        spawn(async move {
-                            for _ in 0..nprobes {
-                                sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
-                                    sender_c.cleanup();
-                                    warn!(
-                                        "[Orchestrator] Failed to send broadcast task to probing worker {}: {e:?}",
-                                        sender_c.hostname
-                                    );
-                                });
-                                // Sleep for the inter-probe interval
-                                tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                            }
-                        });
-                    });
-                    probing_index += 1;
-                }
-            }
-        } else {
-            // to specific worker (used for --latency follow-up probes)
-            if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
-                if nprobes < 2 {
-                    sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
-                        sender.cleanup();
-                        warn!(
-                            "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                            sender.hostname
-                        );
-                    });
-                } else {
-                    // Probe multiple times (in separate thread)
-                    let sender_clone = sender.clone();
                     spawn(async move {
-                        for _ in 0..number_of_probes {
-                            sender_clone
-                                .send(Ok(instruction.clone()))
-                                .await
-                                .unwrap_or_else(|e| {
-                                    sender_clone.cleanup();
-                                    warn!(
-                                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                                        sender_clone.hostname
-                                    );
-                                });
-                            // Wait inter-probe interval
+                        for _ in 0..nprobes {
+                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
+                                sender_c.cleanup();
+                                warn!(
+                                    "[Orchestrator] Failed to send task to probing worker {}: {e:?}",
+                                    sender_c.hostname
+                                );
+                            });
                             tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                         }
                     });
-                }
-            } else {
-                warn!("[Orchestrator] No sender found for worker ID {worker_id}");
+                });
+                probing_index += 1;
             }
         }
+    } else {
+        // Send to a specific worker
+        if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
+            if nprobes < 2 {
+                sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
+                    sender.cleanup();
+                    warn!(
+                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
+                        sender.hostname
+                    );
+                });
+            } else {
+                let sender_c = sender.clone();
+                spawn(async move {
+                    for _ in 0..nprobes {
+                        sender_c
+                            .send(Ok(instruction.clone()))
+                            .await
+                            .unwrap_or_else(|e| {
+                                sender_c.cleanup();
+                                warn!(
+                                    "[Orchestrator] Failed to send task to worker {}: {e:?}",
+                                    sender_c.hostname
+                                );
+                            });
+                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                    }
+                });
+            }
+        } else {
+            warn!("[Orchestrator] No sender found for worker ID {worker_id}");
+        }
+    }
+}
+
+/// Send end-of-measurement to all workers and mark them as finished.
+async fn end_measurement(workers: &[WorkerSender<Result<Instruction, Status>>]) {
+    let end = Instruction {
+        instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
+    };
+    for sender in workers {
+        sender.send(Ok(end.clone())).await.unwrap_or_else(|e| {
+            sender.cleanup();
+            warn!(
+                "[Orchestrator] Failed to send end to worker {}: {e:?}",
+                sender.hostname
+            );
+        });
+        sender.finished();
+    }
+}
+
+/// Task distributor. Spawns a background task that distributes tasks to workers
+/// according to the chosen strategy, handles cooldowns, and sends end/break signals.
+///
+/// # Arguments
+/// * `config` - TaskDistributorConfig with all necessary parameters
+/// * `strategy` - How tasks should be distributed (Broadcast, RoundRobin, or Discovery)
+pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: DistributionStrategy) {
+    let strategy_name = match &strategy {
+        DistributionStrategy::Broadcast => "Broadcast",
+        DistributionStrategy::RoundRobin => "Round-Robin",
+        DistributionStrategy::Discovery { .. } => "Round-Robin Discovery",
+    };
+    info!("[Orchestrator] Starting {strategy_name} Task Distributor.");
+
+    let is_broadcast = matches!(&strategy, DistributionStrategy::Broadcast);
+    let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. });
+    let is_discovery = config.is_discovery;
+    let (is_responsive, is_any_protocol, origin_ids) = match strategy {
+        DistributionStrategy::Discovery {
+            is_responsive,
+            is_any_protocol,
+            origin_ids,
+        } => (is_responsive, is_any_protocol, origin_ids),
+        _ => (false, false, vec![]),
+    };
+
+    // Cooldown duration before ending the measurement
+    let cooldown_secs = if is_broadcast || is_responsive {
+        // Wait for all workers to send their last tasks
+        (config.number_of_probing_workers as u64 * config.worker_interval) + 1
+    } else {
+        1 // TODO re-assess cooldown
+    };
+
+    let mut probing_rate_interval = config.probing_rate_interval;
+
+    let (all_addresses, initial_addresses) = if is_any_protocol {
+        // Keep the original address list to re-filter for subsequent protocol rounds
+        let addrs = config.hitlist;
+        let initial = addrs.clone();
+        (addrs, initial)
+    } else {
+        // Keep only the original vec (which gets consumed directly)
+        (Vec::new(), config.hitlist)
+    };
+    let mut round = RoundState {
+        origin_index: 0,
+        current_origin_id: config.first_origin_id,
+        hitlist_iter: initial_addresses.into_iter(),
+        hitlist_exhausted: false,
+        hitlist_exhausted_at: None,
+        cooldown_timer: None,
+    };
+
+    // nprobes: measurement probes are repeated, discovery probes are not
+    let nprobes = config.number_of_probes;
+    let inter_worker_interval = config.worker_interval;
+    let inter_probe_interval = config.probe_interval;
+
+    spawn(async move {
+        let mut current_index: usize = 0;
+
+        loop {
+            // Get next worker ID (also verifies measurement is still active)
+            let worker_id = {
+                let lock = config.measurement.read().unwrap();
+                let state = match *lock {
+                    Some(ref s) => s,
+                    None => {
+                        warn!("[Orchestrator] Measurement no longer active");
+                        break;
+                    }
+                };
+
+                // Determine which worker(s) perform the current batch
+                if is_broadcast {
+                    ALL_WORKERS
+                } else {
+                    let workers = &state.probing_workers;
+                    if workers.is_empty() {
+                        warn!(
+                            "[Orchestrator] No more probing workers available, ending measurement."
+                        );
+                        break;
+                    }
+                    current_index %= workers.len();
+                    let id = workers[current_index];
+                    current_index = (current_index + 1) % workers.len();
+                    id
+                }
+            };
+
+            // Add follow-up tasks from worker stacks (discovery mode only) to this batch
+            let follow_up_count = if has_follow_ups {
+                let f_worker_id = if is_responsive {
+                    ALL_WORKERS
+                } else {
+                    worker_id
+                };
+
+                let follow_up_tasks: Vec<Task> = {
+                    let mut lock = config.measurement.write().unwrap();
+                    if let Some(ref mut state) = *lock {
+                        if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
+                            let n = std::cmp::min(config.probing_rate as usize, queue.len());
+                            queue.drain(..n).collect()
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                };
+
+                let count = follow_up_tasks.len();
+                if !follow_up_tasks.is_empty() {
+                    send_to_workers(
+                        &config.workers,
+                        f_worker_id,
+                        Instruction {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                                tasks: follow_up_tasks,
+                            })),
+                        },
+                        nprobes,
+                        inter_worker_interval,
+                        inter_probe_interval,
+                    )
+                    .await;
+                }
+                count
+            } else {
+                0
+            };
+
+            // Fill remainder of the batch with hitlist tasks
+            let remainder = (config.probing_rate as usize).saturating_sub(follow_up_count);
+
+            if remainder > 0 && !round.hitlist_exhausted {
+                // Wrap target addresses into tasks
+                let tasks: Vec<Task> = round
+                    .hitlist_iter
+                    .by_ref()
+                    .take(remainder)
+                    .map(|addr| make_task(addr, is_discovery, round.current_origin_id))
+                    .collect();
+
+                if tasks.len() < remainder {
+                    round.hitlist_exhausted = true;
+                    round.hitlist_exhausted_at = Some(Instant::now());
+                    if has_follow_ups {
+                        info!(
+                            "[Orchestrator] All discovery probes sent, awaiting follow-up probes."
+                        );
+                    }
+                }
+
+                if !tasks.is_empty() {
+                    // Discovery probes are sent once; measurement probes are repeated nprobes times
+                    let hitlist_nprobes = if has_follow_ups { 1 } else { nprobes };
+
+                    send_to_workers(
+                        &config.workers,
+                        worker_id,
+                        Instruction {
+                            instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                                tasks,
+                            })),
+                        },
+                        hitlist_nprobes,
+                        inter_worker_interval,
+                        inter_probe_interval,
+                    )
+                    .await;
+                }
+            }
+
+            // Check if the measurement is finished
+            if round.hitlist_exhausted {
+                if has_follow_ups {
+                    // Discovery: wait for stacks + trace sessions to drain before cooldown
+                    let (stacks_empty, traces_active) = {
+                        let lock = config.measurement.read().unwrap();
+                        if let Some(ref state) = *lock {
+                            (
+                                state.worker_stacks.values().all(|q| q.is_empty()),
+                                state
+                                    .trace_config
+                                    .as_ref()
+                                    .is_some_and(|c| !c.session_tracker.sessions.is_empty()),
+                            )
+                        } else {
+                            break; // Measurement canceled
+                        }
+                    };
+
+                    if stacks_empty && !traces_active {
+                        if let Some(start_time) = round.cooldown_timer {
+                            if start_time.elapsed() >= Duration::from_secs(cooldown_secs) {
+                                // --any: try next protocol for unresolved targets
+                                if is_any_protocol
+                                    && try_next_any_protocol(
+                                        &config.measurement,
+                                        &all_addresses,
+                                        &origin_ids,
+                                        &mut round,
+                                    )
+                                {
+                                    continue; // Restart loop with next protocol
+                                }
+                                break; // All protocols exhausted or not --any
+                            }
+                        } else if round
+                            .hitlist_exhausted_at
+                            .is_some_and(|t| t.elapsed() >= Duration::from_secs(REPLY_GRACE_SECS))
+                        {
+                            // Grace period elapsed — start the idle cooldown
+                            info!(
+                                "[Orchestrator] No more tasks. Awaiting a {cooldown_secs}-second cooldown."
+                            );
+                            round.cooldown_timer = Some(Instant::now());
+                        }
+                    } else {
+                        // Activity resumed -> cancel any pending cooldown.
+                        round.cooldown_timer = None;
+                    }
+                } else {
+                    // Broadcast/RoundRobin: hitlist exhausted → cooldown and done
+                    break;
+                }
+            }
+
+            probing_rate_interval.tick().await;
+        }
+
+        // Discovery handles cooldown inside the loop; other modes sleep here
+        if !has_follow_ups {
+            info!("[Orchestrator] All tasks sent. Awaiting a {cooldown_secs}-second cooldown.");
+            tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
+        }
+
+        info!("[Orchestrator] Task distribution finished.");
+
+        // Notify all workers that the measurement is over
+        end_measurement(&config.workers).await;
+
+        // Wait for all workers to finish
+        while config.measurement.read().unwrap().is_some() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+}
+
+/// Mutable iteration state for the distributor loop, shared with `try_next_any_protocol`.
+struct RoundState {
+    origin_index: usize,
+    current_origin_id: u32,
+    hitlist_iter: std::vec::IntoIter<Address>,
+    hitlist_exhausted: bool,
+    /// When the hitlist was first exhausted (used for the reply grace period).
+    hitlist_exhausted_at: Option<Instant>,
+    cooldown_timer: Option<Instant>,
+}
+
+/// Attempts to advance to the next --any protocol round.
+/// Returns `true` if a new round was started (caller should `continue` the loop),
+/// `false` if all protocols are exhausted or all targets are resolved.
+fn try_next_any_protocol(
+    measurement: &MeasurementHandle,
+    all_addresses: &[Address],
+    origin_ids: &[u32],
+    round: &mut RoundState,
+) -> bool {
+    round.origin_index += 1;
+
+    if round.origin_index < origin_ids.len() {
+        let next_origin_id = origin_ids[round.origin_index];
+        let lock = measurement.read().unwrap();
+        let state = lock.as_ref().unwrap();
+        let resolved_count = state.resolved_targets.len();
+
+        // Collect addresses that have not responded yet
+        let unresolved: Vec<Address> = all_addresses
+            .iter()
+            .filter(|addr| !state.resolved_targets.contains(addr))
+            .cloned()
+            .collect();
+        let unresolved_count = unresolved.len();
+        drop(lock);
+
+        if unresolved_count > 0 {
+            info!(
+                "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
+            );
+            round.hitlist_iter = unresolved.into_iter();
+            round.hitlist_exhausted = false;
+            round.hitlist_exhausted_at = None;
+            round.cooldown_timer = None;
+            round.current_origin_id = next_origin_id;
+            return true; // Caller should continue the loop
+        }
+
+        info!("[Orchestrator] --any: all {resolved_count} targets resolved.");
+    } else {
+        let lock = measurement.read().unwrap();
+        let resolved_count = lock.as_ref().map(|s| s.resolved_targets.len()).unwrap_or(0);
+        let total = all_addresses.len();
+        info!(
+            "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
+        );
     }
 
-    info!("[Orchestrator] Task distributor finished");
+    false // No more protocols to try
 }

@@ -114,7 +114,7 @@ pub fn trace_discovery_handler(
 /// * `worker_stacks` - Stacks for workers to put follow-up trace tasks into
 /// * `traceroute_config` - Configuration and state for the ongoing traceroute measurement
 pub fn trace_replies_handler(
-    trace_replies: Vec<TraceReply>,
+    trace_replies: &[TraceReply],
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     traceroute_config: &mut TracerouteConfig,
     origin_id: u32,

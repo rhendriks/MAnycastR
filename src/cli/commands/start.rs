@@ -47,8 +47,8 @@ pub async fn handle(
     grpc_client: &mut CliClient,
     worker_map: BiHashMap<u32, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Start a MAnycastR measurement
-    let is_responsive = matches.get_flag("responsive");
+    let is_any_protocol = matches.get_flag("any");
+    let is_responsive = matches.get_flag("responsive") || is_any_protocol;
     let is_record = matches.get_flag("record");
     let url = matches.get_one::<String>("URL");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
@@ -103,14 +103,16 @@ pub async fn handle(
                     .collect()
             },
         );
-        // Get protocol to use
-        let p_types: Vec<ProtocolType> = matches
-            .get_many::<String>("p_type")
-            .unwrap_or_default()
-            .filter_map(|s| ProtocolType::from_str(s))
-            .collect::<HashSet<_>>() // Ensure uniqueness
-            .into_iter()
-            .collect();
+        // Get protocol to use (preserving user-specified order for --any fallback)
+        let p_types: Vec<ProtocolType> = {
+            let mut seen = HashSet::new();
+            matches
+                .get_many::<String>("p_type")
+                .unwrap_or_default()
+                .filter_map(|s| ProtocolType::from_str(s))
+                .filter(|p| seen.insert(*p))
+                .collect()
+        };
 
         let num_p_types = p_types.len();
 
@@ -226,6 +228,18 @@ pub async fn handle(
         None
     };
 
+    if is_any_protocol {
+        let unique_origins: HashSet<_> = configurations
+            .iter()
+            .filter_map(|c| c.origin.as_ref().map(|o| o.origin_id))
+            .collect();
+        if unique_origins.len() < 2 {
+            let msg = "[CLI] --any requires at least two protocols (e.g., -p icmp,tcp)";
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    }
+
     // Create the measurement definition and send it to the orchestrator
     let m_definition = ScheduleMeasurement {
         probing_rate,
@@ -241,6 +255,7 @@ pub async fn handle(
         is_ipv6,
         is_record,
         trace_options,
+        is_any_protocol,
     };
 
     let args = MeasurementExecutionArgs {

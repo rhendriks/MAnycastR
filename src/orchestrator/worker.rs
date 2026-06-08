@@ -1,11 +1,11 @@
 use crate::custom_module::manycastr::{Address, ReplyBatch};
 use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
-use crate::orchestrator::{CliHandle, OngoingMeasurement};
+use crate::orchestrator::{CliHandle, MeasurementHandle};
 use futures_core::Stream;
 use log::{info, warn};
 use std::fmt;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -55,8 +55,8 @@ impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
 pub struct WorkerReceiver<T> {
     /// The inner receiver that connects to the worker
     pub(crate) inner: mpsc::Receiver<T>,
-    /// Shared counter of the number of active workers in the current measurement (None if no measurement is active)
-    pub(crate) ongoing_measurement: Arc<RwLock<Option<OngoingMeasurement>>>,
+    /// All per-measurement state. `None` when idle.
+    pub(crate) measurement: MeasurementHandle,
     /// Sender that connects to the CLI
     pub(crate) cli_sender: CliHandle,
     /// The hostname of the worker
@@ -88,14 +88,14 @@ impl<T> Drop for WorkerReceiver<T> {
 
             // If this worker is participating, update the active_workers counter
             if is_participating {
-                let mut measurement_lock = self.ongoing_measurement.write().unwrap();
+                let mut measurement_lock = self.measurement.write().unwrap();
 
-                if let Some(ref mut measurement) = *measurement_lock {
+                if let Some(ref mut state) = *measurement_lock {
                     // Remove from probing list if they were a prober
-                    measurement.probing_workers.retain(|&id| id != worker_id);
+                    state.probing_workers.retain(|&id| id != worker_id);
 
                     // Decrement the participating workers counter
-                    if measurement.workers_count <= 1 {
+                    if state.workers_count <= 1 {
                         // This was the last worker
                         info!(
                             "[Orchestrator] Last active worker ({}) dropped. Measurement is over.",
@@ -104,7 +104,7 @@ impl<T> Drop for WorkerReceiver<T> {
                         *measurement_lock = None; // Reset the state
                         should_notify_cli = true;
                     } else {
-                        measurement.workers_count -= 1;
+                        state.workers_count -= 1;
                     }
                 }
             }
