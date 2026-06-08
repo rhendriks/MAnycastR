@@ -2,13 +2,13 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
     Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
 };
+use crate::dns_identifier;
 use crate::worker::bpf::{
     attach_dns_filter, attach_icmp_filter, attach_tcp_filter, attach_traceroute_filter,
 };
 use crate::worker::config::{set_unicast_origins, Worker};
 use crate::worker::inbound::{inbound, InboundConfig};
 use crate::worker::outbound::{outbound, OutboundConfig};
-use crate::DNS_IDENTIFIER;
 use log::{error, info, warn};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
@@ -62,6 +62,7 @@ impl Worker {
                 rx_origin,
                 is_traceroute,
                 start.is_record,
+                m_id,
             );
 
             inbound(
@@ -190,6 +191,7 @@ impl Worker {
         origin: Origin,
         is_traceroute: bool,
         is_record: bool,
+        m_id: u32,
     ) -> (Arc<Socket>, bool) {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
 
@@ -276,7 +278,7 @@ impl Worker {
                 ),
                 // DNS Identifier + sport filtering
                 ProtocolType::ADns | ProtocolType::ChaosDns => (
-                    attach_dns_filter(&socket, origin.sport as u16, DNS_IDENTIFIER, is_ipv6),
+                    attach_dns_filter(&socket, origin.sport as u16, dns_identifier(m_id), is_ipv6),
                     format!("DNS (sport {})", origin.sport),
                 ),
             };
