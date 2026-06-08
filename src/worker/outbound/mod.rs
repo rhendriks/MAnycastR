@@ -140,6 +140,9 @@ pub fn outbound(
                                         trace,
                                         &socket,
                                         &config.src,
+                                        config.p_type,
+                                        config.sport,
+                                        config.dport,
                                     );
                                     traces_sent += s;
                                     failed += f;
