@@ -21,27 +21,11 @@ pub enum IPPacket {
 
 /// Methods for IPPacket
 impl IPPacket {
-    /// Returns the source IP address.
-    pub fn src(&self) -> Address {
-        match self {
-            IPPacket::V4(packet) => Address::from(packet.src),
-            IPPacket::V6(packet) => Address::from(packet.src),
-        }
-    }
-
     /// Returns the destination IP address.
     pub fn dst(&self) -> Address {
         match self {
             IPPacket::V4(packet) => Address::from(packet.dst),
             IPPacket::V6(packet) => Address::from(packet.dst),
-        }
-    }
-
-    /// Returns the Time To Live (IPv4) or Hop Limit (IPv6).
-    pub fn ttl(&self) -> u8 {
-        match self {
-            IPPacket::V4(packet) => packet.ttl,
-            IPPacket::V6(packet) => packet.hop_limit,
         }
     }
 

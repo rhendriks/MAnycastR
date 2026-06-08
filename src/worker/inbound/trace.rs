@@ -37,10 +37,13 @@ pub fn parse_trace(
         return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
     }
 
-    let ip_header = if src.is_v6() {
-        IPPacket::V6(IPv6Packet::from(packet_bytes))
+    let (hop_addr, hop_ttl) = if src.is_v6() {
+        // IPv6: the kernel strips the header
+        (src, ttl)
     } else {
-        IPPacket::V4(IPv4Packet::from(packet_bytes))
+        // IPv4: IP header is included in the packet bytes
+        let ip_header = IPv4Packet::from(packet_bytes);
+        (Address::from(ip_header.src), ip_header.ttl as u32)
     };
 
     let icmp_packet = if src.is_v6() {
@@ -49,7 +52,7 @@ pub fn parse_trace(
         ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
     };
 
-    // Parse IP header that caused the Time Exceeded (first 20 bytes of the ICMP body)
+    // Parse the original IP header from the Time Exceeded payload
     let original_ip_header = if src.is_v6() {
         IPPacket::V6(IPv6Packet::from(icmp_packet.payload.as_bytes()))
     } else {
@@ -76,16 +79,13 @@ pub fn parse_trace(
     // get milliseconds (last 14 bits of identifier field
     let tx_time = (id & 0x3FFF) as u64;
 
-    // get hop address
-    let hop_addr = ip_header.src();
-
     // get trace dst address
     let trace_dst = Some(original_ip_header.dst());
 
     Some(Reply {
         reply_data: Some(ReplyData::Trace(TraceReply {
             hop_addr: Some(hop_addr),
-            ttl: ip_header.ttl() as u32,
+            ttl: hop_ttl,
             rx_time,
             tx_time,
             tx_id,
