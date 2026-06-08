@@ -13,6 +13,13 @@ orchestrator internals.
   per-target on the first responsive protocol. Implies `--responsive`. Requires
   at least two protocols. (#70)
 
+### Fixed
+- **DNS measurement ID filtering** -- DNS probes now encode the measurement ID in
+  the QNAME and the top 6 bits of the DNS transaction ID. The BPF filter and
+  receive path validate both, so stale replies from a previous measurement
+  (e.g. from a broken resolver) are dropped. CHAOS measurements use the
+  transaction-ID bits only (6-bit discriminator).
+
 ### Changed
 - **Consolidated per-measurement state** into a single `MeasurementState` struct
   behind one `RwLock` `send_result` now acquires one lock instead of three.
