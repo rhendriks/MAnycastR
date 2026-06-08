@@ -306,8 +306,9 @@ impl From<&[u8]> for IPv6Packet {
 impl From<&IPv6Packet> for Vec<u8> {
     fn from(packet: &IPv6Packet) -> Self {
         let mut wtr = vec![];
-        // Write traffic class 0x60 and flow label 0x003a7d
-        wtr.write_u32::<NetworkEndian>(0x60003a7d)
+        // Version (6), Traffic Class (0), Flow Label (from struct)
+        let vtf = 0x6000_0000u32 | (packet.flow_label & 0x000F_FFFF);
+        wtr.write_u32::<NetworkEndian>(vtf)
             .expect("Unable to write to byte buffer for IPv6Packet");
         wtr.write_u16::<NetworkEndian>(packet.payload_length)
             .expect("Unable to write to byte buffer for IPv6Packet");
