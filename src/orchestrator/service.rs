@@ -90,11 +90,14 @@ impl Controller for ControllerService {
 
         // Notify the CLI if this was the last worker
         if should_notify {
-            let cli_tx = self.cli_sender.lock().unwrap().clone().unwrap();
-            cli_tx
-                .send(Ok(ReplyBatch::default()))
-                .await
-                .expect("Unable to send task result");
+            let cli_tx = { self.cli_sender.lock().unwrap().clone() };
+            if let Some(tx) = cli_tx {
+                if tx.send(Ok(ReplyBatch::default())).await.is_err() {
+                    warn!(
+                        "[Orchestrator] CLI disconnected, cannot send measurement-finished signal."
+                    );
+                }
+            }
         }
 
         // Acknowledge the worker
@@ -437,18 +440,21 @@ impl Controller for ControllerService {
 
         if !results_bucket.is_empty() {
             // Forward results to the CLI
-            let tx = {
-                let sender = self.cli_sender.lock().unwrap();
-                sender.clone().unwrap()
-            };
+            let tx = self.cli_sender.lock().unwrap().clone();
 
-            tx.send(Ok(ReplyBatch {
-                rx_id: catcher_id,
-                results: results_bucket,
-                origin_id,
-            }))
-            .await
-            .expect("failed to send results to CLI");
+            if let Some(tx) = tx {
+                if tx
+                    .send(Ok(ReplyBatch {
+                        rx_id: catcher_id,
+                        results: results_bucket,
+                        origin_id,
+                    }))
+                    .await
+                    .is_err()
+                {
+                    warn!("[Orchestrator] CLI disconnected, dropping result batch.");
+                }
+            }
         }
 
         Ok(Response::new(Ack {
