@@ -2,6 +2,49 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [1.7.0] - 2026-06-06
+
+Adds `--any` multi-protocol fallback and substantially simplifies the
+orchestrator internals.
+
+### Added
+- **`--any` protocol fallback** -- when multiple protocols are specified with
+  `-p` (e.g. `-p icmp,dns,tcp`), `--any` tries them in order and stops
+  per-target on the first responsive protocol. Implies `--responsive`. Requires
+  at least two protocols. (#70)
+
+### Fixed
+- **DNS measurement ID filtering** -- DNS probes now encode the measurement ID in
+  the QNAME and the top 6 bits of the DNS transaction ID. The BPF filter and
+  receive path validate both, so stale replies from a previous measurement
+  (e.g. from a broken resolver) are dropped. CHAOS measurements use the
+  transaction-ID bits only (6-bit discriminator).
+- **Orchestrator no longer panics when the CLI disconnects** during an active
+  measurement. Result forwarding and measurement-finished notifications now
+  handle a dropped CLI gracefully.
+- **Orchestrator no longer finishes measurements prematurely** —
+  a 5-second reply grace period after the hitlist is exhausted gives discovery
+  replies time to arrive and create follow-up tasks before the idle cooldown
+  can start.
+- **IPv6 traceroute now sets the hop limit per-probe** — previously all ICMPv6
+  traceroute probes were sent with the kernel default hop limit (64) because the
+  IPv6 header is kernel-managed; `IPV6_UNICAST_HOPS` is now set on the socket
+  before each send.
+- **IPv6 Time Exceeded TTL no longer reports 0** — The TTL and hop address
+  are now taken from `recvmsg` ancillary data / source address instead.
+
+### Changed
+- **Consolidated per-measurement state** into a single `MeasurementState` struct
+  behind one `RwLock` `send_result` now acquires one lock instead of three.
+- **Unified three task distributors** (broadcast, round-robin, discovery) into a
+  single `distribute_tasks` function with a `DistributionStrategy` enum.
+- **Removed `task_sender` channel indirection** -- tasks are now sent directly to
+  workers via a `send_to_workers` helper instead of routing through an
+  intermediate mpsc channel.
+- **Eliminated hitlist copies at measurement start** -- the address vec is moved
+  out of the protobuf message.
+- **Broke up `do_measurement`** into helper functions.
+
 ## [1.6.0] - 2026-06-04
 
 Adds an unprivileged ("sudo-less") operating mode and, alongside it, reworks the
@@ -186,6 +229,7 @@ traceroute, and improves LACeS and traceroute output.
 
 - Initial release.
 
+[1.7.0]: https://github.com/rhendriks/MAnycastR/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rhendriks/MAnycastR/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rhendriks/MAnycastR/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rhendriks/MAnycastR/compare/v1.3.1...v1.4.0

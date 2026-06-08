@@ -9,7 +9,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
 use crate::custom_module::Separated;
-use crate::worker::inbound::dns::parse_dns;
+use crate::worker::inbound::dns::{parse_dns, DnsContext};
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
@@ -68,6 +68,12 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
     let (reply_tx, reply_rx) = std::sync::mpsc::channel::<Reply>();
     let rx_f_c = config.abort_s.clone();
     let is_dgram = config.is_dgram;
+    let dns_ctx = DnsContext {
+        is_chaos: config.p_type == ProtocolType::ChaosDns,
+        sport: config.sport,
+        is_dgram,
+        m_id: config.m_id,
+    };
     Builder::new()
         .name("listener_thread".to_string())
         .spawn(move || {
@@ -104,15 +110,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         rx_time,
                     ),
 
-                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => parse_dns(
-                        packet,
-                        config.p_type == ProtocolType::ChaosDns,
-                        src.into(),
-                        ttl,
-                        config.sport,
-                        rx_time,
-                        is_dgram,
-                    ),
+                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => {
+                        parse_dns(packet, src.into(), ttl, rx_time, &dns_ctx)
+                    }
 
                     (_, _, ProtocolType::Tcp) => {
                         parse_tcp(packet, src.into(), ttl, config.sport, rx_time)
