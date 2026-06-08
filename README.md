@@ -217,6 +217,21 @@ Hops that do not respond within `--trace_timeout` are advanced after `--trace_ma
 By default, each unresponsive hop is recorded as a `*` row (no reply);
 pass `--trace_star false` to omit these rows and leave a gap in `hop_count` instead.
 
+UDP and TCP traceroute use Paris traceroute: the 5-tuple (src IP, dst IP, protocol, sport, dport)
+is kept constant across all TTL values so that ECMP load-balancers forward every probe along the same path.
+Probe identification (hop TTL, worker ID, timestamp) is encoded in fields outside the flow hash:
+
+| Protocol | Encoding fields |
+|----------|----------------|
+| ICMP | ICMP identifier + sequence number |
+| UDP | UDP checksum + IPv4 IP Identification / IPv6 Flow Label |
+| TCP | TCP sequence number |
+
+> **Middlebox caveat (UDP traceroute):** some middleboxes (NATs, firewalls) rewrite the IPv4 IP Identification field or IPv6 Flow Label.
+> If this happens, the 14-bit transmit timestamp and 2 high bits of the worker ID are lost.
+> Traceroute path discovery still works, but RTT cannot be computed for affected hops and worker identification is limited to 256 workers.
+> ICMP and TCP traceroute are not affected by this limitation.
+
 ## CSV output format
 
 By default, results are written as gzip-compressed CSV files (`.csv.gz`).
