@@ -464,10 +464,7 @@ impl ControllerService {
     /// configured worker IDs correspond to connected workers.
     ///
     /// Returns the worker senders plus the participating and probing worker ID lists.
-    fn classify_workers(
-        &self,
-        m_def: &ScheduleMeasurement,
-    ) -> Result<ClassifiedWorkers, Status> {
+    fn classify_workers(&self, m_def: &ScheduleMeasurement) -> Result<ClassifiedWorkers, Status> {
         let mut participating_worker_ids = Vec::new();
         let mut probing_worker_ids = Vec::new();
 
