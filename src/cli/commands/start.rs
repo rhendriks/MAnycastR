@@ -187,7 +187,7 @@ pub async fn handle(
         if let Some(origin) = &config.origin {
             let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
                 (
-                    format!("All {}", worker_map.len()).to_string(),
+                    format!("All {}", worker_map.len()),
                     "ALL".to_string(),
                 )
             } else {
