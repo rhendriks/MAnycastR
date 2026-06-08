@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{Address, ProtocolType};
-use crate::net::packet::{create_dns, create_icmp, create_tcp, ProbePayload};
+use crate::net::packet::{create_dns, create_icmp, create_tcp, DnsProbeId, ProbePayload};
 use crate::worker::outbound::{send_packet, OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
 use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
@@ -67,11 +67,15 @@ pub fn send_probe(
             ));
         }
         ProtocolType::ADns | ProtocolType::ChaosDns => {
+            let dns_id = DnsProbeId {
+                worker_id,
+                m_id: config.m_id,
+            };
             packet_buffer.extend_from_slice(&create_dns(
                 &config.src,
                 dst,
                 config.sport,
-                worker_id,
+                &dns_id,
                 config.p_type == ProtocolType::ChaosDns,
                 config.qname.as_deref().expect("qname missing"),
                 config.is_dgram,
