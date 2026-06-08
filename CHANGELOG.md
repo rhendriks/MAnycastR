@@ -26,6 +26,10 @@ orchestrator internals.
   a 5-second reply grace period after the hitlist is exhausted gives discovery
   replies time to arrive and create follow-up tasks before the idle cooldown
   can start.
+- **IPv6 traceroute now sets the hop limit per-probe** — previously all ICMPv6
+  traceroute probes were sent with the kernel default hop limit (64) because the
+  IPv6 header is kernel-managed; `IPV6_UNICAST_HOPS` is now set on the socket
+  before each send.
 
 ### Changed
 - **Consolidated per-measurement state** into a single `MeasurementState` struct
