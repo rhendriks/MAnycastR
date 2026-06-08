@@ -138,19 +138,9 @@ pub fn create_dns(
         .as_micros() as u64;
 
     if !is_chaos {
-        UDPPacket::dns_request(
-            src,
-            dst,
-            sport,
-            qname,
-            tx_time,
-            id.worker_id,
-            255,
-            is_dgram,
-            id.m_id,
-        )
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, id, is_dgram)
     } else {
-        UDPPacket::chaos_request(src, dst, sport, id.worker_id, qname, is_dgram, id.m_id)
+        UDPPacket::chaos_request(src, dst, sport, id, qname, is_dgram)
     }
 }
 
