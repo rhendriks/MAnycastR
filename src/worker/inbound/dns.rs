@@ -1,31 +1,42 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
+use crate::dns_identifier;
 use crate::net::{DNSAnswer, DNSRecord, TXTRecord};
-use crate::DNS_IDENTIFIER;
+
+/// Per-measurement context needed to validate incoming DNS replies.
+pub struct DnsContext {
+    pub is_chaos: bool,
+    pub sport: u16,
+    pub is_dgram: bool,
+    pub m_id: u32,
+}
 
 /// Parse DNS packets into a Reply result.
 /// Filters out spoofed packets and only parses DNS replies valid for the current measurement.
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
-/// * `is_chaos` - whether this is a chaos reply (True) or an A record reply (False)
 /// * `src` - source address for this packet
 /// * `ttl` - TTL value of this packet
-/// * `sport` - Source port used for outgoing packets (destination port of replies)
 /// * `rx_time` - kernel receive timestamp (microseconds since epoch)
-/// * `is_dgram` - whether the socket is SOCK_DGRAM (kernel stripped IP + UDP headers)
+/// * `ctx` - per-measurement DNS context (sport, m_id, is_chaos, is_dgram)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
 pub fn parse_dns(
     packet_bytes: &[u8],
-    is_chaos: bool,
     src: Address,
     ttl: u32,
-    sport: u16,
     rx_time: u64,
-    is_dgram: bool,
+    ctx: &DnsContext,
 ) -> Option<Reply> {
+    let DnsContext {
+        is_chaos,
+        sport,
+        is_dgram,
+        m_id,
+    } = *ctx;
+
     // Obtain the DNS message and the reply's destination port (our source port).
     let (dns_msg, reply_dport): (&[u8], u16) = if is_dgram {
         // SOCK_DGRAM, kernel strips the IP and UDP headers
@@ -49,8 +60,8 @@ pub fn parse_dns(
         return None;
     }
 
-    // Verify 6 leftmost bits of the DNS transaction ID
-    if dns_msg.is_empty() || (dns_msg[0] >> 2) != DNS_IDENTIFIER {
+    // Verify 6-bit measurement identifier in the DNS transaction ID
+    if dns_msg.is_empty() || (dns_msg[0] >> 2) != dns_identifier(m_id) {
         return None;
     }
 
@@ -60,7 +71,7 @@ pub fn parse_dns(
     }
 
     let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
-        let dns_result = parse_dns_a_record(dns_msg, src.is_v6())?;
+        let dns_result = parse_dns_a_record(dns_msg, src.is_v6(), m_id)?;
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
             return None; // spoofed reply
@@ -108,18 +119,21 @@ struct DnsResult {
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
+/// * `is_ipv6` - whether this is an IPv6 measurement
+/// * `m_id` - measurement ID to validate against the QNAME-encoded value
 ///
 /// # Returns
 /// * `Option<DnsResult>` - the DNS result containing the DNS A record with the source port and source and destination addresses and whether it is a discovery packet
 ///
 /// # Remarks
-/// The function returns None if the packet is too short to contain a DNS A record.
-fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
+/// The function returns None if the packet is too short to contain a DNS A record,
+/// or if the measurement ID encoded in the QNAME does not match the current measurement.
+fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool, m_id: u32) -> Option<DnsResult> {
     let record = DNSRecord::from(packet_bytes);
-    let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.google.com'
+    let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.123456.google.com'
     let parts: Vec<&str> = domain.split('.').collect();
-    // Our domains have at least 5 parts
-    if parts.len() < 5 {
+    // Our domains have at least 6 parts (tx_time, src, dst, tx_id, sport, m_id, domain...)
+    if parts.len() < 6 {
         return None;
     }
 
@@ -131,6 +145,12 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool) -> Option<DnsResult> {
     };
     let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
+    let pkt_m_id = parts[5].parse::<u32>().ok()?;
+
+    // Verify measurement ID matches
+    if pkt_m_id != m_id {
+        return None;
+    }
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
