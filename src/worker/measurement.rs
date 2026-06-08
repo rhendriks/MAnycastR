@@ -56,14 +56,39 @@ impl Worker {
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
-            let (socket, is_dgram) = Self::get_socket(
-                is_ipv6,
-                rx_origin.p_type(),
-                rx_origin,
-                is_traceroute,
-                start.is_record,
-                m_id,
-            );
+            let is_transport_traceroute =
+                is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
+
+            // UDP/TCP traceroute requires an additional rx socket for ICMP Time Exceeded replies
+            let (rx_socket, tx_socket, is_dgram) = if is_transport_traceroute {
+                let (rx, _) = Self::get_socket(
+                    is_ipv6,
+                    ProtocolType::Icmp,
+                    rx_origin,
+                    true, // Attaches Time Exceeded + Dest Unreachable BPF filter
+                    false,
+                    m_id,
+                );
+                let (tx, is_dgram) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    true, // Forces raw socket for UDP (need TTL control)
+                    false,
+                    m_id,
+                );
+                (rx, tx, is_dgram)
+            } else {
+                let (socket, is_dgram) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    is_traceroute,
+                    start.is_record,
+                    m_id,
+                );
+                (socket.clone(), socket, is_dgram)
+            };
 
             inbound(
                 InboundConfig {
@@ -73,13 +98,13 @@ impl Worker {
                     abort_s: self.abort_inbound.clone(),
                     is_traceroute,
                     is_record: start.is_record,
-                    is_dgram,
+                    is_dgram: !is_transport_traceroute && is_dgram,
                     origin_id: rx_origin.origin_id,
                     sport: rx_origin.sport as u16,
                     src: rx_origin.src.expect("no src").to_string(),
                 },
                 inbound_tx.clone(),
-                socket.clone(),
+                rx_socket,
             );
 
             // See if this origin_id is in tx_origins
@@ -100,14 +125,14 @@ impl Worker {
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
                         is_record: start.is_record,
-                        is_dgram,
+                        is_dgram: !is_transport_traceroute && is_dgram,
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
                         dport: rx_origin.dport as u16,
                         origin_id: rx_origin.origin_id,
                     },
                     outbound_rx,
-                    socket,
+                    tx_socket,
                 );
             }
         }
@@ -211,8 +236,8 @@ impl Worker {
         let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
         let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
-        // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies)
-        let (socket, is_dgram) = if is_dns {
+        // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies), except for traceroute
+        let (socket, is_dgram) = if is_dns && !is_traceroute {
             let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
             match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
                 Some(s) => {
