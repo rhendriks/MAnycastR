@@ -19,6 +19,9 @@ orchestrator internals.
   receive path validate both, so stale replies from a previous measurement
   (e.g. from a broken resolver) are dropped. CHAOS measurements use the
   transaction-ID bits only (6-bit discriminator).
+- **Orchestrator no longer panics when the CLI disconnects** during an active
+  measurement. Result forwarding and measurement-finished notifications now
+  handle a dropped CLI gracefully.
 
 ### Changed
 - **Consolidated per-measurement state** into a single `MeasurementState` struct
