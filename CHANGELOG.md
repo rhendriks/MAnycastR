@@ -2,7 +2,7 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [1.7.0] - 2026-06-06
+## [1.7.0] - 2026-06-08
 
 Adds `--any` multi-protocol fallback and substantially simplifies the
 orchestrator internals.
