@@ -10,7 +10,7 @@ clap = "4.6.1"# parse command line arguments
 csv = "1.4.0" # write to CSV
 futures-core = "0.3.32" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
-prost = "0.14.3" # define gRPC messages
+prost = "0.14.4" # define gRPC messages
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
 tonic = { version = "0.14.6", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.10.1" # generate random numbers
