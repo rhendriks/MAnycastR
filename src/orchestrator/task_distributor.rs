@@ -11,6 +11,9 @@ use tokio::spawn;
 use tokio::time::{Instant, Interval};
 use tonic::Status;
 
+/// Grace period (seconds) after the hitlist is exhausted
+const REPLY_GRACE_SECS: u64 = 5;
+
 /// How tasks should be distributed to workers
 pub enum DistributionStrategy {
     /// Broadcast tasks to all probing workers simultaneously (LACeS, and unicast mode)
@@ -214,6 +217,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         current_origin_id: config.first_origin_id,
         hitlist_iter: initial_addresses.into_iter(),
         hitlist_exhausted: false,
+        hitlist_exhausted_at: None,
         cooldown_timer: None,
     };
 
@@ -312,6 +316,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
                 if tasks.len() < remainder {
                     round.hitlist_exhausted = true;
+                    round.hitlist_exhausted_at = Some(Instant::now());
                     if has_follow_ups {
                         info!(
                             "[Orchestrator] All discovery probes sent, awaiting follow-up probes."
@@ -374,7 +379,11 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 }
                                 break; // All protocols exhausted or not --any
                             }
-                        } else {
+                        } else if round
+                            .hitlist_exhausted_at
+                            .is_some_and(|t| t.elapsed() >= Duration::from_secs(REPLY_GRACE_SECS))
+                        {
+                            // Grace period elapsed — start the idle cooldown
                             info!(
                                 "[Orchestrator] No more tasks. Awaiting a {cooldown_secs}-second cooldown."
                             );
@@ -417,6 +426,8 @@ struct RoundState {
     current_origin_id: u32,
     hitlist_iter: std::vec::IntoIter<Address>,
     hitlist_exhausted: bool,
+    /// When the hitlist was first exhausted (used for the reply grace period).
+    hitlist_exhausted_at: Option<Instant>,
     cooldown_timer: Option<Instant>,
 }
 
@@ -452,6 +463,7 @@ fn try_next_any_protocol(
             );
             round.hitlist_iter = unresolved.into_iter();
             round.hitlist_exhausted = false;
+            round.hitlist_exhausted_at = None;
             round.cooldown_timer = None;
             round.current_origin_id = next_origin_id;
             return true; // Caller should continue the loop
