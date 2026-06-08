@@ -30,6 +30,8 @@ orchestrator internals.
   traceroute probes were sent with the kernel default hop limit (64) because the
   IPv6 header is kernel-managed; `IPV6_UNICAST_HOPS` is now set on the socket
   before each send.
+- **IPv6 Time Exceeded TTL no longer reports 0** — The TTL and hop address
+  are now taken from `recvmsg` ancillary data / source address instead.
 
 ### Changed
 - **Consolidated per-measurement state** into a single `MeasurementState` struct
