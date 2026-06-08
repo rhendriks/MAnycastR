@@ -288,8 +288,6 @@ impl Worker {
             }
         }
 
-        // TODO per-packet hop limit for traceroute (IPv6)
-
         socket.set_send_buffer_size(4 * 1024 * 1024).ok(); // 4 MB buffer for sending
         socket.set_recv_buffer_size(16 * 1024 * 1024).ok(); // 16 MB for receiving
 

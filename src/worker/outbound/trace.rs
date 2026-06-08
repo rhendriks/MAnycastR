@@ -59,14 +59,33 @@ pub fn send_trace(
         false, // traceroute always uses raw sockets
     );
 
-    match send_packet(
+    // The kernel writes the IPv6 header, so we must set the hop limit on the socket
+    if src.is_v6() {
+        if let Err(e) = socket.set_unicast_hops_v6(trace_task.ttl) {
+            warn!(
+                "[Worker outbound] Failed to set IPv6 hop limit to {}: {e}",
+                trace_task.ttl
+            );
+        }
+    }
+
+    let result = match send_packet(
         socket,
         packet,
         &trace_task.dst.expect("invalid destination"),
         0,
     ) {
-        Ok(()) => return (1, 0),
-        Err(e) => warn!("[Worker outbound] Failed to send traceroute packet: {e}"),
+        Ok(()) => (1, 0),
+        Err(e) => {
+            warn!("[Worker outbound] Failed to send traceroute packet: {e}");
+            (0, 1)
+        }
+    };
+
+    // Restore the default hop limit
+    if src.is_v6() {
+        let _ = socket.set_unicast_hops_v6(255);
     }
-    (0, 1)
+
+    result
 }
