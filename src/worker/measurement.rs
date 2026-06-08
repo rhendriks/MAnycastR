@@ -107,6 +107,34 @@ impl Worker {
                 rx_socket,
             );
 
+            // Spawn UDP or TCP listeners for transport-layer traceroute measurements
+            if is_transport_traceroute {
+                let (discovery_rx, discovery_dgram) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    false, // not traceroute → DGRAM for DNS, proper BPF filter
+                    false,
+                    m_id,
+                );
+                inbound(
+                    InboundConfig {
+                        m_id,
+                        worker_id,
+                        p_type: rx_origin.p_type(),
+                        abort_s: self.abort_inbound.clone(),
+                        is_traceroute: false, // parse as normal DNS/TCP replies
+                        is_record: false,
+                        is_dgram: discovery_dgram,
+                        origin_id: rx_origin.origin_id,
+                        sport: rx_origin.sport as u16,
+                        src: rx_origin.src.expect("no src").to_string(),
+                    },
+                    inbound_tx.clone(),
+                    discovery_rx,
+                );
+            }
+
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
                 self.log_probe_details(&rx_origin);
