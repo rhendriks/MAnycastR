@@ -106,6 +106,11 @@ pub fn create_record_route_icmp(
     ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
 }
 
+pub struct DnsProbeId {
+    pub worker_id: u32,
+    pub m_id: u32,
+}
+
 /// Creates a DNS packet.
 ///
 /// # Arguments
@@ -117,11 +122,12 @@ pub fn create_record_route_icmp(
 ///
 /// # Returns
 /// A DNS packet (including the IP header) as a byte vector.
+/// DNS probe identity (worker + measurement).
 pub fn create_dns(
     src: &Address,
     dst: &Address,
     sport: u16,
-    worker_id: u32,
+    id: &DnsProbeId,
     is_chaos: bool,
     qname: &str,
     is_dgram: bool,
@@ -132,9 +138,19 @@ pub fn create_dns(
         .as_micros() as u64;
 
     if !is_chaos {
-        UDPPacket::dns_request(src, dst, sport, qname, tx_time, worker_id, 255, is_dgram)
+        UDPPacket::dns_request(
+            src,
+            dst,
+            sport,
+            qname,
+            tx_time,
+            id.worker_id,
+            255,
+            is_dgram,
+            id.m_id,
+        )
     } else {
-        UDPPacket::chaos_request(src, dst, sport, worker_id, qname, is_dgram)
+        UDPPacket::chaos_request(src, dst, sport, id.worker_id, qname, is_dgram, id.m_id)
     }
 }
 
