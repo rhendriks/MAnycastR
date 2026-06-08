@@ -230,7 +230,7 @@ pub(crate) fn attach_dns_filter(
     attach(socket, &mut prog)
 }
 
-// --- Non-Linux stubs (cBPF socket filters are Linux-specific) -----------------
+// Non-Linux stubs (cBPF socket filters are Linux-specific)
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn attach_icmp_filter(
