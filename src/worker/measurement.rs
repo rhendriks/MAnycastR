@@ -59,8 +59,8 @@ impl Worker {
             let is_transport_traceroute =
                 is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
 
-            // UDP/TCP traceroute requires an additional rx socket for ICMP Time Exceeded replies
-            let (rx_socket, tx_socket, is_dgram) = if is_transport_traceroute {
+            // For UDP/TCP (Paris) traceroute we use up to three sockets TODO needed?
+            let (rx_socket, tx_socket, is_dgram, trace_socket) = if is_transport_traceroute {
                 let (rx, _) = Self::get_socket(
                     is_ipv6,
                     ProtocolType::Icmp,
@@ -69,15 +69,25 @@ impl Worker {
                     false,
                     m_id,
                 );
+                // Discovery send/recv socket: normal protocol path (DGRAM for DNS).
                 let (tx, is_dgram) = Self::get_socket(
                     is_ipv6,
                     rx_origin.p_type(),
                     rx_origin,
-                    true, // Forces raw socket for UDP (need TTL control)
+                    false, // not traceroute → DGRAM for DNS, native BPF filter for replies
                     false,
                     m_id,
                 );
-                (rx, tx, is_dgram)
+                // Raw socket for sending the TTL-limited Paris trace probes.
+                let (trace, _) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    true, // forces a raw socket (TTL + checksum control)
+                    false,
+                    m_id,
+                );
+                (rx, tx, is_dgram, Some(trace))
             } else {
                 let (socket, is_dgram) = Self::get_socket(
                     is_ipv6,
@@ -87,9 +97,10 @@ impl Worker {
                     start.is_record,
                     m_id,
                 );
-                (socket.clone(), socket, is_dgram)
+                (socket.clone(), socket, is_dgram, None)
             };
 
+            // Primary listener: ICMP trace replies for transport traceroute, else protocol replies.
             inbound(
                 InboundConfig {
                     m_id,
@@ -107,31 +118,23 @@ impl Worker {
                 rx_socket,
             );
 
-            // Spawn UDP or TCP listeners for transport-layer traceroute measurements
+            // Listen for discovery probe replies
             if is_transport_traceroute {
-                let (discovery_rx, discovery_dgram) = Self::get_socket(
-                    is_ipv6,
-                    rx_origin.p_type(),
-                    rx_origin,
-                    false, // not traceroute → DGRAM for DNS, proper BPF filter
-                    false,
-                    m_id,
-                );
                 inbound(
                     InboundConfig {
                         m_id,
                         worker_id,
                         p_type: rx_origin.p_type(),
                         abort_s: self.abort_inbound.clone(),
-                        is_traceroute: false, // parse as normal DNS/TCP replies
+                        is_traceroute: false, // parse as normal DNS/TCP discovery replies
                         is_record: false,
-                        is_dgram: discovery_dgram,
+                        is_dgram,
                         origin_id: rx_origin.origin_id,
                         sport: rx_origin.sport as u16,
                         src: rx_origin.src.expect("no src").to_string(),
                     },
                     inbound_tx.clone(),
-                    discovery_rx,
+                    tx_socket.clone(),
                 );
             }
 
@@ -153,7 +156,7 @@ impl Worker {
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
                         is_record: start.is_record,
-                        is_dgram: !is_transport_traceroute && is_dgram,
+                        is_dgram,
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
                         dport: rx_origin.dport as u16,
@@ -161,6 +164,7 @@ impl Worker {
                     },
                     outbound_rx,
                     tx_socket,
+                    trace_socket,
                 );
             }
         }
