@@ -107,7 +107,7 @@ pub fn send_probe(
     // For DGRAM there is no L4 header in the buffer (kernel adds it) → None; the
     // kernel uses `dest_port` instead.
     let l4_dport_in_pkt = l4_dport_from_packet(dst, config.is_dgram, packet_buffer);
-    eprintln!(
+    log::info!(
         "[send_probe DEBUG] p_type={:?} is_discovery={} is_dgram={} sport={} config.dport={} dest_port_arg={} pkt_len={} l4_dport_in_pkt={:?} dst={}",
         config.p_type,
         is_discovery,

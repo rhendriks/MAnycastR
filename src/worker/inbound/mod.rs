@@ -66,7 +66,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         "[Worker inbound] Started listener (for Origin {})",
         config.origin_id
     );
-    eprintln!(
+    log::info!(
         "[Worker inbound DEBUG] listener start: fd={} is_traceroute={} is_dgram={} p_type={:?} src={} sport={}",
         socket.as_raw_fd(),
         config.is_traceroute,
@@ -105,7 +105,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         Err(e) => panic!("Socket error: {}", e),
                     };
 
-                eprintln!(
+                log::info!(
                     "[Worker inbound DEBUG] fd={} is_traceroute={} is_dgram={} p_type={:?} recv {} bytes from {} (ttl={})",
                     socket.as_raw_fd(),
                     config.is_traceroute,

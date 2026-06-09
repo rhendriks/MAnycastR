@@ -101,7 +101,7 @@ pub fn send_trace(
     };
 
     // DEBUG: decode the L4 destination port actually present in the crafted trace packet.
-    eprintln!(
+    log::info!(
         "[send_trace DEBUG] p_type={p_type:?} ttl={} sport={sport} config.dport={dport} pkt_len={} l4_dport_in_pkt={:?} target={target}",
         trace_task.ttl,
         packet.len(),
