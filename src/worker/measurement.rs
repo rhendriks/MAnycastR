@@ -59,8 +59,8 @@ impl Worker {
             let is_transport_traceroute =
                 is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
 
-            // For UDP/TCP (Paris) traceroute we use up to three sockets TODO needed?
-            let (rx_socket, tx_socket, is_dgram, trace_socket) = if is_transport_traceroute {
+            // UDP/TCP (Paris) traceroute uses two sockets (ICMP and UDP/TCP)
+            let (rx_socket, tx_socket, is_dgram) = if is_transport_traceroute {
                 let (rx, _) = Self::get_socket(
                     is_ipv6,
                     ProtocolType::Icmp,
@@ -69,17 +69,7 @@ impl Worker {
                     false,
                     m_id,
                 );
-                // Discovery send/recv socket: normal protocol path (DGRAM for DNS).
-                let (tx, is_dgram) = Self::get_socket(
-                    is_ipv6,
-                    rx_origin.p_type(),
-                    rx_origin,
-                    false, // not traceroute → DGRAM for DNS, native BPF filter for replies
-                    false,
-                    m_id,
-                );
-                // Raw socket for sending the TTL-limited Paris trace probes.
-                let (trace, _) = Self::get_socket(
+                let (tx, _) = Self::get_socket(
                     is_ipv6,
                     rx_origin.p_type(),
                     rx_origin,
@@ -87,7 +77,7 @@ impl Worker {
                     false,
                     m_id,
                 );
-                (rx, tx, is_dgram, Some(trace))
+                (rx, tx, false)
             } else {
                 let (socket, is_dgram) = Self::get_socket(
                     is_ipv6,
@@ -97,10 +87,10 @@ impl Worker {
                     start.is_record,
                     m_id,
                 );
-                (socket.clone(), socket, is_dgram, None)
+                (socket.clone(), socket, is_dgram)
             };
 
-            // Primary listener: ICMP trace replies for transport traceroute, else protocol replies.
+            // Primary listener (ICMP trace replies for transport traceroute)
             inbound(
                 InboundConfig {
                     m_id,
@@ -109,7 +99,7 @@ impl Worker {
                     abort_s: self.abort_inbound.clone(),
                     is_traceroute,
                     is_record: start.is_record,
-                    is_dgram: !is_transport_traceroute && is_dgram,
+                    is_dgram,
                     origin_id: rx_origin.origin_id,
                     sport: rx_origin.sport as u16,
                     src: rx_origin.src.expect("no src").to_string(),
@@ -118,7 +108,7 @@ impl Worker {
                 rx_socket,
             );
 
-            // Listen for discovery probe replies
+            // For transport traceroute, listen on the raw transport socket for discovery replies
             if is_transport_traceroute {
                 inbound(
                     InboundConfig {
@@ -128,7 +118,7 @@ impl Worker {
                         abort_s: self.abort_inbound.clone(),
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
                         is_record: false,
-                        is_dgram,
+                        is_dgram: false, // raw transport socket
                         origin_id: rx_origin.origin_id,
                         sport: rx_origin.sport as u16,
                         src: rx_origin.src.expect("no src").to_string(),
@@ -164,7 +154,6 @@ impl Worker {
                     },
                     outbound_rx,
                     tx_socket,
-                    trace_socket,
                 );
             }
         }
