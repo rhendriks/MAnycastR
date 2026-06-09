@@ -23,6 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// * `p_type` - Protocol type to use for the probe.
 /// * `sport` - Configured source port (for UDP/TCP, constant across probes).
 /// * `dport` - Configured destination port (for UDP/TCP, constant across probes).
+#[allow(clippy::too_many_arguments)] // TODO remove allow
 pub fn send_trace(
     worker_id: u32,
     m_id: u32,
@@ -33,6 +34,7 @@ pub fn send_trace(
     p_type: ProtocolType,
     sport: u16,
     dport: u16,
+    qname: &str,
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap();
 
@@ -74,7 +76,6 @@ pub fn send_trace(
         }
 
         ProtocolType::ADns | ProtocolType::ChaosDns => {
-            // UDP Paris traceroute: keep ports fixed, encode in IP identification + UDP checksum
             let identifier: u16 = (worker_hi_2 << 14) | timestamp_14b;
             let desired_checksum: u16 = ((trace_task.ttl as u16) << 8) | worker_lo_8;
 
@@ -85,9 +86,11 @@ pub fn send_trace(
                 dport,
                 identifier,
                 desired_checksum,
+                worker_id,
+                timestamp_14b,
                 ttl,
                 m_id,
-                info_url,
+                qname,
             )
         }
 
