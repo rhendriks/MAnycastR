@@ -356,6 +356,58 @@ impl From<PacketPayload> for Vec<u8> {
     }
 }
 
+/// Wrap a transport-layer payload in an IPv4 or IPv6 header.
+///
+/// The IP protocol / IPv6 next-header is derived from the payload variant. `identifier` is
+/// written to the IPv4 Identification field, or to the low 16 bits of the IPv6 Flow Label.
+///
+/// # Returns
+/// The packet as a vector of bytes.
+///
+/// # Panics
+/// If `src` and `dst` are different IP versions (or unset).
+pub(crate) fn build_ip_packet(
+    src: &Address,
+    dst: &Address,
+    ttl: u8,
+    identifier: u16,
+    payload: PacketPayload,
+) -> Vec<u8> {
+    // Serialized length of the transport payload + the IP protocol number for that payload.
+    let (l4_len, next_header) = match &payload {
+        PacketPayload::Icmp { value } => (Vec::<u8>::from(value).len(), 58u8), // 1 (v4) handled below
+        PacketPayload::Udp { value } => (Vec::<u8>::from(value).len(), 17u8),
+        PacketPayload::Tcp { value } => (Vec::<u8>::from(value).len(), 6u8),
+        PacketPayload::Unimplemented => (0usize, 0u8),
+    };
+    let l4_len = l4_len as u16;
+
+    match (&src.value, &dst.value) {
+        (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => (&IPv6Packet {
+            payload_length: l4_len,
+            flow_label: identifier as u32,
+            next_header,
+            hop_limit: ttl,
+            src: src.into(),
+            dst: dst.into(),
+            payload,
+        })
+            .into(),
+        (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => (&IPv4Packet {
+            // IPv4 protocol byte is derived from the payload variant during serialization.
+            length: 20 + l4_len,
+            identifier,
+            ttl,
+            src: src.into(),
+            dst: dst.into(),
+            payload,
+            options: None,
+        })
+            .into(),
+        (s, d) => panic!("IP version mismatch or unset address: src={s:?}, dst={d:?}"),
+    }
+}
+
 /// Struct defining the IPv4 pseudo-header for checksum calculation.
 #[derive(Debug)]
 pub struct PseudoHeaderV4 {
