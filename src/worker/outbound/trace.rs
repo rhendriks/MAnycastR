@@ -38,16 +38,12 @@ pub fn send_trace(
     qname: &str,
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap();
-
-    // Probe identity (worker, hop TTL, 14-bit ms timestamp)
-    let tx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap(); // TODO get time from kernel
+    let tx_micros = now.as_micros() as u64;
     let tag = TraceTag {
         worker_id,
         ttl: trace_task.ttl as u8,
-        ts14: (tx_time & 0x3FFF) as u16,
+        ts14: (now.as_millis() & 0x3FFF) as u16,
     };
     let ttl = tag.ttl;
 
@@ -86,7 +82,7 @@ pub fn send_trace(
                 identifier,
                 desired_checksum,
                 worker_id,
-                tag.ts14,
+                tx_micros,
                 ttl,
                 m_id,
                 qname,

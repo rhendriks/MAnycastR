@@ -380,12 +380,13 @@ impl UDPPacket {
 /// The QNAME encodes the probe identity so that the **destination DNS server's** reply
 /// can be matched to a trace session and terminate it:
 ///
-/// `{ts14}.{src}.{dst}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}`
+/// `{tx_micros}.{src}.{dst}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}`
 ///
-/// where `ts14` is the 14-bit millisecond send timestamp.
+/// where `tx_micros` is the full microsecond send time (so the destination-hop RTT is a
+/// plain epoch delta, matching the ICMP/discovery convention).
 pub(crate) fn dns_a_trace_body(
     qname: &str,
-    ts14: u16,
+    tx_micros: u64,
     src: &Address,
     dst: &Address,
     worker_id: u32,
@@ -395,7 +396,8 @@ pub(crate) fn dns_a_trace_body(
 ) -> Vec<u8> {
     let src_num = src.as_numeric();
     let dst_num = dst.as_numeric();
-    let subdomain = format!("{ts14}.{src_num}.{dst_num}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}");
+    let subdomain =
+        format!("{tx_micros}.{src_num}.{dst_num}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}");
 
     let mut dns_body: Vec<u8> = Vec::new();
 
