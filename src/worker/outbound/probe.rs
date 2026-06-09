@@ -102,6 +102,24 @@ pub fn send_probe(
     } else {
         0
     };
+
+    // DEBUG: decode the L4 destination port actually present in the crafted packet.
+    // For DGRAM there is no L4 header in the buffer (kernel adds it) → None; the
+    // kernel uses `dest_port` instead.
+    let l4_dport_in_pkt = l4_dport_from_packet(dst, config.is_dgram, packet_buffer);
+    eprintln!(
+        "[send_probe DEBUG] p_type={:?} is_discovery={} is_dgram={} sport={} config.dport={} dest_port_arg={} pkt_len={} l4_dport_in_pkt={:?} dst={}",
+        config.p_type,
+        is_discovery,
+        config.is_dgram,
+        config.sport,
+        config.dport,
+        dest_port,
+        packet_buffer.len(),
+        l4_dport_in_pkt,
+        dst,
+    );
+
     match send_packet(socket, packet_buffer, dst, dest_port) {
         Ok(()) => sent += 1,
         Err(e) => {
@@ -114,4 +132,22 @@ pub fn send_probe(
     }
 
     (sent, failed)
+}
+
+/// DEBUG helper: extract the transport-layer destination port (UDP/TCP) from a crafted
+/// IP packet. Returns None for DGRAM buffers (no IP/L4 header present) or short buffers.
+pub(crate) fn l4_dport_from_packet(dst: &Address, is_dgram: bool, pkt: &[u8]) -> Option<u16> {
+    if is_dgram {
+        return None; // kernel writes the L4 header; not in the buffer
+    }
+    let l4_off = if dst.is_v6() {
+        40 // fixed IPv6 header
+    } else {
+        ((pkt.first()? & 0x0F) as usize) * 4 // IPv4 IHL
+    };
+    let dport_off = l4_off + 2; // sport(2) then dport(2)
+    Some(u16::from_be_bytes([
+        *pkt.get(dport_off)?,
+        *pkt.get(dport_off + 1)?,
+    ]))
 }
