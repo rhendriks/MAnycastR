@@ -1,5 +1,4 @@
 use log::info;
-use std::os::fd::AsRawFd;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,15 +67,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         "[Worker inbound] Started listener (for Origin {})",
         config.origin_id
     );
-    info!(
-        "[Worker inbound DEBUG] listener start: fd={} is_traceroute={} is_dgram={} p_type={:?} src={} sport={}",
-        socket.as_raw_fd(),
-        config.is_traceroute,
-        config.is_dgram,
-        config.p_type,
-        config.src,
-        config.sport,
-    );
     let (reply_tx, reply_rx) = std::sync::mpsc::channel::<Reply>();
     let rx_f_c = config.abort_s.clone();
     let is_dgram = config.is_dgram;
@@ -107,17 +97,6 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         }
                         Err(e) => panic!("Socket error: {}", e),
                     };
-
-                log::info!(
-                    "[Worker inbound DEBUG] fd={} is_traceroute={} is_dgram={} p_type={:?} recv {} bytes from {} (ttl={})",
-                    socket.as_raw_fd(),
-                    config.is_traceroute,
-                    is_dgram,
-                    config.p_type,
-                    packet.len(),
-                    src,
-                    ttl,
-                );
 
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
                     (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl, rx_time),

@@ -103,14 +103,6 @@ pub fn send_trace(
         }
     };
 
-    // DEBUG: decode the L4 destination port actually present in the crafted trace packet.
-    log::info!(
-        "[send_trace DEBUG] p_type={p_type:?} ttl={} sport={sport} config.dport={dport} pkt_len={} l4_dport_in_pkt={:?} target={target}",
-        trace_task.ttl,
-        packet.len(),
-        crate::worker::outbound::probe::l4_dport_from_packet(target, false, &packet),
-    );
-
     // For ICMP on IPv6, the kernel writes the header, so we set hop limit via socket option.
     // For UDP/TCP on IPv6, we include the IPv6 header (header_included_v6), so TTL is in the packet.
     // TODO header included does not work for IPv6?
