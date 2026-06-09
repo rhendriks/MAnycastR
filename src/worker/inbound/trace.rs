@@ -34,93 +34,48 @@ pub fn parse_trace(
 ) -> Option<Reply> {
     let is_v6 = src.is_v6();
 
-    // Determine ICMP type offsets and expected types
-    let (min_len, type_idx, time_exceeded, dest_unreachable) = if is_v6 {
-        (48usize, 0usize, 3u8, 1u8) // ICMPv6
+    // ICMP error type numbers, and where the ICMP header starts
+    let (time_exceeded, dest_unreachable, icmp_start) = if is_v6 {
+        (3u8, 1u8, 0usize)
     } else {
-        (56, 20, 11, 3) // ICMPv4
+        (11u8, 3u8, 20usize)
     };
 
-    if packet_bytes.len() < min_len {
-        return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
+    // Only Time Exceeded / Destination Unreachable quote the original probe
+    match packet_bytes.get(icmp_start) {
+        Some(&t) if t == time_exceeded || t == dest_unreachable => {}
+        _ => return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time),
     }
 
-    let icmp_type = packet_bytes[type_idx];
-    if icmp_type != time_exceeded && icmp_type != dest_unreachable {
-        // Not Time Exceeded or Destination Unreachable — try as Echo Reply (ICMP traceroute target)
-        return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
-    }
-
-    // Extract hop address and TTL from the outer packet
+    // Hop address + TTL of the outer error packet.
     let (hop_addr, hop_ttl) = if is_v6 {
         (src, ttl)
     } else {
-        let ip_header = IPv4Packet::from(packet_bytes);
-        (Address::from(ip_header.src), ip_header.ttl as u32)
+        let ip = IPv4Packet::from(packet_bytes);
+        (Address::from(ip.src), ip.ttl as u32)
     };
 
-    // Parse the outer ICMP packet to access its payload (the original packet)
-    let icmp_packet = if is_v6 {
-        ICMPPacket::from(packet_bytes)
-    } else {
-        ICMPPacket::from(&packet_bytes[20..])
-    };
-
-    let payload = &icmp_packet.payload;
-
-    // Determine original IP header fields and transport data offset
-    let (original_protocol, original_dst, ip_identification, flow_label, transport_offset) =
-        if is_v6 {
-            // IPv6 header: 40 bytes minimum
-            if payload.len() < 48 {
-                return None;
-            }
-            let next_header = payload[6];
-            let dst = u128::from_be_bytes(payload[24..40].try_into().ok()?);
-            let flow_bytes = u32::from_be_bytes(payload[0..4].try_into().ok()?);
-            let fl = flow_bytes & 0x000F_FFFF;
-            (next_header, Address::from(dst), 0u16, fl, 40usize)
-        } else {
-            // IPv4 header: variable length (IHL field)
-            if payload.len() < 28 {
-                return None;
-            }
-            let ihl = ((payload[0] & 0x0F) as usize) * 4;
-            let protocol = payload[9];
-            // IP Identification is at bytes 4-5 of the IPv4 header
-            let ip_id = u16::from_be_bytes([payload[4], payload[5]]);
-            let dst = u32::from_be_bytes(payload[16..20].try_into().ok()?);
-            (protocol, Address::from(dst), ip_id, 0u32, ihl)
-        };
-
-    // Ensure we have at least 8 bytes of transport data
-    if payload.len() < transport_offset + 8 {
-        return None;
+    // Need the full 8-byte ICMP header before parsing it (the parser unwraps those bytes).
+    if packet_bytes.len() < icmp_start + 8 {
+        return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
     }
-    let transport = &payload[transport_offset..];
 
-    // Recover the probe identity from the protocol-specific carrier fields
-    let tag = match original_protocol {
+    // The ICMP payload is the quoted original probe (its IP header + first 8 transport bytes).
+    let icmp = ICMPPacket::from(&packet_bytes[icmp_start..]);
+    let quoted = parse_quoted_probe(&icmp.payload, is_v6)?;
+
+    // Recover the probe identity from the protocol-specific carrier fields (layouts in trace_codec).
+    let t = quoted.transport;
+    let tag = match quoted.protocol {
         // ICMP (1) / ICMPv6 (58): identifier + sequence number
-        1 | 58 => {
-            let id = u16::from_be_bytes([transport[4], transport[5]]);
-            let seq = u16::from_be_bytes([transport[6], transport[7]]);
-            TraceTag::decode_split(id, seq)
-        }
-
-        // UDP (17): IP identification (v4) / flow label (v6) + UDP checksum
-        17 => {
-            let id_field = if is_v6 { flow_label as u16 } else { ip_identification };
-            let checksum = u16::from_be_bytes([transport[6], transport[7]]);
-            TraceTag::decode_split(id_field, checksum)
-        }
-
+        1 | 58 => TraceTag::decode_split(
+            u16::from_be_bytes([t[4], t[5]]),
+            u16::from_be_bytes([t[6], t[7]]),
+        ),
+        // UDP (17): id field (IPv4 identification / IPv6 flow label) + UDP checksum
+        17 => TraceTag::decode_split(quoted.id_field, u16::from_be_bytes([t[6], t[7]])),
         // TCP (6): whole identity in the 32-bit sequence number
-        6 => {
-            let seq = u32::from_be_bytes([transport[4], transport[5], transport[6], transport[7]]);
-            TraceTag::decode_tcp_seq(seq)
-        }
-
+        6 => TraceTag::decode_tcp_seq(u32::from_be_bytes([t[4], t[5], t[6], t[7]])),
         _ => return None,
     };
 
@@ -130,9 +85,50 @@ pub fn parse_trace(
         rx_time,
         tag.ts14 as u64,
         tag.worker_id,
-        original_dst,
+        quoted.dst,
         tag.ttl as u32,
     ))
+}
+
+/// Fields recovered from the original (quoted) probe inside an ICMP error message.
+struct QuotedProbe<'a> {
+    /// IP protocol number of the quoted probe (1/58 ICMP, 17 UDP, 6 TCP).
+    protocol: u8,
+    /// Destination address of the quoted probe (the trace target).
+    dst: Address,
+    /// Codec id field: IPv4 Identification, or the low 16 bits of the IPv6 flow label.
+    id_field: u16,
+    /// The quoted transport header — guaranteed to be at least 8 bytes.
+    transport: &'a [u8],
+}
+
+/// Parse the quoted IP datagram carried in an ICMP error message.
+fn parse_quoted_probe(payload: &[u8], is_v6: bool) -> Option<QuotedProbe<'_>> {
+    if is_v6 {
+        // IPv6 header is a fixed 40 bytes; need 8 transport bytes after it.
+        if payload.len() < 48 {
+            return None;
+        }
+        let id_field = (u32::from_be_bytes(payload[0..4].try_into().ok()?) & 0x000F_FFFF) as u16;
+        Some(QuotedProbe {
+            protocol: payload[6], // Next Header
+            dst: Address::from(u128::from_be_bytes(payload[24..40].try_into().ok()?)),
+            id_field,
+            transport: &payload[40..],
+        })
+    } else {
+        let ihl = ((*payload.first()? & 0x0F) as usize) * 4;
+        let transport = payload.get(ihl..)?;
+        if transport.len() < 8 {
+            return None;
+        }
+        Some(QuotedProbe {
+            protocol: *payload.get(9)?, // Protocol
+            dst: Address::from(u32::from_be_bytes(payload.get(16..20)?.try_into().ok()?)),
+            id_field: u16::from_be_bytes([*payload.get(4)?, *payload.get(5)?]), // IP Identification
+            transport,
+        })
+    }
 }
 
 /// Helper to construct a trace Reply from decoded fields.
