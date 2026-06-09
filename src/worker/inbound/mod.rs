@@ -66,7 +66,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         "[Worker inbound] Started listener (for Origin {})",
         config.origin_id
     );
-    log::info!(
+    info!(
         "[Worker inbound DEBUG] listener start: fd={} is_traceroute={} is_dgram={} p_type={:?} src={} sport={}",
         socket.as_raw_fd(),
         config.is_traceroute,
