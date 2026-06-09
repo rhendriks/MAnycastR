@@ -2,6 +2,7 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, TraceReply};
 use crate::net::{ICMPPacket, IPv4Packet};
 use crate::worker::inbound::ping::parse_icmp;
+use crate::worker::trace_codec::TraceTag;
 
 /// Parse ICMP Time Exceeded (and Destination Unreachable) packets into a trace Reply.
 ///
@@ -98,79 +99,40 @@ pub fn parse_trace(
     }
     let transport = &payload[transport_offset..];
 
-    match original_protocol {
-        // ICMP (1) or ICMPv6 (58): existing encoding in identifier + sequence number
+    // Recover the probe identity from the protocol-specific carrier fields
+    let tag = match original_protocol {
+        // ICMP (1) / ICMPv6 (58): identifier + sequence number
         1 | 58 => {
             let id = u16::from_be_bytes([transport[4], transport[5]]);
             let seq = u16::from_be_bytes([transport[6], transport[7]]);
-
-            let trace_ttl = (seq >> 8) as u32;
-            let worker_lo = (seq & 0xFF) as u32;
-            let worker_hi = ((id >> 14) & 0x03) as u32;
-            let tx_id = (worker_hi << 8) | worker_lo;
-            let tx_time = (id & 0x3FFF) as u64;
-
-            Some(make_trace_reply(
-                hop_addr,
-                hop_ttl,
-                rx_time,
-                tx_time,
-                tx_id,
-                original_dst,
-                trace_ttl,
-            ))
+            TraceTag::decode_split(id, seq)
         }
 
-        // UDP (17): Paris encoding in IP identification/flow label + UDP checksum
+        // UDP (17): IP identification (v4) / flow label (v6) + UDP checksum
         17 => {
+            let id_field = if is_v6 { flow_label as u16 } else { ip_identification };
             let checksum = u16::from_be_bytes([transport[6], transport[7]]);
-
-            let trace_ttl = (checksum >> 8) as u32;
-            let worker_lo = (checksum & 0xFF) as u32;
-
-            // Worker high bits + timestamp from IP identification (v4) or flow label (v6)
-            let encoded = if is_v6 {
-                flow_label as u16
-            } else {
-                ip_identification
-            };
-            let worker_hi = ((encoded >> 14) & 0x03) as u32;
-            let tx_time = (encoded & 0x3FFF) as u64;
-
-            let tx_id = (worker_hi << 8) | worker_lo;
-
-            Some(make_trace_reply(
-                hop_addr,
-                hop_ttl,
-                rx_time,
-                tx_time,
-                tx_id,
-                original_dst,
-                trace_ttl,
-            ))
+            TraceTag::decode_split(id_field, checksum)
         }
 
-        // TCP (6): all encoded in the TCP sequence number (32 bits)
+        // TCP (6): whole identity in the 32-bit sequence number
         6 => {
             let seq = u32::from_be_bytes([transport[4], transport[5], transport[6], transport[7]]);
-
-            let tx_id = (seq >> 22) & 0x3FF;
-            let trace_ttl = ((seq >> 14) & 0xFF) as u32;
-            let tx_time = (seq & 0x3FFF) as u64;
-
-            Some(make_trace_reply(
-                hop_addr,
-                hop_ttl,
-                rx_time,
-                tx_time,
-                tx_id,
-                original_dst,
-                trace_ttl,
-            ))
+            TraceTag::decode_tcp_seq(seq)
         }
 
-        _ => None,
-    }
+        _ => return None,
+    };
+
+    Some(make_trace_reply(
+        hop_addr,
+        hop_ttl,
+        rx_time,
+        tag.ts14 as u64,
+        tag.worker_id,
+        original_dst,
+        tag.ttl as u32,
+    ))
 }
 
 /// Helper to construct a trace Reply from decoded fields.
