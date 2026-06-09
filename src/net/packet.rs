@@ -179,29 +179,27 @@ pub fn create_tcp(
     TCPPacket::tcp_syn_ack(src, dst, sport, dport, ack, 255, info_url)
 }
 
-/// Creates a UDP Paris traceroute probe packet.
+/// Creates a UDP (Paris) traceroute probe packet with a DNS payload
 ///
+/// When the probe reaches its destination DNS server, the server replies to the DNS query,
+/// resulting in the traceroute being terminated (destination reached).
+///
+/// Encoding scheme:
 /// - IPv4 IP identification (16b) / IPv6 flow label (16b of 20b):
 ///   `(worker_hi_2 << 14) | timestamp_14b`
 /// - UDP checksum (16b): `(ttl << 8) | worker_lo_8`
 ///
-/// The checksum is forced to the desired value by inserting a 2-byte correction word
-/// into the payload.
-///
-/// **Middlebox caveat:** some middleboxes rewrite the IPv4 IP Identification or IPv6
-/// Flow Label. If that happens, the timestamp and worker_hi bits are lost; the TTL
-/// and worker_lo in the UDP checksum are unaffected.
-///
 /// # Arguments
-/// * `src` - source address
-/// * `dst` - destination address
-/// * `sport` - configured source port (constant across probes)
-/// * `dport` - configured destination port (constant across probes)
-/// * `identifier` - encoded identification for the IP header (worker_hi + timestamp)
-/// * `desired_checksum` - value to force into the UDP checksum field (ttl + worker_lo)
-/// * `ttl` - time-to-live / hop limit
-/// * `m_id` - measurement ID (included in payload for validation)
-/// * `info_url` - optional URL encoded in payload
+/// * `src` / `dst` - source / destination address
+/// * `sport` / `dport` - configured ports (constant across probes for Paris)
+/// * `identifier` - IP identification / flow label (worker_hi + timestamp)
+/// * `desired_checksum` - value forced into the UDP checksum (ttl + worker_lo)
+/// * `worker_id` - sending worker id (encoded in the QNAME for the destination reply)
+/// * `ts14` - 14-bit millisecond send timestamp (QNAME, for destination-hop RTT)
+/// * `ttl` - time-to-live / hop limit (also encoded in the QNAME for hop_count)
+/// * `m_id` - measurement ID
+/// * `qname` - the DNS name to query (e.g. `example.org`)
+#[allow(clippy::too_many_arguments)]
 pub fn create_udp_trace(
     src: &Address,
     dst: &Address,
@@ -209,17 +207,16 @@ pub fn create_udp_trace(
     dport: u16,
     identifier: u16,
     desired_checksum: u16,
+    worker_id: u32,
+    ts14: u16,
     ttl: u8,
     m_id: u32,
-    info_url: Option<&str>,
+    qname: &str,
 ) -> Vec<u8> {
-    // Build payload with a 2-byte correction placeholder at offset 4 for the desired checksum.
-    let mut body = Vec::new();
-    body.extend_from_slice(&m_id.to_be_bytes()); // bytes 0-3: measurement ID
-    body.extend_from_slice(&[0u8, 0u8]); // bytes 4-5: checksum correction placeholder
-    if let Some(url) = info_url {
-        body.extend_from_slice(url.as_bytes());
-    }
+    // Create a valid DNS query with traceroute encodings and the desired UDP checksum
+    let mut body = crate::net::udp::dns_a_trace_body(qname, ts14, src, dst, worker_id, sport, m_id, ttl);
+    let corr_off = body.len(); // correction word appended after the DNS message
+    body.extend_from_slice(&[0u8, 0u8]);
 
     let udp_length = (8 + body.len()) as u16;
 
@@ -235,10 +232,14 @@ pub fn create_udp_trace(
     let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length as u32);
     let actual_checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-    // Compute the correction word that transforms the checksum to our desired value
     let correction = checksum_correction(actual_checksum, desired_checksum);
-    body[4] = (correction >> 8) as u8;
-    body[5] = (correction & 0xFF) as u8;
+    let (b0, b1) = if corr_off % 2 == 0 {
+        ((correction >> 8) as u8, (correction & 0xFF) as u8)
+    } else {
+        ((correction & 0xFF) as u8, (correction >> 8) as u8)
+    };
+    body[corr_off] = b0;
+    body[corr_off + 1] = b1;
 
     let udp_packet = UDPPacket {
         sport,
