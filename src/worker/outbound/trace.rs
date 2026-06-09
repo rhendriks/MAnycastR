@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::{Address, ProtocolType, Trace};
 use crate::net::packet::{create_icmp, create_tcp_trace, create_udp_trace, ProbePayload};
 use crate::worker::outbound::send_packet;
+use crate::worker::trace_codec::TraceTag;
 use log::warn;
 use socket2::Socket;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,24 +39,22 @@ pub fn send_trace(
 ) -> (u32, u32) {
     let target = &trace_task.dst.unwrap();
 
-    // Store 14 bits of millisecond timestamp
+    // Probe identity (worker, hop TTL, 14-bit ms timestamp)
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis();
-    let timestamp_14b = (tx_time & 0x3FFF) as u16;
-
-    // Store worker_id as 10-bit number (up to 1,024 workers)
-    let worker_lo_8 = (worker_id & 0xFF) as u16;
-    let worker_hi_2 = ((worker_id >> 8) & 0x03) as u16;
-
-    let ttl = trace_task.ttl as u8;
+    let tag = TraceTag {
+        worker_id,
+        ttl: trace_task.ttl as u8,
+        ts14: (tx_time & 0x3FFF) as u16,
+    };
+    let ttl = tag.ttl;
 
     let packet = match p_type {
         ProtocolType::Icmp => {
             // ICMP: encode in identifier + sequence number
-            let sequence_number: u16 = ((trace_task.ttl as u16) << 8) | worker_lo_8;
-            let identifier: u16 = (worker_hi_2 << 14) | timestamp_14b;
+            let (identifier, sequence_number) = tag.encode_split();
 
             let payload_fields = ProbePayload {
                 worker_id,
@@ -76,8 +75,8 @@ pub fn send_trace(
         }
 
         ProtocolType::ADns | ProtocolType::ChaosDns => {
-            let identifier: u16 = (worker_hi_2 << 14) | timestamp_14b;
-            let desired_checksum: u16 = ((trace_task.ttl as u16) << 8) | worker_lo_8;
+            // UDP (Paris): IP identification/flow label + UDP checksum carry the identity.
+            let (identifier, desired_checksum) = tag.encode_split();
 
             create_udp_trace(
                 src,
@@ -87,7 +86,7 @@ pub fn send_trace(
                 identifier,
                 desired_checksum,
                 worker_id,
-                timestamp_14b,
+                tag.ts14,
                 ttl,
                 m_id,
                 qname,
@@ -95,9 +94,8 @@ pub fn send_trace(
         }
 
         ProtocolType::Tcp => {
-            // TCP traceroute: encode all in TCP sequence number (32 bits)
-            let worker_10b = worker_id & 0x3FF;
-            let seq = (worker_10b << 22) | ((trace_task.ttl & 0xFF) << 14) | (timestamp_14b as u32);
+            // TCP (Paris): the whole identity is packed into the 32-bit sequence number.
+            let seq = tag.encode_tcp_seq();
 
             create_tcp_trace(src, target, sport, dport, seq, ttl, info_url)
         }
