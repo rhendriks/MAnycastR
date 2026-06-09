@@ -12,10 +12,7 @@ use crate::worker::trace_codec::TraceTag;
 /// * `ttl` - TTL of the received packet
 /// * `sport` - Source port used for outgoing packets (destination port of replies)
 /// * `rx_time` - kernel receive timestamp in microseconds
-/// * `is_traceroute` - true on a TCP traceroute listener: a non-discovery RST from the target
-///   means a trace probe reached the destination. The trace probe carries its identity in the
-///   `ack` field, which the RST echoes in its sequence (`RST.seq = our ack + 1`), so it is
-///   decoded with the trace codec and `hop_addr == trace_dst` closes the session.
+/// * `is_traceroute` - If true, check for traceroute destination replies
 ///
 /// # Returns
 /// * `Option<ResultData>` - the received TCP reply
@@ -57,9 +54,7 @@ pub fn parse_tcp(
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else if is_traceroute {
-        // TCP traceroute destination: the trace probe set ack = its encoded identity, which the
-        // RST echoes back in its sequence number, so we recover worker/hop/timestamp with the
-        // same codec used for the intermediate (Time Exceeded) hops.
+        // Probe reply to a traceroute packet
         let tag = TraceTag::decode_tcp_seq(identifier);
         Some(Reply {
             reply_data: Some(ReplyData::Trace(TraceReply {
