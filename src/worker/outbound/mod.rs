@@ -58,11 +58,13 @@ pub struct OutboundConfig {
 /// # Arguments
 /// * `config` - configuration for the outbound worker thread
 /// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
-/// * `socket` - the sender object to send packets
+/// * `socket` - the sender object to send probe/discovery packets
+/// * `trace_socket` - optional separate socket for sending `Trace` probes
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
     socket: Arc<Socket>,
+    trace_socket: Option<Arc<Socket>>,
 ) {
     thread::Builder::new()
         .name("outbound".to_string())
@@ -138,7 +140,7 @@ pub fn outbound(
                                         config.m_id,
                                         config.info_url.as_deref(),
                                         trace,
-                                        &socket,
+                                        trace_socket.as_deref().unwrap_or(&socket),
                                         &config.src,
                                         config.p_type,
                                         config.sport,
