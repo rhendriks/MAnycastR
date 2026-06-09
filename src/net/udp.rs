@@ -426,3 +426,49 @@ impl UDPPacket {
         dns_body
     }
 }
+
+/// Build a DNS A-query message (header + question) for a UDP (Paris) traceroute probe.
+///
+/// The QNAME encodes the probe identity so that the **destination DNS server's** reply
+/// can be matched to a trace session and terminate it:
+///
+/// `{ts14}.{src}.{dst}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}`
+///
+/// where `ts14` is the 14-bit millisecond send timestamp.
+pub(crate) fn dns_a_trace_body(
+    qname: &str,
+    ts14: u16,
+    src: &Address,
+    dst: &Address,
+    worker_id: u32,
+    sport: u16,
+    m_id: u32,
+    ttl: u8,
+) -> Vec<u8> {
+    let src_num = src.as_numeric();
+    let dst_num = dst.as_numeric();
+    let subdomain = format!("{ts14}.{src_num}.{dst_num}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}");
+
+    let mut dns_body: Vec<u8> = Vec::new();
+
+    // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID), as in dns_request.
+    let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | ((worker_id as u16) & 0x03FF);
+    dns_body
+        .write_u16::<byteorder::BigEndian>(encoded_tx_id)
+        .unwrap(); // Transaction ID
+    dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (standard query, RD)
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QDCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // ANCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // NSCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // ARCOUNT
+
+    for label in subdomain.split('.') {
+        dns_body.push(label.len() as u8);
+        dns_body.write_all(label.as_bytes()).unwrap();
+    }
+    dns_body.push(0); // Terminate the QNAME
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QTYPE (A record)
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QCLASS (IN)
+
+    dns_body
+}
