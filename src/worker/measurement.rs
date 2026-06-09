@@ -103,6 +103,7 @@ impl Worker {
                     origin_id: rx_origin.origin_id,
                     sport: rx_origin.sport as u16,
                     src: rx_origin.src.expect("no src").to_string(),
+                    is_dns_trace: false,
                 },
                 inbound_tx.clone(),
                 rx_socket,
@@ -122,6 +123,8 @@ impl Worker {
                         origin_id: rx_origin.origin_id,
                         sport: rx_origin.sport as u16,
                         src: rx_origin.src.expect("no src").to_string(),
+                        // Non-discovery DNS replies means a trace reached its destination
+                        is_dns_trace: matches!(rx_origin.p_type(), ProtocolType::ADns | ProtocolType::ChaosDns),
                     },
                     inbound_tx.clone(),
                     tx_socket.clone(),
