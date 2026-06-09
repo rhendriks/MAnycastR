@@ -48,6 +48,10 @@ pub struct InboundConfig {
     pub sport: u16,
     /// Source address used
     pub src: String,
+    /// True for the transport (UDP/DNS) traceroute discovery/destination listener: a
+    /// non-discovery DNS reply is then treated as the destination DNS server answering,
+    /// terminating the trace (see `DnsContext::traceroute`).
+    pub dns_trace: bool,
 }
 
 /// Listen for incoming packets
@@ -83,6 +87,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         sport: config.sport,
         is_dgram,
         m_id: config.m_id,
+        is_traceroute: config.dns_trace,
     };
     Builder::new()
         .name("listener_thread".to_string())
