@@ -1,6 +1,5 @@
 use crate::custom_module::manycastr::Address;
-use crate::net::{calculate_checksum, ICMPPacket, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader, TCPPacket, UDPPacket};
-use crate::custom_module::manycastr::address;
+use crate::net::{build_ip_packet, calculate_checksum, ICMPPacket, PacketPayload, PseudoHeader, TCPPacket, UDPPacket};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// ICMP arguments to encode in the payload.
@@ -249,33 +248,7 @@ pub fn create_udp_trace(
         body,
     };
 
-    match (&src.value, &dst.value) {
-        (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-            let v6 = IPv6Packet {
-                payload_length: udp_length,
-                flow_label: identifier as u32,
-                next_header: 17, // UDP
-                hop_limit: ttl,
-                src: src.into(),
-                dst: dst.into(),
-                payload: PacketPayload::Udp { value: udp_packet },
-            };
-            (&v6).into()
-        }
-        (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-            let v4 = IPv4Packet {
-                length: 20 + udp_length,
-                identifier,
-                ttl,
-                src: src.into(),
-                dst: dst.into(),
-                payload: PacketPayload::Udp { value: udp_packet },
-                options: None,
-            };
-            (&v4).into()
-        }
-        _ => panic!("IP version mismatch in create_udp_trace"),
-    }
+    build_ip_packet(src, dst, ttl, identifier, PacketPayload::Udp { value: udp_packet })
 }
 
 /// Compute a 2-byte correction word that, when placed in the payload (replacing
@@ -334,31 +307,5 @@ pub fn create_tcp_trace(
     let pseudo_header = PseudoHeader::new(src, dst, 6, tcp_bytes.len() as u32);
     tcp_packet.checksum = calculate_checksum(&tcp_bytes, &pseudo_header);
 
-    match (&src.value, &dst.value) {
-        (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-            let v6 = IPv6Packet {
-                payload_length: tcp_bytes.len() as u16,
-                flow_label: 15037,
-                next_header: 6, // TCP
-                hop_limit: ttl,
-                src: src.into(),
-                dst: dst.into(),
-                payload: PacketPayload::Tcp { value: tcp_packet },
-            };
-            (&v6).into()
-        }
-        (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-            let v4 = IPv4Packet {
-                length: 20 + tcp_bytes.len() as u16,
-                identifier: 15037,
-                ttl,
-                src: src.into(),
-                dst: dst.into(),
-                payload: PacketPayload::Tcp { value: tcp_packet },
-                options: None,
-            };
-            (&v4).into()
-        }
-        _ => panic!("IP version mismatch in create_tcp_trace"),
-    }
+    build_ip_packet(src, dst, ttl, 15037, PacketPayload::Tcp { value: tcp_packet })
 }
