@@ -1,7 +1,7 @@
-use crate::custom_module::manycastr::{address, Address};
+use crate::custom_module::manycastr::Address;
 use crate::dns_identifier;
 use crate::net::packet::DnsProbeId;
-use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
+use crate::net::{build_ip_packet, calculate_checksum, PacketPayload, PseudoHeader};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use std::io::{Cursor, Read, Write};
@@ -262,33 +262,7 @@ impl UDPPacket {
         let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length as u32);
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        match (&src.value, &dst.value) {
-            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-                let v6_packet = IPv6Packet {
-                    payload_length: udp_length,
-                    flow_label: 15037,
-                    next_header: 17, // UDP
-                    hop_limit: ttl,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                };
-                (&v6_packet).into()
-            }
-            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-                let v4_packet = IPv4Packet {
-                    length: 20 + udp_length,
-                    identifier: 15037,
-                    ttl,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                    options: None,
-                };
-                (&v4_packet).into()
-            }
-            _ => panic!("IP version mismatch or unsupported address type in dns_request"),
-        }
+        build_ip_packet(src, dst, ttl, 15037, PacketPayload::Udp { value: udp_packet })
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
@@ -367,33 +341,7 @@ impl UDPPacket {
 
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        match (&src.value, &dst.value) {
-            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-                let v6_packet = IPv6Packet {
-                    payload_length: udp_length as u16,
-                    flow_label: 15037,
-                    next_header: 17, // UDP
-                    hop_limit: 255,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                };
-                (&v6_packet).into()
-            }
-            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-                let v4_packet = IPv4Packet {
-                    length: 20 + udp_length as u16,
-                    identifier: 15037,
-                    ttl: 255,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                    options: None,
-                };
-                (&v4_packet).into()
-            }
-            _ => panic!("IP version mismatch or invalid address type in UDP packet construction"),
-        }
+        build_ip_packet(src, dst, 255, 15037, PacketPayload::Udp { value: udp_packet })
     }
 
     /// Creating a DNS TXT record request for CHAOS
