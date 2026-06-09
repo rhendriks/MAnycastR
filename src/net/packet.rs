@@ -260,9 +260,9 @@ fn checksum_correction(actual: u16, desired: u16) -> u16 {
     c as u16
 }
 
-/// Creates a TCP SYN traceroute probe packet.
+/// Creates a TCP (Paris) traceroute probe packet.
 ///
-/// Encoding scheme (all 32 bits in TCP sequence number):
+/// Encodes the following information in the seq and ack fields.
 /// - Bits 31-22: worker_id (10 bits, up to 1024 workers)
 /// - Bits 21-14: TTL (8 bits)
 /// - Bits 13-0:  timestamp in milliseconds (14 bits)
@@ -272,7 +272,7 @@ fn checksum_correction(actual: u16, desired: u16) -> u16 {
 /// * `dst` - destination address
 /// * `sport` - configured source port
 /// * `dport` - configured destination port
-/// * `seq` - encoded TCP sequence number (worker_id + ttl + timestamp)
+/// * `seq` - encoded identity (worker_id + ttl + timestamp); written to both seq and ack
 /// * `ttl` - time-to-live / hop limit
 /// * `info_url` - optional URL encoded in payload
 pub fn create_tcp_trace(
@@ -294,9 +294,9 @@ pub fn create_tcp_trace(
         sport,
         dport,
         seq,
-        ack: 0,
+        ack: seq, // same identity in ack: the destination RST echoes ack (RST.seq = ack + 1)
         offset: 0b01010000, // Data offset 5 (20 bytes)
-        flags: 0b00000010,  // SYN only
+        flags: 0b00010010,  // SYN + ACK (unsolicited → elicits RST from the target)
         checksum: 0,
         pointer: 0,
         body,

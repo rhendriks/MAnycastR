@@ -26,8 +26,12 @@ pub fn get_trace_row(
         "*".to_string()
     };
 
-    // Traceroute hop replies have different RTT encodings
-    let is_hop_reply = reply.hop_addr != reply.trace_dst;
+    // Pick the RTT decoding by the magnitude of tx_time rather than by hop type. Intermediate
+    // hops (all protocols) and the TCP destination carry a 14-bit millisecond timestamp
+    // (< 2^14), while the ICMP/DNS destination carries a full microsecond epoch (>> 2^14).
+    // This is exact (an epoch-µs value is never < 2^14) and matches the previous hop-type
+    // heuristic for ICMP/DNS while also handling the TCP destination correctly.
+    let is_traceroute_ts = reply.tx_time < (1 << 14);
 
     // Calculate RTT if tx_time is available
     let rtt = if reply.hop_addr.is_some() {
@@ -35,7 +39,7 @@ pub fn get_trace_row(
             reply.rx_time,
             reply.tx_time,
             false,
-            is_hop_reply,
+            is_traceroute_ts,
         ))
     } else {
         "*".to_string()

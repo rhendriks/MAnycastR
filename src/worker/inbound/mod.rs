@@ -47,8 +47,8 @@ pub struct InboundConfig {
     pub sport: u16,
     /// Source address used
     pub src: String,
-    /// If true, a non-discovery DNS reply is treated as the destination DNS server answering
-    pub is_dns_trace: bool,
+    /// Identifies transport traceroute measurements, which require special handling
+    pub is_transport_trace: bool,
 }
 
 /// Listen for incoming packets
@@ -75,7 +75,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         sport: config.sport,
         is_dgram,
         m_id: config.m_id,
-        is_traceroute: config.is_dns_trace,
+        is_traceroute: config.is_transport_trace,
     };
     Builder::new()
         .name("listener_thread".to_string())
@@ -117,9 +117,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         parse_dns(packet, src.into(), ttl, rx_time, &dns_ctx)
                     }
 
-                    (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, src.into(), ttl, config.sport, rx_time)
-                    }
+                    (_, _, ProtocolType::Tcp) => parse_tcp(
+                        packet,
+                        src.into(),
+                        ttl,
+                        config.sport,
+                        rx_time,
+                        config.is_transport_trace,
+                    ),
                 };
 
                 if let Some(reply) = result {
