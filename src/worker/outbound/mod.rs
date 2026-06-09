@@ -143,6 +143,7 @@ pub fn outbound(
                                         config.p_type,
                                         config.sport,
                                         config.dport,
+                                        config.qname.as_deref().unwrap_or("example.org"),
                                     );
                                     traces_sent += s;
                                     failed += f;
