@@ -37,7 +37,7 @@ pub fn parse_dns(
         m_id,
     } = *ctx;
 
-    println!(
+    eprintln!(
         "[parse_dns DEBUG] entry: {} bytes, is_dgram={}, is_chaos={}, sport={}, m_id={}, src={}, src_is_v6={}",
         packet_bytes.len(),
         is_dgram,
@@ -60,13 +60,13 @@ pub fn parse_dns(
             match packet_bytes.get(20..) {
                 Some(b) => b,
                 None => {
-                    println!("[parse_dns DEBUG] REJECT: packet < 20 bytes (no IP header)");
+                    eprintln!("[parse_dns DEBUG] REJECT: packet < 20 bytes (no IP header)");
                     return None;
                 }
             }
         };
         if udp_bytes.len() < 8 {
-            println!(
+            eprintln!(
                 "[parse_dns DEBUG] REJECT: udp_bytes ({} bytes) < 8 (no UDP header)",
                 udp_bytes.len()
             );
@@ -78,7 +78,7 @@ pub fn parse_dns(
 
     // Verify our destination port (i.e. the probe's source port)
     if reply_dport != sport {
-        println!(
+        eprintln!(
             "[parse_dns DEBUG] REJECT: reply_dport {} != sport {}",
             reply_dport,
             sport
@@ -88,11 +88,11 @@ pub fn parse_dns(
 
     // Verify 6-bit measurement identifier in the DNS transaction ID
     if dns_msg.is_empty() {
-        println!("[parse_dns DEBUG] REJECT: dns_msg empty");
+        eprintln!("[parse_dns DEBUG] REJECT: dns_msg empty");
         return None;
     }
     if (dns_msg[0] >> 2) != dns_identifier(m_id) {
-        println!(
+        eprintln!(
             "[parse_dns DEBUG] REJECT: dns id mismatch: txid_hi=0x{:02x} (>>2={}) != dns_identifier(m_id)={}",
             dns_msg[0],
             dns_msg[0] >> 2,
@@ -103,7 +103,7 @@ pub fn parse_dns(
 
     // The body length has to be large enough to contain a DNS A / TXT reply
     if (!is_chaos & (dns_msg.len() < 66)) | (is_chaos & (dns_msg.len() < 10)) {
-        println!(
+        eprintln!(
             "[parse_dns DEBUG] REJECT: dns_msg too short: len={} (is_chaos={})",
             dns_msg.len(),
             is_chaos
@@ -115,13 +115,13 @@ pub fn parse_dns(
         let dns_result = match parse_dns_a_record(dns_msg, src.is_v6(), m_id) {
             Some(r) => r,
             None => {
-                println!("[parse_dns DEBUG] REJECT: parse_dns_a_record returned None (bad QNAME / m_id mismatch)");
+                eprintln!("[parse_dns DEBUG] REJECT: parse_dns_a_record returned None (bad QNAME / m_id mismatch)");
                 return None;
             }
         };
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
-            println!(
+            eprintln!(
                 "[parse_dns DEBUG] REJECT: spoof check: probe_sport={} reply_dport={} probe_dst={} src={}",
                 dns_result.probe_sport,
                 reply_dport,
@@ -142,7 +142,7 @@ pub fn parse_dns(
         (tx_time, tx_worker_id, Some(chaos), false)
     };
 
-    println!(
+    eprintln!(
         "[parse_dns DEBUG] ACCEPT: is_discovery={} tx_id={} tx_time={} src={}",
         is_discovery,
         tx_id,
