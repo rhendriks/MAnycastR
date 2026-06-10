@@ -265,8 +265,7 @@ trigger load-balancers and observe their behavior (e.g., for detecting anycast s
 > **Middlebox caveat (UDP traceroute):** some middleboxes (NATs, firewalls) rewrite the IPv4 IP
 > Identification field or the IPv6 Flow Label. If this happens the 14-bit transmit timestamp and
 > the 2 high bits of the worker ID are lost; path discovery still works, but the per-hop RTT
-> cannot be computed and worker identification is limited to 256 workers. ICMP and TCP traceroute
-> are not affected by this limitation.
+> cannot be computed and worker identification is limited to 256 workers.
 
 #### Sockets and privileges
 
@@ -276,10 +275,7 @@ ICMP traceroute uses a single socket. UDP and TCP traceroute use **two raw socke
 * a raw **UDP/TCP** socket to send the probes and receive the target's reply (DNS answer / RST).
 
 Both therefore require a raw socket (`CAP_NET_RAW`) — the unprivileged `SOCK_DGRAM` path used by
-normal DNS measurements is not available for traceroute, because we need per-probe TTL control
-and direct access to the checksum / sequence-number fields. For UDP traceroute the raw socket
-registers no UDP listener, so the kernel emits an ICMP port-unreachable toward the target for
-each DNS answer it receives — harmless noise that is the cost of using a raw socket.
+normal DNS measurements is not available for traceroute, because we need IP header control.
 
 #### Limitations
 
