@@ -56,7 +56,7 @@ impl Worker {
         let worker_req = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
             worker_id: 0,
-            status: "".to_string(),
+            status: custom_module::manycastr::WorkerStatus::Idle as i32, // Placeholder status
             unicast_v6: local_ipv6().ok().map(Address::from),
             unicast_v4: local_ip().ok().map(Address::from),
         };
