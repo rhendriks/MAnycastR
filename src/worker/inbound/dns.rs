@@ -97,25 +97,24 @@ pub fn parse_dns(
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else if traceroute {
-        // UDP/DNS traceroute: a non-discovery DNS answer means the probe reached the destination
+        // DNS trace reply from destination (DNS answer)
         Some(Reply {
             reply_data: Some(ReplyData::Trace(TraceReply {
                 hop_addr: Some(src),
                 ttl,
-                rx_time,
-                tx_time,
+                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 trace_dst: Some(src),
                 hop_count: hop_ttl.unwrap_or(0) as u32,
             })),
         })
     } else {
+        // DNS reply
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                rx_time,
-                tx_time,
+                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 chaos,
                 recorded_hops: None,
