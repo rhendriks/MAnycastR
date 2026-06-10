@@ -12,7 +12,7 @@ use crate::orchestrator::task_distributor::{
     distribute_tasks, DistributionStrategy, TaskDistributorConfig,
 };
 use crate::orchestrator::trace::check_trace_timeouts;
-use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
+use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, MeasurementState, TracerouteConfig};
 use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
@@ -317,7 +317,7 @@ impl Controller for ControllerService {
             workers.push(Worker {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
-                status: worker.get_status().clone(),
+                status: worker.get_status() as i32,
                 unicast_v4: worker.unicast_v4,
                 unicast_v6: worker.unicast_v6,
             });
