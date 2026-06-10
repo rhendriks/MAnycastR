@@ -70,7 +70,7 @@ message Status {
 
 // Worker definition, contains a worker ID, metadata (hostname), status
 message Worker {
-  fixed32 worker_id = 1;
+  uint32 worker_id = 1;
   string hostname = 2;
   string status = 3; // IDLE, PROBING, LISTENING, DISCONNECTED
   Address unicast_v6 = 4;
@@ -152,9 +152,9 @@ message End {
 // Origin: mapping of source address, port values, protocol type, and an identifier
 message Origin {
   Address src = 1;
-  fixed32 sport = 2;
-  fixed32 dport = 3;
-  fixed32 origin_id = 4;
+  uint32 sport = 2;
+  uint32 dport = 3;
+  uint32 origin_id = 4;
   ProtocolType p_type = 5; // Protocol type to use for this origin
 }
 
@@ -179,7 +179,7 @@ message Trace {
 message ReplyBatch {
   uint32 rx_id = 1;
   repeated Reply results = 2; // forwarded to CLI by the Orchestrator
-  fixed32 origin_id = 3; // Origin associated with the replies
+  uint32 origin_id = 3; // Origin associated with the replies
 }
 
 // Single reply
@@ -199,9 +199,9 @@ message DiscoveryReply {
 // Contains measured reply data (forwarded to the CLI and written to file)
 message MeasurementReply {
   Address src = 1;
-  fixed32 ttl = 2;
+  uint32 ttl = 2;
   float rtt = 3; // Round-trip time in milliseconds
-  fixed32 tx_id = 4;
+  uint32 tx_id = 4;
   optional string chaos = 5;
   optional RecordedHops recorded_hops = 6;
 }
@@ -209,9 +209,9 @@ message MeasurementReply {
 // Traceroute reply
 message TraceReply {
   Address hop_addr = 1;
-  fixed32 ttl = 2;
+  uint32 ttl = 2;
   float rtt = 3; // round-trip time in milliseconds
-  fixed32 tx_id = 4;
+  uint32 tx_id = 4;
   Address trace_dst = 5;
   uint32 hop_count = 6; // TTL used to trigger this reply
 }
