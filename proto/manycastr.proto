@@ -203,7 +203,7 @@ message MeasurementReply {
   float rtt = 3; // Round-trip time in milliseconds
   fixed32 tx_id = 4;
   optional string chaos = 5;
-  optional RecordedHops recorded_hops = 76
+  optional RecordedHops recorded_hops = 6;
 }
 
 // Traceroute reply
