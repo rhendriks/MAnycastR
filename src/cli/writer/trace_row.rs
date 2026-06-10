@@ -1,4 +1,4 @@
-use crate::cli::writer::{calculate_rtt, format_rtt};
+use crate::cli::writer::format_rtt;
 use crate::custom_module::manycastr::TraceReply;
 use bimap::BiHashMap;
 
@@ -20,27 +20,15 @@ pub fn get_trace_row(
         .unwrap_or(&String::from("*"))
         .to_string();
 
+    // Set fields to '*' when it is an unresponsive hop
     let hop_addr = if let Some(hop_addr) = reply.hop_addr {
         hop_addr.to_string()
     } else {
         "*".to_string()
     };
 
-    // Pick the RTT decoding by the magnitude of tx_time rather than by hop type. Intermediate
-    // hops (all protocols) and the TCP destination carry a 14-bit millisecond timestamp
-    // (< 2^14), while the ICMP/DNS destination carries a full microsecond epoch (>> 2^14).
-    // This is exact (an epoch-µs value is never < 2^14) and matches the previous hop-type
-    // heuristic for ICMP/DNS while also handling the TCP destination correctly.
-    let is_traceroute_ts = reply.tx_time < (1 << 14);
-
-    // Calculate RTT if tx_time is available
     let rtt = if reply.hop_addr.is_some() {
-        format_rtt(calculate_rtt(
-            reply.rx_time,
-            reply.tx_time,
-            false,
-            is_traceroute_ts,
-        ))
+        format_rtt(reply.rtt)
     } else {
         "*".to_string()
     };
