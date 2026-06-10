@@ -200,22 +200,20 @@ message DiscoveryReply {
 message MeasurementReply {
   Address src = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3; // TODO return float32 rtt instead?
-  uint64 tx_time = 4;
-  fixed32 tx_id = 5;
-  optional string chaos = 6;
-  optional RecordedHops recorded_hops = 7;
+  float rtt = 3; // Round-trip time in milliseconds
+  fixed32 tx_id = 4;
+  optional string chaos = 5;
+  optional RecordedHops recorded_hops = 76
 }
 
 // Traceroute reply
 message TraceReply {
   Address hop_addr = 1;
   fixed32 ttl = 2;
-  uint64 rx_time = 3; // 32 bit microseconds time
-  uint64 tx_time = 4; // 16 bit microseconds time
-  fixed32 tx_id = 5;
-  Address trace_dst = 6;
-  uint32 hop_count = 7; // TTL used to trigger this reply
+  float rtt = 3; // round-trip time in milliseconds
+  fixed32 tx_id = 4;
+  Address trace_dst = 5;
+  uint32 hop_count = 6; // TTL used to trigger this reply
 }
 
 // Record Route hops found
