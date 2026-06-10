@@ -1,4 +1,4 @@
-use crate::custom_module::manycastr::Status;
+use crate::custom_module::manycastr::{Status, WorkerStatus};
 use log::info;
 use prettytable::{color, format, row, Attr, Cell, Row, Table};
 use tonic::Response;
@@ -52,11 +52,11 @@ pub async fn handle(response: Response<Status>) {
         table.add_row(row![
             worker.hostname,
             worker.worker_id,
-            worker.status,
+            worker.status().as_str_name(),
             unicast_v4,
             unicast_v6
         ]);
-        if worker.status != "DISCONNECTED" {
+        if worker.status() != WorkerStatus::Disconnected {
             connected_workers += 1;
         }
     }
