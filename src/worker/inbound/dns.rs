@@ -207,7 +207,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
     let tx_worker_id = (record.transaction_id & 0x03FF) as u32;
 
     if record.answer == 0 {
-        return Some((0u64, tx_worker_id, "Not implemented".to_string()));
+        return Some((0u64, tx_worker_id, "*".to_string()));
     }
 
     let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;
