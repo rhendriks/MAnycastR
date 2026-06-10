@@ -115,10 +115,9 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                                         session.worker_id,
                                         session.origin_id,
                                         TraceReply {
-                                            hop_addr: None,
+                                            hop_addr: None, // unresponsive hop → written as `*`
                                             ttl: 0,
-                                            rx_time: 0,
-                                            tx_time: 0,
+                                            rtt: 0.0,
                                             tx_id: session.worker_id,
                                             trace_dst: session.target,
                                             hop_count: session.current_ttl as u32,
