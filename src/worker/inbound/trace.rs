@@ -131,7 +131,7 @@ fn parse_quoted_probe(payload: &[u8], is_v6: bool) -> Option<QuotedProbe<'_>> {
     }
 }
 
-/// Helper to construct a trace Reply from decoded fields.
+/// Helper to construct a trace Reply from decoded fields
 fn make_trace_reply(
     hop_addr: Address,
     ttl: u32,
@@ -145,8 +145,7 @@ fn make_trace_reply(
         reply_data: Some(ReplyData::Trace(TraceReply {
             hop_addr: Some(hop_addr),
             ttl,
-            rx_time,
-            tx_time,
+            rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Trace14),
             tx_id,
             trace_dst: Some(trace_dst),
             hop_count,
