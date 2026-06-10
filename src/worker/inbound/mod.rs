@@ -165,6 +165,40 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         .expect("Failed to spawn result_sender_thread");
 }
 
+/// Timestamp encodings for various measurement types
+#[derive(Clone, Copy)]
+pub(crate) enum TxEncoding {
+    /// Full 64-bit microsecond epoch (ICMP, DNS) (microseconds)
+    Micros,
+    /// 21-bit microsecond epoch (TCP probes) (microseconds)
+    Tcp21,
+    /// 14-bit millisecond epoch (traceroute hops) (microseconds)
+    Trace14,
+}
+
+/// Compute the RTT in milliseconds based on the timestamp encoding.
+pub(crate) fn rtt_ms(rx_time_us: u64, tx_time: u64, enc: TxEncoding) -> f32 {
+    match enc {
+        TxEncoding::Tcp21 => {
+            const MODULUS: u64 = 1 << 21; // 21-bit microseconds
+            const MASK: u64 = MODULUS - 1;
+            let rx = rx_time_us & MASK;
+            let tx = tx_time & MASK;
+            let us = if rx >= tx { rx - tx } else { rx + MODULUS - tx };
+            us as f32 / 1_000.0
+        }
+        TxEncoding::Trace14 => {
+            const MODULUS: u64 = 1 << 14; // 14-bit milliseconds
+            const MASK: u64 = MODULUS - 1;
+            let rx = (rx_time_us / 1_000) & MASK;
+            let ms = if rx >= tx_time { rx - tx_time } else { rx + MODULUS - tx_time };
+            ms as f32
+        }
+        // Full microsecond epoch on both ends
+        TxEncoding::Micros => (rx_time_us as i64 - tx_time as i64) as f32 / 1_000.0,
+    }
+}
+
 /// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).
 fn get_packet<'a>(
     socket: &Socket,
