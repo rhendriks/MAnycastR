@@ -250,30 +250,17 @@ transport bytes):
 **NOTE** Multiple origins (with varying port or IP address values) can be used to purposefully (and in a controlled manner)
 trigger load-balancers and observe their behavior (e.g., for detecting anycast site flipping).
 
-| Protocol | Identity carried in |
-|----------|---------------------|
-| ICMP | ICMP identifier + sequence number |
+| Protocol | Identity carried in                                                                                            |
+|----------|----------------------------------------------------------------------------------------------------------------|
+| ICMP | ICMP identifier + SEQ                                                                                          |
 | UDP | UDP checksum (TTL + low worker bits) + IPv4 IP Identification / IPv6 Flow Label (high worker bits + timestamp) |
-| TCP | TCP **sequence number** (worker + TTL + timestamp), copied into the **acknowledgement number** as well |
-
-**Why TCP writes the identity into *both* the sequence and acknowledgement numbers.** The two
-TCP reply types read **disjoint** fields, and we assume the worst case for each:
+| TCP | TCP **SEQ** (worker + TTL + timestamp), copied into the **ACK** as well                                        |
 
 * An **intermediate** router's ICMP Time Exceeded is only *guaranteed* to quote the original IP
   header plus the **first 8 bytes** of the transport header (RFC 792). For TCP those 8 bytes are
-  the source port, destination port, and **sequence number** — **not** the acknowledgement number
-  (bytes 8–11). So the identity must live in the sequence number to survive a router that quotes
-  nothing beyond the mandatory minimum.
-* The **destination** never sends a Time Exceeded; it answers our unsolicited SYN-ACK with a
-  **RST**, and a RST takes its sequence number from our **acknowledgement** field
-  (`RST.seq = ack + 1`), discarding our sequence number entirely. So the identity must *also* live
-  in the acknowledgement number to be recoverable at the target.
-
-Because each reply type can only see one of the two fields, the identity is written to both.
-(The acknowledgement copy uses the same layout as the regular TCP SYN-ACK probes, so the
-destination RST is decoded by the same path.) UDP/DNS needs no such duplication: intermediate
-hops are read from the always-quoted first 8 bytes (UDP checksum + IP Identification / Flow
-Label), and the destination is recovered from the DNS answer's echoed query name.
+  the source port, destination port, and **SEQ**, not the **ACK**.
+* The **destination** answers with a **RST**, which reflects the ACK field.
+  Therefore, we encode the identity in both the SEQ and ACK fields.
 
 > **Middlebox caveat (UDP traceroute):** some middleboxes (NATs, firewalls) rewrite the IPv4 IP
 > Identification field or the IPv6 Flow Label. If this happens the 14-bit transmit timestamp and
