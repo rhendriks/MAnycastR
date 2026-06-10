@@ -4,16 +4,19 @@ All notable changes to MAnycastR are documented in this file.
 
 ## [1.8.0] - 2026-06-09
 
-Extends anycast traceroute beyond ICMP to UDP/DNS and TCP.
+Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and minor reworks for proto definitions.
 
 ### Added
 - **UDP/DNS and TCP anycast traceroute** — `-m anycast-traceroute` now works with
   `-p dns` and `-p tcp` in addition to `-p icmp`.
 
 ### Changed
-- Unified IPv4/IPv6 packet construction (`build_ip_packet`), centralized the 
-  traceroute probe-id encode/decode into a single `trace_codec` shared by
-  the send and receive paths, and simplified `parse_trace`.
+- **Reply messages carry a precomputed `rtt`** (a `float`, milliseconds) instead of the
+  raw `rx_time`/`tx_time` timestamps. The worker computes the RTT.
+- **Smaller reply encoding** — `ttl`, `tx_id`, `origin_id`, `worker_id`, `sport` and
+  `dport` are now varint (`uint32`) instead of `fixed32`.
+- Unified IPv4/IPv6 packet construction (`build_ip_packet`), centralized the traceroute
+  encoding/decoding into a single `trace_codec`, and simplified `parse_trace`.
 
 ### Notes
 - UDP traceroute: some middleboxes rewrite the IPv4 Identification field / IPv6
