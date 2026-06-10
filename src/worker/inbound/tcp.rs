@@ -54,14 +54,13 @@ pub fn parse_tcp(
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else if is_traceroute {
-        // Probe reply to a traceroute packet
+        // Trace probe
         let tag = TraceTag::decode_tcp_seq(identifier);
         Some(Reply {
             reply_data: Some(ReplyData::Trace(TraceReply {
                 hop_addr: Some(src),
                 ttl,
-                rx_time,
-                tx_time: tag.ts14 as u64,
+                rtt: super::rtt_ms(rx_time, tag.ts14 as u64, super::TxEncoding::Trace14),
                 tx_id: tag.worker_id,
                 trace_dst: Some(src),
                 hop_count: tag.ttl as u32,
@@ -74,8 +73,7 @@ pub fn parse_tcp(
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                rx_time,
-                tx_time: tx_time_21b as u64,
+                rtt: super::rtt_ms(rx_time, tx_time_21b as u64, super::TxEncoding::Tcp21),
                 tx_id,
                 chaos: None,
                 recorded_hops: None,
