@@ -4,7 +4,7 @@ All notable changes to MAnycastR are documented in this file.
 
 ## [1.8.0] - 2026-06-09
 
-Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and minor reworks for proto definitions.
+Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and reworks proto definitions for less bandwidth.
 
 ### Added
 - **UDP/DNS and TCP anycast traceroute** — `-m anycast-traceroute` now works with
