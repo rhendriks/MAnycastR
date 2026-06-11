@@ -46,13 +46,11 @@ pub struct MeasurementState {
     pub probing_workers: Vec<u32>,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
-    /// Whether this measurement uses --any protocol fallback
-    pub is_any_protocol: bool,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
     pub trace_config: Option<TracerouteConfig>,
-    /// Targets that responded to discovery (used by --any to skip resolved targets)
+    /// Targets that responded to discovery (deduplicates follow-up tasks; --any uses it to skip resolved targets)
     pub resolved_targets: HashSet<Address>,
 }
 
