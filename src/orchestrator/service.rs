@@ -100,10 +100,7 @@ impl Controller for ControllerService {
         }
 
         // Acknowledge the worker
-        Ok(Response::new(Ack {
-            is_success: true,
-            error_message: "".to_string(),
-        }))
+        Ok(Response::new(Ack::ok()))
     }
 
     type WorkerConnectStream = WorkerReceiver<Result<Instruction, Status>>;
@@ -124,9 +121,7 @@ impl Controller for ControllerService {
         let unicast_v6 = worker.unicast_v6;
         let (tx, rx) = mpsc::channel::<Result<Instruction, Status>>(1000);
         // Get the worker ID, and check if it is a reconnection
-        let (worker_id, is_reconnect) = self
-            .get_worker_id(&hostname)
-            .map_err(|boxed_status| *boxed_status)?;
+        let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
 
         if is_reconnect {
             info!("[Orchestrator] Reconnecting worker: {hostname}");
@@ -372,10 +367,7 @@ impl Controller for ControllerService {
                     "[Orchestrator] Dropping {} late replies from worker {catcher_id} (no active measurement)",
                     discovery_bucket.len() + trace_bucket.len()
                 );
-                return Ok(Response::new(Ack {
-                    is_success: true,
-                    error_message: "".to_string(),
-                }));
+                return Ok(Response::new(Ack::ok()));
             };
 
             // Drop duplicate discovery replies (e.g., multi-reply targets)
@@ -463,10 +455,7 @@ impl Controller for ControllerService {
             }
         }
 
-        Ok(Response::new(Ack {
-            is_success: true,
-            error_message: "".to_string(),
-        }))
+        Ok(Response::new(Ack::ok()))
     }
 }
 
