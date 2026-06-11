@@ -1,10 +1,10 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::writer::parquet_writer::write_results_parquet;
-use crate::cli::writer::{write_results_csv, MetadataArgs, WriteConfig};
-use crate::custom_module::manycastr::controller_client::ControllerClient;
-use crate::custom_module::manycastr::ProtocolType::{ChaosDns, Tcp};
-use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
+use crate::cli::writer::{MetadataArgs, WriteConfig, write_results_csv};
 use crate::custom_module::Separated;
+use crate::custom_module::manycastr::ProtocolType::ChaosDns;
+use crate::custom_module::manycastr::controller_client::ControllerClient;
+use crate::custom_module::manycastr::{MeasurementType, ReplyBatch, ScheduleMeasurement};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -14,12 +14,12 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::unbounded_channel;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
 pub struct CliClient {
@@ -116,7 +116,7 @@ impl CliClient {
         });
 
         let mut graceful = false; // Will be set to true if the stream closes gracefully
-                                  // Obtain the Stream from the orchestrator and read from it
+        // Obtain the Stream from the orchestrator and read from it
         let mut stream = response
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
@@ -189,18 +189,6 @@ impl CliClient {
                 .is_some_and(|origin| origin.p_type() == ChaosDns)
         });
 
-        // List of all origin IDs that are TCP
-        let tcp_origin_ids = m_def
-            .configurations
-            .iter()
-            .filter_map(|conf| {
-                conf.origin
-                    .as_ref()
-                    .filter(|origin| origin.p_type() == Tcp)
-                    .map(|origin| origin.origin_id)
-            })
-            .collect::<Vec<u32>>();
-
         let config = WriteConfig {
             print_to_cli: args.is_cli,
             output_file: file,
@@ -210,7 +198,6 @@ impl CliClient {
             worker_map: args.worker_map.clone(),
             is_record,
             is_chaos,
-            tcp_origins: tcp_origin_ids,
         };
 
         // Start thread that writes results to file

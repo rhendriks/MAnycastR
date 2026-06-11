@@ -1,21 +1,21 @@
+use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    instruction, Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType, Reply,
-    ReplyBatch, ScheduleMeasurement, Start, TraceOptions, TraceReply, Worker,
+    Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType, Reply, ReplyBatch,
+    ScheduleMeasurement, Start, TraceOptions, TraceReply, Worker, instruction,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
-    discovery_handler, trace_discovery_handler, trace_replies_handler, SessionTracker,
+    SessionTracker, discovery_handler, trace_discovery_handler, trace_replies_handler,
 };
 use crate::orchestrator::task_distributor::{
-    distribute_tasks, DistributionStrategy, TaskDistributorConfig,
+    DistributionStrategy, TaskDistributorConfig, distribute_tasks,
 };
 use crate::orchestrator::trace::check_trace_timeouts;
-use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{ControllerService, MeasurementState, TracerouteConfig};
-use crate::{custom_module, ALL_ORIGINS, ALL_WORKERS};
+use crate::{ALL_ORIGINS, ALL_WORKERS, custom_module};
 use log::{error, info, warn};
 
 use std::collections::{HashMap, HashSet};
@@ -82,8 +82,8 @@ impl Controller for ControllerService {
             } else {
                 // Worker finished whilst there is no measurement active
                 warn!(
-                "[Orchestrator] Received measurement finished signal for worker {finished_worker_id}, but no measurement is active."
-            );
+                    "[Orchestrator] Received measurement finished signal for worker {finished_worker_id}, but no measurement is active."
+                );
                 return Err(Status::not_found("No active measurement found"));
             }
         }
@@ -91,12 +91,10 @@ impl Controller for ControllerService {
         // Notify the CLI if this was the last worker
         if should_notify {
             let cli_tx = { self.cli_sender.lock().unwrap().clone() };
-            if let Some(tx) = cli_tx {
-                if tx.send(Ok(ReplyBatch::default())).await.is_err() {
-                    warn!(
-                        "[Orchestrator] CLI disconnected, cannot send measurement-finished signal."
-                    );
-                }
+            if let Some(tx) = cli_tx
+                && tx.send(Ok(ReplyBatch::default())).await.is_err()
+            {
+                warn!("[Orchestrator] CLI disconnected, cannot send measurement-finished signal.");
             }
         }
 
@@ -251,10 +249,10 @@ impl Controller for ControllerService {
             let mut seen = HashSet::new();
             let mut ids = Vec::new();
             for config in &m_def.configurations {
-                if let Some(origin) = &config.origin {
-                    if seen.insert(origin.origin_id) {
-                        ids.push(origin.origin_id);
-                    }
+                if let Some(origin) = &config.origin
+                    && seen.insert(origin.origin_id)
+                {
+                    ids.push(origin.origin_id);
                 }
             }
             ids
@@ -317,7 +315,7 @@ impl Controller for ControllerService {
             workers.push(Worker {
                 worker_id: worker.worker_id,
                 hostname: worker.hostname.clone(),
-                status: worker.get_status().clone(),
+                status: worker.get_status() as i32,
                 unicast_v4: worker.unicast_v4,
                 unicast_v6: worker.unicast_v6,
             });
@@ -442,8 +440,8 @@ impl Controller for ControllerService {
             // Forward results to the CLI
             let tx = self.cli_sender.lock().unwrap().clone();
 
-            if let Some(tx) = tx {
-                if tx
+            if let Some(tx) = tx
+                && tx
                     .send(Ok(ReplyBatch {
                         rx_id: catcher_id,
                         results: results_bucket,
@@ -451,9 +449,8 @@ impl Controller for ControllerService {
                     }))
                     .await
                     .is_err()
-                {
-                    warn!("[Orchestrator] CLI disconnected, dropping result batch.");
-                }
+            {
+                warn!("[Orchestrator] CLI disconnected, dropping result batch.");
             }
         }
 
@@ -606,10 +603,10 @@ async fn send_start_instructions(
     let mut seen_origins = HashSet::new();
     let mut rx_origins = vec![];
     for configuration in m_def.configurations.iter() {
-        if let Some(origin) = &configuration.origin {
-            if seen_origins.insert(origin.origin_id) {
-                rx_origins.push(*origin);
-            }
+        if let Some(origin) = &configuration.origin
+            && seen_origins.insert(origin.origin_id)
+        {
+            rx_origins.push(*origin);
         }
     }
 
@@ -622,10 +619,10 @@ async fn send_start_instructions(
         // Collect TX origins assigned to this specific worker
         let mut tx_origins = vec![];
         for configuration in &m_def.configurations {
-            if configuration.worker_id == worker_id || configuration.worker_id == ALL_WORKERS {
-                if let Some(origin) = &configuration.origin {
-                    tx_origins.push(*origin);
-                }
+            if (configuration.worker_id == worker_id || configuration.worker_id == ALL_WORKERS)
+                && let Some(origin) = &configuration.origin
+            {
+                tx_origins.push(*origin);
             }
         }
 

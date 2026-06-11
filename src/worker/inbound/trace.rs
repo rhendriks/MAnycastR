@@ -1,23 +1,30 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, TraceReply};
-use crate::net::{ICMPPacket, IPPacket, IPv4Packet, IPv6Packet, PacketPayload};
+use crate::net::{ICMPPacket, IPv4Packet};
 use crate::worker::inbound::ping::parse_icmp;
-use parquet::data_type::AsBytes;
+use crate::worker::trace_codec::TraceTag;
 
-/// Parse ICMP Time Exceeded packets (including v4/v6 headers) into a Reply result with trace information.
-/// Filters out spoofed packets and only parses ICMP time exceeded valid for the current measurement.
+/// Parse ICMP Time Exceeded (and Destination Unreachable) packets into a trace Reply.
 ///
-/// From Wikipedia: IP header and first 64 bit of the original payload are used by the source host to match the time exceeded message to the discarded datagram.
-/// For higher-level protocols such as UDP and TCP the 64-bit payload will include the source and destination ports of the discarded packet.
+/// Supports traceroute probes sent via ICMP, UDP, or TCP. The original protocol is
+/// detected from the IP header embedded in the Time Exceeded payload, and probe
+/// identification is decoded accordingly:
+///
+/// - **ICMP**: identifier (worker_hi + timestamp) + sequence (TTL + worker_lo)
+/// - **UDP (Paris)**: IP identification / IPv6 flow label (worker_hi + timestamp) + UDP checksum (TTL + worker_lo)
+/// - **TCP**: seq number (worker_id + TTL + timestamp)
+///
+/// Falls back to `parse_icmp` for Echo Reply packets (destination reached in ICMP traceroute).
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - measurement ID encoded in ICMP payload.
 /// * `src` - source address of the packet (hop address)
-/// * `ttl` - TTL/hop limit used when sending the original probe
+/// * `ttl` - TTL/hop limit of the received packet
+/// * `rx_time` - kernel receive timestamp in microseconds
 ///
 /// # Returns
-/// * `Option<Reply>` - the received trace reply (None if it is not a valid ICMP Time Exceeded packet)
+/// * `Option<Reply>` - the received trace reply (None if not a valid trace response)
 pub fn parse_trace(
     packet_bytes: &[u8],
     m_id: u32,
@@ -25,72 +32,123 @@ pub fn parse_trace(
     ttl: u32,
     rx_time: u64,
 ) -> Option<Reply> {
-    // Check for ICMP Time Exceeded code
-    let (min_len, type_idx, expected_type) = if src.is_v6() {
-        (48, 0, 3) // IPv6: Min length 48, ICMP type at index 0, Type 3
+    let is_v6 = src.is_v6();
+
+    // ICMP error type numbers, and where the ICMP header starts
+    let (time_exceeded, dest_unreachable, icmp_start) = if is_v6 {
+        (3u8, 1u8, 0usize)
     } else {
-        (56, 20, 11) // IPv4: Min length 56, ICMP type at index 20, Type 11
+        (11u8, 3u8, 20usize)
     };
 
-    if packet_bytes.len() < min_len || packet_bytes[type_idx] != expected_type {
-        // Not ICMP Time exceeded; try to parse as ICMP echo reply from the target
+    // Only Time Exceeded / Destination Unreachable quote the original probe
+    match packet_bytes.get(icmp_start) {
+        Some(&t) if t == time_exceeded || t == dest_unreachable => {}
+        _ => return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time),
+    }
+
+    // Hop address + TTL of the outer error packet.
+    let (hop_addr, hop_ttl) = if is_v6 {
+        (src, ttl)
+    } else {
+        let ip = IPv4Packet::from(packet_bytes);
+        (Address::from(ip.src), ip.ttl as u32)
+    };
+
+    // Need the full 8-byte ICMP header before parsing it (the parser unwraps those bytes).
+    if packet_bytes.len() < icmp_start + 8 {
         return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
     }
 
-    let (hop_addr, hop_ttl) = if src.is_v6() {
-        // IPv6: the kernel strips the header
-        (src, ttl)
-    } else {
-        // IPv4: IP header is included in the packet bytes
-        let ip_header = IPv4Packet::from(packet_bytes);
-        (Address::from(ip_header.src), ip_header.ttl as u32)
-    };
+    // The ICMP payload is the quoted original probe (its IP header + first 8 transport bytes).
+    let icmp = ICMPPacket::from(&packet_bytes[icmp_start..]);
+    let quoted = parse_quoted_probe(&icmp.payload, is_v6)?;
 
-    let icmp_packet = if src.is_v6() {
-        ICMPPacket::from(packet_bytes) // no IP header
-    } else {
-        ICMPPacket::from(&packet_bytes[20..]) // skip IPv4 header
-    };
-
-    // Parse the original IP header from the Time Exceeded payload
-    let original_ip_header = if src.is_v6() {
-        IPPacket::V6(IPv6Packet::from(icmp_packet.payload.as_bytes()))
-    } else {
-        IPPacket::V4(IPv4Packet::from(icmp_packet.payload.as_bytes()))
-    };
-
-    // Parse the ICMP header that caused the Time Exceeded (first 8 bytes of the ICMP body after the original IP header)
-    let original_icmp_header = match &original_ip_header.payload() {
-        PacketPayload::Icmp { value } => value,
+    // Recover the probe identity from the protocol-specific carrier fields (layouts in trace_codec).
+    let t = quoted.transport;
+    let tag = match quoted.protocol {
+        // ICMP (1) / ICMPv6 (58): identifier + sequence number
+        1 | 58 => TraceTag::decode_split(
+            u16::from_be_bytes([t[4], t[5]]),
+            u16::from_be_bytes([t[6], t[7]]),
+        ),
+        // UDP (17): id field (IPv4 identification / IPv6 flow label) + UDP checksum
+        17 => TraceTag::decode_split(quoted.id_field, u16::from_be_bytes([t[6], t[7]])),
+        // TCP (6): whole identity in the 32-bit sequence number
+        6 => TraceTag::decode_tcp_seq(u32::from_be_bytes([t[4], t[5], t[6], t[7]])),
         _ => return None,
     };
 
-    let seq = original_icmp_header.sequence_number;
-    let id = original_icmp_header.icmp_identifier;
+    Some(make_trace_reply(
+        hop_addr,
+        hop_ttl,
+        rx_time,
+        tag.ts14 as u64,
+        tag.worker_id,
+        quoted.dst,
+        tag.ttl as u32,
+    ))
+}
 
-    // ttl (first 8 bits of seq)
-    let trace_ttl = (seq >> 8) as u32;
+/// Fields recovered from the original (quoted) probe inside an ICMP error message.
+struct QuotedProbe<'a> {
+    /// IP protocol number of the quoted probe (1/58 ICMP, 17 UDP, 6 TCP).
+    protocol: u8,
+    /// Destination address of the quoted probe (the trace target).
+    dst: Address,
+    /// Codec id field: IPv4 Identification, or the low 16 bits of the IPv6 flow label.
+    id_field: u16,
+    /// The quoted transport header — guaranteed to be at least 8 bytes.
+    transport: &'a [u8],
+}
 
-    // get worker_id (10 bits) (lower 8 bits seq, highest 2 bits of identifier)
-    let worker_lo = (seq & 0xFF) as u32;
-    let worker_hi = ((id >> 14) & 0x03) as u32;
-    let tx_id = (worker_hi << 8) | worker_lo;
+/// Parse the quoted IP datagram carried in an ICMP error message.
+fn parse_quoted_probe(payload: &[u8], is_v6: bool) -> Option<QuotedProbe<'_>> {
+    if is_v6 {
+        // IPv6 header is a fixed 40 bytes; need 8 transport bytes after it.
+        if payload.len() < 48 {
+            return None;
+        }
+        let id_field = (u32::from_be_bytes(payload[0..4].try_into().ok()?) & 0x000F_FFFF) as u16;
+        Some(QuotedProbe {
+            protocol: payload[6], // Next Header
+            dst: Address::from(u128::from_be_bytes(payload[24..40].try_into().ok()?)),
+            id_field,
+            transport: &payload[40..],
+        })
+    } else {
+        let ihl = ((*payload.first()? & 0x0F) as usize) * 4;
+        let transport = payload.get(ihl..)?;
+        if transport.len() < 8 {
+            return None;
+        }
+        Some(QuotedProbe {
+            protocol: *payload.get(9)?, // Protocol
+            dst: Address::from(u32::from_be_bytes(payload.get(16..20)?.try_into().ok()?)),
+            id_field: u16::from_be_bytes([*payload.get(4)?, *payload.get(5)?]), // IP Identification
+            transport,
+        })
+    }
+}
 
-    // get milliseconds (last 14 bits of identifier field
-    let tx_time = (id & 0x3FFF) as u64;
-
-    // get trace dst address
-    let trace_dst = Some(original_ip_header.dst());
-
-    Some(Reply {
+/// Helper to construct a trace Reply from decoded fields
+fn make_trace_reply(
+    hop_addr: Address,
+    ttl: u32,
+    rx_time: u64,
+    tx_time: u64,
+    tx_id: u32,
+    trace_dst: Address,
+    hop_count: u32,
+) -> Reply {
+    Reply {
         reply_data: Some(ReplyData::Trace(TraceReply {
             hop_addr: Some(hop_addr),
-            ttl: hop_ttl,
-            rx_time,
-            tx_time,
+            ttl,
+            rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Trace14),
             tx_id,
-            trace_dst,
-            hop_count: trace_ttl,
+            trace_dst: Some(trace_dst),
+            hop_count,
         })),
-    })
+    }
 }

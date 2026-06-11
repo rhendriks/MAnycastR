@@ -1,10 +1,10 @@
-use crate::custom_module::manycastr::{
-    instruction, task, Address, End, Instruction, Probe, Task, Tasks,
-};
-use crate::orchestrator::worker::WorkerSender;
-use crate::orchestrator::worker::WorkerStatus::Probing;
-use crate::orchestrator::MeasurementHandle;
 use crate::ALL_WORKERS;
+use crate::custom_module::manycastr::WorkerStatus::Probing;
+use crate::custom_module::manycastr::{
+    Address, End, Instruction, Probe, Task, Tasks, instruction, task,
+};
+use crate::orchestrator::MeasurementHandle;
+use crate::orchestrator::worker::WorkerSender;
 use log::{info, warn};
 use std::time::Duration;
 use tokio::spawn;

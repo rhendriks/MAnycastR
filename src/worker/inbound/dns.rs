@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply};
+use crate::custom_module::manycastr::{
+    Address, DiscoveryReply, MeasurementReply, Reply, TraceReply,
+};
 use crate::dns_identifier;
 use crate::net::{DNSAnswer, DNSRecord, TXTRecord};
 
@@ -9,6 +11,7 @@ pub struct DnsContext {
     pub sport: u16,
     pub is_dgram: bool,
     pub m_id: u32,
+    pub is_traceroute: bool,
 }
 
 /// Parse DNS packets into a Reply result.
@@ -35,6 +38,7 @@ pub fn parse_dns(
         sport,
         is_dgram,
         m_id,
+        is_traceroute: traceroute,
     } = *ctx;
 
     // Obtain the DNS message and the reply's destination port (our source port).
@@ -70,7 +74,7 @@ pub fn parse_dns(
         return None;
     }
 
-    let (tx_time, tx_id, chaos, is_discovery) = if !is_chaos {
+    let (tx_time, tx_id, chaos, is_discovery, hop_ttl) = if !is_chaos {
         let dns_result = parse_dns_a_record(dns_msg, src.is_v6(), m_id)?;
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
@@ -82,23 +86,42 @@ pub fn parse_dns(
             dns_result.tx_id,
             None,
             dns_result.is_discovery,
+            dns_result.hop_ttl,
         )
     } else {
         let (tx_time, tx_worker_id, chaos) = parse_chaos(dns_msg)?;
-        (tx_time, tx_worker_id, Some(chaos), false)
+        (tx_time, tx_worker_id, Some(chaos), false, None)
     };
 
     if is_discovery {
+        // Discovery reply: identifies the catching worker (starts the trace, or --responsive).
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
+    } else if traceroute {
+        // DNS trace reply from destination (DNS answer)
+        Some(Reply {
+            reply_data: Some(ReplyData::Trace(TraceReply {
+                hop_addr: Some(src),
+                ttl,
+                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
+                tx_id,
+                trace_dst: Some(src),
+                hop_count: hop_ttl.unwrap_or(0) as u32,
+            })),
+        })
     } else {
+        // CHAOS replies carry no transmit timestamp
+        let rtt = if is_chaos {
+            0.0
+        } else {
+            super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros)
+        };
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                rx_time,
-                tx_time,
+                rtt,
                 tx_id,
                 chaos,
                 recorded_hops: None,
@@ -113,6 +136,8 @@ struct DnsResult {
     probe_sport: u16,
     probe_dst: Address,
     is_discovery: bool,
+    /// Probe TTL encoded in the QNAME (UDP/DNS traceroute probes only; `None` otherwise).
+    hop_ttl: Option<u8>,
 }
 
 /// Attempts to parse the DNS A record from a DNS payload body.
@@ -159,9 +184,13 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool, m_id: u32) -> Option<D
         false
     };
 
+    // UDP/DNS traceroute probes carry the probe TTL as the 7th label (parts[6])
+    let hop_ttl = parts.get(6).and_then(|s| s.parse::<u8>().ok());
+
     Some(DnsResult {
         tx_time,
         tx_id,
+        hop_ttl,
         probe_sport,
         probe_dst,
         is_discovery,
@@ -185,7 +214,7 @@ fn parse_chaos(packet_bytes: &[u8]) -> Option<(u64, u32, String)> {
     let tx_worker_id = (record.transaction_id & 0x03FF) as u32;
 
     if record.answer == 0 {
-        return Some((0u64, tx_worker_id, "Not implemented".to_string()));
+        return Some((0u64, tx_worker_id, "*".to_string()));
     }
 
     let chaos_data = TXTRecord::from(DNSAnswer::from(record.body.as_slice()).data.as_slice()).txt;

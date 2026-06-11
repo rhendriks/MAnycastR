@@ -1,4 +1,4 @@
-use crate::cli::writer::{calculate_rtt, format_rtt};
+use crate::cli::writer::format_rtt;
 use crate::custom_module::manycastr::TraceReply;
 use bimap::BiHashMap;
 
@@ -20,23 +20,15 @@ pub fn get_trace_row(
         .unwrap_or(&String::from("*"))
         .to_string();
 
+    // Set fields to '*' when it is an unresponsive hop
     let hop_addr = if let Some(hop_addr) = reply.hop_addr {
         hop_addr.to_string()
     } else {
         "*".to_string()
     };
 
-    // Traceroute hop replies have different RTT encodings
-    let is_hop_reply = reply.hop_addr != reply.trace_dst;
-
-    // Calculate RTT if tx_time is available
     let rtt = if reply.hop_addr.is_some() {
-        format_rtt(calculate_rtt(
-            reply.rx_time,
-            reply.tx_time,
-            false,
-            is_hop_reply,
-        ))
+        format_rtt(reply.rtt)
     } else {
         "*".to_string()
     };

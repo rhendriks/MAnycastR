@@ -1,7 +1,13 @@
 [package]
 name = "manycastr"
-version = "1.7.0"
-edition = "2021"
+version = "1.8.0"
+edition = "2024"
+description = "Measure Anycast Routing (MAnycastR) — synchronized Internet measurements from a distributed set of anycast Points of Presence"
+repository = "https://github.com/rhendriks/MAnycastR"
+license = "MPL-2.0"
+authors = ["Remi Hendriks <remi.hendriks@utwente.nl>"]
+keywords = ["anycast", "measurement", "traceroute", "networking", "dns"]
+rust-version = "1.96"
 
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
@@ -10,7 +16,7 @@ clap = "4.6.1"# parse command line arguments
 csv = "1.4.0" # write to CSV
 futures-core = "0.3.32" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
-prost = "0.14.3" # define gRPC messages
+prost = "0.14.4" # define gRPC messages
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "sync", "time"] } # async runtime
 tonic = { version = "0.14.6", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
 rand = "0.10.1" # generate random numbers
@@ -23,7 +29,7 @@ ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.9" # compression
 bimap = "0.6.3"
 tonic-prost = "0.14.6"
-parquet = { version = "58.3.0", features = ["snap"]}
+parquet = { version = "59.0.0", default-features = false, features = ["zstd"] }
 serde_json = "1.0.150"
 log = "0.4.32"
 pretty_env_logger = "0.5.0"

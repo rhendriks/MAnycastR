@@ -125,6 +125,8 @@ As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissio
 
 For DNS measurements we prefer `SOCK_DGRAM` to avoid generating ICMP port-unreachable replies, which would be generated for every DNS reply if a raw socket were used (since the kernel has no UDP listener bound to the source port).
 
+> **Traceroute exception:** UDP/DNS and TCP traceroute (`-m anycast-traceroute -p dns|tcp`) always require a raw socket (`CAP_NET_RAW`), even for DNS, because the worker needs per-probe TTL control and direct access to the checksum / sequence-number fields. See [Anycast traceroute measurement](#anycast-traceroute-measurement).
+
 ### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
 
 We recommend granting `CAP_NET_RAW` to the worker binary, which allows it to open raw sockets without running as root.
@@ -209,13 +211,82 @@ Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` in
 manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 ```
 
-Measure the path from the catching PoP to the target.
-First, a single `discovery probe` is sent to infer the catching worker.
-Next, multiple traceroute packets are sent from the catching worker to measure the path.
+Measure the path from the catching PoP to a target.
+First a single `discovery probe` is sent (round-robin across workers) to infer which PoP
+"catches" the target. The catching worker then sends `traceroute probes` with an increasing
+TTL / hop-limit (from `--trace_initial_hop`, default 1). Each intermediate router returns an
+ICMP **Time Exceeded** message quoting the original probe; the hop is recorded and the next TTL
+is sent. The trace ends when the **target itself** replies (see below), on a routing loop, or at
+`--trace_max_hop`.
 
 Hops that do not respond within `--trace_timeout` are advanced after `--trace_max_failures` consecutive timeouts (up to `--trace_max_hop`).
 By default, each unresponsive hop is recorded as a `*` row (no reply);
 pass `--trace_star false` to omit these rows and leave a gap in `hop_count` instead.
+
+Traceroute works over all three protocols (`-p icmp`, `-p dns`, `-p tcp`):
+
+```
+manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p dns -m anycast-traceroute
+manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p tcp -m anycast-traceroute
+```
+
+#### Probe type and destination detection
+
+| Protocol | Probe sent | Intermediate-hop reply | "Destination reached" signal |
+|----------|-----------|------------------------|------------------------------|
+| ICMP | Echo Request | ICMP Time Exceeded | ICMP Echo Reply from the target |
+| UDP (DNS) | a valid DNS `A` query to the destination port | ICMP Time Exceeded | DNS answer from the target (open port), or ICMP Destination Unreachable (closed port) |
+| TCP | unsolicited TCP SYN-ACK | ICMP Time Exceeded | TCP RST from the target |
+
+#### Paris traceroute (UDP and TCP)
+
+UDP and TCP traceroute are Paris traceroute implementations: the flow 5-tuple
+(src IP, dst IP, protocol, sport, dport) is held **constant across all TTL values**, so ECMP
+load-balancers forward every probe of a trace along the same path. The per-probe identity
+(hop TTL, worker ID, send timestamp) is therefore encoded in header fields that are *not* part
+of the flow hash, and recovered from the ICMP Time Exceeded quote (original IP header + first 8
+transport bytes):
+
+**NOTE** Multiple origins (with varying port or IP address values) can be used to purposefully (and in a controlled manner)
+trigger load-balancers and observe their behavior (e.g., for detecting anycast site flipping).
+
+| Protocol | Identity carried in                                                                                            |
+|----------|----------------------------------------------------------------------------------------------------------------|
+| ICMP | ICMP identifier + SEQ                                                                                          |
+| UDP | UDP checksum (TTL + low worker bits) + IPv4 IP Identification / IPv6 Flow Label (high worker bits + timestamp) |
+| TCP | TCP **SEQ** (worker + TTL + timestamp), copied into the **ACK** as well                                        |
+
+* An **intermediate** router's ICMP Time Exceeded is only *guaranteed* to quote the original IP
+  header plus the **first 8 bytes** of the transport header (RFC 792). For TCP those 8 bytes are
+  the source port, destination port, and **SEQ**, not the **ACK**.
+* The **destination** answers with a **RST**, which reflects the ACK field.
+  Therefore, we encode the identity in both the SEQ and ACK fields.
+
+> **Middlebox caveat (UDP traceroute):** some middleboxes (NATs, firewalls) rewrite the IPv4 IP
+> Identification field or the IPv6 Flow Label. If this happens the 14-bit transmit timestamp and
+> the 2 high bits of the worker ID are lost; path discovery still works, but the per-hop RTT
+> cannot be computed and worker identification is limited to 256 workers.
+
+#### Sockets and privileges
+
+ICMP traceroute uses a single socket. UDP and TCP traceroute use **two raw sockets** per origin:
+
+* a raw **ICMP** socket to receive Time Exceeded / Destination Unreachable messages, and
+* a raw **UDP/TCP** socket to send the probes and receive the target's reply (DNS answer / RST).
+
+Both therefore require a raw socket (`CAP_NET_RAW`) — the unprivileged `SOCK_DGRAM` path used by
+normal DNS measurements is not available for traceroute, because we need IP header control.
+
+#### Limitations
+
+* **DNS traceroute** terminates at the destination only if the target answers on the configured
+  destination port — a DNS reply on an open port, or an ICMP port-unreachable on a closed one. A
+  silent/firewalled target walks to `--trace_max_hop`.
+* **TCP traceroute** distinguishes discovery replies from trace replies using a flag bit that
+  overlaps the top worker-id bit, so destination detection is reliable for worker IDs below 512.
+* **Intermediate-hop RTTs** use a 14-bit millisecond transmit timestamp (it wraps every ~16.4 s);
+  this is ample for traceroute RTTs but the value is modular. The ICMP and DNS destination hops
+  instead carry a full microsecond timestamp.
 
 ## CSV output format
 

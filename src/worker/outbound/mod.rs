@@ -5,19 +5,19 @@ mod trace;
 use log::{info, warn};
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use tokio::sync::mpsc::Receiver;
 
+use crate::ALL_ORIGINS;
+use crate::custom_module::Separated;
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, ProtocolType};
-use crate::custom_module::Separated;
 use crate::worker::outbound::probe::send_probe;
 use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
-use crate::ALL_ORIGINS;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
 
@@ -58,7 +58,7 @@ pub struct OutboundConfig {
 /// # Arguments
 /// * `config` - configuration for the outbound worker thread
 /// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
-/// * `socket` - the sender object to send packets
+/// * `socket` - the sender object to send probe/discovery/trace packets
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
@@ -140,6 +140,10 @@ pub fn outbound(
                                         trace,
                                         &socket,
                                         &config.src,
+                                        config.p_type,
+                                        config.sport,
+                                        config.dport,
+                                        config.qname.as_deref().unwrap_or("example.org"),
                                     );
                                     traces_sent += s;
                                     failed += f;

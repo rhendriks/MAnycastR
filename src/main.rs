@@ -213,7 +213,7 @@
 //! * Support any/all protocol types to measure targets with multiple protocols
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
-use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;

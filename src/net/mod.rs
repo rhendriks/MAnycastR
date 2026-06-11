@@ -1,7 +1,7 @@
 extern crate byteorder;
 use std::io::{Cursor, Read, Write};
 
-use crate::custom_module::manycastr::{address, Address, RecordedHops};
+use crate::custom_module::manycastr::{Address, RecordedHops, address};
 pub(crate) use crate::net::icmp::ICMPPacket;
 pub(crate) use crate::net::tcp::TCPPacket;
 pub(crate) use crate::net::udp::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
@@ -11,32 +11,6 @@ mod icmp;
 pub(crate) mod packet;
 mod tcp;
 mod udp;
-
-/// Enum representing either an IPv4 or IPv6 packet.
-#[derive(Debug)]
-pub enum IPPacket {
-    V4(IPv4Packet),
-    V6(IPv6Packet),
-}
-
-/// Methods for IPPacket
-impl IPPacket {
-    /// Returns the destination IP address.
-    pub fn dst(&self) -> Address {
-        match self {
-            IPPacket::V4(packet) => Address::from(packet.dst),
-            IPPacket::V6(packet) => Address::from(packet.dst),
-        }
-    }
-
-    /// Returns a reference to the payload.
-    pub fn payload(&self) -> &PacketPayload {
-        match self {
-            IPPacket::V4(packet) => &packet.payload,
-            IPPacket::V6(packet) => &packet.payload,
-        }
-    }
-}
 
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
@@ -306,8 +280,9 @@ impl From<&[u8]> for IPv6Packet {
 impl From<&IPv6Packet> for Vec<u8> {
     fn from(packet: &IPv6Packet) -> Self {
         let mut wtr = vec![];
-        // Write traffic class 0x60 and flow label 0x003a7d
-        wtr.write_u32::<NetworkEndian>(0x60003a7d)
+        // Version (6), Traffic Class (0), Flow Label (from struct)
+        let vtf = 0x6000_0000u32 | (packet.flow_label & 0x000F_FFFF);
+        wtr.write_u32::<NetworkEndian>(vtf)
             .expect("Unable to write to byte buffer for IPv6Packet");
         wtr.write_u16::<NetworkEndian>(packet.payload_length)
             .expect("Unable to write to byte buffer for IPv6Packet");
@@ -352,6 +327,58 @@ impl From<PacketPayload> for Vec<u8> {
             PacketPayload::Tcp { value } => (&value).into(),
             PacketPayload::Unimplemented => vec![],
         }
+    }
+}
+
+/// Wrap a transport-layer payload in an IPv4 or IPv6 header.
+///
+/// The IP protocol / IPv6 next-header is derived from the payload variant. `identifier` is
+/// written to the IPv4 Identification field, or to the low 16 bits of the IPv6 Flow Label.
+///
+/// # Returns
+/// The packet as a vector of bytes.
+///
+/// # Panics
+/// If `src` and `dst` are different IP versions (or unset).
+pub(crate) fn build_ip_packet(
+    src: &Address,
+    dst: &Address,
+    ttl: u8,
+    identifier: u16,
+    payload: PacketPayload,
+) -> Vec<u8> {
+    // Serialized length of the transport payload + the IP protocol number for that payload.
+    let (l4_len, next_header) = match &payload {
+        PacketPayload::Icmp { value } => (Vec::<u8>::from(value).len(), 58u8), // 1 (v4) handled below
+        PacketPayload::Udp { value } => (Vec::<u8>::from(value).len(), 17u8),
+        PacketPayload::Tcp { value } => (Vec::<u8>::from(value).len(), 6u8),
+        PacketPayload::Unimplemented => (0usize, 0u8),
+    };
+    let l4_len = l4_len as u16;
+
+    match (&src.value, &dst.value) {
+        (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => (&IPv6Packet {
+            payload_length: l4_len,
+            flow_label: identifier as u32,
+            next_header,
+            hop_limit: ttl,
+            src: src.into(),
+            dst: dst.into(),
+            payload,
+        })
+            .into(),
+        (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => (&IPv4Packet {
+            // IPv4 protocol byte is derived from the payload variant during serialization.
+            length: 20 + l4_len,
+            identifier,
+            ttl,
+            src: src.into(),
+            dst: dst.into(),
+            payload,
+            options: None,
+        })
+            .into(),
+        (s, d) => panic!("IP version mismatch or unset address: src={s:?}, dst={d:?}"),
     }
 }
 

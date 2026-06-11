@@ -2,7 +2,37 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [1.7.0] - 2026-06-06
+## [1.8.0] - 2026-06-09
+
+Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and reworks proto definitions for less bandwidth.
+
+### Added
+- **UDP/DNS and TCP anycast traceroute** — `-m anycast-traceroute` now works with
+  `-p dns` and `-p tcp` in addition to `-p icmp`.
+
+### Changed
+- **Reply messages carry a precomputed `rtt`** (a `float`, milliseconds) instead of the
+  raw `rx_time`/`tx_time` timestamps. The worker computes the RTT.
+- **Smaller reply encoding** — `ttl`, `tx_id`, `origin_id`, `worker_id`, `sport` and
+  `dport` are now varint (`uint32`) instead of `fixed32`.
+- **`Worker.status` is now a `WorkerStatus` enum** instead of a string.
+- Unified IPv4/IPv6 packet construction (`build_ip_packet`), centralized the traceroute
+  encoding/decoding into a single `trace_codec`, and simplified `parse_trace`.
+- Trimmed `parquet` features (`default-features = false`), dropping the unused Arrow
+  dependency stack ~1.2 MB (~15%) smaller musl release binary and Docker image.
+- Migrated to the Rust 2024 edition and adopted the 2024 rustfmt style (repo-wide reformat).
+
+### Fixed
+- **CHAOS measurements no longer emit an `rtt` column**  — CHAOS replies
+  carry no transmit timestamp, so there is no round-trip time to report.
+
+### Notes
+- UDP traceroute: some middleboxes rewrite the IPv4 Identification field / IPv6
+  Flow Label; when that happens the send timestamp and the high bits of the worker
+  id are lost for intermediate hops (the hop TTL and low worker-id bits, carried in
+  the UDP checksum, are unaffected). ICMP and TCP traceroute are not affected.
+
+## [1.7.0] - 2026-06-08
 
 Adds `--any` multi-protocol fallback and substantially simplifies the
 orchestrator internals.
@@ -229,6 +259,7 @@ traceroute, and improves LACeS and traceroute output.
 
 - Initial release.
 
+[1.8.0]: https://github.com/rhendriks/MAnycastR/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rhendriks/MAnycastR/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rhendriks/MAnycastR/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rhendriks/MAnycastR/compare/v1.4.0...v1.5.0

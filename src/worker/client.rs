@@ -6,11 +6,11 @@ use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 impl Worker {
     /// Connect to the orchestrator.
@@ -23,13 +23,13 @@ impl Worker {
         fqdn: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let scheme = if fqdn.is_some() { "https" } else { "http" };
-        let uri = format!("{}://{}", scheme, address);
+        let uri = format!("{scheme}://{address}");
         let mut endpoint = Channel::from_shared(uri)?;
 
         if let Some(domain_name) = fqdn {
             let cert_path = "tls/orchestrator.crt";
             let pem = std::fs::read_to_string(cert_path)
-                .map_err(|e| format!("Failed to read CA cert at {}: {}", cert_path, e))?;
+                .map_err(|e| format!("Failed to read CA cert at {cert_path}: {e}"))?;
 
             let ca = Certificate::from_pem(pem);
             let tls = ClientTlsConfig::new()
@@ -56,7 +56,7 @@ impl Worker {
         let worker_req = custom_module::manycastr::Worker {
             hostname: self.hostname.clone(),
             worker_id: 0,
-            status: "".to_string(),
+            status: custom_module::manycastr::WorkerStatus::Idle as i32, // Placeholder status
             unicast_v6: local_ipv6().ok().map(Address::from),
             unicast_v4: local_ip().ok().map(Address::from),
         };

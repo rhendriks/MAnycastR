@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::{Address, ProtocolType};
-use crate::net::packet::{create_dns, create_icmp, create_tcp, DnsProbeId, ProbePayload};
-use crate::worker::outbound::{send_packet, OutboundConfig, DISCOVERY_WORKER_ID_OFFSET};
+use crate::net::packet::{DnsProbeId, ProbePayload, create_dns, create_icmp, create_tcp};
+use crate::worker::outbound::{DISCOVERY_WORKER_ID_OFFSET, OutboundConfig, send_packet};
 use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use socket2::Socket;
@@ -102,6 +102,7 @@ pub fn send_probe(
     } else {
         0
     };
+
     match send_packet(socket, packet_buffer, dst, dest_port) {
         Ok(()) => sent += 1,
         Err(e) => {

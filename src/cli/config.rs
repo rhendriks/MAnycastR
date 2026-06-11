@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
 use crate::ALL_WORKERS;
+use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
