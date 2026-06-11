@@ -2,6 +2,46 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [1.9.0] - 2026-06-11
+
+Makes discovery-based measurements (latency, traceroute, `--responsive`) robust
+under uneven anycast catchments, and stabilize measurement ending to ensure
+final tasks are performed.
+
+### Added
+- **Discovery backpressure** — the orchestrator pauses discovery probing when a
+  worker's follow-up backlog exceeds a high watermark (5 s of sending at the
+  probing rate) and resumes once it drains below a low watermark (1 s).
+  Previously, when one worker caught a dominant share of the anycast catchment,
+  its follow-up queue grew without bound (unbounded orchestrator memory, stale
+  follow-up probes). The measurement now self-paces to the catching worker's
+  rate instead. (#81)
+
+### Changed
+- **Graceful measurement teardown** — on finish, workers first drain their
+  queued outbound tasks and keep the inbound listener open for a grace period
+  before closing, so probes queued at the end of a measurement are still sent
+  and their replies captured. The orchestrator's end-of-measurement cooldown
+  now also accounts for repeated probes (`(nprobes - 1) × probe-interval`).
+- **One follow-up per target** — duplicate discovery replies (e.g., retransmits)
+  no longer queue duplicate follow-up tasks; resolved-target tracking now
+  applies to all discovery modes instead of only `--any`.
+- **Workers route task batches by origin** — batches are forwarded only to the
+  outbound thread of the matching origin instead of being cloned to all of them.
+- **Smoother task dispatch** — the distributor skips missed ticks instead of
+  bursting to catch up after a stalled send.
+- **Simplification sweep** ~150 lines removed, no behavior change.
+
+### Fixed
+- **Measurements no longer hang when a worker disconnects mid-measurement** —
+  the dropped worker's queued follow-up tasks and active trace sessions are
+  discarded so the remaining workers can finish the measurement.
+- **Late result batches no longer panic the orchestrator** — results arriving
+  after measurement teardown previously panicked while holding the measurement
+  lock, poisoning it and breaking all subsequent measurements until restart;
+  they are now logged and dropped. The traceroute timeout checker likewise
+  exits cleanly when the measurement ends before it starts.
+
 ## [1.8.0] - 2026-06-09
 
 Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and reworks proto definitions for less bandwidth.
@@ -259,6 +299,7 @@ traceroute, and improves LACeS and traceroute output.
 
 - Initial release.
 
+[1.9.0]: https://github.com/rhendriks/MAnycastR/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/rhendriks/MAnycastR/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rhendriks/MAnycastR/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rhendriks/MAnycastR/compare/v1.5.0...v1.6.0
