@@ -1,6 +1,5 @@
-use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
-    Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
+    Finished, MeasurementType, Origin, ProtocolType, ReplyBatch, Start,
 };
 use crate::dns_identifier;
 use crate::worker::bpf::{
@@ -25,20 +24,15 @@ impl Worker {
     /// Creates an additional thread that forwards task results to the orchestrator.
     ///
     /// # Arguments
-    /// * `instruction` - Instruction containing a definition for a new measurement
+    /// * `start` - Definition of the new measurement
     /// * `worker_id` - the unique ID of this worker
     /// * `abort_outbound` - Forcefully signal the outbound thread to stop sending probes
     pub(crate) fn init(
         &mut self,
-        instruction: Instruction,
+        start: Start,
         worker_id: u16,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        let start = match instruction.instruction_type {
-            Some(InstructionType::Start(s)) => s,
-            _ => return Err("Received non-start packet for init".into()),
-        };
-
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
         let m_type = start.m_type();
