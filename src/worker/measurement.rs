@@ -136,7 +136,7 @@ impl Worker {
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
-                self.outbound_txs.push(outbound_tx);
+                self.outbound_txs.push((rx_origin.origin_id, outbound_tx));
 
                 let outbound_handle = outbound(
                     OutboundConfig {
