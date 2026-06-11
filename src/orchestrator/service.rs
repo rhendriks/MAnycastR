@@ -360,12 +360,20 @@ impl Controller for ControllerService {
             }
         }
 
-        // Process discovery and traceroute replies under a single measurement lock
+        // Process discovery and traceroute replies
         if !discovery_bucket.is_empty() || !trace_bucket.is_empty() {
             let mut lock = self.measurement.write().unwrap();
-            let state = lock
-                .as_mut()
-                .expect("[Orchestrator] Results received but no measurement is active");
+            let Some(state) = lock.as_mut() else {
+                // Discard late results arrived after the measurement was torn down
+                warn!(
+                    "[Orchestrator] Dropping {} late replies from worker {catcher_id} (no active measurement)",
+                    discovery_bucket.len() + trace_bucket.len()
+                );
+                return Ok(Response::new(Ack {
+                    is_success: true,
+                    error_message: "".to_string(),
+                }));
+            };
 
             if !discovery_bucket.is_empty() {
                 if state.is_any_protocol {
