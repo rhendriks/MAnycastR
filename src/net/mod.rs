@@ -12,32 +12,6 @@ pub(crate) mod packet;
 mod tcp;
 mod udp;
 
-/// Enum representing either an IPv4 or IPv6 packet.
-#[derive(Debug)]
-pub enum IPPacket {
-    V4(IPv4Packet),
-    V6(IPv6Packet),
-}
-
-/// Methods for IPPacket
-impl IPPacket {
-    /// Returns the destination IP address.
-    pub fn dst(&self) -> Address {
-        match self {
-            IPPacket::V4(packet) => Address::from(packet.dst),
-            IPPacket::V6(packet) => Address::from(packet.dst),
-        }
-    }
-
-    /// Returns a reference to the payload.
-    pub fn payload(&self) -> &PacketPayload {
-        match self {
-            IPPacket::V4(packet) => &packet.payload,
-            IPPacket::V6(packet) => &packet.payload,
-        }
-    }
-}
-
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
