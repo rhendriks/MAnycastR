@@ -378,15 +378,13 @@ impl Controller for ControllerService {
                 }));
             };
 
-            if !discovery_bucket.is_empty() {
-                if state.is_any_protocol {
-                    for reply in &discovery_bucket {
-                        if let Some(addr) = reply.src {
-                            state.resolved_targets.insert(addr);
-                        }
-                    }
-                }
+            // Drop duplicate discovery replies (e.g., multi-reply targets)
+            discovery_bucket.retain(|reply| match reply.src {
+                Some(addr) => state.resolved_targets.insert(addr),
+                None => false,
+            });
 
+            if !discovery_bucket.is_empty() {
                 match state.m_type {
                     // Perform follow-up from ALL workers
                     MeasurementType::Laces | MeasurementType::UnicastLatency => {
@@ -567,7 +565,6 @@ impl ControllerService {
             workers_count: participating_ids.len() as u32,
             probing_workers: probing_ids.to_vec(),
             m_type: m_def.m_type(),
-            is_any_protocol: m_def.is_any_protocol,
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),
