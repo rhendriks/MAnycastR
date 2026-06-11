@@ -197,13 +197,14 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         } => (is_responsive, is_any_protocol, origin_ids),
         _ => (false, false, vec![]),
     };
-
-    // Cooldown duration before ending the measurement
+    
+    // Wait for the last tasks being sent (accounting for repeated tasks)
+    let repeat_secs = (config.number_of_probes.saturating_sub(1)) as u64 * config.probe_interval;
     let cooldown_secs = if is_broadcast || is_responsive {
-        // Wait for all workers to send their last tasks
-        (config.number_of_probing_workers as u64 * config.worker_interval) + 1
+        // Also wait for the inter-worker staggering of the last broadcast batch
+        (config.number_of_probing_workers as u64 * config.worker_interval) + repeat_secs + 1
     } else {
-        1 // TODO re-assess cooldown
+        repeat_secs + 1
     };
 
     let mut probing_rate_interval = config.probing_rate_interval;
