@@ -84,45 +84,37 @@ impl Worker {
                 (socket.clone(), socket, is_dgram)
             };
 
-            // Primary listener (ICMP trace replies for transport traceroute)
-            inbound(
-                InboundConfig {
-                    m_id,
-                    worker_id,
-                    p_type: rx_origin.p_type(),
-                    abort_s: self.abort_inbound.clone(),
-                    is_traceroute,
-                    is_record: start.is_record,
-                    is_dgram,
-                    origin_id: rx_origin.origin_id,
-                    sport: rx_origin.sport as u16,
-                    src: rx_origin.src.expect("no src").to_string(),
-                    is_transport_trace: false,
-                },
-                inbound_tx.clone(),
-                rx_socket,
-            );
+            let inbound_config = InboundConfig {
+                m_id,
+                worker_id,
+                p_type: rx_origin.p_type(),
+                abort_s: self.abort_inbound.clone(),
+                is_traceroute,
+                is_record: start.is_record,
+                is_dgram,
+                origin_id: rx_origin.origin_id,
+                sport: rx_origin.sport as u16,
+                src: rx_origin.src.expect("no src").to_string(),
+                is_transport_trace: false,
+            };
 
             // For transport traceroute, listen on the raw transport socket for discovery replies
             if is_transport_traceroute {
                 inbound(
                     InboundConfig {
-                        m_id,
-                        worker_id,
-                        p_type: rx_origin.p_type(),
-                        abort_s: self.abort_inbound.clone(),
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
                         is_record: false,
                         is_dgram: false, // raw transport socket
-                        origin_id: rx_origin.origin_id,
-                        sport: rx_origin.sport as u16,
-                        src: rx_origin.src.expect("no src").to_string(),
                         is_transport_trace: true,
+                        ..inbound_config.clone()
                     },
                     inbound_tx.clone(),
                     tx_socket.clone(),
                 );
             }
+
+            // Primary listener (ICMP trace replies for transport traceroute)
+            inbound(inbound_config, inbound_tx.clone(), rx_socket);
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
