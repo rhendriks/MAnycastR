@@ -2,7 +2,7 @@ use crate::ALL_ORIGINS;
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Instruction, Task, Tasks};
+use crate::custom_module::manycastr::{Address, End, Start, Task, Tasks};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -104,14 +104,7 @@ impl Worker {
                 // Starting a measurement (whilst idle)
                 (None, InstructionType::Start(start)) => {
                     abort_outbound = Arc::new(AtomicBool::new(false));
-                    self.handle_start_instruction(
-                        Instruction {
-                            instruction_type: Some(InstructionType::Start(start)),
-                        },
-                        worker_id,
-                        abort_outbound.clone(),
-                    )
-                    .await?;
+                    self.handle_start_instruction(start, worker_id, abort_outbound.clone())?;
                 }
 
                 // Ending a measurement (whilst busy)
@@ -167,28 +160,23 @@ impl Worker {
     /// Calls the function to initialize the measurement
     ///
     /// # Arguments
-    /// `instr` - The instruction containing the Start instruction type
+    /// `start` - The definition of the new measurement
     /// `worker_id` - ID of this worker
     /// `abort_outbound` - Abort signal to forcefully close the outbound thread
-    async fn handle_start_instruction(
+    fn handle_start_instruction(
         &mut self,
-        instr: Instruction,
+        start: Start,
         worker_id: u16,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        let start_data = match instr.instruction_type.as_ref().unwrap() {
-            InstructionType::Start(s) => s,
-            _ => unreachable!(),
-        };
-
-        info!("[Worker] Starting measurement {}", start_data.m_id);
+        info!("[Worker] Starting measurement {}", start.m_id);
 
         // Set the measurement ID and abort signal
-        *self.current_m_id.lock().unwrap() = Some(start_data.m_id);
+        *self.current_m_id.lock().unwrap() = Some(start.m_id);
         self.abort_inbound.store(false, Ordering::SeqCst);
 
         // Initialize the measurement threads
-        self.init(instr, worker_id, abort_outbound)?;
+        self.init(start, worker_id, abort_outbound)?;
         Ok(())
     }
 
