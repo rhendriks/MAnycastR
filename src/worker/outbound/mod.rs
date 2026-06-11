@@ -59,11 +59,14 @@ pub struct OutboundConfig {
 /// * `config` - configuration for the outbound worker thread
 /// * `outbound_rx` - on this channel we receive future tasks that are part of the current measurement
 /// * `socket` - the sender object to send probe/discovery/trace packets
+///
+/// # Returns
+/// The join handle of the outbound thread, used to await its completion at the end of a measurement
 pub fn outbound(
     config: OutboundConfig,
     mut outbound_rx: Receiver<InstructionType>,
     socket: Arc<Socket>,
-) {
+) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("outbound".to_string())
         .spawn(move || {
@@ -163,7 +166,7 @@ pub fn outbound(
                 failed.with_separator()
             );
         })
-        .expect("Failed to spawn outbound thread");
+        .expect("Failed to spawn outbound thread")
 }
 
 /// Send a packet (vector of bytes) to a destination using the socket
