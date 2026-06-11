@@ -26,6 +26,7 @@ mod trace;
 ///
 /// This struct holds all the parameters needed to initialize and run a worker
 /// that listens for and processes incoming measurement packets.
+#[derive(Clone)]
 pub struct InboundConfig {
     /// The unique ID of the measurement.
     pub m_id: u32,
