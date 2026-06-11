@@ -12,6 +12,9 @@ use std::time::Duration;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
+/// Grace period after the last probe is sent before closing the listener
+const END_REPLY_GRACE_SECS: u64 = 1;
+
 impl Worker {
     /// Connect to the orchestrator.
     ///
@@ -172,8 +175,12 @@ impl Worker {
     }
 
     /// End an ongoing measurement.
-    /// Closes listening thread gracefully.
-    /// Closes sending thread forcefully or gracefully (depending on end code)
+    ///
+    /// Graceful end (code 0): the outbound threads first drain any tasks still queued in their
+    /// channels, then the inbound listener stays open for a grace period to capture in-flight
+    /// replies before it is closed.
+    /// Forceful end (code != 0): outbound and inbound threads are closed immediately,
+    /// discarding any queued tasks.
     ///
     /// # Arguments
     /// `end_instruction` - End instruction sent by the Orchestrator with an ending code
@@ -183,25 +190,37 @@ impl Worker {
         end_instruction: End,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        // Close inbound listening thread (gracefully)
-        self.abort_inbound.store(true, Ordering::SeqCst);
+        let is_graceful = end_instruction.code == 0;
 
-        if end_instruction.code == 0 {
+        if is_graceful {
             info!("[Worker] Received finish signal");
         } else {
             warn!(
                 "[Worker] Received abort signal (code {})",
                 end_instruction.code
             );
-            // Close outbound thread forcefully (force stop without parsing tasks in the channel)
+            // Close inbound and outbound threads immediately (discard tasks left in the channel)
+            self.abort_inbound.store(true, Ordering::SeqCst);
             abort_outbound.store(true, Ordering::SeqCst);
         }
 
-        // Close outbound sending threads (gracefully)
+        // Close outbound sending threads (gracefully); the End instruction is queued last
         let txs = std::mem::take(&mut self.outbound_txs);
-
         for tx in txs {
             let _ = tx.send(InstructionType::End(end_instruction)).await;
+        }
+
+        let handles = std::mem::take(&mut self.outbound_handles);
+        if is_graceful {
+            // Close the listener only after all outbound threads have sent their tasks
+            let abort_inbound = self.abort_inbound.clone();
+            tokio::task::spawn_blocking(move || {
+                for handle in handles {
+                    let _ = handle.join();
+                }
+                std::thread::sleep(Duration::from_secs(END_REPLY_GRACE_SECS));
+                abort_inbound.store(true, Ordering::SeqCst);
+            });
         }
 
         Ok(())
