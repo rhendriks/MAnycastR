@@ -99,69 +99,61 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                     // Pop candidate
                     let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
-                    // Get session belonging to identifier
-                    let should_recycle =
-                        if let Some(session) = session_tracker.sessions.get_mut(&id) {
-                            // Verify the session is still timed out (might have been updated)
-                            let expiration = session.last_updated + Duration::from_secs(timeout);
+                    // The session may have ended in the meantime (drop from the queue)
+                    let Some(session) = session_tracker.sessions.get_mut(&id) else {
+                        continue;
+                    };
 
-                            if expiration > now {
-                                // Still alive (received update during check) -> update deadline
-                                Some((id.clone(), expiration))
-                            } else {
-                                // No longer alive: Emit a '*' hop to the CLI for it, if enabled
-                                if star_unresponsive {
-                                    star_replies.push((
-                                        session.worker_id,
-                                        session.origin_id,
-                                        TraceReply {
-                                            hop_addr: None, // unresponsive hop → written as `*`
-                                            ttl: 0,
-                                            rtt: 0.0,
-                                            tx_id: session.worker_id,
-                                            trace_dst: session.target,
-                                            hop_count: session.current_ttl as u32,
-                                        },
-                                    ));
-                                }
-
-                                session.consecutive_failures += 1;
-                                session.last_updated = now;
-                                session.current_ttl += 1;
-
-                                // Check termination conditions
-                                if session.consecutive_failures > max_failures as u8
-                                    || session.current_ttl > max_hops as u8
-                                {
-                                    // Remove from tracker
-                                    session_tracker.sessions.remove(&id);
-                                    None // Nothing to update
-                                } else {
-                                    // Measure the next hop (hop timed out)
-                                    tasks_to_send.push((
-                                        session.worker_id,
-                                        Task {
-                                            task_type: Some(task::TaskType::Trace(Trace {
-                                                dst: session.target,
-                                                ttl: session.current_ttl as u32,
-                                            })),
-                                            origin_id: session.origin_id,
-                                        },
-                                    ));
-
-                                    // Update deadline for current session
-                                    Some((id.clone(), now + Duration::from_secs(timeout)))
-                                }
-                            }
-                        } else {
-                            // Session removed during process (drop from tracker)
-                            None
-                        };
-
-                    // If we need to keep tracking the current session, put it in the end of the queue
-                    if let Some(item) = should_recycle {
-                        session_tracker.expiration_queue.push_back(item);
+                    // Verify the session is still timed out (might have been updated)
+                    let expiration = session.last_updated + Duration::from_secs(timeout);
+                    if expiration > now {
+                        // Still alive (received update during check) -> re-queue with its new deadline
+                        session_tracker.expiration_queue.push_back((id, expiration));
+                        continue;
                     }
+
+                    // Hop timed out: emit a '*' hop to the CLI for it, if enabled
+                    if star_unresponsive {
+                        star_replies.push((
+                            session.worker_id,
+                            session.origin_id,
+                            TraceReply {
+                                hop_addr: None, // unresponsive hop → written as `*`
+                                ttl: 0,
+                                rtt: 0.0,
+                                tx_id: session.worker_id,
+                                trace_dst: session.target,
+                                hop_count: session.current_ttl as u32,
+                            },
+                        ));
+                    }
+
+                    session.consecutive_failures += 1;
+                    session.last_updated = now;
+                    session.current_ttl += 1;
+
+                    // Check termination conditions
+                    if session.consecutive_failures > max_failures as u8
+                        || session.current_ttl > max_hops as u8
+                    {
+                        session_tracker.sessions.remove(&id);
+                        continue;
+                    }
+
+                    // Measure the next hop and re-queue the session with a fresh deadline
+                    tasks_to_send.push((
+                        session.worker_id,
+                        Task {
+                            task_type: Some(task::TaskType::Trace(Trace {
+                                dst: session.target,
+                                ttl: session.current_ttl as u32,
+                            })),
+                            origin_id: session.origin_id,
+                        },
+                    ));
+                    session_tracker
+                        .expiration_queue
+                        .push_back((id, now + Duration::from_secs(timeout)));
                 }
 
                 // Put tasks in worker stacks (while we still hold the write lock)

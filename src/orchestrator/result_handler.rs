@@ -128,37 +128,34 @@ pub fn trace_replies_handler(
             target: trace_reply.trace_dst.unwrap(),
             origin_id,
         };
-        let mut remove = false;
 
         // Find session of corresponding trace
-        if let Some(session) = session_tracker.sessions.get_mut(&identifier) {
-            // Update the corresponding trace session
-            session.current_ttl += 1;
-            session.last_updated = Instant::now();
-            session.consecutive_failures = 0;
+        let Some(session) = session_tracker.sessions.get_mut(&identifier) else {
+            continue;
+        };
 
-            if session.current_ttl > traceroute_config.max_hops as u8
-                || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
-            {
-                // Routing loop or destination reached -> close session
-                remove = true;
-            } else {
-                // Send tracetask for the next hop
-                worker_stacks
-                    .entry(trace_reply.tx_id)
-                    .or_default()
-                    .push_back(Task {
-                        task_type: Some(task::TaskType::Trace(Trace {
-                            dst: session.target,
-                            ttl: session.current_ttl as u32,
-                        })),
-                        origin_id,
-                    });
-            }
-        }
+        // Update the corresponding trace session
+        session.current_ttl += 1;
+        session.last_updated = Instant::now();
+        session.consecutive_failures = 0;
 
-        if remove {
+        if session.current_ttl > traceroute_config.max_hops as u8
+            || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
+        {
+            // Routing loop or destination reached -> close session
             session_tracker.sessions.remove(&identifier);
+        } else {
+            // Send trace task for the next hop
+            worker_stacks
+                .entry(trace_reply.tx_id)
+                .or_default()
+                .push_back(Task {
+                    task_type: Some(task::TaskType::Trace(Trace {
+                        dst: session.target,
+                        ttl: session.current_ttl as u32,
+                    })),
+                    origin_id,
+                });
         }
     }
 }
