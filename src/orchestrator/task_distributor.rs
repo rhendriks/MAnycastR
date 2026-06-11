@@ -104,12 +104,10 @@ async fn send_to_workers(
                     tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
                         .await;
 
-                    spawn(async move {
-                        for _ in 0..nprobes {
-                            let _ = sender_c.send(Ok(task_c.clone())).await;
-                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                        }
-                    });
+                    for _ in 0..nprobes {
+                        let _ = sender_c.send(Ok(task_c.clone())).await;
+                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                    }
                 });
                 probing_index += 1;
             }
