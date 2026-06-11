@@ -109,12 +109,17 @@ pub fn parse_dns(
             })),
         })
     } else {
-        // DNS reply
+        // CHAOS replies carry no transmit timestamp
+        let rtt = if is_chaos {
+            0.0
+        } else {
+            super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros)
+        };
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
+                rtt,
                 tx_id,
                 chaos,
                 recorded_hops: None,
