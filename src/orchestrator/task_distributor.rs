@@ -106,13 +106,7 @@ async fn send_to_workers(
 
                     spawn(async move {
                         for _ in 0..nprobes {
-                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
-                                sender_c.cleanup();
-                                warn!(
-                                    "[Orchestrator] Failed to send task to probing worker {}: {e:?}",
-                                    sender_c.hostname
-                                );
-                            });
+                            let _ = sender_c.send(Ok(task_c.clone())).await;
                             tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                         }
                     });
@@ -124,27 +118,12 @@ async fn send_to_workers(
         // Send to a specific worker
         if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
             if nprobes < 2 {
-                sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
-                    sender.cleanup();
-                    warn!(
-                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                        sender.hostname
-                    );
-                });
+                let _ = sender.send(Ok(instruction)).await;
             } else {
                 let sender_c = sender.clone();
                 spawn(async move {
                     for _ in 0..nprobes {
-                        sender_c
-                            .send(Ok(instruction.clone()))
-                            .await
-                            .unwrap_or_else(|e| {
-                                sender_c.cleanup();
-                                warn!(
-                                    "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                                    sender_c.hostname
-                                );
-                            });
+                        let _ = sender_c.send(Ok(instruction.clone())).await;
                         tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                     }
                 });
@@ -161,13 +140,7 @@ async fn end_measurement(workers: &[WorkerSender<Result<Instruction, Status>>]) 
         instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
     };
     for sender in workers {
-        sender.send(Ok(end.clone())).await.unwrap_or_else(|e| {
-            sender.cleanup();
-            warn!(
-                "[Orchestrator] Failed to send end to worker {}: {e:?}",
-                sender.hostname
-            );
-        });
+        let _ = sender.send(Ok(end.clone())).await;
         sender.finished();
     }
 }
@@ -197,7 +170,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         } => (is_responsive, is_any_protocol, origin_ids),
         _ => (false, false, vec![]),
     };
-    
+
     // Wait for the last tasks being sent (accounting for repeated tasks)
     let repeat_secs = (config.number_of_probes.saturating_sub(1)) as u64 * config.probe_interval;
     let cooldown_secs = if is_broadcast || is_responsive {
