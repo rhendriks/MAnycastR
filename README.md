@@ -178,6 +178,11 @@ Each hitlist target receives 2 probes.
 The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
 The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
 
+Measurement probes respect the per-worker probing rate (`-r`).
+If a single worker catches a large share of the targets,
+the orchestrator throttles discovery probing so the catching worker can keep up with its measurement probes;
+the measurement then takes proportionally longer.
+
 ### Unicast latency measurement using ICMPv6
 
 ```
@@ -297,26 +302,26 @@ Measurement metadata is stored as `#`-prefixed comment lines at the top of the f
 
 All values are stored as text. Columns depend on the measurement type:
 
-| Column | Type | Description | Measurement types |
-|--------|------|-------------|-------------------|
-| `rx` | `String` | Hostname of the receiving worker | All |
-| `addr` | `String` | Source IP of the reply, or traceroute hop address (`*` if no reply) | All |
-| `ttl` | `String (integer)` | TTL of the reply | All |
-| `rtt` | `String (float)` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
-| `tx` | `String` | Hostname of the sending worker | LACeS, Traceroute |
-| `trace_dst` | `String` | Traceroute destination IP address | Traceroute |
-| `hop_count` | `String (integer)` | TTL used to trigger this hop reply | Traceroute |
-| `chaos_data` | `String` | DNS TXT CHAOS record value | CHAOS |
-| `origin_id` | `String (integer)` | Origin ID (multi-origin only) | Multi-origin |
+| Column       | Type               | Description                                                                                                           | Measurement types                   |
+|--------------|--------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------|
+| `rx`         | `String`           | Hostname of the receiving worker                                                                                      | All                                 |
+| `addr`       | `String`           | Source IP of the reply, or traceroute hop address (`*` if no reply)                                                   | All                                 |
+| `ttl`        | `String (integer)` | TTL of the reply                                                                                                      | All                                 |
+| `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
+| `tx`         | `String`           | Hostname of the sending worker                                                                                        | LACeS, Traceroute                   |
+| `trace_dst`  | `String`           | Traceroute destination IP address                                                                                     | Traceroute                          |
+| `hop_count`  | `String (integer)` | TTL used to trigger this hop reply                                                                                    | Traceroute                          |
+| `chaos_data` | `String`           | DNS TXT CHAOS record value                                                                                            | CHAOS                               |
+| `origin_id`  | `String (integer)` | Origin ID (multi-origin only)                                                                                         | Multi-origin                        |
 
 ### Column order per measurement type
 
-| Measurement type | Columns (in order) |
-|------------------|--------------------|
-| Catchment | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`] |
-| Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`] |
-| LACeS | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
-| Traceroute | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt` |
+| Measurement type  | Columns (in order)                                                |
+|-------------------|-------------------------------------------------------------------|
+| Catchment         | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`]              |
+| Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`]                        |
+| LACeS             | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
+| Traceroute        | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt`        |
 
 > **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time.
 > It is the signed offset `rx_time - tx_time` (milliseconds).
