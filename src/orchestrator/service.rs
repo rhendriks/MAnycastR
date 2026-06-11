@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 use tonic::{Request, Response, Status};
 
 /// Workers classified by role for a measurement.
@@ -238,11 +239,13 @@ impl Controller for ControllerService {
             );
         let is_round_robin = send_discovery || (m_type == MeasurementType::Catchment);
 
-        let probing_rate_interval = if is_round_robin {
+        let mut probing_rate_interval = if is_round_robin {
             tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
         } else {
             tokio::time::interval(Duration::from_secs(1))
         };
+        // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
+        probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         // Build ordered list of origin_ids for --any protocol fallback
         let origin_ids: Vec<u32> = if is_any_protocol {
