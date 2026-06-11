@@ -1,7 +1,8 @@
+use crate::ALL_ORIGINS;
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Instruction};
+use crate::custom_module::manycastr::{Address, End, Instruction, Task, Tasks};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -124,12 +125,29 @@ impl Worker {
                     warn!("[Worker] Received new measurement while busy; ignoring.");
                 }
 
-                // Receiving a task (whilst busy)
-                (Some(_), task_data) => {
-                    for tx in &self.outbound_txs {
-                        // TODO only forward based on matching origin ID (or ALL_ORIGIN_ID)
-                        let _ = tx.send(task_data.clone()).await;
+                // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
+                (Some(_), InstructionType::Tasks(task_batch)) => {
+                    if let [(_, tx)] = self.outbound_txs.as_slice() {
+                        // Single origin: forward the batch as-is (the outbound thread skips non-matching tasks)
+                        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
+                    } else {
+                        for (origin_id, tx) in &self.outbound_txs {
+                            let tasks: Vec<Task> = task_batch
+                                .tasks
+                                .iter()
+                                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
+                                .cloned()
+                                .collect();
+                            if !tasks.is_empty() {
+                                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
+                            }
+                        }
                     }
+                }
+
+                // Receiving any other instruction (whilst busy) [INVALID]
+                (Some(_), _) => {
+                    warn!("[Worker] Received unexpected instruction while busy; ignoring.");
                 }
 
                 // Receiving anything but a new measurement (whilst idle) [INVALID]
@@ -206,7 +224,7 @@ impl Worker {
 
         // Close outbound sending threads (gracefully); the End instruction is queued last
         let txs = std::mem::take(&mut self.outbound_txs);
-        for tx in txs {
+        for (_, tx) in txs {
             let _ = tx.send(InstructionType::End(end_instruction)).await;
         }
 
