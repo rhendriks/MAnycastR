@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, ReplyBatch, Task, Trace, TraceReply, task};
 use crate::orchestrator::{CliHandle, MeasurementHandle};
+use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -56,11 +57,11 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
     // Get traceroute parameters (read once at start — they don't change during a measurement)
     let (timeout, max_hops, max_failures, star_unresponsive) = {
         let lock = measurement.read().unwrap();
-        let state = lock.as_ref().expect("MeasurementState not initialized");
-        let config = state
-            .trace_config
-            .as_ref()
-            .expect("TracerouteConfig not initialized");
+        let Some(config) = lock.as_ref().and_then(|state| state.trace_config.as_ref()) else {
+            // The measurement was torn down before this thread started
+            warn!("[Orchestrator] No active traceroute measurement, stopping timeout checker");
+            return;
+        };
         (
             config.timeout,
             config.max_hops,
