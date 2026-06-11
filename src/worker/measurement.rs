@@ -138,7 +138,7 @@ impl Worker {
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
                 self.outbound_txs.push(outbound_tx);
 
-                outbound(
+                let outbound_handle = outbound(
                     OutboundConfig {
                         worker_id,
                         abort_outbound: abort_outbound.clone(),
@@ -157,6 +157,7 @@ impl Worker {
                     outbound_rx,
                     tx_socket,
                 );
+                self.outbound_handles.push(outbound_handle);
             }
         }
 
