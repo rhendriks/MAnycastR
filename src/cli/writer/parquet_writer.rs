@@ -286,10 +286,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             "ttl" | "origin_id" | "hop_count" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Integer {
-                        bit_width: 8,
-                        is_signed: false,
-                    }))
+                    .with_logical_type(Some(LogicalType::integer(8, false)))
                     .build()
                     .unwrap()
             }
