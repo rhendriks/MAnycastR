@@ -1,15 +1,15 @@
 use log::info;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::{sleep, Builder};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{Builder, sleep};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
 use crate::custom_module::Separated;
-use crate::worker::inbound::dns::{parse_dns, DnsContext};
+use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
+use crate::worker::inbound::dns::{DnsContext, parse_dns};
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
@@ -191,7 +191,11 @@ pub(crate) fn rtt_ms(rx_time_us: u64, tx_time: u64, enc: TxEncoding) -> f32 {
             const MODULUS: u64 = 1 << 14; // 14-bit milliseconds
             const MASK: u64 = MODULUS - 1;
             let rx = (rx_time_us / 1_000) & MASK;
-            let ms = if rx >= tx_time { rx - tx_time } else { rx + MODULUS - tx_time };
+            let ms = if rx >= tx_time {
+                rx - tx_time
+            } else {
+                rx + MODULUS - tx_time
+            };
             ms as f32
         }
         // Full microsecond epoch on both ends

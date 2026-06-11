@@ -6,16 +6,16 @@ use crate::dns_identifier;
 use crate::worker::bpf::{
     attach_dns_filter, attach_icmp_filter, attach_tcp_filter, attach_traceroute_filter,
 };
-use crate::worker::config::{set_unicast_origins, Worker};
-use crate::worker::inbound::{inbound, InboundConfig};
-use crate::worker::outbound::{outbound, OutboundConfig};
+use crate::worker::config::{Worker, set_unicast_origins};
+use crate::worker::inbound::{InboundConfig, inbound};
+use crate::worker::outbound::{OutboundConfig, outbound};
 use log::{error, info, warn};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 impl Worker {
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
@@ -170,7 +170,9 @@ impl Worker {
                     if let Ok(mut guard) = m_id_handle.lock() {
                         *guard = None;
                     }
-                    info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
+                    info!(
+                        "[Worker] Letting the orchestrator know that this worker finished the measurement"
+                    );
                     let _ = grpc_client_clone
                         .measurement_finished(Finished {
                             m_id,
@@ -269,7 +271,9 @@ impl Worker {
                 }
                 None => match Self::try_raw_socket(domain, protocol, is_ipv6) {
                     Some(s) => {
-                        warn!("[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)");
+                        warn!(
+                            "[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)"
+                        );
                         (s, false)
                     }
                     None => panic!(
@@ -289,7 +293,9 @@ impl Worker {
                     let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
                     match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
                         Some(s) => {
-                            info!("[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)");
+                            info!(
+                                "[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)"
+                            );
                             (s, true)
                         }
                         None => panic!(

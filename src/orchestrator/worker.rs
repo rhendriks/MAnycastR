@@ -83,15 +83,14 @@ impl<T> Drop for WorkerReceiver<T> {
         *self.status.lock().unwrap() = Disconnected;
 
         // Notify the CLI if the measurement is finished now
-        if should_notify_cli {
-            if let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref() {
-                if let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default())) {
-                    warn!(
-                        "[Orchestrator] Failed to send measurement finished signal to CLI: {}",
-                        e
-                    );
-                }
-            }
+        if should_notify_cli
+            && let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref()
+            && let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default()))
+        {
+            warn!(
+                "[Orchestrator] Failed to send measurement finished signal to CLI: {}",
+                e
+            );
         }
     }
 }

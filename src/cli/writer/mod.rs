@@ -12,11 +12,11 @@ use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::custom_module;
-use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::MeasurementType;
+use crate::custom_module::manycastr::reply::ReplyData;
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use log::error;
 use std::io::BufWriter;
 

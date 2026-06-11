@@ -1,17 +1,17 @@
 use crate::cli::client::CliClient;
 use crate::cli::config::{get_hitlist, get_targets, parse_configurations};
 use crate::cli::utils::validate_path_perms;
+use crate::custom_module::Separated;
 use crate::custom_module::manycastr::address::Value::Unicast;
 use crate::custom_module::manycastr::{
     Address, Configuration, Empty, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
     TraceOptions,
 };
-use crate::custom_module::Separated;
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::{error, info, warn};
-use prettytable::{format, row, Table};
+use prettytable::{Table, format, row};
 use std::collections::HashSet;
 
 pub struct MeasurementExecutionArgs<'a> {
@@ -170,9 +170,10 @@ pub async fn handle(
     // Get protocol and IP version
     let ip_version = if is_ipv6 { "(IPv6)" } else { "(IPv4)" };
 
-    info!("[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
-             hitlist_length.with_separator(),
-             probing_rate.with_separator(),
+    info!(
+        "[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+        hitlist_length.with_separator(),
+        probing_rate.with_separator(),
     );
 
     // Print the origins used
@@ -186,10 +187,7 @@ pub async fn handle(
     for config in &configurations {
         if let Some(origin) = &config.origin {
             let (worker_name, worker_id_str) = if config.worker_id == ALL_WORKERS {
-                (
-                    format!("All {}", worker_map.len()),
-                    "ALL".to_string(),
-                )
+                (format!("All {}", worker_map.len()), "ALL".to_string())
             } else {
                 (
                     worker_map

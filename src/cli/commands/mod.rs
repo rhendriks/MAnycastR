@@ -4,8 +4,8 @@ use bimap::BiHashMap;
 use clap::ArgMatches;
 use log::info;
 use std::error::Error;
-use tonic::codec::CompressionEncoding;
 use tonic::Request;
+use tonic::codec::CompressionEncoding;
 pub(crate) mod start;
 mod worker_list;
 

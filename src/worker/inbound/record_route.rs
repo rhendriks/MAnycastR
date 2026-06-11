@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{Address, Reply};
-use crate::net::{parse_record_route_option, IPv4Packet, PacketPayload};
+use crate::net::{IPv4Packet, PacketPayload, parse_record_route_option};
 use crate::worker::inbound::ping::parse_icmp_inner;
 
 /// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.

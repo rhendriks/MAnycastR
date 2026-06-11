@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
-use manycastr::{address::Value::Unicast, address::Value::V4, address::Value::V6, Address, IPv6};
+use manycastr::{Address, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6};
 use std::fmt;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};

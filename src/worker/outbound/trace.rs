@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{Address, ProtocolType, Trace};
-use crate::net::packet::{create_icmp, create_tcp_trace, create_udp_trace, ProbePayload};
+use crate::net::packet::{ProbePayload, create_icmp, create_tcp_trace, create_udp_trace};
 use crate::worker::outbound::send_packet;
 use crate::worker::trace_codec::TraceTag;
 use log::warn;
@@ -100,13 +100,14 @@ pub fn send_trace(
     // For ICMP on IPv6, the kernel writes the header, so we set hop limit via socket option.
     // For UDP/TCP on IPv6, we include the IPv6 header (header_included_v6), so TTL is in the packet.
     // TODO header included does not work for IPv6?
-    if src.is_v6() && p_type == ProtocolType::Icmp {
-        if let Err(e) = socket.set_unicast_hops_v6(trace_task.ttl) {
-            warn!(
-                "[Worker outbound] Failed to set IPv6 hop limit to {}: {e}",
-                trace_task.ttl
-            );
-        }
+    if src.is_v6()
+        && p_type == ProtocolType::Icmp
+        && let Err(e) = socket.set_unicast_hops_v6(trace_task.ttl)
+    {
+        warn!(
+            "[Worker outbound] Failed to set IPv6 hop limit to {}: {e}",
+            trace_task.ttl
+        );
     }
 
     let result = match send_packet(

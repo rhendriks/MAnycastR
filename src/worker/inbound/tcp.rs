@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{Address, DiscoveryReply, MeasurementReply, Reply, TraceReply};
+use crate::custom_module::manycastr::{
+    Address, DiscoveryReply, MeasurementReply, Reply, TraceReply,
+};
 use crate::net::TCPPacket;
 use crate::worker::trace_codec::TraceTag;
 
