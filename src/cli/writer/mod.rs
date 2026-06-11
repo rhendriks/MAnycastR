@@ -201,7 +201,12 @@ pub fn get_header(
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
-            vec!["rx", "addr", "ttl", "tx", "rtt"]
+            // CHAOS replies carry no transmit timestamp, so there is no RTT to report
+            if is_chaos {
+                vec!["rx", "addr", "ttl", "tx"]
+            } else {
+                vec!["rx", "addr", "ttl", "tx", "rtt"]
+            }
         }
     };
 
