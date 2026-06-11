@@ -40,13 +40,14 @@ pub fn get_laces_row(
         reply.src.unwrap().to_string(),
         reply.ttl.to_string(),
         tx_hostname,
-        format_rtt(reply.rtt),
     ];
 
-    // Optional fields
-    if let Some(chaos) = reply.chaos {
-        row.push(chaos);
+    // CHAOS replies carry no RTT
+    match reply.chaos {
+        Some(chaos) => row.push(chaos),
+        None => row.push(format_rtt(reply.rtt)),
     }
+
     if origin_id != SINGLE_ORIGIN {
         row.push(origin_id.to_string());
     }
