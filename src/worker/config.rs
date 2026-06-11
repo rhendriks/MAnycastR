@@ -15,8 +15,8 @@ pub struct Worker {
     pub(crate) hostname: String,
     /// ID of the current measurement (None indicates no active measurement ongoing)
     pub(crate) current_m_id: Arc<Mutex<Option<u32>>>,
-    /// Instructions sender to the outbound probing threads
-    pub(crate) outbound_txs: Vec<tokio::sync::mpsc::Sender<InstructionType>>,
+    /// Instructions senders to the outbound probing threads, paired with their origin ID
+    pub(crate) outbound_txs: Vec<(u32, tokio::sync::mpsc::Sender<InstructionType>)>,
     /// Join handles of the outbound probing threads, awaited on graceful end before closing inbound
     pub(crate) outbound_handles: Vec<std::thread::JoinHandle<()>>,
     /// Atomic boolean to signal the inbound thread to immediately stop listening for packets
