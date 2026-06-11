@@ -50,7 +50,7 @@ pub fn trace_discovery_handler(
     traceroute_config: &mut TracerouteConfig,
     origin_id: u32,
 ) {
-    let mut tasks_to_send = Vec::new();
+    let stack = worker_stacks.entry(catcher_id).or_default();
 
     // Discovery replies
     for result in discovery_results {
@@ -85,21 +85,13 @@ pub fn trace_discovery_handler(
             .expiration_queue
             .push_back((identifier, deadline));
 
-        tasks_to_send.push(Task {
+        stack.push_back(Task {
             task_type: Some(task::TaskType::Trace(Trace {
                 dst: target,
                 ttl: traceroute_config.initial_hop,
             })),
             origin_id,
         });
-    }
-
-    // Put tasks in worker stacks
-    if !tasks_to_send.is_empty() {
-        let stack = worker_stacks.entry(catcher_id).or_default();
-        for task in tasks_to_send {
-            stack.push_back(task);
-        }
     }
 }
 
