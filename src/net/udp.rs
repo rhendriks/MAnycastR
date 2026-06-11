@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::Address;
 use crate::dns_identifier;
 use crate::net::packet::DnsProbeId;
-use crate::net::{build_ip_packet, calculate_checksum, PacketPayload, PseudoHeader};
+use crate::net::{PacketPayload, PseudoHeader, build_ip_packet, calculate_checksum};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use std::io::{Cursor, Read, Write};
@@ -262,7 +262,13 @@ impl UDPPacket {
         let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length as u32);
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        build_ip_packet(src, dst, ttl, 15037, PacketPayload::Udp { value: udp_packet })
+        build_ip_packet(
+            src,
+            dst,
+            ttl,
+            15037,
+            PacketPayload::Udp { value: udp_packet },
+        )
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
@@ -341,7 +347,13 @@ impl UDPPacket {
 
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        build_ip_packet(src, dst, 255, 15037, PacketPayload::Udp { value: udp_packet })
+        build_ip_packet(
+            src,
+            dst,
+            255,
+            15037,
+            PacketPayload::Udp { value: udp_packet },
+        )
     }
 
     /// Creating a DNS TXT record request for CHAOS
@@ -384,6 +396,7 @@ impl UDPPacket {
 ///
 /// where `tx_micros` is the full microsecond send time (so the destination-hop RTT is a
 /// plain epoch delta, matching the ICMP/discovery convention).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn dns_a_trace_body(
     qname: &str,
     tx_micros: u64,

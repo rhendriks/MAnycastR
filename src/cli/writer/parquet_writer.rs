@@ -1,4 +1,4 @@
-use crate::cli::writer::{get_header, MetadataArgs, WriteConfig};
+use crate::cli::writer::{MetadataArgs, WriteConfig, get_header};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};

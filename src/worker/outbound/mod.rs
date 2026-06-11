@@ -5,19 +5,19 @@ mod trace;
 use log::{info, warn};
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use tokio::sync::mpsc::Receiver;
 
+use crate::ALL_ORIGINS;
+use crate::custom_module::Separated;
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, ProtocolType};
-use crate::custom_module::Separated;
 use crate::worker::outbound::probe::send_probe;
 use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
-use crate::ALL_ORIGINS;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
 

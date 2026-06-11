@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::Address;
-use crate::net::packet::{create_record_route_icmp, ProbePayload};
-use crate::worker::outbound::{send_packet, OutboundConfig};
+use crate::net::packet::{ProbePayload, create_record_route_icmp};
+use crate::worker::outbound::{OutboundConfig, send_packet};
 use log::warn;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NonConformance};
 use socket2::Socket;

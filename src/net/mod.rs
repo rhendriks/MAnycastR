@@ -1,7 +1,7 @@
 extern crate byteorder;
 use std::io::{Cursor, Read, Write};
 
-use crate::custom_module::manycastr::{address, Address, RecordedHops};
+use crate::custom_module::manycastr::{Address, RecordedHops, address};
 pub(crate) use crate::net::icmp::ICMPPacket;
 pub(crate) use crate::net::tcp::TCPPacket;
 pub(crate) use crate::net::udp::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};

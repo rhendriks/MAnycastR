@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::{address, Address};
-use crate::net::{record_route_option, IPv4Packet, PacketPayload};
+use crate::custom_module::manycastr::{Address, address};
+use crate::net::{IPv4Packet, PacketPayload, record_route_option};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 

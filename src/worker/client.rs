@@ -6,11 +6,11 @@ use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 impl Worker {
     /// Connect to the orchestrator.

@@ -20,13 +20,13 @@ use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
 use clap::ArgMatches;
 use custom_module::manycastr::{
-    controller_server::ControllerServer, Instruction, ReplyBatch, Task,
+    Instruction, ReplyBatch, Task, controller_server::ControllerServer,
 };
 use log::{info, warn};
 use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::ServerTlsConfig;
-use tonic::{transport::Server, Status};
+use tonic::{Status, transport::Server};
 
 type ResultMessage = Result<ReplyBatch, Status>;
 type CliSender = Sender<ResultMessage>;
@@ -130,10 +130,10 @@ impl ControllerService {
         }
 
         // Check for a statically configured ID
-        if let Some(worker_config) = &self.worker_config {
-            if let Some(worker_id) = worker_config.get(hostname) {
-                return Ok((*worker_id, false));
-            }
+        if let Some(worker_config) = &self.worker_config
+            && let Some(worker_id) = worker_config.get(hostname)
+        {
+            return Ok((*worker_id, false));
         }
 
         // Return a new unique ID

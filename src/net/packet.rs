@@ -1,5 +1,8 @@
 use crate::custom_module::manycastr::Address;
-use crate::net::{build_ip_packet, calculate_checksum, ICMPPacket, PacketPayload, PseudoHeader, TCPPacket, UDPPacket};
+use crate::net::{
+    ICMPPacket, PacketPayload, PseudoHeader, TCPPacket, UDPPacket, build_ip_packet,
+    calculate_checksum,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// ICMP arguments to encode in the payload.
@@ -213,7 +216,8 @@ pub fn create_udp_trace(
     qname: &str,
 ) -> Vec<u8> {
     // Create a valid DNS query with traceroute encodings and the desired UDP checksum
-    let mut body = crate::net::udp::dns_a_trace_body(qname, tx_micros, src, dst, worker_id, sport, m_id, ttl);
+    let mut body =
+        crate::net::udp::dns_a_trace_body(qname, tx_micros, src, dst, worker_id, sport, m_id, ttl);
     let corr_off = body.len(); // correction word appended after the DNS message
     body.extend_from_slice(&[0u8, 0u8]);
 
@@ -232,7 +236,7 @@ pub fn create_udp_trace(
     let actual_checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
     let correction = checksum_correction(actual_checksum, desired_checksum);
-    let (b0, b1) = if corr_off % 2 == 0 {
+    let (b0, b1) = if corr_off.is_multiple_of(2) {
         ((correction >> 8) as u8, (correction & 0xFF) as u8)
     } else {
         ((correction & 0xFF) as u8, (correction >> 8) as u8)
@@ -248,7 +252,13 @@ pub fn create_udp_trace(
         body,
     };
 
-    build_ip_packet(src, dst, ttl, identifier, PacketPayload::Udp { value: udp_packet })
+    build_ip_packet(
+        src,
+        dst,
+        ttl,
+        identifier,
+        PacketPayload::Udp { value: udp_packet },
+    )
 }
 
 /// Compute a 2-byte correction word that, when placed in the payload (replacing
@@ -296,7 +306,7 @@ pub fn create_tcp_trace(
         seq,
         ack: seq, // same identity in ack: the destination RST echoes ack (RST.seq = ack + 1)
         offset: 0b01010000, // Data offset 5 (20 bytes)
-        flags: 0b00010010,  // SYN + ACK (unsolicited → elicits RST from the target)
+        flags: 0b00010010, // SYN + ACK (unsolicited → elicits RST from the target)
         checksum: 0,
         pointer: 0,
         body,
@@ -307,5 +317,11 @@ pub fn create_tcp_trace(
     let pseudo_header = PseudoHeader::new(src, dst, 6, tcp_bytes.len() as u32);
     tcp_packet.checksum = calculate_checksum(&tcp_bytes, &pseudo_header);
 
-    build_ip_packet(src, dst, ttl, 15037, PacketPayload::Tcp { value: tcp_packet })
+    build_ip_packet(
+        src,
+        dst,
+        ttl,
+        15037,
+        PacketPayload::Tcp { value: tcp_packet },
+    )
 }

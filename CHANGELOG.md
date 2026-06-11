@@ -20,6 +20,7 @@ Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and reworks proto def
   encoding/decoding into a single `trace_codec`, and simplified `parse_trace`.
 - Trimmed `parquet` features (`default-features = false`), dropping the unused Arrow
   dependency stack ~1.2 MB (~15%) smaller musl release binary and Docker image.
+- Migrated to the Rust 2024 edition and adopted the 2024 rustfmt style (repo-wide reformat).
 
 ### Fixed
 - **CHAOS measurements no longer emit an `rtt` column**  — CHAOS replies

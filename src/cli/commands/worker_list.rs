@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::{Status, WorkerStatus};
 use log::info;
-use prettytable::{color, format, row, Attr, Cell, Row, Table};
+use prettytable::{Attr, Cell, Row, Table, color, format, row};
 use tonic::Response;
 
 /// Handle the worker-list command by pretty-printing the list of workers

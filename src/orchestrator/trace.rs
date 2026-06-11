@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{task, Address, Reply, ReplyBatch, Task, Trace, TraceReply};
+use crate::custom_module::manycastr::{Address, Reply, ReplyBatch, Task, Trace, TraceReply, task};
 use crate::orchestrator::{CliHandle, MeasurementHandle};
 use std::collections::{HashMap, VecDeque};
 use std::thread;
@@ -84,24 +84,23 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
         {
             // Lock measurement state
             let mut lock = measurement.write().unwrap();
-            if let Some(ref mut state) = *lock {
-                if let Some(ref mut config) = state.trace_config {
-                    let session_tracker = &mut config.session_tracker;
+            if let Some(ref mut state) = *lock
+                && let Some(ref mut config) = state.trace_config
+            {
+                let session_tracker = &mut config.session_tracker;
 
-                    // Iteratively check top of the stack (oldest sessions) to see if they timed out
-                    while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
-                        // Deadline is in the future
-                        if *deadline > now {
-                            break;
-                        }
-                        // Pop candidate
-                        let (id, _old_deadline) =
-                            session_tracker.expiration_queue.pop_front().unwrap();
+                // Iteratively check top of the stack (oldest sessions) to see if they timed out
+                while let Some((_id, deadline)) = session_tracker.expiration_queue.front() {
+                    // Deadline is in the future
+                    if *deadline > now {
+                        break;
+                    }
+                    // Pop candidate
+                    let (id, _old_deadline) = session_tracker.expiration_queue.pop_front().unwrap();
 
-                        // Get session belonging to identifier
-                        let should_recycle = if let Some(session) =
-                            session_tracker.sessions.get_mut(&id)
-                        {
+                    // Get session belonging to identifier
+                    let should_recycle =
+                        if let Some(session) = session_tracker.sessions.get_mut(&id) {
                             // Verify the session is still timed out (might have been updated)
                             let expiration = session.last_updated + Duration::from_secs(timeout);
 
@@ -158,20 +157,19 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                             None
                         };
 
-                        // If we need to keep tracking the current session, put it in the end of the queue
-                        if let Some(item) = should_recycle {
-                            session_tracker.expiration_queue.push_back(item);
-                        }
+                    // If we need to keep tracking the current session, put it in the end of the queue
+                    if let Some(item) = should_recycle {
+                        session_tracker.expiration_queue.push_back(item);
                     }
+                }
 
-                    // Put tasks in worker stacks (while we still hold the write lock)
-                    for (worker_id, task_to_send) in tasks_to_send {
-                        state
-                            .worker_stacks
-                            .entry(worker_id)
-                            .or_default()
-                            .push_back(task_to_send);
-                    }
+                // Put tasks in worker stacks (while we still hold the write lock)
+                for (worker_id, task_to_send) in tasks_to_send {
+                    state
+                        .worker_stacks
+                        .entry(worker_id)
+                        .or_default()
+                        .push_back(task_to_send);
                 }
             }
         }

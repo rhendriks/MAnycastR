@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::{address, Address};
-use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
+use crate::custom_module::manycastr::{Address, address};
+use crate::net::{IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader, calculate_checksum};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 
