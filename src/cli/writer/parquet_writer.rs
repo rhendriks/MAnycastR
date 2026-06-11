@@ -1,4 +1,4 @@
-use crate::cli::writer::{calculate_rtt, get_header, MetadataArgs, WriteConfig};
+use crate::cli::writer::{MetadataArgs, WriteConfig, get_header};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -63,17 +63,13 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             let origin_id = task_result.origin_id;
             for reply in task_result.results {
                 let parquet_row = match reply.reply_data {
-                    Some(ReplyData::Measurement(m_reply)) => {
-                        let is_tcp = config.tcp_origins.contains(&origin_id);
-                        measurement_reply_to_parquet_row(
-                            m_reply,
-                            rx_id,
-                            config.m_type,
-                            &config.worker_map,
-                            origin_id,
-                            is_tcp,
-                        )
-                    }
+                    Some(ReplyData::Measurement(m_reply)) => measurement_reply_to_parquet_row(
+                        m_reply,
+                        rx_id,
+                        config.m_type,
+                        &config.worker_map,
+                        origin_id,
+                    ),
                     Some(ReplyData::Trace(trace_reply)) => {
                         trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map)
                     }
@@ -179,7 +175,7 @@ pub struct ParquetDataRow {
     ttl: Option<u8>,
     /// Hostname of the probe sender.
     tx: Option<String>,
-    /// Round-trip time in milliseconds (offset in LACeS mode, see `calculate_rtt`)
+    /// Round-trip time in milliseconds, computed on the worker (a signed offset in LACeS mode).
     rtt: Option<f32>,
     /// DNS TXT CHAOS record value.
     chaos_data: Option<String>,
@@ -198,7 +194,6 @@ fn measurement_reply_to_parquet_row(
     m_type: MeasurementType,
     worker_map: &BiHashMap<u32, String>,
     origin_id: u32,
-    is_tcp: bool,
 ) -> ParquetDataRow {
     let mut row = ParquetDataRow {
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
@@ -214,7 +209,7 @@ fn measurement_reply_to_parquet_row(
 
     match m_type {
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
-            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false) as f32);
+            row.rtt = Some(result.rtt);
         }
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
@@ -224,7 +219,7 @@ fn measurement_reply_to_parquet_row(
         }
         MeasurementType::Laces => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-            row.rtt = Some(calculate_rtt(result.rx_time, result.tx_time, is_tcp, false) as f32);
+            row.rtt = Some(result.rtt);
         }
     }
 
@@ -237,10 +232,9 @@ fn trace_reply_to_parquet_row(
     rx_worker_id: u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> ParquetDataRow {
-    let is_hop_reply = reply.hop_addr != reply.trace_dst;
-
+    // Unresponsive hops have no calculated RTT
     let rtt = if reply.hop_addr.is_some() {
-        Some(calculate_rtt(reply.rx_time, reply.tx_time, false, is_hop_reply) as f32)
+        Some(reply.rtt)
     } else {
         None
     };
@@ -292,10 +286,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             "ttl" | "origin_id" | "hop_count" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Integer {
-                        bit_width: 8,
-                        is_signed: false,
-                    }))
+                    .with_logical_type(Some(LogicalType::integer(8, false)))
                     .build()
                     .unwrap()
             }

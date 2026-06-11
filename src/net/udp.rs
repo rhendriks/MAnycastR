@@ -1,7 +1,7 @@
-use crate::custom_module::manycastr::{address, Address};
+use crate::custom_module::manycastr::Address;
 use crate::dns_identifier;
 use crate::net::packet::DnsProbeId;
-use crate::net::{calculate_checksum, IPv4Packet, IPv6Packet, PacketPayload, PseudoHeader};
+use crate::net::{PacketPayload, PseudoHeader, build_ip_packet, calculate_checksum};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use std::io::{Cursor, Read, Write};
@@ -262,33 +262,13 @@ impl UDPPacket {
         let pseudo_header = PseudoHeader::new(src, dst, 17, udp_length as u32);
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        match (&src.value, &dst.value) {
-            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-                let v6_packet = IPv6Packet {
-                    payload_length: udp_length,
-                    flow_label: 15037,
-                    next_header: 17, // UDP
-                    hop_limit: ttl,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                };
-                (&v6_packet).into()
-            }
-            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-                let v4_packet = IPv4Packet {
-                    length: 20 + udp_length,
-                    identifier: 15037,
-                    ttl,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                    options: None,
-                };
-                (&v4_packet).into()
-            }
-            _ => panic!("IP version mismatch or unsupported address type in dns_request"),
-        }
+        build_ip_packet(
+            src,
+            dst,
+            ttl,
+            15037,
+            PacketPayload::Udp { value: udp_packet },
+        )
     }
 
     /// Creating a DNS A Record Request body <http://www.tcpipguide.com/free/t_DNSMessageHeaderandQuestionSectionFormat.htm>
@@ -367,33 +347,13 @@ impl UDPPacket {
 
         udp_packet.checksum = calculate_checksum(&udp_bytes, &pseudo_header);
 
-        match (&src.value, &dst.value) {
-            (Some(address::Value::V6(_)), Some(address::Value::V6(_))) => {
-                let v6_packet = IPv6Packet {
-                    payload_length: udp_length as u16,
-                    flow_label: 15037,
-                    next_header: 17, // UDP
-                    hop_limit: 255,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                };
-                (&v6_packet).into()
-            }
-            (Some(address::Value::V4(_)), Some(address::Value::V4(_))) => {
-                let v4_packet = IPv4Packet {
-                    length: 20 + udp_length as u16,
-                    identifier: 15037,
-                    ttl: 255,
-                    src: src.into(),
-                    dst: dst.into(),
-                    payload: PacketPayload::Udp { value: udp_packet },
-                    options: None,
-                };
-                (&v4_packet).into()
-            }
-            _ => panic!("IP version mismatch or invalid address type in UDP packet construction"),
-        }
+        build_ip_packet(
+            src,
+            dst,
+            255,
+            15037,
+            PacketPayload::Udp { value: udp_packet },
+        )
     }
 
     /// Creating a DNS TXT record request for CHAOS
@@ -425,4 +385,53 @@ impl UDPPacket {
 
         dns_body
     }
+}
+
+/// Build a DNS A-query message (header + question) for a UDP (Paris) traceroute probe.
+///
+/// The QNAME encodes the probe identity so that the **destination DNS server's** reply
+/// can be matched to a trace session and terminate it:
+///
+/// `{tx_micros}.{src}.{dst}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}`
+///
+/// where `tx_micros` is the full microsecond send time (so the destination-hop RTT is a
+/// plain epoch delta, matching the ICMP/discovery convention).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn dns_a_trace_body(
+    qname: &str,
+    tx_micros: u64,
+    src: &Address,
+    dst: &Address,
+    worker_id: u32,
+    sport: u16,
+    m_id: u32,
+    ttl: u8,
+) -> Vec<u8> {
+    let src_num = src.as_numeric();
+    let dst_num = dst.as_numeric();
+    let subdomain =
+        format!("{tx_micros}.{src_num}.{dst_num}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}");
+
+    let mut dns_body: Vec<u8> = Vec::new();
+
+    // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID), as in dns_request.
+    let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | ((worker_id as u16) & 0x03FF);
+    dns_body
+        .write_u16::<byteorder::BigEndian>(encoded_tx_id)
+        .unwrap(); // Transaction ID
+    dns_body.write_u16::<byteorder::BigEndian>(0x0100).unwrap(); // Flags (standard query, RD)
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QDCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // ANCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // NSCOUNT
+    dns_body.write_u16::<byteorder::BigEndian>(0x0000).unwrap(); // ARCOUNT
+
+    for label in subdomain.split('.') {
+        dns_body.push(label.len() as u8);
+        dns_body.write_all(label.as_bytes()).unwrap();
+    }
+    dns_body.push(0); // Terminate the QNAME
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QTYPE (A record)
+    dns_body.write_u16::<byteorder::BigEndian>(0x0001).unwrap(); // QCLASS (IN)
+
+    dns_body
 }

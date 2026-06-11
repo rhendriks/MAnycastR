@@ -12,11 +12,11 @@ use crate::cli::writer::laces_row::get_laces_row;
 use crate::cli::writer::latency_row::get_latency_row;
 use crate::cli::writer::trace_row::get_trace_row;
 use crate::custom_module;
-use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::MeasurementType;
+use crate::custom_module::manycastr::reply::ReplyData;
 use custom_module::manycastr::{Configuration, Reply, ReplyBatch};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use log::error;
 use std::io::BufWriter;
 
@@ -45,8 +45,6 @@ pub struct WriteConfig<'a> {
     pub is_record: bool,
     /// Indicate whether any Origin is for CHAOS
     pub is_chaos: bool,
-    /// List origins that use TCP (separate RTT calculation)
-    pub tcp_origins: Vec<u32>,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -147,24 +145,14 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
                             MeasurementType::UnicastLatency | MeasurementType::AnycastLatency => {
-                                get_latency_row(
-                                    reply,
-                                    &rx_id,
-                                    &config.worker_map,
-                                    config.tcp_origins.contains(&origin_id),
-                                    origin_id,
-                                )
+                                get_latency_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
                             MeasurementType::Catchment => {
                                 get_catchment_csv_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::Laces => get_laces_row(
-                                reply,
-                                &rx_id,
-                                config.tcp_origins.contains(&origin_id),
-                                &config.worker_map,
-                                origin_id,
-                            ),
+                            MeasurementType::Laces => {
+                                get_laces_row(reply, &rx_id, &config.worker_map, origin_id)
+                            }
                             MeasurementType::AnycastTraceroute => {
                                 panic!("Received regular reply during a traceroute measurement")
                             }
@@ -213,7 +201,12 @@ pub fn get_header(
             vec!["rx", "addr", "ttl"]
         }
         MeasurementType::Laces => {
-            vec!["rx", "addr", "ttl", "tx", "rtt"]
+            // CHAOS replies carry no transmit timestamp, so there is no RTT to report
+            if is_chaos {
+                vec!["rx", "addr", "ttl", "tx"]
+            } else {
+                vec!["rx", "addr", "ttl", "tx", "rtt"]
+            }
         }
     };
 
@@ -231,59 +224,7 @@ pub fn get_header(
     header
 }
 
-/// Format RTT as three point decimal string (millisecond accuracy)
-pub fn format_rtt(rtt: f64) -> String {
+/// Format RTT (milliseconds) as a three-decimal string (for .csv compression)
+pub fn format_rtt(rtt: f32) -> String {
     format!("{rtt:.3}")
-}
-
-/// Calculate the time delta `rx_time - tx_time` in milliseconds.
-///
-/// For latency, unicast, and traceroute measurements this is a traditional RTT.
-/// However, for LACeS mode the sending and receiving anycast PoP may differ,
-/// in which case this RTT may be negative if the clocks are desynchronized.
-///
-/// # Arguments
-/// `rx_time` - receive time (64 bit microseconds EPOCH)
-/// `tx_time` - transmit time (64 bit microseconds EPOCH)
-/// `is_tcp` - whether it is a TCP encoded timestamp
-/// `is_traceroute` - whether it is a traceroute encoded timestamp
-///
-/// # Note
-/// TCP timestamps are masked to 21-bit microseconds EPOCH.
-/// Traceroute timestamps are 14-bit milliseconds EPOCH.
-pub fn calculate_rtt(rx_time: u64, tx_time: u64, is_tcp: bool, is_traceroute: bool) -> f64 {
-    if is_tcp {
-        // 21 bit microseconds timestamp (2^21 = 2,097,152)
-        const MODULUS: u64 = 1 << 21;
-        const MASK: u64 = MODULUS - 1; // 0x1FFFFF
-        let rx_21b = rx_time & MASK;
-        let tx_21b = tx_time & MASK;
-        let rtt_us = if rx_21b >= tx_21b {
-            rx_21b - tx_21b
-        } else {
-            // wrap-around case
-            (rx_21b + MODULUS) - tx_21b
-        };
-
-        rtt_us as f64 / 1_000.0
-    } else if is_traceroute {
-        // 14-bit Modulus (2^14 = 16,384)
-        const MODULUS: u64 = 1 << 14;
-        const MASK: u64 = MODULUS - 1; // 0x3FFF
-
-        // Convert traceroute 14-bit value to microseconds
-        let rx_14b = (rx_time / 1_000) & MASK;
-
-        let rtt_ms = if rx_14b >= tx_time {
-            rx_14b - tx_time
-        } else {
-            // wrap-around case
-            (rx_14b + MODULUS) - tx_time
-        };
-
-        rtt_ms as f64
-    } else {
-        // Signed: for LACeS rx may precede tx (different PoPs / clock skew).
-        (rx_time as i64 - tx_time as i64) as f64 / 1_000.0
-    }
 }

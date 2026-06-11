@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{Address, Reply};
-use crate::net::{parse_record_route_option, IPPacket, IPv4Packet, PacketPayload};
+use crate::net::{IPv4Packet, PacketPayload, parse_record_route_option};
 use crate::worker::inbound::ping::parse_icmp_inner;
 
 /// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
@@ -28,10 +28,8 @@ pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32
         return None; // No options, cannot be a RR packet
     };
 
-    let ip_header = IPPacket::V4(ipv4_header);
-
     // Parse ICMP header
-    let PacketPayload::Icmp { value: icmp_packet } = ip_header.payload() else {
+    let PacketPayload::Icmp { value: icmp_packet } = &ipv4_header.payload else {
         return None;
     };
 

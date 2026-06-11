@@ -6,16 +6,16 @@ use crate::dns_identifier;
 use crate::worker::bpf::{
     attach_dns_filter, attach_icmp_filter, attach_tcp_filter, attach_traceroute_filter,
 };
-use crate::worker::config::{set_unicast_origins, Worker};
-use crate::worker::inbound::{inbound, InboundConfig};
-use crate::worker::outbound::{outbound, OutboundConfig};
+use crate::worker::config::{Worker, set_unicast_origins};
+use crate::worker::inbound::{InboundConfig, inbound};
+use crate::worker::outbound::{OutboundConfig, outbound};
 use log::{error, info, warn};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 impl Worker {
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
@@ -56,15 +56,41 @@ impl Worker {
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
-            let (socket, is_dgram) = Self::get_socket(
-                is_ipv6,
-                rx_origin.p_type(),
-                rx_origin,
-                is_traceroute,
-                start.is_record,
-                m_id,
-            );
+            let is_transport_traceroute =
+                is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
 
+            // UDP/TCP (Paris) traceroute uses two sockets (ICMP and UDP/TCP)
+            let (rx_socket, tx_socket, is_dgram) = if is_transport_traceroute {
+                let (rx, _) = Self::get_socket(
+                    is_ipv6,
+                    ProtocolType::Icmp,
+                    rx_origin,
+                    true, // Attaches Time Exceeded + Dest Unreachable BPF filter
+                    false,
+                    m_id,
+                );
+                let (tx, _) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    true, // forces a raw socket (TTL + checksum control)
+                    false,
+                    m_id,
+                );
+                (rx, tx, false)
+            } else {
+                let (socket, is_dgram) = Self::get_socket(
+                    is_ipv6,
+                    rx_origin.p_type(),
+                    rx_origin,
+                    is_traceroute,
+                    start.is_record,
+                    m_id,
+                );
+                (socket.clone(), socket, is_dgram)
+            };
+
+            // Primary listener (ICMP trace replies for transport traceroute)
             inbound(
                 InboundConfig {
                     m_id,
@@ -77,10 +103,32 @@ impl Worker {
                     origin_id: rx_origin.origin_id,
                     sport: rx_origin.sport as u16,
                     src: rx_origin.src.expect("no src").to_string(),
+                    is_transport_trace: false,
                 },
                 inbound_tx.clone(),
-                socket.clone(),
+                rx_socket,
             );
+
+            // For transport traceroute, listen on the raw transport socket for discovery replies
+            if is_transport_traceroute {
+                inbound(
+                    InboundConfig {
+                        m_id,
+                        worker_id,
+                        p_type: rx_origin.p_type(),
+                        abort_s: self.abort_inbound.clone(),
+                        is_traceroute: false, // parse as normal DNS/TCP discovery replies
+                        is_record: false,
+                        is_dgram: false, // raw transport socket
+                        origin_id: rx_origin.origin_id,
+                        sport: rx_origin.sport as u16,
+                        src: rx_origin.src.expect("no src").to_string(),
+                        is_transport_trace: true,
+                    },
+                    inbound_tx.clone(),
+                    tx_socket.clone(),
+                );
+            }
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
@@ -107,7 +155,7 @@ impl Worker {
                         origin_id: rx_origin.origin_id,
                     },
                     outbound_rx,
-                    socket,
+                    tx_socket,
                 );
             }
         }
@@ -122,7 +170,9 @@ impl Worker {
                     if let Ok(mut guard) = m_id_handle.lock() {
                         *guard = None;
                     }
-                    info!("[Worker] Letting the orchestrator know that this worker finished the measurement");
+                    info!(
+                        "[Worker] Letting the orchestrator know that this worker finished the measurement"
+                    );
                     let _ = grpc_client_clone
                         .measurement_finished(Finished {
                             m_id,
@@ -211,8 +261,8 @@ impl Worker {
         let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
         let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
-        // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies)
-        let (socket, is_dgram) = if is_dns {
+        // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies), except for traceroute
+        let (socket, is_dgram) = if is_dns && !is_traceroute {
             let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.sport as u16));
             match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
                 Some(s) => {
@@ -221,7 +271,9 @@ impl Worker {
                 }
                 None => match Self::try_raw_socket(domain, protocol, is_ipv6) {
                     Some(s) => {
-                        warn!("[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)");
+                        warn!(
+                            "[Worker] UDP datagram socket unavailable, falling back to raw socket (may emit ICMP port-unreachable replies)"
+                        );
                         (s, false)
                     }
                     None => panic!(
@@ -241,7 +293,9 @@ impl Worker {
                     let bind_addr = SockAddr::from(SocketAddr::new(addr, origin.dport as u16));
                     match Self::try_dgram_socket(domain, protocol, &bind_addr, is_ipv6) {
                         Some(s) => {
-                            info!("[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)");
+                            info!(
+                                "[Worker] Raw socket unavailable, using unprivileged ICMP socket (no sudo required)"
+                            );
                             (s, true)
                         }
                         None => panic!(

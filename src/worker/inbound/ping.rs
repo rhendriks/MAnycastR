@@ -105,10 +105,12 @@ pub fn parse_icmp_inner(
     };
 
     if is_discovery {
+        // Discovery reply
         Some(Reply {
             reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
         })
     } else if is_traceroute {
+        // Trace reply
         let trace_ttl: u8 = if is_ipv6 {
             icmp_packet.payload[48]
         } else {
@@ -119,20 +121,19 @@ pub fn parse_icmp_inner(
             reply_data: Some(ReplyData::Trace(TraceReply {
                 hop_addr: Some(src),
                 ttl,
-                rx_time,
-                tx_time,
+                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 trace_dst: Some(src),
                 hop_count: trace_ttl as u32,
             })),
         })
     } else {
+        // Ping reply
         Some(Reply {
             reply_data: Some(ReplyData::Measurement(MeasurementReply {
                 src: Some(src),
                 ttl,
-                rx_time,
-                tx_time,
+                rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 chaos: None,
                 recorded_hops,

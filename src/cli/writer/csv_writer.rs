@@ -1,6 +1,6 @@
+use crate::ALL_WORKERS;
 use crate::cli::writer::MetadataArgs;
 use crate::custom_module::Separated;
-use crate::ALL_WORKERS;
 use bimap::BiHashMap;
 
 /// Returns a vector of lines containing the metadata of the measurement
@@ -23,7 +23,7 @@ pub fn get_csv_metadata(
         let origin = configuration.origin.unwrap();
         let src = origin.src.expect("Invalid source address");
         let hostname = if configuration.worker_id == ALL_WORKERS {
-            format!("ALL {}", worker_map.len()).to_string()
+            format!("ALL {}", worker_map.len())
         } else {
             worker_map
                 .get_by_left(&configuration.worker_id)

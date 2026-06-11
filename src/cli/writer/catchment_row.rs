@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::MeasurementReply;
 use crate::SINGLE_ORIGIN;
+use crate::custom_module::manycastr::MeasurementReply;
 use bimap::BiHashMap;
 
 /// Get the result (csv row) from a Reply message

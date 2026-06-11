@@ -1,5 +1,5 @@
-use crate::custom_module::manycastr::{Address, ReplyBatch};
-use crate::orchestrator::worker::WorkerStatus::{Disconnected, Idle, Listening, Probing};
+use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listening, Probing};
+use crate::custom_module::manycastr::{Address, ReplyBatch, WorkerStatus};
 use crate::orchestrator::{CliHandle, MeasurementHandle};
 use futures_core::Stream;
 use log::{info, warn};
@@ -10,38 +10,7 @@ use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Clone, Copy)]
-pub enum WorkerStatus {
-    Idle,         // Connected but not participating in a measurement
-    Probing,      // Probing for a measurement
-    Listening,    // Only listening for probe replies for a measurement
-    Disconnected, // Disconnected
-}
-
-impl fmt::Display for WorkerStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Idle => "IDLE",
-            Probing => "PROBING",
-            Listening => "LISTENING",
-            Disconnected => "DISCONNECTED",
-        };
-        write!(f, "{s}")
-    }
-}
-
-impl PartialEq for WorkerStatus {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (Idle, Idle)
-                | (Probing, Probing)
-                | (Listening, Listening)
-                | (Disconnected, Disconnected)
-        )
-    }
-}
-
+/// Compare a `Mutex<WorkerStatus>` directly against a `WorkerStatus`
 impl PartialEq<WorkerStatus> for Mutex<WorkerStatus> {
     fn eq(&self, other: &WorkerStatus) -> bool {
         let status = self.lock().unwrap();
@@ -114,15 +83,14 @@ impl<T> Drop for WorkerReceiver<T> {
         *self.status.lock().unwrap() = Disconnected;
 
         // Notify the CLI if the measurement is finished now
-        if should_notify_cli {
-            if let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref() {
-                if let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default())) {
-                    warn!(
-                        "[Orchestrator] Failed to send measurement finished signal to CLI: {}",
-                        e
-                    );
-                }
-            }
+        if should_notify_cli
+            && let Some(cli_tx_lock) = self.cli_sender.lock().unwrap().as_ref()
+            && let Err(e) = cli_tx_lock.try_send(Ok(ReplyBatch::default()))
+        {
+            warn!(
+                "[Orchestrator] Failed to send measurement finished signal to CLI: {}",
+                e
+            );
         }
     }
 }
@@ -173,8 +141,8 @@ impl<T> WorkerSender<T> {
         *status == Probing || *status == Listening
     }
 
-    pub fn get_status(&self) -> String {
-        self.status.lock().unwrap().clone().to_string()
+    pub fn get_status(&self) -> WorkerStatus {
+        *self.status.lock().unwrap()
     }
 
     /// The worker finished its measurement
@@ -193,7 +161,7 @@ impl<T> fmt::Debug for WorkerSender<T> {
             "WorkerSender {{ worker_id: {}, hostname: {}, status: {} }}",
             self.worker_id,
             self.hostname,
-            self.get_status()
+            self.get_status().as_str_name()
         )
     }
 }

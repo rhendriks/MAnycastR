@@ -1,15 +1,15 @@
 use log::info;
 use std::mem::MaybeUninit;
 use std::net::{Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::{sleep, Builder};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{Builder, sleep};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
 use crate::custom_module::Separated;
-use crate::worker::inbound::dns::{parse_dns, DnsContext};
+use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
+use crate::worker::inbound::dns::{DnsContext, parse_dns};
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
@@ -47,6 +47,8 @@ pub struct InboundConfig {
     pub sport: u16,
     /// Source address used
     pub src: String,
+    /// Identifies transport traceroute measurements, which require special handling
+    pub is_transport_trace: bool,
 }
 
 /// Listen for incoming packets
@@ -73,6 +75,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
         sport: config.sport,
         is_dgram,
         m_id: config.m_id,
+        is_traceroute: config.is_transport_trace,
     };
     Builder::new()
         .name("listener_thread".to_string())
@@ -114,9 +117,14 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                         parse_dns(packet, src.into(), ttl, rx_time, &dns_ctx)
                     }
 
-                    (_, _, ProtocolType::Tcp) => {
-                        parse_tcp(packet, src.into(), ttl, config.sport, rx_time)
-                    }
+                    (_, _, ProtocolType::Tcp) => parse_tcp(
+                        packet,
+                        src.into(),
+                        ttl,
+                        config.sport,
+                        rx_time,
+                        config.is_transport_trace,
+                    ),
                 };
 
                 if let Some(reply) = result {
@@ -155,6 +163,44 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
             );
         })
         .expect("Failed to spawn result_sender_thread");
+}
+
+/// Timestamp encodings for various measurement types
+#[derive(Clone, Copy)]
+pub(crate) enum TxEncoding {
+    /// Full 64-bit microsecond epoch (ICMP, DNS) (microseconds)
+    Micros,
+    /// 21-bit microsecond epoch (TCP probes) (microseconds)
+    Tcp21,
+    /// 14-bit millisecond epoch (traceroute hops) (microseconds)
+    Trace14,
+}
+
+/// Compute the RTT in milliseconds based on the timestamp encoding.
+pub(crate) fn rtt_ms(rx_time_us: u64, tx_time: u64, enc: TxEncoding) -> f32 {
+    match enc {
+        TxEncoding::Tcp21 => {
+            const MODULUS: u64 = 1 << 21; // 21-bit microseconds
+            const MASK: u64 = MODULUS - 1;
+            let rx = rx_time_us & MASK;
+            let tx = tx_time & MASK;
+            let us = if rx >= tx { rx - tx } else { rx + MODULUS - tx };
+            us as f32 / 1_000.0
+        }
+        TxEncoding::Trace14 => {
+            const MODULUS: u64 = 1 << 14; // 14-bit milliseconds
+            const MASK: u64 = MODULUS - 1;
+            let rx = (rx_time_us / 1_000) & MASK;
+            let ms = if rx >= tx_time {
+                rx - tx_time
+            } else {
+                rx + MODULUS - tx_time
+            };
+            ms as f32
+        }
+        // Full microsecond epoch on both ends
+        TxEncoding::Micros => (rx_time_us as i64 - tx_time as i64) as f32 / 1_000.0,
+    }
 }
 
 /// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).

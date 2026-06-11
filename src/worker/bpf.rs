@@ -103,8 +103,9 @@ pub(crate) fn attach_icmp_filter(
 }
 
 /// Attach a filter to a raw ICMP socket for traceroute measurements: deliver
-/// only ICMP Time Exceeded (intermediate hops) and Echo Reply (final target)
-/// packets, dropping all other ICMP (echo requests to the host, redirects, etc.).
+/// ICMP Time Exceeded (intermediate hops), Destination Unreachable (destination
+/// reached for UDP traceroute), and Echo Reply (destination reached for ICMP
+/// traceroute), dropping all other ICMP traffic.
 ///
 /// # Arguments
 /// * `socket` - the raw ICMP socket to attach the filter to
@@ -114,24 +115,28 @@ pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::i
     use op::*;
 
     const ICMP_ECHO_REPLY_V4: u32 = 0;
+    const ICMP_DEST_UNREACHABLE_V4: u32 = 3;
     const ICMP_TIME_EXCEEDED_V4: u32 = 11;
     const ICMP_ECHO_REPLY_V6: u32 = 129;
+    const ICMP_DEST_UNREACHABLE_V6: u32 = 1;
     const ICMP_TIME_EXCEEDED_V6: u32 = 3;
 
     let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
         vec![
-            sf(LDX | B | MSH, 0, 0, 0),                     // X = IP header length
-            sf(LD | B | IND, 0, 0, 0),                      // A = ICMP type
-            sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V4), // type == 11 -> accept
-            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V4),    // type == 0 -> accept, else drop
+            sf(LDX | B | MSH, 0, 0, 0),                        // X = IP header length
+            sf(LD | B | IND, 0, 0, 0),                         // A = ICMP type
+            sf(JMP | JEQ | K, 2, 0, ICMP_TIME_EXCEEDED_V4),    // type == 11 -> accept
+            sf(JMP | JEQ | K, 1, 0, ICMP_DEST_UNREACHABLE_V4), // type == 3  -> accept
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V4),       // type == 0  -> accept, else drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
     } else {
         vec![
-            sf(LD | B | ABS, 0, 0, 0),                      // A = ICMPv6 type
-            sf(JMP | JEQ | K, 1, 0, ICMP_TIME_EXCEEDED_V6), // type == 3 -> accept
-            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V6),    // type == 129 -> accept, else drop
+            sf(LD | B | ABS, 0, 0, 0),                         // A = ICMPv6 type
+            sf(JMP | JEQ | K, 2, 0, ICMP_TIME_EXCEEDED_V6),    // type == 3   -> accept
+            sf(JMP | JEQ | K, 1, 0, ICMP_DEST_UNREACHABLE_V6), // type == 1   -> accept
+            sf(JMP | JEQ | K, 0, 1, ICMP_ECHO_REPLY_V6),       // type == 129 -> accept, else drop
             sf(RET | K, 0, 0, ACCEPT),
             sf(RET | K, 0, 0, DROP),
         ]
