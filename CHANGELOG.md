@@ -15,8 +15,13 @@ Extends anycast traceroute beyond ICMP to UDP/DNS and TCP, and reworks proto def
   raw `rx_time`/`tx_time` timestamps. The worker computes the RTT.
 - **Smaller reply encoding** — `ttl`, `tx_id`, `origin_id`, `worker_id`, `sport` and
   `dport` are now varint (`uint32`) instead of `fixed32`.
+- **`Worker.status` is now a `WorkerStatus` enum** instead of a string.
 - Unified IPv4/IPv6 packet construction (`build_ip_packet`), centralized the traceroute
   encoding/decoding into a single `trace_codec`, and simplified `parse_trace`.
+
+### Fixed
+- **CHAOS measurements no longer emit an `rtt` column**  — CHAOS replies
+  carry no transmit timestamp, so there is no round-trip time to report.
 
 ### Notes
 - UDP traceroute: some middleboxes rewrite the IPv4 Identification field / IPv6
