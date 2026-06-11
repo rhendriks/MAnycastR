@@ -135,23 +135,25 @@ impl<T> WorkerSender<T> {
         self.inner.is_closed()
     }
 
-    /// Sends a task after the specified interval
+    /// Sends an instruction to the worker.
+    /// On failure, logs a warning and marks the worker as disconnected.
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         match self.inner.send(task).await {
             Ok(_) => Ok(()),
             Err(e) => {
+                warn!(
+                    "[Orchestrator] Failed to send to worker {}: {e}",
+                    self.hostname
+                );
                 self.cleanup();
                 Err(e)
             }
         }
     }
 
+    /// Marks the worker as disconnected
     pub(crate) fn cleanup(&self) {
-        // Set the status to DISCONNECTED
-        let mut status = self.status.lock().unwrap();
-        *status = Disconnected;
-
-        info!("[Orchestrator] Worker {} dropped", self.hostname);
+        *self.status.lock().unwrap() = Disconnected;
     }
 
     pub fn is_participating(&self) -> bool {
