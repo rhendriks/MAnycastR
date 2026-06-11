@@ -2,6 +2,12 @@
 name = "manycastr"
 version = "1.8.0"
 edition = "2021"
+description = "Measure Anycast Routing (MAnycastR) — synchronized Internet measurements from a distributed set of anycast Points of Presence"
+repository = "https://github.com/rhendriks/MAnycastR"
+license = "MPL-2.0"
+authors = ["Remi Hendriks <remi.hendriks@utwente.nl>"]
+keywords = ["anycast", "measurement", "traceroute", "networking", "dns"]
+rust-version = "1.96"
 
 [dependencies]
 byteorder = "1.5.0"# convert between byte arrays and integers
@@ -23,7 +29,7 @@ ratelimit_meter = "5.0.0" # rate limit
 flate2 = "1.1.9" # compression
 bimap = "0.6.3"
 tonic-prost = "0.14.6"
-parquet = { version = "59", default-features = false, features = ["zstd"] }
+parquet = { version = "59.0.0", default-features = false, features = ["zstd"] }
 serde_json = "1.0.150"
 log = "0.4.32"
 pretty_env_logger = "0.5.0"
