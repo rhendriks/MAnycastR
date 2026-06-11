@@ -63,6 +63,24 @@ impl<T> Drop for WorkerReceiver<T> {
                     // Remove from probing list if they were a prober
                     state.probing_workers.retain(|&id| id != worker_id);
 
+                    // Discard state owned by this worker so the measurement can still terminate
+                    // TODO its queued follow-up tasks and ongoing trace sessions can no longer be performed (needs changing when implementing reconnect)
+                    if let Some(stack) = state.worker_stacks.remove(&worker_id)
+                        && !stack.is_empty()
+                    {
+                        warn!(
+                            "[Orchestrator] Discarding {} queued follow-up tasks for dropped worker {}",
+                            stack.len(),
+                            self.hostname
+                        );
+                    }
+                    if let Some(ref mut config) = state.trace_config {
+                        config
+                            .session_tracker
+                            .sessions
+                            .retain(|id, _| id.worker_id != worker_id);
+                    }
+
                     // Decrement the participating workers counter
                     if state.workers_count <= 1 {
                         // This was the last worker
