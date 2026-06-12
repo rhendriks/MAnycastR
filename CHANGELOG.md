@@ -2,6 +2,16 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Tracemap measurement** (`-m tracemap`) — maps catchments of unresponsive
+  targets. Each target is probed from a single PoP (round-robin) with the
+  anycast source; routers near the target reply with ICMP Time Exceeded.
+  The hop nearest to the target is found with a TTL binary search 
+  (instead of a hop-by-hop walk).
+  Reuses the traceroute options, output format, and all three protocols. (#67)
+
 ## [1.9.0] - 2026-06-11
 
 Makes discovery-based measurements (latency, traceroute, `--responsive`) robust
