@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, ReplyBatch, Task, Trace, TraceReply, task};
-use crate::orchestrator::{CliHandle, MeasurementHandle};
+use crate::orchestrator::{CliHandle, MeasurementHandle, TracerouteConfig};
 use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::thread;
@@ -30,12 +30,102 @@ pub struct TraceSession {
     pub target: Option<Address>,
     /// Origin used for the traceroute (source address, port mappings) [None if a single origin is used]
     pub origin_id: u32,
-    /// Current TTL being traced
-    pub current_ttl: u8,
-    /// Consecutive failures counter
-    pub consecutive_failures: u8,
+    /// How this session advances through TTLs
+    pub progress: TraceProgress,
     /// Time at which last trace was performed
     pub last_updated: Instant,
+}
+
+/// TTL advancement strategy of a trace session
+#[derive(Debug)]
+pub enum TraceProgress {
+    /// Hop-by-hop walk from initial_hop upward (anycast-traceroute)
+    Linear {
+        /// Current TTL being traced
+        current_ttl: u8,
+        /// Consecutive failures counter
+        consecutive_failures: u8,
+    },
+    /// Binary search for the deepest hop that replies with Time Exceeded (tracemap)
+    Binary {
+        /// Lower search bound: every responding hop found so far is below this TTL
+        lo: u8,
+        /// Upper search bound: the deepest TTL that may still respond
+        hi: u8,
+        /// Midpoint TTL at which the current confirmation window started
+        mid: u8,
+        /// TTL of the probe currently in flight (mid, or a confirmation probe above it)
+        probing_ttl: u8,
+        /// Remaining confirmation probes before concluding the silent tail starts at mid
+        window_left: u8,
+    },
+}
+
+/// Midpoint of two TTLs without u8 overflow
+#[inline]
+pub fn ttl_midpoint(lo: u8, hi: u8) -> u8 {
+    ((lo as u16 + hi as u16) / 2) as u8
+}
+
+/// Create tracemap binary-search sessions for a batch of (unresponsive) targets and
+/// return the initial `Trace` tasks (probing the midpoint TTL) for the probing worker.
+///
+/// # Arguments
+/// * `targets` - Target addresses to map
+/// * `worker_id` - Worker that will probe these targets (with the anycast source)
+/// * `origin_id` - Origin to probe with
+/// * `config` - Traceroute parameters and session tracker
+pub fn seed_tracemap_sessions(
+    targets: Vec<Address>,
+    worker_id: u32,
+    origin_id: u32,
+    config: &mut TracerouteConfig,
+) -> Vec<Task> {
+    let lo = config.initial_hop as u8;
+    let hi = config.max_hops as u8;
+    let mid = ttl_midpoint(lo, hi);
+    let now = Instant::now();
+    let deadline = now + Duration::from_secs(config.timeout);
+
+    targets
+        .into_iter()
+        .map(|target| {
+            let identifier = TraceIdentifier {
+                worker_id,
+                target,
+                origin_id,
+            };
+
+            config.session_tracker.sessions.insert(
+                identifier.clone(),
+                TraceSession {
+                    worker_id,
+                    target: Some(target),
+                    origin_id,
+                    progress: TraceProgress::Binary {
+                        lo,
+                        hi,
+                        mid,
+                        probing_ttl: mid,
+                        window_left: config.max_failures as u8,
+                    },
+                    last_updated: now,
+                },
+            );
+            config
+                .session_tracker
+                .expiration_queue
+                .push_back((identifier, deadline));
+
+            Task {
+                task_type: Some(task::TaskType::Trace(Trace {
+                    dst: Some(target),
+                    ttl: mid as u32,
+                })),
+                origin_id,
+            }
+        })
+        .collect()
 }
 
 /// Identify unique TraceSession
@@ -46,9 +136,14 @@ pub struct TraceIdentifier {
     pub origin_id: u32,
 }
 
-/// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond for a full second)
-/// If the last successful hop was more than 3 hops ago, terminate the Trace task
-/// Else follow up the Trace task for TTL + 1
+/// Check ongoing Trace tasks that have timed out (i.e., a hop didn't respond within the timeout)
+///
+/// - **Linear** sessions follow up with TTL + 1, terminating after `max_failures`
+///   consecutive unresponsive hops
+/// - **Binary** sessions (tracemap) first extend the confirmation window past the
+///   silent midpoint (to rule out an interior unresponsive hop); once the window is
+///   exhausted the silent tail is assumed to start at the midpoint and the search
+///   continues in the lower half
 ///
 /// # Arguments
 /// * `measurement` - Shared measurement state containing worker_stacks and trace_config
@@ -114,6 +209,10 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
 
                     // Hop timed out: emit a '*' hop to the CLI for it, if enabled
                     if star_unresponsive {
+                        let timed_out_ttl = match &session.progress {
+                            TraceProgress::Linear { current_ttl, .. } => *current_ttl,
+                            TraceProgress::Binary { probing_ttl, .. } => *probing_ttl,
+                        };
                         star_replies.push((
                             session.worker_id,
                             session.origin_id,
@@ -123,22 +222,61 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                                 rtt: 0.0,
                                 tx_id: session.worker_id,
                                 trace_dst: session.target,
-                                hop_count: session.current_ttl as u32,
+                                hop_count: timed_out_ttl as u32,
                             },
                         ));
                     }
 
-                    session.consecutive_failures += 1;
                     session.last_updated = now;
-                    session.current_ttl += 1;
 
-                    // Check termination conditions
-                    if session.consecutive_failures > max_failures as u8
-                        || session.current_ttl > max_hops as u8
-                    {
+                    // Advance the session; None means it is finished
+                    let next_ttl = match &mut session.progress {
+                        TraceProgress::Linear {
+                            current_ttl,
+                            consecutive_failures,
+                        } => {
+                            *consecutive_failures += 1;
+                            *current_ttl += 1;
+
+                            if *consecutive_failures > max_failures as u8
+                                || *current_ttl > max_hops as u8
+                            {
+                                None
+                            } else {
+                                Some(*current_ttl)
+                            }
+                        }
+                        TraceProgress::Binary {
+                            lo,
+                            hi,
+                            mid,
+                            probing_ttl,
+                            window_left,
+                        } => {
+                            if *window_left > 0 && *probing_ttl < *hi {
+                                // Probe the next TTL to rule out an interior unresponsive hop
+                                *probing_ttl += 1;
+                                *window_left -= 1;
+                                Some(*probing_ttl)
+                            } else {
+                                // Window exhausted: [mid, probing_ttl] is silent → the tail starts at or before mid
+                                *hi = mid.saturating_sub(1);
+                                if *hi < *lo {
+                                    None // Search converged: deepest responder found
+                                } else {
+                                    *mid = ttl_midpoint(*lo, *hi);
+                                    *probing_ttl = *mid;
+                                    *window_left = max_failures as u8;
+                                    Some(*probing_ttl)
+                                }
+                            }
+                        }
+                    };
+
+                    let Some(next_ttl) = next_ttl else {
                         session_tracker.sessions.remove(&id);
                         continue;
-                    }
+                    };
 
                     // Measure the next hop and re-queue the session with a fresh deadline
                     tasks_to_send.push((
@@ -146,7 +284,7 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                         Task {
                             task_type: Some(task::TaskType::Trace(Trace {
                                 dst: session.target,
-                                ttl: session.current_ttl as u32,
+                                ttl: next_ttl as u32,
                             })),
                             origin_id: session.origin_id,
                         },
