@@ -116,10 +116,9 @@ impl CliClient {
             m_def.m_type()
         );
 
-        let is_ipv6 = m_def.is_ipv6;
+        let is_ipv6 = m_def.is_ipv6; // TODO support mix IPv4/IPv6
 
-        // Bounded channels: when the orchestrator (or its rate limit) cannot keep up,
-        // gRPC flow control fills these up and stdin reading blocks (backpressuring the producer)
+        // Bounded channels: when the orchestrator (or its rate limit) cannot keep up, block stdin
         let (feed_tx, mut feed_rx) = channel::<CliMessage>(FEED_CHANNEL_SIZE);
         let (grpc_tx, grpc_rx) = channel::<CliMessage>(16);
 
@@ -134,7 +133,6 @@ impl CliClient {
         std::thread::spawn(move || read_stdin_feed(feed_tx, is_ipv6));
 
         // Forward stdin targets to the gRPC stream until EOF or Ctrl+C.
-        // Dropping the sender closes the stream, gracefully ending the measurement.
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -161,6 +159,7 @@ impl CliClient {
             }
         });
 
+        // Handle measurement replies
         let response = self
             .grpc_client
             .live_measurement(Request::new(FeedStream { inner: grpc_rx }))
@@ -172,6 +171,8 @@ impl CliClient {
             );
             return Err(Box::new(e));
         }
+
+        // Get stream of measurement replies and write to file
         let stream = response
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
@@ -191,6 +192,7 @@ async fn stream_results_to_file(
     m_type: MeasurementType,
     m_time: Option<f32>,
 ) -> Result<(), Box<dyn Error>> {
+    // Get start time of measurement
     let start = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let timestamp_start_str = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
@@ -243,7 +245,7 @@ async fn stream_results_to_file(
         }
     };
 
-    // Determine traceroute
+    // Determine Record Route measurements
     let is_record = args.is_record;
     // Determine the file extension based on the output format
     let mut is_parquet = args.is_parquet;
