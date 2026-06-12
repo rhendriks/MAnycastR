@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 use tonic::{Request, Response, Status};
 
 /// Workers classified by role for a measurement.
@@ -99,10 +100,7 @@ impl Controller for ControllerService {
         }
 
         // Acknowledge the worker
-        Ok(Response::new(Ack {
-            is_success: true,
-            error_message: "".to_string(),
-        }))
+        Ok(Response::new(Ack::ok()))
     }
 
     type WorkerConnectStream = WorkerReceiver<Result<Instruction, Status>>;
@@ -123,9 +121,7 @@ impl Controller for ControllerService {
         let unicast_v6 = worker.unicast_v6;
         let (tx, rx) = mpsc::channel::<Result<Instruction, Status>>(1000);
         // Get the worker ID, and check if it is a reconnection
-        let (worker_id, is_reconnect) = self
-            .get_worker_id(&hostname)
-            .map_err(|boxed_status| *boxed_status)?;
+        let (worker_id, is_reconnect) = self.get_worker_id(&hostname)?;
 
         if is_reconnect {
             info!("[Orchestrator] Reconnecting worker: {hostname}");
@@ -238,11 +234,13 @@ impl Controller for ControllerService {
             );
         let is_round_robin = send_discovery || (m_type == MeasurementType::Catchment);
 
-        let probing_rate_interval = if is_round_robin {
+        let mut probing_rate_interval = if is_round_robin {
             tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
         } else {
             tokio::time::interval(Duration::from_secs(1))
         };
+        // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
+        probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         // Build ordered list of origin_ids for --any protocol fallback
         let origin_ids: Vec<u32> = if is_any_protocol {
@@ -360,22 +358,25 @@ impl Controller for ControllerService {
             }
         }
 
-        // Process discovery and traceroute replies under a single measurement lock
+        // Process discovery and traceroute replies
         if !discovery_bucket.is_empty() || !trace_bucket.is_empty() {
             let mut lock = self.measurement.write().unwrap();
-            let state = lock
-                .as_mut()
-                .expect("[Orchestrator] Results received but no measurement is active");
+            let Some(state) = lock.as_mut() else {
+                // Discard late results arrived after the measurement was torn down
+                warn!(
+                    "[Orchestrator] Dropping {} late replies from worker {catcher_id} (no active measurement)",
+                    discovery_bucket.len() + trace_bucket.len()
+                );
+                return Ok(Response::new(Ack::ok()));
+            };
+
+            // Drop duplicate discovery replies (e.g., multi-reply targets)
+            discovery_bucket.retain(|reply| match reply.src {
+                Some(addr) => state.resolved_targets.insert(addr),
+                None => false,
+            });
 
             if !discovery_bucket.is_empty() {
-                if state.is_any_protocol {
-                    for reply in &discovery_bucket {
-                        if let Some(addr) = reply.src {
-                            state.resolved_targets.insert(addr);
-                        }
-                    }
-                }
-
                 match state.m_type {
                     // Perform follow-up from ALL workers
                     MeasurementType::Laces | MeasurementType::UnicastLatency => {
@@ -454,10 +455,7 @@ impl Controller for ControllerService {
             }
         }
 
-        Ok(Response::new(Ack {
-            is_success: true,
-            error_message: "".to_string(),
-        }))
+        Ok(Response::new(Ack::ok()))
     }
 }
 
@@ -556,7 +554,6 @@ impl ControllerService {
             workers_count: participating_ids.len() as u32,
             probing_workers: probing_ids.to_vec(),
             m_type: m_def.m_type(),
-            is_any_protocol: m_def.is_any_protocol,
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),

@@ -1,7 +1,8 @@
+use crate::ALL_ORIGINS;
 use crate::custom_module;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
-use crate::custom_module::manycastr::{Address, End, Instruction};
+use crate::custom_module::manycastr::{Address, End, Start, Task, Tasks};
 use crate::worker::config::Worker;
 use local_ip_address::{local_ip, local_ipv6};
 use log::{info, warn};
@@ -11,6 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+
+/// Grace period after the last probe is sent before closing the listener
+const END_REPLY_GRACE_SECS: u64 = 1;
 
 impl Worker {
     /// Connect to the orchestrator.
@@ -100,14 +104,7 @@ impl Worker {
                 // Starting a measurement (whilst idle)
                 (None, InstructionType::Start(start)) => {
                     abort_outbound = Arc::new(AtomicBool::new(false));
-                    self.handle_start_instruction(
-                        Instruction {
-                            instruction_type: Some(InstructionType::Start(start)),
-                        },
-                        worker_id,
-                        abort_outbound.clone(),
-                    )
-                    .await?;
+                    self.handle_start_instruction(start, worker_id, abort_outbound.clone())?;
                 }
 
                 // Ending a measurement (whilst busy)
@@ -121,12 +118,29 @@ impl Worker {
                     warn!("[Worker] Received new measurement while busy; ignoring.");
                 }
 
-                // Receiving a task (whilst busy)
-                (Some(_), task_data) => {
-                    for tx in &self.outbound_txs {
-                        // TODO only forward based on matching origin ID (or ALL_ORIGIN_ID)
-                        let _ = tx.send(task_data.clone()).await;
+                // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
+                (Some(_), InstructionType::Tasks(task_batch)) => {
+                    if let [(_, tx)] = self.outbound_txs.as_slice() {
+                        // Single origin: forward the batch as-is (the outbound thread skips non-matching tasks)
+                        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
+                    } else {
+                        for (origin_id, tx) in &self.outbound_txs {
+                            let tasks: Vec<Task> = task_batch
+                                .tasks
+                                .iter()
+                                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
+                                .cloned()
+                                .collect();
+                            if !tasks.is_empty() {
+                                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
+                            }
+                        }
                     }
+                }
+
+                // Receiving any other instruction (whilst busy) [INVALID]
+                (Some(_), _) => {
+                    warn!("[Worker] Received unexpected instruction while busy; ignoring.");
                 }
 
                 // Receiving anything but a new measurement (whilst idle) [INVALID]
@@ -146,34 +160,33 @@ impl Worker {
     /// Calls the function to initialize the measurement
     ///
     /// # Arguments
-    /// `instr` - The instruction containing the Start instruction type
+    /// `start` - The definition of the new measurement
     /// `worker_id` - ID of this worker
     /// `abort_outbound` - Abort signal to forcefully close the outbound thread
-    async fn handle_start_instruction(
+    fn handle_start_instruction(
         &mut self,
-        instr: Instruction,
+        start: Start,
         worker_id: u16,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        let start_data = match instr.instruction_type.as_ref().unwrap() {
-            InstructionType::Start(s) => s,
-            _ => unreachable!(),
-        };
-
-        info!("[Worker] Starting measurement {}", start_data.m_id);
+        info!("[Worker] Starting measurement {}", start.m_id);
 
         // Set the measurement ID and abort signal
-        *self.current_m_id.lock().unwrap() = Some(start_data.m_id);
+        *self.current_m_id.lock().unwrap() = Some(start.m_id);
         self.abort_inbound.store(false, Ordering::SeqCst);
 
         // Initialize the measurement threads
-        self.init(instr, worker_id, abort_outbound)?;
+        self.init(start, worker_id, abort_outbound)?;
         Ok(())
     }
 
     /// End an ongoing measurement.
-    /// Closes listening thread gracefully.
-    /// Closes sending thread forcefully or gracefully (depending on end code)
+    ///
+    /// Graceful end (code 0): the outbound threads first drain any tasks still queued in their
+    /// channels, then the inbound listener stays open for a grace period to capture in-flight
+    /// replies before it is closed.
+    /// Forceful end (code != 0): outbound and inbound threads are closed immediately,
+    /// discarding any queued tasks.
     ///
     /// # Arguments
     /// `end_instruction` - End instruction sent by the Orchestrator with an ending code
@@ -183,25 +196,37 @@ impl Worker {
         end_instruction: End,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        // Close inbound listening thread (gracefully)
-        self.abort_inbound.store(true, Ordering::SeqCst);
+        let is_graceful = end_instruction.code == 0;
 
-        if end_instruction.code == 0 {
+        if is_graceful {
             info!("[Worker] Received finish signal");
         } else {
             warn!(
                 "[Worker] Received abort signal (code {})",
                 end_instruction.code
             );
-            // Close outbound thread forcefully (force stop without parsing tasks in the channel)
+            // Close inbound and outbound threads immediately (discard tasks left in the channel)
+            self.abort_inbound.store(true, Ordering::SeqCst);
             abort_outbound.store(true, Ordering::SeqCst);
         }
 
-        // Close outbound sending threads (gracefully)
+        // Close outbound sending threads (gracefully); the End instruction is queued last
         let txs = std::mem::take(&mut self.outbound_txs);
-
-        for tx in txs {
+        for (_, tx) in txs {
             let _ = tx.send(InstructionType::End(end_instruction)).await;
+        }
+
+        let handles = std::mem::take(&mut self.outbound_handles);
+        if is_graceful {
+            // Close the listener only after all outbound threads have sent their tasks
+            let abort_inbound = self.abort_inbound.clone();
+            tokio::task::spawn_blocking(move || {
+                for handle in handles {
+                    let _ = handle.join();
+                }
+                std::thread::sleep(Duration::from_secs(END_REPLY_GRACE_SECS));
+                abort_inbound.store(true, Ordering::SeqCst);
+            });
         }
 
         Ok(())

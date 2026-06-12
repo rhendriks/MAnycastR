@@ -1,6 +1,5 @@
-use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{
-    Finished, Instruction, MeasurementType, Origin, ProtocolType, ReplyBatch,
+    Finished, MeasurementType, Origin, ProtocolType, ReplyBatch, Start,
 };
 use crate::dns_identifier;
 use crate::worker::bpf::{
@@ -25,20 +24,15 @@ impl Worker {
     /// Creates an additional thread that forwards task results to the orchestrator.
     ///
     /// # Arguments
-    /// * `instruction` - Instruction containing a definition for a new measurement
+    /// * `start` - Definition of the new measurement
     /// * `worker_id` - the unique ID of this worker
     /// * `abort_outbound` - Forcefully signal the outbound thread to stop sending probes
     pub(crate) fn init(
         &mut self,
-        instruction: Instruction,
+        start: Start,
         worker_id: u16,
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
-        let start = match instruction.instruction_type {
-            Some(InstructionType::Start(s)) => s,
-            _ => return Err("Received non-start packet for init".into()),
-        };
-
         let m_id = start.m_id;
         let is_ipv6 = start.is_ipv6;
         let m_type = start.m_type();
@@ -90,45 +84,37 @@ impl Worker {
                 (socket.clone(), socket, is_dgram)
             };
 
-            // Primary listener (ICMP trace replies for transport traceroute)
-            inbound(
-                InboundConfig {
-                    m_id,
-                    worker_id,
-                    p_type: rx_origin.p_type(),
-                    abort_s: self.abort_inbound.clone(),
-                    is_traceroute,
-                    is_record: start.is_record,
-                    is_dgram,
-                    origin_id: rx_origin.origin_id,
-                    sport: rx_origin.sport as u16,
-                    src: rx_origin.src.expect("no src").to_string(),
-                    is_transport_trace: false,
-                },
-                inbound_tx.clone(),
-                rx_socket,
-            );
+            let inbound_config = InboundConfig {
+                m_id,
+                worker_id,
+                p_type: rx_origin.p_type(),
+                abort_s: self.abort_inbound.clone(),
+                is_traceroute,
+                is_record: start.is_record,
+                is_dgram,
+                origin_id: rx_origin.origin_id,
+                sport: rx_origin.sport as u16,
+                src: rx_origin.src.expect("no src").to_string(),
+                is_transport_trace: false,
+            };
 
             // For transport traceroute, listen on the raw transport socket for discovery replies
             if is_transport_traceroute {
                 inbound(
                     InboundConfig {
-                        m_id,
-                        worker_id,
-                        p_type: rx_origin.p_type(),
-                        abort_s: self.abort_inbound.clone(),
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
                         is_record: false,
                         is_dgram: false, // raw transport socket
-                        origin_id: rx_origin.origin_id,
-                        sport: rx_origin.sport as u16,
-                        src: rx_origin.src.expect("no src").to_string(),
                         is_transport_trace: true,
+                        ..inbound_config.clone()
                     },
                     inbound_tx.clone(),
                     tx_socket.clone(),
                 );
             }
+
+            // Primary listener (ICMP trace replies for transport traceroute)
+            inbound(inbound_config, inbound_tx.clone(), rx_socket);
 
             // See if this origin_id is in tx_origins
             if tx_origin_ids.contains(&rx_origin.origin_id) {
@@ -136,9 +122,9 @@ impl Worker {
 
                 // Channel for forwarding tasks to outbound
                 let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(1000);
-                self.outbound_txs.push(outbound_tx);
+                self.outbound_txs.push((rx_origin.origin_id, outbound_tx));
 
-                outbound(
+                let outbound_handle = outbound(
                     OutboundConfig {
                         worker_id,
                         abort_outbound: abort_outbound.clone(),
@@ -157,6 +143,7 @@ impl Worker {
                     outbound_rx,
                     tx_socket,
                 );
+                self.outbound_handles.push(outbound_handle);
             }
         }
 

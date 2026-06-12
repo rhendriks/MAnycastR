@@ -1,5 +1,7 @@
 use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
-use manycastr::{Address, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6};
+use manycastr::{
+    Ack, Address, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6,
+};
 use std::fmt;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -7,6 +9,16 @@ use std::str::FromStr;
 
 pub mod manycastr {
     tonic::include_proto!("manycastr");
+}
+
+impl Ack {
+    /// A successful acknowledgement
+    pub fn ok() -> Self {
+        Ack {
+            is_success: true,
+            error_message: String::new(),
+        }
+    }
 }
 
 /// Write Address to string (e.g., 1.1.1.1)
