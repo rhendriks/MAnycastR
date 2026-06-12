@@ -209,7 +209,7 @@
 //! # Future
 //!
 //! * Unicast traceroute
-//! * Allow feed of targets (instead of a pre-defined hitlist)
+//! * Extend the live target feed (`--feed`) beyond catchment mode, with per-target NDJSON fields (worker, TTL, protocol, DNS record)
 //! * Allow for simultaneous/mixed unicast and anycast measurements
 //! * Support any/all protocol types to measure targets with multiple protocols
 
@@ -296,6 +296,10 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
                 .arg(arg!(--tls "Use TLS (requires certs in ./tls/)").action(ArgAction::SetTrue))
                 .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
+                .arg(arg!(--live_rate <RATE> "Maximum probing rate (probes per second, per worker) enforced for live (feed-based) measurements")
+                    .value_parser(value_parser!(u32))
+                    .default_value("1000"))
+                //TODO optionally enforce addresses available
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
@@ -314,7 +318,10 @@ fn parse_cmd() -> ArgMatches {
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
                         .value_parser(value_parser!(String))
-                        .required_unless_present("hitlist"))
+                        .required_unless_present_any(["hitlist", "feed"]))
+                    .arg(arg!(--feed "Live mode: read NDJSON targets from stdin (e.g., {\"dst\":\"1.1.1.1\"}), runs until EOF/Ctrl+C [catchment only]")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["hitlist", "target", "shuffle", "responsive", "any"]))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
