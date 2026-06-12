@@ -2,7 +2,10 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [Unreleased]
+## [1.10.0] - 2026-06-12
+
+Adds tracemap, a binary-searching anycast traceroute that maps catchments of
+unresponsive targets, and hardens the traceroute output path.
 
 ### Added
 - **Tracemap measurement** (`-m tracemap`) — maps catchments of unresponsive
