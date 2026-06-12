@@ -227,12 +227,17 @@ impl Controller for ControllerService {
 
         // Determine distribution parameters
         let is_any_protocol = m_def.is_any_protocol;
+        let is_tracemap = m_type == MeasurementType::Tracemap;
         let send_discovery = is_responsive
             | matches!(
                 m_type,
                 MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
             );
-        let is_round_robin = send_discovery || (m_type == MeasurementType::Catchment);
+        let is_round_robin = send_discovery
+            || matches!(
+                m_type,
+                MeasurementType::Catchment | MeasurementType::Tracemap
+            );
 
         let mut probing_rate_interval = if is_round_robin {
             tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
@@ -259,6 +264,15 @@ impl Controller for ControllerService {
         };
         let first_origin_id = if is_any_protocol {
             origin_ids[0]
+        } else if is_tracemap {
+            // Tracemap trace tasks must carry a concrete origin: trace replies are keyed
+            // by the origin_id the receiving worker reports, never ALL_ORIGINS
+            m_def
+                .configurations
+                .first()
+                .and_then(|c| c.origin)
+                .map(|o| o.origin_id)
+                .unwrap_or(ALL_ORIGINS)
         } else {
             ALL_ORIGINS
         };
@@ -280,6 +294,8 @@ impl Controller for ControllerService {
 
         let strategy = if m_type == MeasurementType::Catchment {
             DistributionStrategy::RoundRobin
+        } else if is_tracemap {
+            DistributionStrategy::Tracemap
         } else if send_discovery {
             DistributionStrategy::Discovery {
                 is_responsive,
@@ -411,7 +427,7 @@ impl Controller for ControllerService {
                         }
                     }
 
-                    MeasurementType::Catchment => warn!(
+                    MeasurementType::Catchment | MeasurementType::Tracemap => warn!(
                         "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {}",
                         state.m_type
                     ),
