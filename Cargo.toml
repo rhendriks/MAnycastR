@@ -1,6 +1,6 @@
 [package]
 name = "manycastr"
-version = "1.9.0"
+version = "1.10.0"
 edition = "2024"
 description = "Measure Anycast Routing (MAnycastR) — synchronized Internet measurements from a distributed set of anycast Points of Presence"
 repository = "https://github.com/rhendriks/MAnycastR"
