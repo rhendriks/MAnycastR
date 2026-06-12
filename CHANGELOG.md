@@ -9,8 +9,11 @@ All notable changes to MAnycastR are documented in this file.
   targets. Each target is probed from a single PoP (round-robin) with the
   anycast source; routers near the target reply with ICMP Time Exceeded.
   The hop nearest to the target is found with a TTL binary search 
-  (instead of a hop-by-hop walk).
-  Reuses the traceroute options, output format, and all three protocols. (#67)
+  (instead of a hop-by-hop walk), starting at TTL 12 (the median Internet
+  path length).
+  Reuses the traceroute options, output format, and all three protocols, with a
+  tracemap-specific `--trace_max_failures` default of 3 (unresponsive path
+  sections are typically 1–2 hops). (#67)
 
 ## [1.9.0] - 2026-06-11
 
