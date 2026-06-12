@@ -54,6 +54,13 @@ pub async fn handle(
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
 
+    // Tracemap targets unresponsive prefixes; there is nothing to discover first
+    if m_type == MeasurementType::Tracemap && is_responsive {
+        let msg = "[CLI] --responsive/--any cannot be combined with tracemap (targets are assumed unresponsive).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
     let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
         // Use configuration set by the user
         parse_configurations(conf_path, &worker_map)
@@ -214,7 +221,10 @@ pub async fn handle(
     let path = matches.get_one::<String>("out").unwrap().to_string();
     validate_path_perms(&path)?;
 
-    let trace_options = if m_type == MeasurementType::AnycastTraceroute {
+    let trace_options = if matches!(
+        m_type,
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap
+    ) {
         Some(TraceOptions {
             max_failures: *matches.get_one::<u32>("trace_max_failures").unwrap(),
             max_hops: *matches.get_one::<u32>("trace_max_hop").unwrap(),
