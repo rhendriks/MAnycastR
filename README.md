@@ -72,6 +72,7 @@ When creating a measurement you can specify (for more information run --help):
 * **Shuffle** - shuffle the hitlist
 * **Responsive** - check if a target is responsive before probing from all workers
 * **Parquet** - store results in .parquet format instead of .csv.gz
+* **Feed** (`--feed`) - live mode: read NDJSON targets from stdin instead of a hitlist (catchment only, see [Live catchment measurement](#live-catchment-measurement))
 
 
 ## Usage
@@ -80,6 +81,7 @@ First, run the central orchestrator.
 ```
 manycastr orchestrator -p [PORT NUMBER]
 ```
+The orchestrator enforces a maximum probing rate for live (feed-based) measurements, configurable with `--live_rate` (probes per second, per worker; default: 1000).
 
 Next, run one or more workers.
 
@@ -166,6 +168,33 @@ Each hitlist target receives a single probe from any worker.
 Catchment is inferred based on where the ping reply ends up.
 
 Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
+
+### Live catchment measurement
+
+```
+manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 10.0.0.0 -o results.csv.gz
+```
+
+Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSON, one JSON object per line:
+
+```
+{"dst":"192.0.2.1"}
+{"dst":"203.0.113.7"}
+```
+
+This enables reactive measurements: any process that can write lines can schedule probes, e.g.,
+re-mapping the catchment of a target after observing off-catchment packets (possible spoofing),
+or re-evaluating catchments after a routing change observed in passive BGP data.
+
+```
+bgp-monitor | manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 10.0.0.0
+```
+
+Notes:
+* Targets are probed (round-robin across workers) as they arrive.
+* The measurement runs until stdin reaches EOF or Ctrl+C is pressed, after which the last results are awaited and the output file is finalized.
+* The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
+* Workers that connect while a live measurement is running do not participate until the next measurement.
 
 ### Anycast latency measurement using TCPv4
 
