@@ -1,6 +1,7 @@
 mod client;
 mod commands;
 mod config;
+mod feed;
 mod utils;
 mod writer;
 
