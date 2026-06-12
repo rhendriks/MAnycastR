@@ -265,8 +265,7 @@ impl Controller for ControllerService {
         let first_origin_id = if is_any_protocol {
             origin_ids[0]
         } else if is_tracemap {
-            // Tracemap trace tasks must carry a concrete origin: trace replies are keyed
-            // by the origin_id the receiving worker reports, never ALL_ORIGINS
+            // Tracemap tasks must use an origin TODO test traceroute/tracemap with multi-origins
             m_def
                 .configurations
                 .first()
