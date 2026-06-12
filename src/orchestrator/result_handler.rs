@@ -1,6 +1,8 @@
 use crate::custom_module::manycastr::{DiscoveryReply, Probe, Task, Trace, TraceReply, task};
 use crate::orchestrator::TracerouteConfig;
-pub(crate) use crate::orchestrator::trace::{SessionTracker, TraceIdentifier, TraceSession};
+pub(crate) use crate::orchestrator::trace::{
+    SessionTracker, TraceIdentifier, TraceProgress, TraceSession, ttl_midpoint,
+};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -69,8 +71,10 @@ pub fn trace_discovery_handler(
             worker_id: catcher_id,
             target,
             origin_id,
-            current_ttl: traceroute_config.initial_hop as u8,
-            consecutive_failures: 0,
+            progress: TraceProgress::Linear {
+                current_ttl: traceroute_config.initial_hop as u8,
+                consecutive_failures: 0,
+            },
             last_updated: Instant::now(),
         };
 
@@ -96,8 +100,12 @@ pub fn trace_discovery_handler(
 }
 
 /// Awaits `Trace` replies (i.e., ICMP Time Exceeded).
-/// Follows up with Time exceeded with the next `Trace` using TTL + 1.
-/// Updates the corresponding `TraceSession`, including the timeout.
+/// Updates the corresponding `TraceSession`, including the timeout, and follows
+/// up with the next `Trace` task according to the session's progress strategy:
+///
+/// - **Linear** (anycast-traceroute): probe TTL + 1
+/// - **Binary** (tracemap): the responding TTL becomes the new lower search bound;
+///   probe the midpoint of the remaining range
 ///
 /// If a regular reply (from the target) is received, it closes the `TraceSession`.
 ///
@@ -111,6 +119,8 @@ pub fn trace_replies_handler(
     traceroute_config: &mut TracerouteConfig,
     origin_id: u32,
 ) {
+    let max_hops = traceroute_config.max_hops;
+    let max_failures = traceroute_config.max_failures;
     let session_tracker = &mut traceroute_config.session_tracker;
 
     for trace_reply in trace_replies {
@@ -126,28 +136,71 @@ pub fn trace_replies_handler(
             continue;
         };
 
-        // Update the corresponding trace session
-        session.current_ttl += 1;
-        session.last_updated = Instant::now();
-        session.consecutive_failures = 0;
+        let dest_reached = trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap();
+        let target = session.target;
 
-        if session.current_ttl > traceroute_config.max_hops as u8
-            || trace_reply.hop_addr.unwrap() == trace_reply.trace_dst.unwrap()
-        {
-            // Routing loop or destination reached -> close session
-            session_tracker.sessions.remove(&identifier);
-        } else {
+        // Advance the session; None means it is finished
+        let next_ttl = match &mut session.progress {
+            TraceProgress::Linear {
+                current_ttl,
+                consecutive_failures,
+            } => {
+                *current_ttl += 1;
+                *consecutive_failures = 0;
+
+                if *current_ttl > max_hops as u8 || dest_reached {
+                    // Routing loop or destination reached -> close session
+                    None
+                } else {
+                    Some(*current_ttl)
+                }
+            }
+            TraceProgress::Binary {
+                lo,
+                hi,
+                mid,
+                probing_ttl,
+                window_left,
+            } => {
+                let answered = trace_reply.hop_count as u8;
+                if answered < *lo {
+                    // Stale reply for an already-confirmed responsive TTL
+                    continue;
+                }
+
+                if dest_reached {
+                    None
+                } else {
+                    // Deepest responder so far -> search the deeper half
+                    *lo = answered + 1;
+                    if *lo > *hi {
+                        None // Search converged: deepest responder found
+                    } else {
+                        *mid = ttl_midpoint(*lo, *hi);
+                        *probing_ttl = *mid;
+                        *window_left = max_failures as u8;
+                        Some(*probing_ttl)
+                    }
+                }
+            }
+        };
+
+        session.last_updated = Instant::now();
+
+        if let Some(next_ttl) = next_ttl {
             // Send trace task for the next hop
             worker_stacks
                 .entry(trace_reply.tx_id)
                 .or_default()
                 .push_back(Task {
                     task_type: Some(task::TaskType::Trace(Trace {
-                        dst: session.target,
-                        ttl: session.current_ttl as u32,
+                        dst: target,
+                        ttl: next_ttl as u32,
                     })),
                     origin_id,
                 });
+        } else {
+            session_tracker.sessions.remove(&identifier);
         }
     }
 }
