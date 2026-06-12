@@ -50,13 +50,21 @@ pub async fn handle(
     let is_any_protocol = matches.get_flag("any");
     let is_responsive = matches.get_flag("responsive") || is_any_protocol;
     let is_record = matches.get_flag("record");
-    let url = matches.get_one::<String>("URL");
+    let is_feed = matches.get_flag("feed");
+    let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
 
     // Tracemap targets unresponsive prefixes; there is nothing to discover first
     if m_type == MeasurementType::Tracemap && is_responsive {
         let msg = "[CLI] --responsive/--any cannot be combined with tracemap (targets are assumed unresponsive).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // TODO support more measurement types
+    if is_feed && m_type != MeasurementType::Catchment {
+        let msg = "[CLI] --feed currently only supports catchment measurements (-m catchment).";
         error!("{}", msg);
         return Err(msg.into());
     }
@@ -153,18 +161,24 @@ pub async fn handle(
         configs
     };
 
-    // Get the target IP addresses (either --hitlist or --target)
+    // Get the target IP addresses (--hitlist, --target, or streamed in live mode)
     let is_shuffle = matches.get_flag("shuffle");
-    let (hitlist_path, (targets, is_ipv6)) =
-        if let Some(target_str) = matches.get_one::<String>("target") {
-            (
-                target_str.as_str(),
-                get_targets(target_str, &configurations, is_shuffle),
-            )
-        } else {
-            let path = matches.get_one::<String>("hitlist").unwrap().as_str();
-            (path, get_hitlist(path, &configurations, is_shuffle))
-        };
+    let (hitlist_path, (targets, is_ipv6)) = if is_feed {
+        // Live feed: targets arrive over the stream; derive the IP version from the source address
+        let is_ipv6 = configurations
+            .first()
+            .and_then(|c| c.origin?.src)
+            .is_some_and(|src| src.is_v6());
+        ("live-feed", (Vec::new(), is_ipv6))
+    } else if let Some(target_str) = matches.get_one::<String>("target") {
+        (
+            target_str.as_str(),
+            get_targets(target_str, &configurations, is_shuffle),
+        )
+    } else {
+        let path = matches.get_one::<String>("hitlist").unwrap().as_str();
+        (path, get_hitlist(path, &configurations, is_shuffle))
+    };
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
@@ -177,11 +191,18 @@ pub async fn handle(
     // Get protocol and IP version
     let ip_version = if is_ipv6 { "(IPv6)" } else { "(IPv4)" };
 
-    info!(
-        "[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
-        hitlist_length.with_separator(),
-        probing_rate.with_separator(),
-    );
+    if is_feed {
+        info!(
+            "[CLI] Performing live {m_type} {ip_version} measurement using targets fed over stdin, with a rate of {} (capped by the orchestrator's --live_rate)",
+            probing_rate.with_separator(),
+        );
+    } else {
+        info!(
+            "[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+            hitlist_length.with_separator(),
+            probing_rate.with_separator(),
+        );
+    }
 
     // Print the origins used
     info!("[CLI] Workers send probes using the following configurations:");
@@ -277,7 +298,13 @@ pub async fn handle(
         is_record,
     };
 
-    grpc_client
-        .do_measurement_to_server(m_definition, args, m_type)
-        .await
+    if is_feed {
+        grpc_client
+            .do_live_measurement_to_server(m_definition, args)
+            .await
+    } else {
+        grpc_client
+            .do_measurement_to_server(m_definition, args, m_type)
+            .await
+    }
 }
