@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::custom_module::Separated;
-use crate::custom_module::manycastr::{ProtocolType, Reply, ReplyBatch};
+use crate::custom_module::manycastr::{Address, ProtocolType, Reply, ReplyBatch};
 use crate::worker::inbound::dns::{DnsContext, parse_dns};
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::inbound::record_route::parse_record_route;
@@ -52,6 +52,17 @@ pub struct InboundConfig {
     pub is_transport_trace: bool,
 }
 
+/// Metadata of a received reply, shared by all parse functions.
+#[derive(Clone, Copy)]
+pub struct ReplyMeta {
+    /// Source address of the packet
+    pub src: Address,
+    /// TTL / hop limit of the received packet
+    pub ttl: u32,
+    /// Kernel receive timestamp (microseconds since epoch)
+    pub rx_time: u64,
+}
+
 /// Listen for incoming packets
 /// Creates two threads, one that listens on the socket and another that forwards results to the orchestrator and shuts down the receiving socket when appropriate.
 /// Makes sure that the received packets are valid and belong to the current measurement.
@@ -87,45 +98,34 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
             let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
             let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
             loop {
-                let (packet, ttl, src, rx_time) =
-                    match get_packet(&socket, is_dgram, &mut buf, &mut control_buf) {
-                        Ok(result) => result,
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            if rx_f_c.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            continue;
+                let (packet, meta) = match get_packet(&socket, is_dgram, &mut buf, &mut control_buf)
+                {
+                    Ok(result) => result,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if rx_f_c.load(Ordering::Relaxed) {
+                            break;
                         }
-                        Err(e) => panic!("Socket error: {}", e),
-                    };
+                        continue;
+                    }
+                    Err(e) => panic!("Socket error: {}", e),
+                };
 
                 let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => parse_trace(packet, config.m_id, src.into(), ttl, rx_time),
+                    (true, _, _) => parse_trace(packet, config.m_id, meta),
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, src.into(), ttl),
+                    (_, true, _) => parse_record_route(packet, config.m_id, meta),
 
-                    (_, _, ProtocolType::Icmp) => parse_icmp(
-                        packet,
-                        config.m_id,
-                        false,
-                        src.into(),
-                        ttl,
-                        is_dgram,
-                        rx_time,
-                    ),
-
-                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => {
-                        parse_dns(packet, src.into(), ttl, rx_time, &dns_ctx)
+                    (_, _, ProtocolType::Icmp) => {
+                        parse_icmp(packet, config.m_id, false, is_dgram, meta)
                     }
 
-                    (_, _, ProtocolType::Tcp) => parse_tcp(
-                        packet,
-                        src.into(),
-                        ttl,
-                        config.sport,
-                        rx_time,
-                        config.is_transport_trace,
-                    ),
+                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => {
+                        parse_dns(packet, meta, &dns_ctx)
+                    }
+
+                    (_, _, ProtocolType::Tcp) => {
+                        parse_tcp(packet, config.sport, config.is_transport_trace, meta)
+                    }
                 };
 
                 if let Some(reply) = result {
@@ -204,13 +204,14 @@ pub(crate) fn rtt_ms(rx_time_us: u64, tx_time: u64, enc: TxEncoding) -> f32 {
     }
 }
 
-/// Get a packet from a socket with the TTL, src address, and kernel timestamp (microseconds since epoch).
+/// Get a packet from a socket along with its metadata (source address, TTL, and
+/// kernel receive timestamp).
 fn get_packet<'a>(
     socket: &Socket,
     is_dgram: bool,
     buf: &'a mut [MaybeUninit<u8>],
     control_buf: &'a mut [MaybeUninit<u8>],
-) -> Result<(&'a [u8], u32, SocketAddr, u64), std::io::Error> {
+) -> Result<(&'a [u8], ReplyMeta), std::io::Error> {
     let mut source_storage: SockAddr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0).into();
 
     let recv_result = {
@@ -254,7 +255,14 @@ fn get_packet<'a>(
                     .unwrap()
                     .as_micros() as u64
             });
-            Ok((packet_data, hop_limit, source, rx_time))
+            Ok((
+                packet_data,
+                ReplyMeta {
+                    src: source.into(),
+                    ttl: hop_limit,
+                    rx_time,
+                },
+            ))
         }
         Err(e) => Err(e),
     }
@@ -321,7 +329,7 @@ fn handle_results(
     loop {
         sleep(Duration::from_secs(1));
 
-        let mut rq = Vec::new(); // TODO assess using a capacity for each replybatch
+        let mut rq = Vec::new();
         while let Ok(reply) = reply_rx.try_recv() {
             rq.push(reply);
         }

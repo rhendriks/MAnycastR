@@ -4,6 +4,7 @@ use crate::custom_module::manycastr::{
 };
 use crate::dns_identifier;
 use crate::net::{DNSAnswer, DNSRecord, TXTRecord};
+use crate::worker::inbound::ReplyMeta;
 
 /// Per-measurement context needed to validate incoming DNS replies.
 pub struct DnsContext {
@@ -19,20 +20,13 @@ pub struct DnsContext {
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
-/// * `src` - source address for this packet
-/// * `ttl` - TTL value of this packet
-/// * `rx_time` - kernel receive timestamp (microseconds since epoch)
+/// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 /// * `ctx` - per-measurement DNS context (sport, m_id, is_chaos, is_dgram)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
-pub fn parse_dns(
-    packet_bytes: &[u8],
-    src: Address,
-    ttl: u32,
-    rx_time: u64,
-    ctx: &DnsContext,
-) -> Option<Reply> {
+pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Option<Reply> {
+    let ReplyMeta { src, ttl, rx_time } = meta;
     let DnsContext {
         is_chaos,
         sport,

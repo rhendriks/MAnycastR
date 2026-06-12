@@ -136,18 +136,7 @@ pub fn outbound(
                                     failed += f;
                                 }
                                 Some(TaskType::Trace(trace)) => {
-                                    let (s, f) = send_trace(
-                                        config.worker_id as u32,
-                                        config.m_id,
-                                        config.info_url.as_deref(),
-                                        trace,
-                                        &socket,
-                                        &config.src,
-                                        config.p_type,
-                                        config.sport,
-                                        config.dport,
-                                        config.qname.as_deref().unwrap_or("example.org"),
-                                    );
+                                    let (s, f) = send_trace(&config, trace, &socket);
                                     traces_sent += s;
                                     failed += f;
                                 }

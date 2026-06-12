@@ -46,7 +46,10 @@ impl Worker {
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
-        let is_traceroute = m_type == MeasurementType::AnycastTraceroute;
+        let is_traceroute = matches!(
+            m_type,
+            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap
+        );
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
@@ -405,7 +408,6 @@ impl Worker {
             // Always request the received hop limit as ancillary data.
             let r = socket.set_recv_hoplimit_v6(true);
 
-            // TODO header_included_v6 not supported currently in socket2
             if protocol == Protocol::ICMPV6 {
                 r
             } else {
