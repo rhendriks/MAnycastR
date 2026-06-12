@@ -64,6 +64,21 @@ impl CliClient {
                     + 5.0)
                     / 60.0
             }
+            MeasurementType::Tracemap => {
+                // Round-robin seeding time plus the binary-search tail of the last seeded targets
+                let tail_secs = m_def
+                    .trace_options
+                    .as_ref()
+                    .map(|o| {
+                        let search_steps = (o.max_hops.max(2) as f32).log2().ceil();
+                        search_steps * (o.max_failures + 1) as f32 * o.timeout as f32
+                    })
+                    .unwrap_or(0.0);
+                ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
+                    + tail_secs
+                    + 5.0)
+                    / 60.0
+            }
             _ => {
                 (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
             + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
