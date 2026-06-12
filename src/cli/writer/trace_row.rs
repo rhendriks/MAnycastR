@@ -9,11 +9,15 @@ pub fn get_trace_row(
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<String> {
-    // convert the worker ID to hostname
-    let rx_hostname = worker_map
-        .get_by_left(rx_id)
-        .unwrap_or(&String::from("*"))
-        .to_string();
+    // convert the worker ID to hostname (no hop reply → no worker received it → '*')
+    let rx_hostname = if reply.hop_addr.is_some() {
+        worker_map
+            .get_by_left(rx_id)
+            .unwrap_or(&String::from("*"))
+            .to_string()
+    } else {
+        "*".to_string()
+    };
 
     let tx_hostname = worker_map
         .get_by_left(&reply.tx_id)

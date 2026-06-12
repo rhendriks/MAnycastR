@@ -1,8 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
-use crate::custom_module::manycastr::{
-    Address, DiscoveryReply, MeasurementReply, Reply, TraceReply,
-};
+use crate::custom_module::manycastr::{DiscoveryReply, MeasurementReply, Reply, TraceReply};
 use crate::net::TCPPacket;
+use crate::worker::inbound::ReplyMeta;
 use crate::worker::trace_codec::TraceTag;
 
 /// Parse TCP packets into a Reply result.
@@ -10,11 +9,9 @@ use crate::worker::trace_codec::TraceTag;
 ///
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
-/// * `src` - source address of the received packet
-/// * `ttl` - TTL of the received packet
 /// * `sport` - Source port used for outgoing packets (destination port of replies)
-/// * `rx_time` - kernel receive timestamp in microseconds
 /// * `is_traceroute` - If true, check for traceroute destination replies
+/// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 ///
 /// # Returns
 /// * `Option<ResultData>` - the received TCP reply
@@ -23,12 +20,11 @@ use crate::worker::trace_codec::TraceTag;
 /// The function returns None if the packet is too short to contain a TCP header or if the RST flag is not set.
 pub fn parse_tcp(
     packet_bytes: &[u8],
-    src: Address,
-    ttl: u32,
     sport: u16,
-    rx_time: u64,
     is_traceroute: bool,
+    meta: ReplyMeta,
 ) -> Option<Reply> {
+    let ReplyMeta { src, ttl, rx_time } = meta;
     // Verify RST flag is set
     if (src.is_v6() && (packet_bytes[13] & 0x04) == 0)
         || (!src.is_v6() && (packet_bytes[33] & 0x04) == 0)

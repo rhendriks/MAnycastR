@@ -153,7 +153,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                             MeasurementType::Laces => {
                                 get_laces_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::AnycastTraceroute => {
+                            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
                                 panic!("Received regular reply during a traceroute measurement")
                             }
                         },
@@ -191,7 +191,7 @@ pub fn get_header(
 ) -> Vec<&'static str> {
     // Determine headers based on measurement type
     let mut header = match m_type {
-        MeasurementType::AnycastTraceroute => {
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
         }
         MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {

@@ -2,6 +2,31 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [1.10.0] - 2026-06-12
+
+Adds tracemap, a binary-searching anycast traceroute that maps catchments of
+unresponsive targets, and hardens the traceroute output path.
+
+### Added
+- **Tracemap measurement** (`-m tracemap`) — maps catchments of unresponsive
+  targets. Each target is probed from a single PoP (round-robin) with the
+  anycast source; routers near the target reply with ICMP Time Exceeded.
+  The hop nearest to the target is found with a TTL binary search 
+  (instead of a hop-by-hop walk), starting at TTL 12 (the median Internet
+  path length).
+  Reuses the traceroute options, output format, and all three protocols, with a
+  tracemap-specific `--trace_max_failures` default of 3 (unresponsive path
+  sections are typically 1–2 hops). (#67)
+
+### Fixed
+- **`cli start --help` no longer panics in debug builds** — the hitlist short
+  flag `-h` collided with clap's auto-generated help flag; `--hitlist` is now
+  long-only and `-h` prints help.
+- **Unresponsive (`*`) trace hops no longer report the probing worker as `rx`** —
+  no worker received a reply, so `rx` is now `*` (CSV) / null (Parquet).
+- **Stray trace replies are no longer written to the output** — the orchestrator
+  only forwards trace replies that match an active trace session.
+
 ## [1.9.0] - 2026-06-11
 
 Makes discovery-based measurements (latency, traceroute, `--responsive`) robust

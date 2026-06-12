@@ -50,10 +50,10 @@ Measurements can be;
 When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** (`-h`/`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
-* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, or `anycast-traceroute`
+* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, `anycast-traceroute`, or `tracemap`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -158,7 +158,7 @@ sudo sysctl --system
 #### Catchment mapping
 
 ```
-manycastr cli -a [::1]:50001 start -m catchment -h hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
 All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -170,7 +170,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -186,7 +186,7 @@ the measurement then takes proportionally longer.
 ### Unicast latency measurement using ICMPv6
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
+manycastr cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
 ```
 
 Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -197,7 +197,7 @@ Furthermore, if the target does not currently route optimally, the performance g
 ### LACeS measurement
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
 ```
 
 Anycast probes will be sent from all workers.
@@ -208,7 +208,7 @@ Targets are scanned for responsiveness, using a single worker probe, before prob
 ### Anycast traceroute measurement
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
 ```
 
 Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
@@ -219,7 +219,7 @@ manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 Measure the path from the catching PoP to a target.
 First a single `discovery probe` is sent (round-robin across workers) to infer which PoP
 "catches" the target. The catching worker then sends `traceroute probes` with an increasing
-TTL / hop-limit (from `--trace_initial_hop`, default 1). Each intermediate router returns an
+TTL / hop-limit (from `--trace_initial_hop`, default 4). Each intermediate router returns an
 ICMP **Time Exceeded** message quoting the original probe; the hop is recorded and the next TTL
 is sent. The trace ends when the **target itself** replies (see below), on a routing loop, or at
 `--trace_max_hop`.
@@ -293,6 +293,47 @@ normal DNS measurements is not available for traceroute, because we need IP head
   this is ample for traceroute RTTs but the value is modular. The ICMP and DNS destination hops
   instead carry a full microsecond timestamp.
 
+### Tracemap measurement
+
+```
+manycastr cli -a [::1]:50001 start --hitlist unresponsives.txt -a 10.0.0.1 -p icmp -m tracemap
+```
+
+Map the catchment of **unresponsive** targets. Each target is assigned to a random probing PoP,
+which sends traceroute probes with the **anycast** source address.
+Routers on the path reply with ICMP **Time Exceeded**; routed to the catching PoP for each router
+The highest `hop_count` per `trace_dst` is a proxy for the catchment (`rx`) of the unresponsive target itself.
+
+Tracemap **binary-searches** the TTL space for the deepest responding hop,
+minimizing traceroute packets.
+The first probe is sent at TTL 12 — the empirical median Internet path length (typical IP paths
+are 10–20 hops, 95% at most 15) — rather than the midpoint of the search range, since a
+responsive probe resolves with a single fast reply while a silent one costs a full confirmation
+window of timeouts.
+Because paths may contain unresponsive hops before the target, a timed-out TTL is first confirmed by
+probing the next `--trace_max_failures` TTLs; only if all stay silent does the search conclude
+it exceeded the target and continue in the lower half. Responding hops move the search deeper.
+
+Targets that turn out to be probe-responsive are handled too: a reply from the target itself
+(e.g., an ICMP Echo Reply) immediately closes the search with a destination-reached row
+(`addr` equals `trace_dst`), and its `rx` is the target's catchment measured directly.
+
+The search runs between `--trace_initial_hop` and `--trace_max_hop`; `--trace_timeout` and
+`--trace_max_failures` govern the per-hop timeout and the confirmation window. Output uses the
+traceroute format (see below).
+
+Tracemap uses its own statistically-motivated defaults for these options:
+
+| Option                 | tracemap default | anycast-traceroute default | Rationale                                                                                                                                                                            |
+|------------------------|------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--trace_initial_hop`  | 4                | 4                          | The first hops sit inside the probing PoP's own network; their catchment is trivially the prober                                                                                     |
+| `--trace_max_hop`      | 25               | 25                         | ≈ mean + 3σ of Internet path lengths (mean ≈ 12.6, σ ≈ 4), covering >99% of paths.                                                                                                   |
+| `--trace_max_failures` | 3                | 5                          | Consecutive non-responsive hops are predominantly 1–2 hops, so a window of 3 absorbs them; the linear gap limit of 5 detects end-of-path. For traceroute we favor completeness more. |
+
+Statistics sources:
+* **Path-length distribution** (mean ≈ 12.6 hops, σ ≈ 4; median ≈ 12):
+  [Begtašević & Van Mieghem, *Measurements of the Hopcount in Internet* (PAM 2001)](http://web.eng.ucsd.edu/~massimo/ECE158A/Handouts_files/hop-count.pdf); (NOTE outdated paper, find new sources)
+  live per-vantage-point path-length CCDFs: [CAIDA Ark monitor statistics](https://www.caida.org/projects/ark/statistics/)
 ## CSV output format
 
 By default, results are written as gzip-compressed CSV files (`.csv.gz`).
@@ -304,7 +345,7 @@ All values are stored as text. Columns depend on the measurement type:
 
 | Column       | Type               | Description                                                                                                           | Measurement types                   |
 |--------------|--------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------|
-| `rx`         | `String`           | Hostname of the receiving worker                                                                                      | All                                 |
+| `rx`         | `String`           | Hostname of the receiving worker (`*` for unresponsive trace hops — no reply was received)                            | All                                 |
 | `addr`       | `String`           | Source IP of the reply, or traceroute hop address (`*` if no reply)                                                   | All                                 |
 | `ttl`        | `String (integer)` | TTL of the reply                                                                                                      | All                                 |
 | `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
@@ -355,7 +396,7 @@ Columns depend on the measurement type:
 
 | Column | Type | Description | Measurement types |
 |--------|------|-------------|-------------------|
-| `rx` | `ENUM` | Hostname of the receiving worker | All |
+| `rx` | `ENUM` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
 | `rtt` | `FLOAT` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |

@@ -36,6 +36,7 @@ enum MeasurementType {
   ANYCAST_LATENCY = 2;
   UNICAST_LATENCY = 3;
   ANYCAST_TRACEROUTE = 4;
+  TRACEMAP = 5;
 }
 
 enum ProtocolType {

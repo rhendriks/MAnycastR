@@ -59,6 +59,7 @@
 //! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
 //! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
+//! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
 //!
 //! # Usage
 //!
@@ -88,7 +89,7 @@
 //! ### Catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+//! cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
 //! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -100,7 +101,7 @@
 //! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
 //! ```
 //!
 //! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -111,7 +112,7 @@
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
+//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
 //! ```
 //!
 //! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -122,7 +123,7 @@
 //! ### LACeS measurement
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
 //! ```
 //!
 //! Anycast probes will be sent from all workers.
@@ -133,7 +134,7 @@
 //! ### Anycast traceroute measurement
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
 //! ```
 //!
 //! Measure the path from the catching PoP to the target.
@@ -308,20 +309,20 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
-                    .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
+                    .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
                         .value_parser(value_parser!(String))
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
                         .value_parser(value_parser!(String))
                         .required_unless_present("hitlist"))
-                    .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
+                    .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
                         .action(ArgAction::Append)
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute"]))
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute", "tracemap"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
@@ -331,7 +332,10 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
-                        .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
+                        .default_value_ifs([
+                            ("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10")),
+                            ("m_type", ArgPredicate::Equals("tracemap".into()), Some("10")),
+                        ])
                         .default_value("1000"))
                     .arg(arg!(selective: -x --selective <IDS> "List of worker IDs/hostnames that send probes [worker_id1,worker_id2,...]"))
                     .arg(arg!(-o --out <PATH> "Optional path/filename to write output").default_value("./"))
@@ -340,10 +344,17 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
                     .arg(arg!(--any "Try protocols in order (as specified by -p); stop per-target on first responsive protocol. Implies --responsive").action(ArgAction::SetTrue))
-                    .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures").value_parser(value_parser!(u32)).default_value("5"))
+                    .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures (tracemap: confirmation window past a silent midpoint, default 3)")
+                        .value_parser(value_parser!(u32))
+                        .default_value_if("m_type", ArgPredicate::Equals("tracemap".into()), Some("3"))
+                        .default_value("5"))
                     .arg(arg!(--trace_timeout <N> "Timeout for hops (in seconds)").value_parser(value_parser!(u32)).default_value("3"))
-                    .arg(arg!(--trace_max_hop <N> "Maximum TTL value").value_parser(value_parser!(u32)).default_value("30"))
-                    .arg(arg!(--trace_initial_hop <N> "Starting TTL value").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(--trace_max_hop <N> "Maximum TTL value (covers >99% of Internet path lengths)")
+                        .value_parser(value_parser!(u32))
+                        .default_value("25"))
+                    .arg(arg!(--trace_initial_hop <N> "Starting TTL value (skips hops within the PoP's own network)")
+                        .value_parser(value_parser!(u32))
+                        .default_value("4"))
                     .arg(arg!(--trace_star <BOOL> "Emit a '*' hop to the output for unresponsive (timed-out) hops").value_parser(value_parser!(bool)).default_value("true"))
                     .arg(arg!(-w --worker_interval <N> "Interval between workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-i --probe_interval <N> "Interval between probes from the same worker to the same target").value_parser(value_parser!(u32)).default_value("1"))

@@ -1,6 +1,8 @@
-use crate::custom_module::manycastr::{Address, ProtocolType, Trace};
-use crate::net::packet::{ProbePayload, create_icmp, create_tcp_trace, create_udp_trace};
-use crate::worker::outbound::send_packet;
+use crate::custom_module::manycastr::{ProtocolType, Trace};
+use crate::net::packet::{
+    ProbePayload, TraceDnsId, create_icmp, create_tcp_trace, create_udp_trace,
+};
+use crate::worker::outbound::{OutboundConfig, send_packet};
 use crate::worker::trace_codec::TraceTag;
 use log::warn;
 use socket2::Socket;
@@ -15,30 +17,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// - **TCP (Paris)**: seq number (worker_id + TTL + timestamp)
 ///
 /// # Arguments
-/// * `worker_id` - This worker's identifier.
-/// * `m_id` - Unique measurement ID.
-/// * `info_url` - Optional URL encoded in the payload.
+/// * `config` - The outbound configuration (worker, measurement, origin, and protocol details).
 /// * `trace_task` - The traceroute task containing destination and TTL information.
 /// * `socket` - The socket to send the packet on.
-/// * `src` - Source address bound to this socket.
-/// * `p_type` - Protocol type to use for the probe.
-/// * `sport` - Configured source port (for UDP/TCP, constant across probes).
-/// * `dport` - Configured destination port (for UDP/TCP, constant across probes).
-#[allow(clippy::too_many_arguments)] // TODO remove allow
-pub fn send_trace(
-    worker_id: u32,
-    m_id: u32,
-    info_url: Option<&str>,
-    trace_task: &Trace,
-    socket: &Socket,
-    src: &Address,
-    p_type: ProtocolType,
-    sport: u16,
-    dport: u16,
-    qname: &str,
-) -> (u32, u32) {
+pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) -> (u32, u32) {
+    let worker_id = config.worker_id as u32;
+    let p_type = config.p_type;
+    let src = &config.src;
+    let info_url = config.info_url.as_deref();
     let target = &trace_task.dst.unwrap();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap(); // TODO get time from kernel
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let tx_micros = now.as_micros() as u64;
     let tag = TraceTag {
         worker_id,
@@ -54,7 +42,7 @@ pub fn send_trace(
 
             let payload_fields = ProbePayload {
                 worker_id,
-                m_id,
+                m_id: config.m_id,
                 trace_ttl: Some(ttl),
                 info_url,
             };
@@ -77,15 +65,17 @@ pub fn send_trace(
             create_udp_trace(
                 src,
                 target,
-                sport,
-                dport,
+                config.sport,
+                config.dport,
                 identifier,
                 desired_checksum,
-                worker_id,
-                tx_micros,
-                ttl,
-                m_id,
-                qname,
+                &TraceDnsId {
+                    tx_id: worker_id,
+                    m_id: config.m_id,
+                    tx_micros,
+                    ttl,
+                    qname: config.qname.as_deref().unwrap_or("example.org"),
+                },
             )
         }
 
@@ -93,7 +83,7 @@ pub fn send_trace(
             // TCP (Paris): the whole identity is packed into the 32-bit sequence number.
             let seq = tag.encode_tcp_seq();
 
-            create_tcp_trace(src, target, sport, dport, seq, ttl, info_url)
+            create_tcp_trace(src, target, config.sport, config.dport, seq, ttl, info_url)
         }
     };
 

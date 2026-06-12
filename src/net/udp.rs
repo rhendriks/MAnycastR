@@ -396,26 +396,28 @@ impl UDPPacket {
 ///
 /// where `tx_micros` is the full microsecond send time (so the destination-hop RTT is a
 /// plain epoch delta, matching the ICMP/discovery convention).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn dns_a_trace_body(
-    qname: &str,
-    tx_micros: u64,
     src: &Address,
     dst: &Address,
-    worker_id: u32,
     sport: u16,
-    m_id: u32,
-    ttl: u8,
+    id: &crate::net::packet::TraceDnsId,
 ) -> Vec<u8> {
+    let &crate::net::packet::TraceDnsId {
+        tx_id,
+        m_id,
+        tx_micros,
+        ttl,
+        qname,
+    } = id;
+
     let src_num = src.as_numeric();
     let dst_num = dst.as_numeric();
-    let subdomain =
-        format!("{tx_micros}.{src_num}.{dst_num}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}");
+    let subdomain = format!("{tx_micros}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{ttl}.{qname}");
 
     let mut dns_body: Vec<u8> = Vec::new();
 
     // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID), as in dns_request.
-    let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | ((worker_id as u16) & 0x03FF);
+    let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | ((tx_id as u16) & 0x03FF);
     dns_body
         .write_u16::<byteorder::BigEndian>(encoded_tx_id)
         .unwrap(); // Transaction ID

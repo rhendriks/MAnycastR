@@ -1,5 +1,6 @@
-use crate::custom_module::manycastr::{Address, Reply};
+use crate::custom_module::manycastr::Reply;
 use crate::net::{IPv4Packet, PacketPayload, parse_record_route_option};
+use crate::worker::inbound::ReplyMeta;
 use crate::worker::inbound::ping::parse_icmp_inner;
 
 /// Parse ICMP Record Route packets (including v4/v6 headers) into a Reply result with trace information.
@@ -7,12 +8,11 @@ use crate::worker::inbound::ping::parse_icmp_inner;
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - the ID of the current measurement
-/// * `src` - source address of the received packet (target address)
-/// * `ttl` - TTL value of the received packet
+/// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received RR reply (None if it is not a valid RR packet)
-pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32) -> Option<Reply> {
+pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, meta: ReplyMeta) -> Option<Reply> {
     // Check for Record Route option and minimum length
     if packet_bytes.len() < 52 || packet_bytes[20] != 7 {
         return None;
@@ -33,5 +33,12 @@ pub fn parse_record_route(packet_bytes: &[u8], m_id: u32, src: Address, ttl: u32
         return None;
     };
 
-    parse_icmp_inner(icmp_packet, m_id, recorded_hops, false, src, ttl, 0)
+    // Record Route replies carry no usable transmit timestamp (rx_time 0)
+    parse_icmp_inner(
+        icmp_packet,
+        m_id,
+        recorded_hops,
+        false,
+        ReplyMeta { rx_time: 0, ..meta },
+    )
 }
