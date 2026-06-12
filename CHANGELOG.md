@@ -18,6 +18,8 @@ All notable changes to MAnycastR are documented in this file.
 ### Fixed
 - **Unresponsive (`*`) trace hops no longer report the probing worker as `rx`** —
   no worker received a reply, so `rx` is now `*` (CSV) / null (Parquet).
+- **Stray trace replies are no longer written to the output** — the orchestrator
+  only forwards trace replies that match an active trace session.
 
 ## [1.9.0] - 2026-06-11
 

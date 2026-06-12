@@ -314,6 +314,10 @@ Because paths may contain unresponsive hops before the target, a timed-out TTL i
 probing the next `--trace_max_failures` TTLs; only if all stay silent does the search conclude
 it exceeded the target and continue in the lower half. Responding hops move the search deeper.
 
+Targets that turn out to be probe-responsive are handled too: a reply from the target itself
+(e.g., an ICMP Echo Reply) immediately closes the search with a destination-reached row
+(`addr` equals `trace_dst`), and its `rx` is the target's catchment measured directly.
+
 The search runs between `--trace_initial_hop` and `--trace_max_hop`; `--trace_timeout` and
 `--trace_max_failures` govern the per-hop timeout and the confirmation window. Output uses the
 traceroute format (see below).
