@@ -133,7 +133,12 @@ impl CliClient {
 
         // Read NDJSON targets from stdin on a blocking thread
         let worker_map = args.worker_map.clone();
-        std::thread::spawn(move || read_stdin_feed(feed_tx, is_ipv6, worker_map));
+        let origin_ids: HashSet<u32> = m_def
+            .configurations
+            .iter()
+            .filter_map(|conf| conf.origin.map(|origin| origin.origin_id))
+            .collect();
+        std::thread::spawn(move || read_stdin_feed(feed_tx, is_ipv6, worker_map, origin_ids));
 
         // Forward stdin targets to the gRPC stream until EOF or Ctrl+C.
         tokio::spawn(async move {
