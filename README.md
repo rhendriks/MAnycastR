@@ -53,7 +53,7 @@ When creating a measurement you can specify (for more information run --help):
 * **Hitlist** (`-h`/`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
-* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, or `anycast-traceroute`
+* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, `anycast-traceroute`, or `tracemap`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -292,6 +292,27 @@ normal DNS measurements is not available for traceroute, because we need IP head
 * **Intermediate-hop RTTs** use a 14-bit millisecond transmit timestamp (it wraps every ~16.4 s);
   this is ample for traceroute RTTs but the value is modular. The ICMP and DNS destination hops
   instead carry a full microsecond timestamp.
+
+### Tracemap measurement
+
+```
+manycastr cli -a [::1]:50001 start -h unresponsives.txt -a 10.0.0.1 -p icmp -m tracemap
+```
+
+Map the catchment of **unresponsive** targets. Each target is assigned to a random probing PoP,
+which sends traceroute probes with the **anycast** source address.
+Routers on the path reply with ICMP **Time Exceeded**; routed to the catching PoP for each router
+The highest `hop_count` per `trace_dst` is a proxy for the catchment (`rx`) of the unresponsive target itself.
+
+Tracemap **binary-searches** the TTL space for the deepest responding hop,
+minimizing traceroute packets (~`log2(max_hops)` probed TTLs per target instead of the full path).
+Because paths may contain unresponsive hops before the target, a timed-out TTL is first confirmed by
+probing the next `--trace_max_failures` TTLs; only if all stay silent does the search conclude
+it exceeded the target and continue in the lower half. Responding hops move the search deeper.
+
+The search runs between `--trace_initial_hop` and `--trace_max_hop`; `--trace_timeout` and
+`--trace_max_failures` govern the per-hop timeout and the confirmation window. Output uses the
+traceroute format (see below).
 
 ## CSV output format
 
