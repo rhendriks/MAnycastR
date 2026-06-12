@@ -15,6 +15,10 @@ All notable changes to MAnycastR are documented in this file.
   tracemap-specific `--trace_max_failures` default of 3 (unresponsive path
   sections are typically 1–2 hops). (#67)
 
+### Fixed
+- **Unresponsive (`*`) trace hops no longer report the probing worker as `rx`** —
+  no worker received a reply, so `rx` is now `*` (CSV) / null (Parquet).
+
 ## [1.9.0] - 2026-06-11
 
 Makes discovery-based measurements (latency, traceroute, `--responsive`) robust
