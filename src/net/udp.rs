@@ -412,8 +412,7 @@ pub(crate) fn dns_a_trace_body(
 
     let src_num = src.as_numeric();
     let dst_num = dst.as_numeric();
-    let subdomain =
-        format!("{tx_micros}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{ttl}.{qname}");
+    let subdomain = format!("{tx_micros}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{ttl}.{qname}");
 
     let mut dns_body: Vec<u8> = Vec::new();
 
