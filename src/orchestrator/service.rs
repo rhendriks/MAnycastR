@@ -2,15 +2,16 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Ack, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType, Reply, ReplyBatch,
-    ScheduleMeasurement, Start, TraceOptions, TraceReply, Worker, instruction,
+    Ack, Address, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType,
+    Reply, ReplyBatch, ScheduleMeasurement, Start, TraceOptions, TraceReply, Worker, cli_message,
+    instruction,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
     SessionTracker, discovery_handler, trace_discovery_handler, trace_replies_handler,
 };
 use crate::orchestrator::task_distributor::{
-    DistributionStrategy, TaskDistributorConfig, distribute_tasks,
+    DistributionStrategy, TaskDistributorConfig, distribute_live_tasks, distribute_tasks,
 };
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
@@ -24,6 +25,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tonic::{Request, Response, Status};
+
+/// Live feed buffer size, expressed in seconds of probing at the live rate.
+/// When the buffer is full the CLI stream is no longer read (blocking the feed).
+const FEED_BUFFER_SECS: usize = 5;
 
 /// Workers classified by role for a measurement.
 struct ClassifiedWorkers {
@@ -308,6 +313,134 @@ impl Controller for ControllerService {
         distribute_tasks(task_config, strategy).await;
 
         //  Return CLI result stream
+        Ok(Response::new(CLIReceiver {
+            inner: cli_rx,
+            measurement: self.measurement.clone(),
+        }))
+    }
+
+    type LiveMeasurementStream = CLIReceiver<Result<ReplyBatch, Status>>;
+
+    /// Handles a live (feed-based) measurement request from the CLI.
+    ///
+    /// The first message on the stream must be the measurement definition;
+    /// subsequent messages carry targets to probe.
+    /// The orchestrator enforces its configured `--live_rate` as an upper bound on
+    /// the probing rate.
+    ///
+    /// # Errors
+    /// Returns an error if the first message is not a measurement definition, if the
+    /// measurement type is not catchment, if there is already an active measurement,
+    /// or if no workers can participate.
+    async fn live_measurement(
+        &self,
+        request: Request<tonic::Streaming<CliMessage>>,
+    ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
+        let mut inbound = request.into_inner();
+
+        // The first message on the stream must be the measurement definition
+        let mut m_def = match inbound.message().await? {
+            Some(CliMessage {
+                message: Some(cli_message::Message::Start(m_def)),
+            }) => m_def,
+            _ => {
+                return Err(Status::invalid_argument(
+                    "First message on a live stream must be the measurement definition",
+                ));
+            }
+        };
+
+        if m_def.m_type() != MeasurementType::Catchment { // TODO live-measurement should be measurement type agnostic (mixed types)
+            return Err(Status::invalid_argument(
+                "Live measurements currently only support catchment mode",
+            ));
+        }
+
+        // Enforce the orchestrator-configured rate limit for live measurements
+        if m_def.probing_rate > self.live_rate {
+            warn!(
+                "[Orchestrator] Capping live probing rate {} to the configured maximum of {}",
+                m_def.probing_rate, self.live_rate
+            );
+            m_def.probing_rate = self.live_rate;
+        }
+        let probing_rate = m_def.probing_rate;
+
+        info!(
+            "[Orchestrator] Received CLI live measurement request (rate {probing_rate} per worker)"
+        );
+
+        // Classify workers and validate configuration
+        let ClassifiedWorkers {
+            senders: workers,
+            participating_ids,
+            probing_ids,
+        } = self.classify_workers(&m_def)?;
+        let probing_workers_count = probing_ids.len();
+        if probing_workers_count == 0 {
+            return Err(Status::new(
+                tonic::Code::Cancelled,
+                "No probing workers available",
+            ));
+        }
+
+        // Initialize measurement state (errors if already active)
+        self.init_measurement(&m_def, &participating_ids, &probing_ids)?;
+
+        info!(
+            "[Orchestrator] {} participating workers, {} will probe",
+            participating_ids.len(),
+            probing_workers_count,
+        );
+
+        // Set up CLI result stream
+        let (cli_tx, cli_rx) = mpsc::channel::<Result<ReplyBatch, Status>>(1000);
+        let _ = self.cli_sender.lock().unwrap().insert(cli_tx);
+
+        // Send Start instructions to all participating workers
+        // TODO: enable reconnect of Workers
+        let m_id = rand::random_range(0..u32::MAX);
+        send_start_instructions(&workers, &m_def, m_id).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Rate-limiting: when full, the orchestrator stops reading the CLI stream
+        let capacity = (probing_rate as usize * FEED_BUFFER_SECS).max(1000);
+        let (feed_tx, feed_rx) = mpsc::channel::<Address>(capacity);
+
+        // Forward targets into the task distributor until the CLI closes its stream
+        tokio::spawn(async move {
+            loop {
+                match inbound.message().await {
+                    Ok(Some(CliMessage {
+                        message: Some(cli_message::Message::Targets(batch)),
+                    })) => {
+                        for target in batch.targets {
+                            if feed_tx.send(target).await.is_err() {
+                                return; // Distributor is gone (measurement ended)
+                            }
+                        }
+                    }
+                    Ok(Some(_)) => {
+                        warn!("[Orchestrator] Ignoring unexpected message on live stream");
+                    }
+                    Ok(None) => return, // CLI closed its stream
+                    Err(e) => {
+                        warn!("[Orchestrator] Live stream error: {e}");
+                        return;
+                    }
+                }
+            }
+        });
+
+        distribute_live_tasks(
+            feed_rx,
+            self.measurement.clone(),
+            workers,
+            probing_rate,
+            probing_workers_count,
+        );
+
+        // Return CLI result stream
         Ok(Response::new(CLIReceiver {
             inner: cli_rx,
             measurement: self.measurement.clone(),
