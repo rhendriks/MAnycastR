@@ -9,6 +9,8 @@ service Controller {
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
   // CLI instructs Orc to perform a hitlist-based measurement and establishes a stream for the Orc to send back replies
   rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
+  // CLI opens a live measurement, replies are streamed back
+  rpc LiveMeasurement(stream CliMessage) returns (stream ReplyBatch) {}
   // CLI asks Orc its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends measurement replies to the Orc
@@ -70,6 +72,19 @@ message ScheduleMeasurement {
   optional TraceOptions trace_options = 12; // Optional traceroute options
   bool is_responsive = 13; // Whether to probe a target once for responsiveness before sending measurement probes
   bool is_any_protocol = 14; // Try protocols in order; stop per-target on first responsive protocol
+}
+
+// A message sent by the CLI on a live measurement stream
+message CliMessage {
+  oneof message {
+    ScheduleMeasurement start = 1; // measurement definition (must be the first message; hitlist is ignored)
+    TargetBatch targets = 2; // targets to probe using the measurement defaults
+  }
+}
+
+// A batch of target addresses to probe TODO consider re-using for hitlist-based measurements
+message TargetBatch {
+  repeated Address targets = 1;
 }
 
 // A list of workers
