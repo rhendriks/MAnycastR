@@ -219,7 +219,7 @@ manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
 Measure the path from the catching PoP to a target.
 First a single `discovery probe` is sent (round-robin across workers) to infer which PoP
 "catches" the target. The catching worker then sends `traceroute probes` with an increasing
-TTL / hop-limit (from `--trace_initial_hop`, default 1). Each intermediate router returns an
+TTL / hop-limit (from `--trace_initial_hop`, default 4). Each intermediate router returns an
 ICMP **Time Exceeded** message quoting the original probe; the hop is recorded and the next TTL
 is sent. The trace ends when the **target itself** replies (see below), on a routing loop, or at
 `--trace_max_hop`.
@@ -305,7 +305,11 @@ Routers on the path reply with ICMP **Time Exceeded**; routed to the catching Po
 The highest `hop_count` per `trace_dst` is a proxy for the catchment (`rx`) of the unresponsive target itself.
 
 Tracemap **binary-searches** the TTL space for the deepest responding hop,
-minimizing traceroute packets (~`log2(max_hops)` probed TTLs per target instead of the full path).
+minimizing traceroute packets.
+The first probe is sent at TTL 12 — the empirical median Internet path length (typical IP paths
+are 10–20 hops, 95% at most 15) — rather than the midpoint of the search range, since a
+responsive probe resolves with a single fast reply while a silent one costs a full confirmation
+window of timeouts.
 Because paths may contain unresponsive hops before the target, a timed-out TTL is first confirmed by
 probing the next `--trace_max_failures` TTLs; only if all stay silent does the search conclude
 it exceeded the target and continue in the lower half. Responding hops move the search deeper.
@@ -314,6 +318,18 @@ The search runs between `--trace_initial_hop` and `--trace_max_hop`; `--trace_ti
 `--trace_max_failures` govern the per-hop timeout and the confirmation window. Output uses the
 traceroute format (see below).
 
+Tracemap uses its own statistically-motivated defaults for these options:
+
+| Option                 | tracemap default | anycast-traceroute default | Rationale                                                                                                                                                                            |
+|------------------------|------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--trace_initial_hop`  | 4                | 4                          | The first hops sit inside the probing PoP's own network; their catchment is trivially the prober                                                                                     |
+| `--trace_max_hop`      | 25               | 25                         | ≈ mean + 3σ of Internet path lengths (mean ≈ 12.6, σ ≈ 4), covering >99% of paths.                                                                                                   |
+| `--trace_max_failures` | 3                | 5                          | Consecutive non-responsive hops are predominantly 1–2 hops, so a window of 3 absorbs them; the linear gap limit of 5 detects end-of-path. For traceroute we favor completeness more. |
+
+Statistics sources:
+* **Path-length distribution** (mean ≈ 12.6 hops, σ ≈ 4; median ≈ 12):
+  [Begtašević & Van Mieghem, *Measurements of the Hopcount in Internet* (PAM 2001)](http://web.eng.ucsd.edu/~massimo/ECE158A/Handouts_files/hop-count.pdf); (NOTE outdated paper, find new sources)
+  live per-vantage-point path-length CCDFs: [CAIDA Ark monitor statistics](https://www.caida.org/projects/ark/statistics/)
 ## CSV output format
 
 By default, results are written as gzip-compressed CSV files (`.csv.gz`).
