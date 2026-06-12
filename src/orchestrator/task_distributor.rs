@@ -1,4 +1,3 @@
-use crate::ALL_WORKERS;
 use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
     Address, End, Instruction, Probe, Task, Tasks, instruction, task,
@@ -6,10 +5,12 @@ use crate::custom_module::manycastr::{
 use crate::orchestrator::MeasurementHandle;
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
+use crate::{ALL_ORIGINS, ALL_WORKERS};
 use log::{info, warn};
 use std::time::Duration;
 use tokio::spawn;
-use tokio::time::{Instant, Interval};
+use tokio::sync::mpsc;
+use tokio::time::{Instant, Interval, MissedTickBehavior};
 use tonic::Status;
 
 /// Grace period (seconds) after the hitlist is exhausted
@@ -443,6 +444,100 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
         // Wait for all workers to finish
         while config.measurement.read().unwrap().is_some() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+}
+
+/// Live task distributor for feed-based measurements.
+///
+/// Dispatches targets arriving on `feed` to probing workers in round-robin fashion,
+/// rate-limited to `probing_rate` targets per worker per second (enforced via the
+/// orchestrator's `--live_rate`). The measurement ends when the feed closes
+/// (the CLI ended its stream or disconnected) or when no probing workers remain.
+pub fn distribute_live_tasks(
+    mut feed: mpsc::Receiver<Address>,
+    measurement: MeasurementHandle,
+    workers: Vec<WorkerSender<Result<Instruction, Status>>>,
+    probing_rate: u32,
+    number_of_probing_workers: usize,
+) {
+    info!("[Orchestrator] Starting Live Task Distributor.");
+
+    spawn(async move {
+        // TODO track and enforce probing rate per-worker
+        let mut probing_rate_interval =
+            tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32);
+        probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut current_index: usize = 0;
+        let batch_capacity = probing_rate as usize;
+
+        loop {
+            probing_rate_interval.tick().await;
+
+            // Wait for the next target; the feed closes when the CLI ends its stream or disconnects
+            let Some(first) = feed.recv().await else {
+                info!("[Orchestrator] Live feed closed, ending measurement.");
+                break;
+            };
+
+            // Fill the batch with whatever else is queued, up to the per-tick rate limit
+            let mut tasks = vec![make_task(first, false, ALL_ORIGINS)];
+            while tasks.len() < batch_capacity {
+                match feed.try_recv() {
+                    Ok(addr) => tasks.push(make_task(addr, false, ALL_ORIGINS)),
+                    Err(_) => break,
+                }
+            }
+
+            // TODO allow 'any' worker (round-robin), 'all' worker (broadcast), specific worker
+            // TODO disallow 'all' for measurements like --latency, anycast-traceroute, tracemap.
+            // Get next worker ID (also verifies measurement is still active)
+            let worker_id = {
+                let lock = measurement.read().unwrap();
+                let state = match *lock {
+                    Some(ref s) => s,
+                    None => {
+                        warn!("[Orchestrator] Measurement no longer active");
+                        break;
+                    }
+                };
+
+                let probing_workers = &state.probing_workers;
+                if probing_workers.is_empty() {
+                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
+                    break;
+                }
+                current_index %= probing_workers.len();
+                let id = probing_workers[current_index];
+                current_index = (current_index + 1) % probing_workers.len();
+                id
+            };
+
+            send_to_workers(
+                &workers,
+                worker_id,
+                Instruction {
+                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks { tasks })),
+                },
+                1, // TODO enable 'nprobes:'
+                0, // TODO use default 1 for multiple workers
+                0, // TODO use default 1 for multiple probes
+            )
+            .await;
+        }
+
+        // Wait for the last replies to arrive
+        info!("[Orchestrator] Awaiting a {REPLY_GRACE_SECS}-second cooldown.");
+        tokio::time::sleep(Duration::from_secs(REPLY_GRACE_SECS)).await;
+
+        info!("[Orchestrator] Live task distribution finished.");
+
+        // Notify all workers that the measurement is over
+        end_measurement(&workers).await;
+
+        // Wait for all workers to finish
+        while measurement.read().unwrap().is_some() {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
