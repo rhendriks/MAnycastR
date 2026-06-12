@@ -25,9 +25,10 @@ impl Stream for FeedStream {
     }
 }
 
-/// Read NDJSON target lines from stdin and forward them to the live feed.
+/// Read target lines from stdin and forward them to the live feed.
 ///
-/// Each line is a JSON object with a `dst` field (e.g., `{"dst":"1.1.1.1"}`).
+/// Each line is a JSON object with a `dst` field (e.g., `{"dst":"1.1.1.1"}`),
+/// or a bare address (e.g., `1.1.1.1`).
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(feed_tx: mpsc::Sender<CliMessage>, is_ipv6: bool) {
@@ -46,7 +47,8 @@ pub fn read_stdin_feed(feed_tx: mpsc::Sender<CliMessage>, is_ipv6: bool) {
             continue;
         };
 
-        if addr.is_v6() != is_ipv6 { // TODO support mixed IPv4/IPv6
+        if addr.is_v6() != is_ipv6 {
+            // TODO support mixed IPv4/IPv6
             warn!(
                 "[CLI] Skipping target {addr}: IP version does not match the measurement ({})",
                 if is_ipv6 { "IPv6" } else { "IPv4" }
@@ -65,9 +67,16 @@ pub fn read_stdin_feed(feed_tx: mpsc::Sender<CliMessage>, is_ipv6: bool) {
     }
 }
 
-/// Parse a single NDJSON feed line into a target address (e.g., `{"dst":"1.1.1.1"}`).
+/// Parse a single feed line into a target address: an NDJSON object
+/// (e.g., `{"dst":"1.1.1.1"}`) or a bare address (e.g., `1.1.1.1`).
 fn parse_feed_line(line: &str) -> Option<Address> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    let dst = value.get("dst")?.as_str()?;
-    dst.parse::<Address>().ok()
+    // NDJSON object (producers/scripts)
+    if line.starts_with('{') {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        let dst = value.get("dst")?.as_str()?;
+        return dst.parse::<Address>().ok();
+    }
+
+    // Bare address shorthand (interactive use)
+    line.parse::<Address>().ok()
 }
