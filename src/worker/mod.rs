@@ -36,6 +36,7 @@ impl Worker {
             hostname,
             current_m_id: Arc::new(Mutex::new(None)),
             outbound_txs: vec![],
+            outbound_handles: vec![],
             abort_inbound: Arc::new(AtomicBool::new(false)),
         };
 

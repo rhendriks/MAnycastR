@@ -14,6 +14,11 @@ use tonic::Status;
 /// Grace period (seconds) after the hitlist is exhausted
 const REPLY_GRACE_SECS: u64 = 5;
 
+/// Pause discovery when the deepest follow-up stack exceeds this many seconds of drain (at the probing rate)
+const STACK_HIGH_WATERMARK_SECS: usize = 5;
+/// Resume discovery once the deepest follow-up stack drops below this many seconds of drain (at the probing rate)
+const STACK_LOW_WATERMARK_SECS: usize = 1;
+
 /// How tasks should be distributed to workers
 pub enum DistributionStrategy {
     /// Broadcast tasks to all probing workers simultaneously (LACeS, and unicast mode)
@@ -99,18 +104,10 @@ async fn send_to_workers(
                     tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
                         .await;
 
-                    spawn(async move {
-                        for _ in 0..nprobes {
-                            sender_c.send(Ok(task_c.clone())).await.unwrap_or_else(|e| {
-                                sender_c.cleanup();
-                                warn!(
-                                    "[Orchestrator] Failed to send task to probing worker {}: {e:?}",
-                                    sender_c.hostname
-                                );
-                            });
-                            tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                        }
-                    });
+                    for _ in 0..nprobes {
+                        let _ = sender_c.send(Ok(task_c.clone())).await;
+                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                    }
                 });
                 probing_index += 1;
             }
@@ -119,27 +116,12 @@ async fn send_to_workers(
         // Send to a specific worker
         if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
             if nprobes < 2 {
-                sender.send(Ok(instruction)).await.unwrap_or_else(|e| {
-                    sender.cleanup();
-                    warn!(
-                        "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                        sender.hostname
-                    );
-                });
+                let _ = sender.send(Ok(instruction)).await;
             } else {
                 let sender_c = sender.clone();
                 spawn(async move {
                     for _ in 0..nprobes {
-                        sender_c
-                            .send(Ok(instruction.clone()))
-                            .await
-                            .unwrap_or_else(|e| {
-                                sender_c.cleanup();
-                                warn!(
-                                    "[Orchestrator] Failed to send task to worker {}: {e:?}",
-                                    sender_c.hostname
-                                );
-                            });
+                        let _ = sender_c.send(Ok(instruction.clone())).await;
                         tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                     }
                 });
@@ -156,13 +138,7 @@ async fn end_measurement(workers: &[WorkerSender<Result<Instruction, Status>>]) 
         instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
     };
     for sender in workers {
-        sender.send(Ok(end.clone())).await.unwrap_or_else(|e| {
-            sender.cleanup();
-            warn!(
-                "[Orchestrator] Failed to send end to worker {}: {e:?}",
-                sender.hostname
-            );
-        });
+        let _ = sender.send(Ok(end.clone())).await;
         sender.finished();
     }
 }
@@ -193,12 +169,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         _ => (false, false, vec![]),
     };
 
-    // Cooldown duration before ending the measurement
+    // Wait for the last tasks being sent (accounting for repeated tasks)
+    let repeat_secs = (config.number_of_probes.saturating_sub(1)) as u64 * config.probe_interval;
     let cooldown_secs = if is_broadcast || is_responsive {
-        // Wait for all workers to send their last tasks
-        (config.number_of_probing_workers as u64 * config.worker_interval) + 1
+        // Also wait for the inter-worker staggering of the last broadcast batch
+        (config.number_of_probing_workers as u64 * config.worker_interval) + repeat_secs + 1
     } else {
-        1 // TODO re-assess cooldown
+        repeat_secs + 1
     };
 
     let mut probing_rate_interval = config.probing_rate_interval;
@@ -226,8 +203,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     let inter_worker_interval = config.worker_interval;
     let inter_probe_interval = config.probe_interval;
 
+    // Follow-up backlog watermarks, expressed in seconds of drain at the probing rate
+    let high_watermark = STACK_HIGH_WATERMARK_SECS * config.probing_rate as usize;
+    let low_watermark = STACK_LOW_WATERMARK_SECS * config.probing_rate as usize;
+
     spawn(async move {
         let mut current_index: usize = 0;
+        let mut discovery_paused = false;
 
         loop {
             // Get next worker ID (also verifies measurement is still active)
@@ -267,19 +249,39 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     worker_id
                 };
 
-                let follow_up_tasks: Vec<Task> = {
+                let (follow_up_tasks, max_stack_depth): (Vec<Task>, usize) = {
                     let mut lock = config.measurement.write().unwrap();
                     if let Some(ref mut state) = *lock {
-                        if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
+                        let tasks = if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
                             let n = std::cmp::min(config.probing_rate as usize, queue.len());
                             queue.drain(..n).collect()
                         } else {
                             Vec::new()
-                        }
+                        };
+                        let depth = state
+                            .worker_stacks
+                            .values()
+                            .map(|q| q.len())
+                            .max()
+                            .unwrap_or(0);
+                        (tasks, depth)
                     } else {
-                        Vec::new()
+                        (Vec::new(), 0)
                     }
                 };
+
+                // Hysteresis: pause/resume discovery based on the watermark thresholds
+                if discovery_paused {
+                    if max_stack_depth <= low_watermark {
+                        info!("[Orchestrator] Follow-up backlog drained, resuming discovery.");
+                        discovery_paused = false;
+                    }
+                } else if max_stack_depth >= high_watermark {
+                    info!(
+                        "[Orchestrator] Follow-up backlog too large ({max_stack_depth} tasks), pausing discovery."
+                    );
+                    discovery_paused = true;
+                }
 
                 let count = follow_up_tasks.len();
                 if !follow_up_tasks.is_empty() {
@@ -305,7 +307,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             // Fill remainder of the batch with hitlist tasks
             let remainder = (config.probing_rate as usize).saturating_sub(follow_up_count);
 
-            if remainder > 0 && !round.hitlist_exhausted {
+            if remainder > 0 && !round.hitlist_exhausted && !discovery_paused {
                 // Wrap target addresses into tasks
                 let tasks: Vec<Task> = round
                     .hitlist_iter

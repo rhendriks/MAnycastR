@@ -46,13 +46,11 @@ pub struct MeasurementState {
     pub probing_workers: Vec<u32>,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
-    /// Whether this measurement uses --any protocol fallback
-    pub is_any_protocol: bool,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
     pub trace_config: Option<TracerouteConfig>,
-    /// Targets that responded to discovery (used by --any to skip resolved targets)
+    /// Targets that responded to discovery (deduplicates follow-up tasks; --any uses it to skip resolved targets)
     pub resolved_targets: HashSet<Address>,
 }
 
@@ -111,16 +109,14 @@ impl ControllerService {
     ///
     /// # Errors
     /// Returns an error if the hostname already exists and is used by a connected worker.
-    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Box<Status>> {
+    fn get_worker_id(&self, hostname: &str) -> Result<(u32, bool), Status> {
         {
             let workers = self.saved_workers.lock().unwrap();
             // Check if the hostname already exists in the workers list
             if let Some(existing_worker) = workers.iter().find(|w| w.hostname == hostname) {
                 return if !existing_worker.is_closed() {
                     warn!("[Orchestrator] Refusing worker, hostname already exists: {hostname}");
-                    Err(Box::new(Status::already_exists(
-                        "This hostname already exists",
-                    )))
+                    Err(Status::already_exists("This hostname already exists"))
                 } else {
                     // This is a reconnection of a closed worker.
                     let id = existing_worker.worker_id;

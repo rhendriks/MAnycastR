@@ -63,6 +63,24 @@ impl<T> Drop for WorkerReceiver<T> {
                     // Remove from probing list if they were a prober
                     state.probing_workers.retain(|&id| id != worker_id);
 
+                    // Discard state owned by this worker so the measurement can still terminate
+                    // TODO its queued follow-up tasks and ongoing trace sessions can no longer be performed (needs changing when implementing reconnect)
+                    if let Some(stack) = state.worker_stacks.remove(&worker_id)
+                        && !stack.is_empty()
+                    {
+                        warn!(
+                            "[Orchestrator] Discarding {} queued follow-up tasks for dropped worker {}",
+                            stack.len(),
+                            self.hostname
+                        );
+                    }
+                    if let Some(ref mut config) = state.trace_config {
+                        config
+                            .session_tracker
+                            .sessions
+                            .retain(|id, _| id.worker_id != worker_id);
+                    }
+
                     // Decrement the participating workers counter
                     if state.workers_count <= 1 {
                         // This was the last worker
@@ -117,23 +135,25 @@ impl<T> WorkerSender<T> {
         self.inner.is_closed()
     }
 
-    /// Sends a task after the specified interval
+    /// Sends an instruction to the worker.
+    /// On failure, logs a warning and marks the worker as disconnected.
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         match self.inner.send(task).await {
             Ok(_) => Ok(()),
             Err(e) => {
+                warn!(
+                    "[Orchestrator] Failed to send to worker {}: {e}",
+                    self.hostname
+                );
                 self.cleanup();
                 Err(e)
             }
         }
     }
 
+    /// Marks the worker as disconnected
     pub(crate) fn cleanup(&self) {
-        // Set the status to DISCONNECTED
-        let mut status = self.status.lock().unwrap();
-        *status = Disconnected;
-
-        info!("[Orchestrator] Worker {} dropped", self.hostname);
+        *self.status.lock().unwrap() = Disconnected;
     }
 
     pub fn is_participating(&self) -> bool {

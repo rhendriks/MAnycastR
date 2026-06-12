@@ -26,6 +26,7 @@ mod trace;
 ///
 /// This struct holds all the parameters needed to initialize and run a worker
 /// that listens for and processes incoming measurement packets.
+#[derive(Clone)]
 pub struct InboundConfig {
     /// The unique ID of the measurement.
     pub m_id: u32,
@@ -259,66 +260,18 @@ fn get_packet<'a>(
     }
 }
 
-/// Retrieve kernel-provided receive timestamp (SO_TIMESTAMP) from ancillary data.
-/// Returns microseconds since epoch.
-fn parse_kernel_timestamp(data: &[u8]) -> Option<u64> {
+/// Find the payload of the first control message matching (level, type) in an
+/// ancillary data buffer. Returns the buffer remainder starting at the payload.
+/// cmsghdr on 64-bit: [0..8] len, [8..12] level, [12..16] type, [16..] payload
+fn find_cmsg(data: &[u8], level: i32, type_: i32) -> Option<&[u8]> {
     let mut pos = 0;
     while pos + 16 <= data.len() {
         let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
-        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
-        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
+        let cmsg_level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
+        let cmsg_type = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
 
-        if level == libc::SOL_SOCKET && type_ == libc::SCM_TIMESTAMP {
-            let data_offset = pos + 16;
-            if data_offset + 16 <= data.len() {
-                let secs = i64::from_ne_bytes(data[data_offset..data_offset + 8].try_into().ok()?);
-                let usecs =
-                    i64::from_ne_bytes(data[data_offset + 8..data_offset + 16].try_into().ok()?);
-                return Some(secs as u64 * 1_000_000 + usecs as u64);
-            }
-        }
-
-        if cmsg_len == 0 {
-            break;
-        }
-        pos += (cmsg_len + 7) & !7;
-    }
-    None
-}
-
-/// Retrieve IPv4 TTL from the ancillary data buffer (IP_RECVTTL cmsg).
-/// Used in DGRAM mode where the IPv4 header is not included in the packet data.
-fn parse_ttl_v4(data: &[u8]) -> Option<u32> {
-    let mut pos = 0;
-    while pos + 16 <= data.len() {
-        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
-        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
-        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
-
-        if level == libc::IPPROTO_IP && type_ == libc::IP_TTL && pos + 17 <= data.len() {
-            return Some(data[pos + 16] as u32);
-        }
-
-        if cmsg_len == 0 {
-            break;
-        }
-        pos += (cmsg_len + 7) & !7;
-    }
-    None
-}
-
-/// Retrieve IPv6 hop limit from the ancillary_data buffer bytes
-fn parse_hop_limit(data: &[u8]) -> Option<u32> {
-    let mut pos = 0;
-    while pos + 16 <= data.len() {
-        // cmsghdr on 64-bit: [0..8] len, [8..12] level, [12..16] type
-        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
-        let level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
-        let type_ = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
-
-        // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
-        if (level == 41) && (type_ == 52) && (pos + 17 <= data.len()) {
-            return Some(data[pos + 16] as u32);
+        if cmsg_level == level && cmsg_type == type_ {
+            return Some(&data[pos + 16..]);
         }
 
         if cmsg_len == 0 {
@@ -327,6 +280,27 @@ fn parse_hop_limit(data: &[u8]) -> Option<u32> {
         pos += (cmsg_len + 7) & !7; // Align to 8-byte boundary
     }
     None
+}
+
+/// Retrieve kernel-provided receive timestamp (SO_TIMESTAMP) from ancillary data.
+/// Returns microseconds since epoch.
+fn parse_kernel_timestamp(data: &[u8]) -> Option<u64> {
+    let payload = find_cmsg(data, libc::SOL_SOCKET, libc::SCM_TIMESTAMP)?;
+    let secs = i64::from_ne_bytes(payload.get(..8)?.try_into().ok()?);
+    let usecs = i64::from_ne_bytes(payload.get(8..16)?.try_into().ok()?);
+    Some(secs as u64 * 1_000_000 + usecs as u64)
+}
+
+/// Retrieve IPv4 TTL from the ancillary data buffer (IP_RECVTTL cmsg).
+/// Used in DGRAM mode where the IPv4 header is not included in the packet data.
+fn parse_ttl_v4(data: &[u8]) -> Option<u32> {
+    Some(*find_cmsg(data, libc::IPPROTO_IP, libc::IP_TTL)?.first()? as u32)
+}
+
+/// Retrieve IPv6 hop limit from the ancillary_data buffer bytes
+fn parse_hop_limit(data: &[u8]) -> Option<u32> {
+    // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
+    Some(*find_cmsg(data, 41, 52)?.first()? as u32)
 }
 
 /// Forward results to the Worker handler
