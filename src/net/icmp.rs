@@ -127,7 +127,6 @@ impl ICMPPacket {
 
                 packet.checksum = ICMPPacket::calc_checksum(&pseudo);
 
-                // TODO IPV6_HDRINCL for ICMPv6 sockets is currently broken in socket2
                 (&packet).into()
             }
 
