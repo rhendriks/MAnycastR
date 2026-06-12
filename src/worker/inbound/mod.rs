@@ -329,7 +329,7 @@ fn handle_results(
     loop {
         sleep(Duration::from_secs(1));
 
-        let mut rq = Vec::new(); // TODO assess using a capacity for each replybatch
+        let mut rq = Vec::new();
         while let Ok(reply) = reply_rx.try_recv() {
             rq.push(reply);
         }
