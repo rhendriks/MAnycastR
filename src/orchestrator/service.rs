@@ -2,9 +2,9 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Ack, Address, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, MeasurementType,
-    Reply, ReplyBatch, ScheduleMeasurement, Start, TraceOptions, TraceReply, Worker, cli_message,
-    instruction,
+    Ack, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
+    MeasurementType, Reply, ReplyBatch, ScheduleMeasurement, Start, TraceOptions, TraceReply,
+    Worker, cli_message, instruction,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -406,7 +406,7 @@ impl Controller for ControllerService {
 
         // Rate-limiting: when full, the orchestrator stops reading the CLI stream
         let capacity = (probing_rate as usize * FEED_BUFFER_SECS).max(1000);
-        let (feed_tx, feed_rx) = mpsc::channel::<Address>(capacity);
+        let (feed_tx, feed_rx) = mpsc::channel::<LiveTarget>(capacity);
 
         // Forward targets into the task distributor until the CLI closes its stream
         tokio::spawn(async move {
@@ -438,7 +438,7 @@ impl Controller for ControllerService {
             self.measurement.clone(),
             workers,
             probing_rate,
-            probing_workers_count,
+            m_def.worker_interval as u64,
         );
 
         // Return CLI result stream
