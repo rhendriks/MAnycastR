@@ -341,7 +341,7 @@ All values are stored as text. Columns depend on the measurement type:
 
 | Column       | Type               | Description                                                                                                           | Measurement types                   |
 |--------------|--------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------|
-| `rx`         | `String`           | Hostname of the receiving worker                                                                                      | All                                 |
+| `rx`         | `String`           | Hostname of the receiving worker (`*` for unresponsive trace hops — no reply was received)                            | All                                 |
 | `addr`       | `String`           | Source IP of the reply, or traceroute hop address (`*` if no reply)                                                   | All                                 |
 | `ttl`        | `String (integer)` | TTL of the reply                                                                                                      | All                                 |
 | `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
@@ -392,7 +392,7 @@ Columns depend on the measurement type:
 
 | Column | Type | Description | Measurement types |
 |--------|------|-------------|-------------------|
-| `rx` | `ENUM` | Hostname of the receiving worker | All |
+| `rx` | `ENUM` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
 | `rtt` | `FLOAT` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |

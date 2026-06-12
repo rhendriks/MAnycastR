@@ -232,15 +232,18 @@ fn trace_reply_to_parquet_row(
     rx_worker_id: u32,
     worker_map: &BiHashMap<u32, String>,
 ) -> ParquetDataRow {
-    // Unresponsive hops have no calculated RTT
-    let rtt = if reply.hop_addr.is_some() {
-        Some(reply.rtt)
+    // Unresponsive hops have no calculated RTT, and no worker received a reply
+    let (rx, rtt) = if reply.hop_addr.is_some() {
+        (
+            worker_map.get_by_left(&rx_worker_id).cloned(),
+            Some(reply.rtt),
+        )
     } else {
-        None
+        (None, None)
     };
 
     ParquetDataRow {
-        rx: worker_map.get_by_left(&rx_worker_id).cloned(),
+        rx,
         addr: reply.hop_addr.map(|a| a.to_ipv6_mapped_bytes()),
         ttl: Some(reply.ttl as u8),
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
