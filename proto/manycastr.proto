@@ -82,9 +82,15 @@ message CliMessage {
   }
 }
 
-// A batch of target addresses to probe TODO consider re-using for hitlist-based measurements
+// A batch of live-feed targets
 message TargetBatch {
-  repeated Address targets = 1;
+  repeated LiveTarget targets = 1;
+}
+
+// A live-feed target with an optional worker assignment
+message LiveTarget {
+  Address dst = 1; // target address to probe
+  uint32 worker_id = 2; // 0 = any worker (round-robin, default), u32::MAX = all probing workers, otherwise a specific worker ID
 }
 
 // A list of workers
