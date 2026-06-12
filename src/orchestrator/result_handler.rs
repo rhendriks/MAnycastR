@@ -113,15 +113,21 @@ pub fn trace_discovery_handler(
 /// * `trace_replies` - A list of traceroute results
 /// * `worker_stacks` - Stacks for workers to put follow-up trace tasks into
 /// * `traceroute_config` - Configuration and state for the ongoing traceroute measurement
+///
+/// # Returns
+/// The replies that matched an active trace session (to be forwarded to the CLI).
+/// Replies without a matching session (stray/foreign packets that passed the
+/// worker's filters, or replies arriving after their session closed) are dropped.
 pub fn trace_replies_handler(
-    trace_replies: &[TraceReply],
+    trace_replies: Vec<TraceReply>,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     traceroute_config: &mut TracerouteConfig,
     origin_id: u32,
-) {
+) -> Vec<TraceReply> {
     let max_hops = traceroute_config.max_hops;
     let max_failures = traceroute_config.max_failures;
     let session_tracker = &mut traceroute_config.session_tracker;
+    let mut matched = Vec::with_capacity(trace_replies.len());
 
     for trace_reply in trace_replies {
         // Get identifier of corresponding trace
@@ -131,7 +137,7 @@ pub fn trace_replies_handler(
             origin_id,
         };
 
-        // Find session of corresponding trace
+        // Find session of corresponding trace (drop replies without one)
         let Some(session) = session_tracker.sessions.get_mut(&identifier) else {
             continue;
         };
@@ -164,7 +170,7 @@ pub fn trace_replies_handler(
             } => {
                 let answered = trace_reply.hop_count as u8;
                 if answered < *lo {
-                    // Stale reply for an already-confirmed responsive TTL
+                    // Duplicate reply for an already-measured TTL
                     continue;
                 }
 
@@ -202,5 +208,9 @@ pub fn trace_replies_handler(
         } else {
             session_tracker.sessions.remove(&identifier);
         }
+
+        matched.push(trace_reply);
     }
+
+    matched
 }

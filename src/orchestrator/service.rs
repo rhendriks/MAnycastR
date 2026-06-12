@@ -433,18 +433,18 @@ impl Controller for ControllerService {
                 }
             }
 
-            if !trace_bucket.is_empty() {
-                if let Some(config) = state.trace_config.as_mut() {
-                    trace_replies_handler(
-                        &trace_bucket,
-                        &mut state.worker_stacks,
-                        config,
-                        origin_id,
-                    );
-                }
+            if !trace_bucket.is_empty()
+                && let Some(config) = state.trace_config.as_mut()
+            {
+                // Only forward trace replies that matched an active trace session
+                let matched_replies = trace_replies_handler(
+                    trace_bucket,
+                    &mut state.worker_stacks,
+                    config,
+                    origin_id,
+                );
 
-                // Add trace replies to the results bucket
-                for t in trace_bucket {
+                for t in matched_replies {
                     results_bucket.push(Reply {
                         reply_data: Some(ReplyData::Trace(t)),
                     });
