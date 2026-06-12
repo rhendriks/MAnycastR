@@ -1,10 +1,11 @@
 //! Live feed support: reading NDJSON targets from stdin for feed-based measurements.
 
 use crate::custom_module::manycastr::{Address, CliMessage, LiveTarget, TargetBatch, cli_message};
-use crate::{ALL_WORKERS, ANY_WORKER};
+use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER};
 use bimap::BiHashMap;
 use futures_core::Stream;
 use log::warn;
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -29,16 +30,19 @@ impl Stream for FeedStream {
 
 /// Read target lines from stdin and forward them to the live feed.
 ///
-/// Each line is a JSON object (e.g., `{"dst":"1.1.1.1","worker":"ams01"}`),
+/// Each line is a JSON object (e.g., `{"dst":"1.1.1.1","worker":"ams01","origin":2}`),
 /// or a bare address (e.g., `1.1.1.1`).
 /// The optional `worker` field selects the probing worker: a worker ID,
 /// a hostname, `"all"` (probe from all workers), or `"any"` (round-robin, default).
+/// The optional `origin` field selects the origin to send from: an origin ID,
+/// or `"all"` (all configured origins, default).
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
     feed_tx: mpsc::Sender<CliMessage>,
     is_ipv6: bool,
     worker_map: BiHashMap<u32, String>,
+    origin_ids: HashSet<u32>,
 ) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -50,7 +54,7 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        let Some(target) = parse_feed_line(line, &worker_map) else {
+        let Some(target) = parse_feed_line(line, &worker_map, &origin_ids) else {
             warn!("[CLI] Skipping invalid feed line: {line}");
             continue;
         };
@@ -77,13 +81,18 @@ pub fn read_stdin_feed(
 }
 
 /// Parse a single feed line into a live target: an NDJSON object
-/// (e.g., `{"dst":"1.1.1.1","worker":"ams01"}`) or a bare address (e.g., `1.1.1.1`).
-fn parse_feed_line(line: &str, worker_map: &BiHashMap<u32, String>) -> Option<LiveTarget> {
-    // Bare address shorthand (interactive use): any worker (round-robin)
+/// (e.g., `{"dst":"1.1.1.1","worker":"ams01","origin":2}`) or a bare address (e.g., `1.1.1.1`).
+fn parse_feed_line(
+    line: &str,
+    worker_map: &BiHashMap<u32, String>,
+    origin_ids: &HashSet<u32>,
+) -> Option<LiveTarget> {
+    // Bare address shorthand (interactive use): any worker (round-robin), all origins
     if !line.starts_with('{') {
         return Some(LiveTarget {
             dst: Some(line.parse::<Address>().ok()?),
             worker_id: ANY_WORKER,
+            origin_id: ALL_ORIGINS,
         });
     }
 
@@ -94,11 +103,41 @@ fn parse_feed_line(line: &str, worker_map: &BiHashMap<u32, String>) -> Option<Li
         None => ANY_WORKER,
         Some(worker) => parse_worker(worker, worker_map)?,
     };
+    let origin_id = match value.get("origin") {
+        None => ALL_ORIGINS,
+        Some(origin) => parse_origin(origin, origin_ids)?,
+    };
 
     Some(LiveTarget {
         dst: Some(dst),
         worker_id,
+        origin_id,
     })
+}
+
+/// Resolve a feed line's `origin` value to an origin ID:
+/// an origin ID (number or numeric string) of a configured origin, or `"all"`.
+fn parse_origin(origin: &serde_json::Value, origin_ids: &HashSet<u32>) -> Option<u32> {
+    let id = match origin {
+        // Origin ID as JSON number (e.g., "origin":2)
+        serde_json::Value::Number(n) => u32::try_from(n.as_u64()?).ok()?,
+        serde_json::Value::String(s) if s == "all" => return Some(ALL_ORIGINS),
+        // Origin ID as numeric string (e.g., "origin":"2")
+        serde_json::Value::String(s) => match s.parse::<u32>() {
+            Ok(id) => id,
+            Err(_) => {
+                warn!("[CLI] '{s}' is not a valid origin ID.");
+                return None;
+            }
+        },
+        _ => return None,
+    };
+
+    if origin_ids.contains(&id) {
+        return Some(id);
+    }
+    warn!("[CLI] Origin ID '{id}' is not a configured origin.");
+    None
 }
 
 /// Resolve a feed line's `worker` value to a worker ID: TODO reuse for hitlist-based -x worker parsing
