@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{Address, Reply, TraceReply};
 use crate::net::{ICMPPacket, IPv4Packet};
+use crate::worker::inbound::ReplyMeta;
 use crate::worker::inbound::ping::parse_icmp;
 use crate::worker::trace_codec::TraceTag;
 
@@ -19,19 +20,12 @@ use crate::worker::trace_codec::TraceTag;
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse (excluding the Ethernet header)
 /// * `m_id` - measurement ID encoded in ICMP payload.
-/// * `src` - source address of the packet (hop address)
-/// * `ttl` - TTL/hop limit of the received packet
-/// * `rx_time` - kernel receive timestamp in microseconds
+/// * `meta` - received packet metadata (hop address, TTL, kernel receive time)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received trace reply (None if not a valid trace response)
-pub fn parse_trace(
-    packet_bytes: &[u8],
-    m_id: u32,
-    src: Address,
-    ttl: u32,
-    rx_time: u64,
-) -> Option<Reply> {
+pub fn parse_trace(packet_bytes: &[u8], m_id: u32, meta: ReplyMeta) -> Option<Reply> {
+    let ReplyMeta { src, ttl, rx_time } = meta;
     let is_v6 = src.is_v6();
 
     // ICMP error type numbers, and where the ICMP header starts
@@ -44,7 +38,7 @@ pub fn parse_trace(
     // Only Time Exceeded / Destination Unreachable quote the original probe
     match packet_bytes.get(icmp_start) {
         Some(&t) if t == time_exceeded || t == dest_unreachable => {}
-        _ => return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time),
+        _ => return parse_icmp(packet_bytes, m_id, true, false, meta),
     }
 
     // Hop address + TTL of the outer error packet.
@@ -57,7 +51,7 @@ pub fn parse_trace(
 
     // Need the full 8-byte ICMP header before parsing it (the parser unwraps those bytes).
     if packet_bytes.len() < icmp_start + 8 {
-        return parse_icmp(packet_bytes, m_id, true, src, ttl, false, rx_time);
+        return parse_icmp(packet_bytes, m_id, true, false, meta);
     }
 
     // The ICMP payload is the quoted original probe (its IP header + first 8 transport bytes).
