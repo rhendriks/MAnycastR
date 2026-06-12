@@ -408,7 +408,6 @@ impl Worker {
             // Always request the received hop limit as ancillary data.
             let r = socket.set_recv_hoplimit_v6(true);
 
-            // TODO header_included_v6 not supported currently in socket2
             if protocol == Protocol::ICMPV6 {
                 r
             } else {
