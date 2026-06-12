@@ -85,6 +85,8 @@ pub struct ControllerService {
     unique_id: Arc<Mutex<u32>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
+    /// Maximum probing rate (probes per second, per worker) enforced for live (feed-based) measurements
+    live_rate: u32,
 }
 
 impl ControllerService {
@@ -159,6 +161,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         measurement: Arc::new(RwLock::new(None)),
         unique_id: current_worker_id,
         worker_config,
+        live_rate: *args.get_one::<u32>("live_rate").unwrap(),
     };
 
     let svc = ControllerServer::new(controller)
