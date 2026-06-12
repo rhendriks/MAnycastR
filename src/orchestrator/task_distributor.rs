@@ -4,6 +4,7 @@ use crate::custom_module::manycastr::{
     Address, End, Instruction, Probe, Task, Tasks, instruction, task,
 };
 use crate::orchestrator::MeasurementHandle;
+use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
 use log::{info, warn};
 use std::time::Duration;
@@ -34,6 +35,8 @@ pub enum DistributionStrategy {
         /// Ordered origin IDs for --any fallback
         origin_ids: Vec<u32>,
     },
+    /// Seed binary-search trace sessions round-robin, with follow-up task interleaving (tracemap mode)
+    Tracemap,
 }
 
 pub struct TaskDistributorConfig {
@@ -154,11 +157,14 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         DistributionStrategy::Broadcast => "Broadcast",
         DistributionStrategy::RoundRobin => "Round-Robin",
         DistributionStrategy::Discovery { .. } => "Round-Robin Discovery",
+        DistributionStrategy::Tracemap => "Round-Robin Tracemap",
     };
     info!("[Orchestrator] Starting {strategy_name} Task Distributor.");
 
     let is_broadcast = matches!(&strategy, DistributionStrategy::Broadcast);
-    let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. });
+    let is_tracemap = matches!(&strategy, DistributionStrategy::Tracemap);
+    // Tracemap interleaves follow-up trace probes with session seeding, like discovery modes
+    let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. }) || is_tracemap;
     let is_discovery = config.is_discovery;
     let (is_responsive, is_any_protocol, origin_ids) = match strategy {
         DistributionStrategy::Discovery {
@@ -309,12 +315,32 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
             if remainder > 0 && !round.hitlist_exhausted && !discovery_paused {
                 // Wrap target addresses into tasks
-                let tasks: Vec<Task> = round
-                    .hitlist_iter
-                    .by_ref()
-                    .take(remainder)
-                    .map(|addr| make_task(addr, is_discovery, round.current_origin_id))
-                    .collect();
+                let tasks: Vec<Task> = if is_tracemap {
+                    // Register a binary-search session per target, assigned to this round's worker
+                    let addrs: Vec<Address> = round.hitlist_iter.by_ref().take(remainder).collect();
+                    let mut lock = config.measurement.write().unwrap();
+                    match lock.as_mut().and_then(|state| state.trace_config.as_mut()) {
+                        Some(trace_config) => seed_tracemap_sessions(
+                            addrs,
+                            worker_id,
+                            round.current_origin_id,
+                            trace_config,
+                        ),
+                        None => {
+                            warn!(
+                                "[Orchestrator] No traceroute configuration for tracemap, ending measurement."
+                            );
+                            break;
+                        }
+                    }
+                } else {
+                    round
+                        .hitlist_iter
+                        .by_ref()
+                        .take(remainder)
+                        .map(|addr| make_task(addr, is_discovery, round.current_origin_id))
+                        .collect()
+                };
 
                 if tasks.len() < remainder {
                     round.hitlist_exhausted = true;
