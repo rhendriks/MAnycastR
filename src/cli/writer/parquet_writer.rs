@@ -214,7 +214,7 @@ fn measurement_reply_to_parquet_row(
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
         }
-        MeasurementType::AnycastTraceroute => {
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             panic!("Received MeasurementReply during a traceroute measurement")
         }
         MeasurementType::Laces => {
