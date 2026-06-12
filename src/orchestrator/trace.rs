@@ -67,8 +67,11 @@ pub fn ttl_midpoint(lo: u8, hi: u8) -> u8 {
     ((lo as u16 + hi as u16) / 2) as u8
 }
 
+/// First-probe TTL for the tracemap binary search.
+const TRACEMAP_FIRST_TTL: u8 = 12;
+
 /// Create tracemap binary-search sessions for a batch of (unresponsive) targets and
-/// return the initial `Trace` tasks (probing the midpoint TTL) for the probing worker.
+/// return the initial `Trace` tasks (probing [`TRACEMAP_FIRST_TTL`]) for the probing worker.
 ///
 /// # Arguments
 /// * `targets` - Target addresses to map
@@ -83,7 +86,7 @@ pub fn seed_tracemap_sessions(
 ) -> Vec<Task> {
     let lo = config.initial_hop as u8;
     let hi = config.max_hops as u8;
-    let mid = ttl_midpoint(lo, hi);
+    let mid = TRACEMAP_FIRST_TTL.clamp(lo, hi);
     let now = Instant::now();
     let deadline = now + Duration::from_secs(config.timeout);
 

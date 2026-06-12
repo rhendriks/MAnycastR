@@ -59,13 +59,14 @@ pub struct MeasurementState {
 pub struct TracerouteConfig {
     /// Session tracker for Trace Tasks
     pub session_tracker: SessionTracker,
-    /// Timeout value for traceroute measurements (default 1s)
+    /// Timeout value for traceroute measurements (default 3s)
     pub timeout: u64,
-    /// Max hop count for traceroute measurements (default 30)
+    /// Max hop count for traceroute measurements (default 25)
     pub max_hops: u32,
-    /// Hop count to start traceroute measurements with (default 1)
+    /// Hop count to start traceroute measurements with (default 4)
     pub initial_hop: u32,
-    /// Maximum number of unresponsive hops before terminating the traceroute (default 3)
+    /// Maximum number of unresponsive hops before terminating the traceroute
+    /// (default 5; tracemap confirmation window: 3)
     pub max_failures: u32,
     /// Whether to emit a '*' hop (no reply) to the CLI when a hop times out
     pub star_unresponsive: bool,
