@@ -350,7 +350,8 @@ impl Controller for ControllerService {
             }
         };
 
-        if m_def.m_type() != MeasurementType::Catchment { // TODO live-measurement should be measurement type agnostic (mixed types)
+        if m_def.m_type() != MeasurementType::Catchment {
+            // TODO live-measurement should be measurement type agnostic (mixed types)
             return Err(Status::invalid_argument(
                 "Live measurements currently only support catchment mode",
             ));
