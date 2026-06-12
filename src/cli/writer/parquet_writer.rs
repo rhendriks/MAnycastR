@@ -165,7 +165,8 @@ pub fn get_parquet_metadata(
 }
 
 /// Represents a row of data in the Parquet file format.
-/// Fields used depend on the measurement type and configuration.
+/// Fields used depend on the measurement type and configuration (unused fields stay None).
+#[derive(Default)]
 pub struct ParquetDataRow {
     /// Hostname of the probe receiver.
     rx: Option<String>,
@@ -199,12 +200,9 @@ fn measurement_reply_to_parquet_row(
         rx: worker_map.get_by_left(&rx_worker_id).cloned(),
         addr: result.src.map(|s| s.to_ipv6_mapped_bytes()),
         ttl: Some(result.ttl as u8),
-        tx: None,
-        rtt: None,
         chaos_data: result.chaos,
         origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
-        trace_dst: None,
-        hop_count: None,
+        ..Default::default()
     };
 
     match m_type {
@@ -248,10 +246,9 @@ fn trace_reply_to_parquet_row(
         ttl: Some(reply.ttl as u8),
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
-        chaos_data: None,
-        origin_id: None,
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
         hop_count: Some(reply.hop_count as u8),
+        ..Default::default()
     }
 }
 
