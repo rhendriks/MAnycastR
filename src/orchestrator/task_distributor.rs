@@ -1,12 +1,13 @@
 use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
-    Address, End, Instruction, Probe, Task, Tasks, instruction, task,
+    Address, End, Instruction, LiveTarget, Probe, Task, Tasks, instruction, task,
 };
 use crate::orchestrator::MeasurementHandle;
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
-use crate::{ALL_ORIGINS, ALL_WORKERS};
+use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER};
 use log::{info, warn};
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -451,23 +452,24 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
 /// Live task distributor for feed-based measurements.
 ///
-/// Dispatches targets arriving on `feed` to probing workers in round-robin fashion,
-/// rate-limited to `probing_rate` targets per worker per second (enforced via the
-/// orchestrator's `--live_rate`). The measurement ends when the feed closes
-/// (the CLI ended its stream or disconnected) or when no probing workers remain.
+/// Dispatches targets arriving on `feed` to probing workers, draining at most
+/// `probing_rate` targets per second (enforced via the orchestrator's `--live_rate`;
+/// no worker receives more than `probing_rate` tasks per second).
+/// Each target carries a worker assignment: `ANY_WORKER` (round-robin, default),
+/// `ALL_WORKERS` (broadcast, staggered by the worker interval), or a specific worker ID.
+/// The measurement ends when the feed closes (the CLI ended its stream or
+/// disconnected) or when no probing workers remain.
 pub fn distribute_live_tasks(
-    mut feed: mpsc::Receiver<Address>,
+    mut feed: mpsc::Receiver<LiveTarget>,
     measurement: MeasurementHandle,
     workers: Vec<WorkerSender<Result<Instruction, Status>>>,
     probing_rate: u32,
-    number_of_probing_workers: usize,
+    worker_interval: u64,
 ) {
     info!("[Orchestrator] Starting Live Task Distributor.");
 
     spawn(async move {
-        // TODO track and enforce probing rate per-worker
-        let mut probing_rate_interval =
-            tokio::time::interval(Duration::from_secs(1) / number_of_probing_workers as u32);
+        let mut probing_rate_interval = tokio::time::interval(Duration::from_secs(1));
         probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut current_index: usize = 0;
         let batch_capacity = probing_rate as usize;
@@ -481,19 +483,17 @@ pub fn distribute_live_tasks(
                 break;
             };
 
-            // Fill the batch with whatever else is queued, up to the per-tick rate limit
-            let mut tasks = vec![make_task(first, false, ALL_ORIGINS)];
-            while tasks.len() < batch_capacity {
+            // Fill the batch with whatever else is queued, up to the per-second rate limit
+            let mut batch = vec![first];
+            while batch.len() < batch_capacity {
                 match feed.try_recv() {
-                    Ok(addr) => tasks.push(make_task(addr, false, ALL_ORIGINS)),
+                    Ok(target) => batch.push(target),
                     Err(_) => break,
                 }
             }
 
-            // TODO allow 'any' worker (round-robin), 'all' worker (broadcast), specific worker
-            // TODO disallow 'all' for measurements like --latency, anycast-traceroute, tracemap.
-            // Get next worker ID (also verifies measurement is still active)
-            let worker_id = {
+            // Get the probing workers (also verifies the measurement is still active)
+            let probing_workers = {
                 let lock = measurement.read().unwrap();
                 let state = match *lock {
                     Some(ref s) => s,
@@ -503,33 +503,78 @@ pub fn distribute_live_tasks(
                     }
                 };
 
-                let probing_workers = &state.probing_workers;
-                if probing_workers.is_empty() {
+                if state.probing_workers.is_empty() {
                     warn!("[Orchestrator] No more probing workers available, ending measurement.");
                     break;
                 }
-                current_index %= probing_workers.len();
-                let id = probing_workers[current_index];
-                current_index = (current_index + 1) % probing_workers.len();
-                id
+                state.probing_workers.clone()
             };
 
-            send_to_workers(
-                &workers,
-                worker_id,
-                Instruction {
-                    instruction_type: Some(instruction::InstructionType::Tasks(Tasks { tasks })),
-                },
-                1, // TODO enable 'nprobes:'
-                0, // TODO use default 1 for multiple workers
-                0, // TODO use default 1 for multiple probes
-            )
-            .await;
+            // Partition the batch by worker assignment
+            let mut per_worker: HashMap<u32, Vec<Task>> = HashMap::new();
+            let mut broadcast: Vec<Task> = Vec::new();
+            for target in batch {
+                let Some(dst) = target.dst else { continue };
+                let task = make_task(dst, false, ALL_ORIGINS);
+                match target.worker_id {
+                    ANY_WORKER => {
+                        // Round-robin across probing workers
+                        current_index %= probing_workers.len();
+                        per_worker
+                            .entry(probing_workers[current_index])
+                            .or_default()
+                            .push(task);
+                        current_index += 1;
+                    }
+                    ALL_WORKERS => broadcast.push(task),
+                    id if probing_workers.contains(&id) => {
+                        per_worker.entry(id).or_default().push(task);
+                    }
+                    id => warn!(
+                        "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
+                    ),
+                }
+            }
+
+            // Send the per-worker tasks (specific and round-robin assignments)
+            for (worker_id, tasks) in per_worker {
+                send_to_workers(
+                    &workers,
+                    worker_id,
+                    Instruction {
+                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                            tasks,
+                        })),
+                    },
+                    1, // TODO enable 'nprobes:'
+                    0,
+                    0,
+                )
+                .await;
+            }
+
+            // Broadcast tasks to all probing workers, staggered by the worker interval
+            if !broadcast.is_empty() {
+                send_to_workers(
+                    &workers,
+                    ALL_WORKERS,
+                    Instruction {
+                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                            tasks: broadcast,
+                        })),
+                    },
+                    1, // TODO enable 'nprobes:'
+                    worker_interval,
+                    0,
+                )
+                .await;
+            }
         }
 
-        // Wait for the last replies to arrive
-        info!("[Orchestrator] Awaiting a {REPLY_GRACE_SECS}-second cooldown.");
-        tokio::time::sleep(Duration::from_secs(REPLY_GRACE_SECS)).await;
+        // Wait for the last (staggered) probes to be sent and their replies to arrive
+        let cooldown_secs = workers.len() as u64 * worker_interval + REPLY_GRACE_SECS;
+        info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
+        tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
 
         info!("[Orchestrator] Live task distribution finished.");
 
