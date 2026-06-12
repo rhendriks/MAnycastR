@@ -226,6 +226,7 @@ mod orchestrator;
 mod worker;
 
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
+pub const ANY_WORKER: u32 = 0; // No specific worker assigned (live feed round-robin; worker IDs start at 1)
 pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
