@@ -302,6 +302,7 @@ impl Display for MeasurementType {
             Self::AnycastLatency => "Anycast Latency",
             Self::UnicastLatency => "Unicast Latency",
             Self::AnycastTraceroute => "Anycast Traceroute",
+            Self::Tracemap => "Tracemap",
         };
         write!(f, "{}", s)
     }
@@ -315,6 +316,7 @@ impl MeasurementType {
             Self::AnycastLatency => "latency",
             Self::UnicastLatency => "unicast",
             Self::AnycastTraceroute => "anycast-traceroute",
+            Self::Tracemap => "tracemap",
         }
     }
 
@@ -325,6 +327,7 @@ impl MeasurementType {
             "latency" => Some(Self::AnycastLatency),
             "unicast" => Some(Self::UnicastLatency),
             "anycast-traceroute" => Some(Self::AnycastTraceroute),
+            "tracemap" => Some(Self::Tracemap),
             _ => None,
         }
     }
