@@ -46,7 +46,10 @@ impl Worker {
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
-        let is_traceroute = m_type == MeasurementType::AnycastTraceroute;
+        let is_traceroute = matches!(
+            m_type,
+            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap
+        );
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
