@@ -5,7 +5,7 @@ use crate::custom_module::manycastr::{
 use crate::orchestrator::MeasurementHandle;
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
-use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER};
+use crate::{ALL_WORKERS, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -515,7 +515,7 @@ pub fn distribute_live_tasks(
             let mut broadcast: Vec<Task> = Vec::new();
             for target in batch {
                 let Some(dst) = target.dst else { continue };
-                let task = make_task(dst, false, ALL_ORIGINS);
+                let task = make_task(dst, false, target.origin_id);
                 match target.worker_id {
                     ANY_WORKER => {
                         // Round-robin across probing workers
