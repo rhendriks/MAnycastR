@@ -16,6 +16,9 @@ All notable changes to MAnycastR are documented in this file.
   sections are typically 1–2 hops). (#67)
 
 ### Fixed
+- **`cli start --help` no longer panics in debug builds** — the hitlist short
+  flag `-h` collided with clap's auto-generated help flag; `--hitlist` is now
+  long-only and `-h` prints help.
 - **Unresponsive (`*`) trace hops no longer report the probing worker as `rx`** —
   no worker received a reply, so `rx` is now `*` (CSV) / null (Parquet).
 - **Stray trace replies are no longer written to the output** — the orchestrator

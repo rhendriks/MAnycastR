@@ -89,7 +89,7 @@
 //! ### Catchment mapping using ICMPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start -m catchment -h hitlist.txt -t icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+//! cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 //! ```
 //!
 //! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -101,7 +101,7 @@
 //! ### Anycast latency measurement using TCPv4
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t tcp -a 10.0.0.0 -m latency
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
 //! ```
 //!
 //! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -112,7 +112,7 @@
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlistv6.txt -t icmp -m unicast
+//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
 //! ```
 //!
 //! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -123,7 +123,7 @@
 //! ### LACeS measurement
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -m laces --responsive
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
 //! ```
 //!
 //! Anycast probes will be sent from all workers.
@@ -134,7 +134,7 @@
 //! ### Anycast traceroute measurement
 //!
 //! ```
-//! cli -a [::1]:50001 start hitlist.txt -t icmp -m anycast-traceroute
+//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
 //! ```
 //!
 //! Measure the path from the catching PoP to the target.
@@ -309,13 +309,13 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
-                    .arg(arg!(-h --hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
+                    .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
                         .value_parser(value_parser!(String))
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
                         .value_parser(value_parser!(String))
                         .required_unless_present("hitlist"))
-                    .arg(arg!(-p --p_type <TYPE> "Protocols to use") // TODO allow for sending using 'all' origins and 'any' origin (first responsive)
+                    .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
                         .action(ArgAction::Append)

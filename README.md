@@ -50,7 +50,7 @@ Measurements can be;
 When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** (`-h`/`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
 * **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, `anycast-traceroute`, or `tracemap`
@@ -158,7 +158,7 @@ sudo sysctl --system
 #### Catchment mapping
 
 ```
-manycastr cli -a [::1]:50001 start -m catchment -h hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
 ```
 
 All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
@@ -170,7 +170,7 @@ Hitlist is divided amongst workers, each worker sends out 1,000 packets per seco
 ### Anycast latency measurement using TCPv4
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p tcp -a 10.0.0.0 -m latency
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
 ```
 
 Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
@@ -186,7 +186,7 @@ the measurement then takes proportionally longer.
 ### Unicast latency measurement using ICMPv6
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlistv6.txt -p icmp -m unicast
+manycastr cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
 ```
 
 Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
@@ -197,7 +197,7 @@ Furthermore, if the target does not currently route optimally, the performance g
 ### LACeS measurement
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m laces --responsive
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
 ```
 
 Anycast probes will be sent from all workers.
@@ -208,7 +208,7 @@ Targets are scanned for responsiveness, using a single worker probe, before prob
 ### Anycast traceroute measurement
 
 ```
-manycastr cli -a [::1]:50001 start -h hitlist.txt -p icmp -m anycast-traceroute
+manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
 ```
 
 Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
@@ -296,7 +296,7 @@ normal DNS measurements is not available for traceroute, because we need IP head
 ### Tracemap measurement
 
 ```
-manycastr cli -a [::1]:50001 start -h unresponsives.txt -a 10.0.0.1 -p icmp -m tracemap
+manycastr cli -a [::1]:50001 start --hitlist unresponsives.txt -a 10.0.0.1 -p icmp -m tracemap
 ```
 
 Map the catchment of **unresponsive** targets. Each target is assigned to a random probing PoP,
