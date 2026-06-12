@@ -59,6 +59,7 @@
 //! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
 //! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
+//! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
 //!
 //! # Usage
 //!
@@ -321,7 +322,7 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute"]))
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute", "tracemap"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
@@ -331,7 +332,10 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
-                        .default_value_if("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10"))
+                        .default_value_ifs([
+                            ("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10")),
+                            ("m_type", ArgPredicate::Equals("tracemap".into()), Some("10")),
+                        ])
                         .default_value("1000"))
                     .arg(arg!(selective: -x --selective <IDS> "List of worker IDs/hostnames that send probes [worker_id1,worker_id2,...]"))
                     .arg(arg!(-o --out <PATH> "Optional path/filename to write output").default_value("./"))
