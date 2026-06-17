@@ -567,12 +567,16 @@ pub fn distribute_live_tasks(
                         target.origin_id = ALL_ORIGINS;
                     }
 
-                    // Do not send discovery probes when the measurement is a single probe
-                    let needs_discovery = target.origin_id == ANY_ORIGIN
-                        || (is_responsive && target.worker_id == ALL_WORKERS);
-                    if needs_discovery {
-                        // Discovery is performed by a single worker
-                        let discovery_worker = match target.worker_id {
+                    // A probe gated by a single worker is needed for origin:any (to find the
+                    // responsive origin) and for --responsive worker:all (to avoid probing an
+                    // unresponsive target from every worker). Single-worker --responsive is
+                    // skipped: the measurement is a single probe, so a check first gains nothing.
+                    let is_origin_any = target.origin_id == ANY_ORIGIN;
+                    let needs_probe_gate =
+                        is_origin_any || (is_responsive && target.worker_id == ALL_WORKERS);
+                    if needs_probe_gate {
+                        // The gating probe is sent by a single worker
+                        let probe_worker = match target.worker_id {
                             ANY_WORKER | ALL_WORKERS => {
                                 current_index %= probing_workers.len();
                                 let id = probing_workers[current_index];
@@ -593,7 +597,7 @@ pub fn distribute_live_tasks(
                         };
 
                         // origin:any starts with the first origin and retries the rest on timeout
-                        let (origin_id, next_origin_idx) = if target.origin_id == ANY_ORIGIN {
+                        let (origin_id, next_origin_idx) = if is_origin_any {
                             let Some(&first) = live.origin_ids.first() else {
                                 continue;
                             };
@@ -602,21 +606,26 @@ pub fn distribute_live_tasks(
                             (target.origin_id, None)
                         };
 
+                        // For a single-worker origin:any target send measurement probes iteratively
+                        let probe_is_measurement = is_origin_any && target.worker_id != ALL_WORKERS;
+
                         live.pending.insert(
                             dst,
                             PendingTarget {
                                 worker_sel: target.worker_id,
-                                discovery_worker,
+                                discovery_worker: probe_worker,
                                 next_origin_idx,
+                                probe_is_measurement,
                                 deadline: std::time::Instant::now()
                                     + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS),
                             },
                         );
 
-                        per_worker
-                            .entry(discovery_worker)
-                            .or_default()
-                            .push(make_task(dst, true, origin_id));
+                        per_worker.entry(probe_worker).or_default().push(make_task(
+                            dst,
+                            !probe_is_measurement,
+                            origin_id,
+                        ));
                         continue;
                     }
 
