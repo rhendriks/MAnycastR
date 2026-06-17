@@ -137,14 +137,27 @@ async fn send_to_workers(
     }
 }
 
-/// Send end-of-measurement to all workers and mark them as finished.
-async fn end_measurement(workers: &[WorkerSender<Result<Instruction, Status>>]) {
+/// Finalize a measurement once task distribution is done: send the end-of-measurement
+/// instruction to all workers (marking them finished), then wait for every worker to
+/// report back before the distributor task exits.
+async fn finalize_measurement(
+    workers: &[WorkerSender<Result<Instruction, Status>>],
+    measurement: &MeasurementHandle,
+) {
+    info!("[Orchestrator] Task distribution finished.");
+
+    // Notify all workers that the measurement is over
     let end = Instruction {
         instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
     };
     for sender in workers {
         let _ = sender.send(Ok(end.clone())).await;
         sender.finished();
+    }
+
+    // Wait for all workers to finish
+    while measurement.read().unwrap().is_some() {
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -438,15 +451,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
         }
 
-        info!("[Orchestrator] Task distribution finished.");
-
-        // Notify all workers that the measurement is over
-        end_measurement(&config.workers).await;
-
-        // Wait for all workers to finish
-        while config.measurement.read().unwrap().is_some() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+        finalize_measurement(&config.workers, &config.measurement).await;
     });
 }
 
@@ -697,15 +702,7 @@ pub fn distribute_live_tasks(
         info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
         tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
 
-        info!("[Orchestrator] Live task distribution finished.");
-
-        // Notify all workers that the measurement is over
-        end_measurement(&workers).await;
-
-        // Wait for all workers to finish
-        while measurement.read().unwrap().is_some() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+        finalize_measurement(&workers, &measurement).await;
     });
 }
 
