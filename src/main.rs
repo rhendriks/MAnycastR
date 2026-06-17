@@ -228,6 +228,7 @@ mod worker;
 pub const ALL_WORKERS: u32 = u32::MAX; // All workers
 pub const ANY_WORKER: u32 = 0; // No specific worker assigned (live feed round-robin; worker IDs start at 1)
 pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
+pub const ANY_ORIGIN: u32 = u32::MAX - 1; // Try origins in order; stop on the first responsive one (live feed)
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
 /// Derive a 6-bit DNS identifier from a measurement ID for filtering.
@@ -322,7 +323,7 @@ fn parse_cmd() -> ArgMatches {
                         .required_unless_present_any(["hitlist", "feed"]))
                     .arg(arg!(--feed "Live mode: read NDJSON targets from stdin (e.g., {\"dst\":\"1.1.1.1\"}), runs until EOF/Ctrl+C [catchment only]")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with_all(["hitlist", "target", "shuffle", "responsive", "any"]))
+                        .conflicts_with_all(["hitlist", "target", "shuffle", "any"]))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
