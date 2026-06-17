@@ -5,7 +5,7 @@ use crate::custom_module::manycastr::{
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
 use crate::orchestrator::{LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget};
-use crate::{ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
+use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -557,8 +557,15 @@ pub fn distribute_live_tasks(
                     break;
                 };
 
-                for target in batch {
+                // Ignore origin:any when there is only a single origin
+                let single_origin = state.live.as_ref().is_some_and(|l| l.origin_ids.len() == 1);
+
+                for mut target in batch {
                     let Some(dst) = target.dst else { continue };
+
+                    if target.origin_id == ANY_ORIGIN && single_origin {
+                        target.origin_id = ALL_ORIGINS;
+                    }
 
                     // Do not send discovery probes when the measurement is a single probe
                     let needs_discovery = target.origin_id == ANY_ORIGIN
