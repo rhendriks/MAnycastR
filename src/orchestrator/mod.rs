@@ -68,16 +68,18 @@ pub struct LiveState {
     pub origin_ids: Vec<u32>,
 }
 
-/// A live target awaiting a discovery reply before its measurement probes are sent.
+/// A live target awaiting a probe reply before it is resolved (or retried/given up).
 #[derive(Debug)]
 pub struct PendingTarget {
     /// Worker selection for the follow-up measurement probes (ANY_WORKER, ALL_WORKERS, or a specific ID)
     pub worker_sel: u32,
-    /// Worker performing the discovery probes
+    /// Worker performing the probe(s)
     pub discovery_worker: u32,
     /// Next origin index to try on timeout for `origin:any` (None for `--responsive`)
     pub next_origin_idx: Option<usize>,
-    /// When the current discovery attempt expires
+    /// Whether the probe sent is itself the measurement (single-worker `origin:any`)
+    pub probe_is_measurement: bool,
+    /// When the current attempt expires
     pub deadline: Instant,
 }
 
