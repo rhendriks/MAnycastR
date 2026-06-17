@@ -2,9 +2,9 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Ack, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
-    MeasurementType, Reply, ReplyBatch, ScheduleMeasurement, Start, TraceOptions, TraceReply,
-    Worker, cli_message, instruction,
+    Ack, Address, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
+    MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceOptions,
+    TraceReply, Worker, cli_message, instruction, task,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -15,13 +15,15 @@ use crate::orchestrator::task_distributor::{
 };
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
-use crate::orchestrator::{ControllerService, MeasurementState, TracerouteConfig};
-use crate::{ALL_ORIGINS, ALL_WORKERS, custom_module};
+use crate::orchestrator::{
+    ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementState, TracerouteConfig,
+};
+use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
 use log::{error, info, warn};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tonic::{Request, Response, Status};
@@ -357,6 +359,26 @@ impl Controller for ControllerService {
             ));
         }
 
+        // Live mode requires every origin to be available on every probing worker
+        let mut origin_workers: HashMap<u32, HashSet<u32>> = HashMap::new();
+        for config in &m_def.configurations {
+            if let Some(origin) = &config.origin {
+                origin_workers
+                    .entry(origin.origin_id)
+                    .or_default()
+                    .insert(config.worker_id);
+            }
+        }
+        let all_assignments: HashSet<u32> =
+            m_def.configurations.iter().map(|c| c.worker_id).collect();
+        for (origin_id, assigned) in &origin_workers {
+            if !assigned.contains(&ALL_WORKERS) && *assigned != all_assignments {
+                return Err(Status::invalid_argument(format!(
+                    "Live measurements require origins shared among all probing workers (origin {origin_id} is not)"
+                )));
+            }
+        }
+
         // Enforce the orchestrator-configured rate limit for live measurements
         if m_def.probing_rate > self.live_rate {
             warn!(
@@ -387,6 +409,26 @@ impl Controller for ControllerService {
 
         // Initialize measurement state (errors if already active)
         self.init_measurement(&m_def, &participating_ids, &probing_ids)?;
+
+        // Initialize live state: pending discovery targets and the origin order for origin:any
+        let origin_ids: Vec<u32> = {
+            let mut seen = HashSet::new();
+            m_def
+                .configurations
+                .iter()
+                .filter_map(|c| c.origin.map(|o| o.origin_id))
+                .filter(|id| seen.insert(*id))
+                .collect()
+        };
+        if let Some(state) = self.measurement.write().unwrap().as_mut() {
+            state.live = Some(LiveState {
+                pending: HashMap::new(),
+                origin_ids,
+            });
+        }
+
+        // Sweep timed-out discovery targets
+        self.spawn_discovery_sweeper();
 
         info!(
             "[Orchestrator] {} participating workers, {} will probe",
@@ -439,6 +481,7 @@ impl Controller for ControllerService {
             workers,
             probing_rate,
             m_def.worker_interval as u64,
+            m_def.is_responsive,
         );
 
         // Return CLI result stream
@@ -518,6 +561,32 @@ impl Controller for ControllerService {
                 );
                 return Ok(Response::new(Ack::ok()));
             };
+
+            // Create a follow-up task for a discovery reply
+            if let Some(live) = state.live.as_mut() {
+                for reply in discovery_bucket.drain(..) {
+                    let Some(src) = reply.src else { continue };
+                    let Some(pending) = live.pending.remove(&src) else {
+                        continue; // Unknown target or duplicate reply
+                    };
+
+                    // ANY_WORKER follow-ups are performed by the discovery worker
+                    let follow_up_worker = match pending.worker_sel {
+                        ANY_WORKER => pending.discovery_worker,
+                        sel => sel,
+                    };
+
+                    // Follow up with the origin the target responded on
+                    state
+                        .worker_stacks
+                        .entry(follow_up_worker)
+                        .or_default()
+                        .push_back(Task {
+                            task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
+                            origin_id,
+                        });
+                }
+            }
 
             // Drop duplicate discovery replies (e.g., multi-reply targets)
             discovery_bucket.retain(|reply| match reply.src {
@@ -706,9 +775,69 @@ impl ControllerService {
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),
+            live: None,
         });
 
         Ok(())
+    }
+
+    /// Spawn the discovery-timeout sweeper for a live measurement.
+    ///
+    /// Every second, expired pending discovery targets are collected:
+    /// `origin:any` targets are re-discovered with their next origin (queued on the
+    /// discovery worker's stack), single-shot (--responsive) targets are dropped as
+    /// unresponsive. The sweeper exits when the measurement ends.
+    fn spawn_discovery_sweeper(&self) {
+        let measurement = self.measurement.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+
+                let mut lock = measurement.write().unwrap();
+                let Some(state) = lock.as_mut() else {
+                    break; // Measurement ended
+                };
+                let Some(live) = state.live.as_mut() else {
+                    break;
+                };
+
+                let now = Instant::now();
+                let expired: Vec<Address> = live
+                    .pending
+                    .iter()
+                    .filter(|(_, pending)| pending.deadline <= now)
+                    .map(|(addr, _)| *addr)
+                    .collect();
+
+                for addr in expired {
+                    let Some(mut pending) = live.pending.remove(&addr) else {
+                        continue;
+                    };
+
+                    // origin:any -> retry discovery with the next origin (in configuration order)
+                    if let Some(idx) = pending.next_origin_idx
+                        && idx < live.origin_ids.len()
+                    {
+                        let origin_id = live.origin_ids[idx];
+                        pending.next_origin_idx = Some(idx + 1);
+                        pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
+                        state
+                            .worker_stacks
+                            .entry(pending.discovery_worker)
+                            .or_default()
+                            .push_back(Task {
+                                task_type: Some(task::TaskType::Discovery(Probe {
+                                    dst: Some(addr),
+                                })),
+                                origin_id,
+                            });
+                        live.pending.insert(addr, pending);
+                    }
+                    // else: target is unresponsive on all attempted origins -> give up
+                }
+            }
+        });
     }
 
     /// Initialize traceroute configuration within the measurement state and spawn the
