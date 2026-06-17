@@ -1,7 +1,7 @@
 //! Live feed support: reading NDJSON targets from stdin for feed-based measurements.
 
 use crate::custom_module::manycastr::{Address, CliMessage, LiveTarget, TargetBatch, cli_message};
-use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER};
+use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use bimap::BiHashMap;
 use futures_core::Stream;
 use log::warn;
@@ -116,12 +116,14 @@ fn parse_feed_line(
 }
 
 /// Resolve a feed line's `origin` value to an origin ID:
-/// an origin ID (number or numeric string) of a configured origin, or `"all"`.
+/// an origin ID (number or numeric string) of a configured origin, `"all"`,
+/// or `"any"` (try origins in order; stop on the first responsive one).
 fn parse_origin(origin: &serde_json::Value, origin_ids: &HashSet<u32>) -> Option<u32> {
     let id = match origin {
         // Origin ID as JSON number (e.g., "origin":2)
         serde_json::Value::Number(n) => u32::try_from(n.as_u64()?).ok()?,
         serde_json::Value::String(s) if s == "all" => return Some(ALL_ORIGINS),
+        serde_json::Value::String(s) if s == "any" => return Some(ANY_ORIGIN),
         // Origin ID as numeric string (e.g., "origin":"2")
         serde_json::Value::String(s) => match s.parse::<u32>() {
             Ok(id) => id,
