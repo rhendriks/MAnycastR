@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::custom_module;
 use crate::custom_module::manycastr::{Address, MeasurementType};
@@ -52,6 +52,33 @@ pub struct MeasurementState {
     pub trace_config: Option<TracerouteConfig>,
     /// Targets that responded to discovery (deduplicates follow-up tasks; --any uses it to skip resolved targets)
     pub resolved_targets: HashSet<Address>,
+    /// Live feed state (None for hitlist-based measurements)
+    pub live: Option<LiveState>,
+}
+
+/// Timeout for live-feed discovery probes
+pub const LIVE_DISCOVERY_TIMEOUT_SECS: u64 = 3;
+
+/// State for a live (feed-based) measurement.
+#[derive(Debug)]
+pub struct LiveState {
+    /// In-flight discovery targets awaiting a response
+    pub pending: HashMap<Address, PendingTarget>,
+    /// Origin IDs in configuration order (the order in which `origin:any` tries origins)
+    pub origin_ids: Vec<u32>,
+}
+
+/// A live target awaiting a discovery reply before its measurement probes are sent.
+#[derive(Debug)]
+pub struct PendingTarget {
+    /// Worker selection for the follow-up measurement probes (ANY_WORKER, ALL_WORKERS, or a specific ID)
+    pub worker_sel: u32,
+    /// Worker performing the discovery probes
+    pub discovery_worker: u32,
+    /// Next origin index to try on timeout for `origin:any` (None for `--responsive`)
+    pub next_origin_idx: Option<usize>,
+    /// When the current discovery attempt expires
+    pub deadline: Instant,
 }
 
 /// Traceroute configuration
