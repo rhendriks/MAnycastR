@@ -87,12 +87,12 @@ fn parse_feed_line(
     worker_map: &BiHashMap<u32, String>,
     origin_ids: &HashSet<u32>,
 ) -> Option<LiveTarget> {
-    // Bare address shorthand (interactive use): any worker (round-robin), all origins
+    // Bare address shorthand (interactive use): any worker (round-robin), any origin
     if !line.starts_with('{') {
         return Some(LiveTarget {
             dst: Some(line.parse::<Address>().ok()?),
             worker_id: ANY_WORKER,
-            origin_id: ALL_ORIGINS,
+            origin_id: ANY_ORIGIN,
         });
     }
 
@@ -104,7 +104,7 @@ fn parse_feed_line(
         Some(worker) => parse_worker(worker, worker_map)?,
     };
     let origin_id = match value.get("origin") {
-        None => ALL_ORIGINS,
+        None => ANY_ORIGIN,
         Some(origin) => parse_origin(origin, origin_ids)?,
     };
 
