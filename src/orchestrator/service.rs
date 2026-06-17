@@ -655,6 +655,30 @@ impl Controller for ControllerService {
             }
         }
 
+        // Live single-worker origin:any: the measurement probe's own reply is the result,
+        // so cancel its pending retry (the reply is still forwarded to the CLI below).
+        // The cheap read-lock guard avoids taking the write lock for non-live measurements.
+        if !results_bucket.is_empty()
+            && self
+                .measurement
+                .read()
+                .unwrap()
+                .as_ref()
+                .and_then(|s| s.live.as_ref())
+                .is_some_and(|l| !l.pending.is_empty())
+        {
+            let mut lock = self.measurement.write().unwrap();
+            if let Some(live) = lock.as_mut().and_then(|s| s.live.as_mut()) {
+                for reply in &results_bucket {
+                    if let Some(ReplyData::Measurement(m)) = &reply.reply_data
+                        && let Some(src) = m.src
+                    {
+                        live.pending.remove(&src);
+                    }
+                }
+            }
+        }
+
         if !results_bucket.is_empty() {
             // Forward results to the CLI
             let tx = self.cli_sender.lock().unwrap().clone();
@@ -815,21 +839,26 @@ impl ControllerService {
                         continue;
                     };
 
-                    // origin:any -> retry discovery with the next origin (in configuration order)
+                    // origin:any -> retry with the next origin (in configuration order)
                     if let Some(idx) = pending.next_origin_idx
                         && idx < live.origin_ids.len()
                     {
                         let origin_id = live.origin_ids[idx];
                         pending.next_origin_idx = Some(idx + 1);
                         pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
+                        // Single-worker origin:any tries each protocol with a measurement probe
+                        let probe = Probe { dst: Some(addr) };
+                        let task_type = if pending.probe_is_measurement {
+                            task::TaskType::Probe(probe)
+                        } else {
+                            task::TaskType::Discovery(probe)
+                        };
                         state
                             .worker_stacks
                             .entry(pending.discovery_worker)
                             .or_default()
                             .push_back(Task {
-                                task_type: Some(task::TaskType::Discovery(Probe {
-                                    dst: Some(addr),
-                                })),
+                                task_type: Some(task_type),
                                 origin_id,
                             });
                         live.pending.insert(addr, pending);
