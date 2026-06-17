@@ -2,10 +2,10 @@ use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
     Address, End, Instruction, LiveTarget, Probe, Task, Tasks, instruction, task,
 };
-use crate::orchestrator::MeasurementHandle;
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
-use crate::{ALL_WORKERS, ANY_WORKER};
+use crate::orchestrator::{LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget};
+use crate::{ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -452,91 +452,191 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
 /// Live task distributor for feed-based measurements.
 ///
-/// Dispatches targets arriving on `feed` to probing workers, draining at most
-/// `probing_rate` targets per second (enforced via the orchestrator's `--live_rate`;
-/// no worker receives more than `probing_rate` tasks per second).
+/// Ticks once per second: first drains follow-up tasks (discovery follow-ups and
+/// `origin:any` retries) from the worker stacks, then drains targets from `feed`
+/// up to the remaining rate budget (`probing_rate`, enforced via the orchestrator's
+/// `--live_rate`; no worker receives more than `probing_rate` tasks per second).
+///
 /// Each target carries a worker assignment: `ANY_WORKER` (round-robin, default),
 /// `ALL_WORKERS` (broadcast, staggered by the worker interval), or a specific worker ID.
-/// The measurement ends when the feed closes (the CLI ended its stream or
-/// disconnected) or when no probing workers remain.
+/// Targets requiring discovery (--responsive, or `origin:any`) are sent as discovery
+/// tasks to a single worker and registered as pending; their measurement probes
+/// follow once a discovery reply arrives (see `send_result` and the sweeper).
+///
+/// The measurement ends when the feed has closed (the CLI ended its stream or
+/// disconnected) and all follow-ups and pending discoveries have resolved,
+/// or when no probing workers remain.
 pub fn distribute_live_tasks(
     mut feed: mpsc::Receiver<LiveTarget>,
     measurement: MeasurementHandle,
     workers: Vec<WorkerSender<Result<Instruction, Status>>>,
     probing_rate: u32,
     worker_interval: u64,
+    is_responsive: bool,
 ) {
     info!("[Orchestrator] Starting Live Task Distributor.");
 
     spawn(async move {
-        let mut probing_rate_interval = tokio::time::interval(Duration::from_secs(1));
-        probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut tick_interval = tokio::time::interval(Duration::from_secs(1));
+        tick_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut current_index: usize = 0;
         let batch_capacity = probing_rate as usize;
+        let mut feed_closed = false;
 
         loop {
-            probing_rate_interval.tick().await;
+            tick_interval.tick().await;
 
-            // Wait for the next target; the feed closes when the CLI ends its stream or disconnects
-            let Some(first) = feed.recv().await else {
-                info!("[Orchestrator] Live feed closed, ending measurement.");
-                break;
-            };
-
-            // Fill the batch with whatever else is queued, up to the per-second rate limit
-            let mut batch = vec![first];
-            while batch.len() < batch_capacity {
-                match feed.try_recv() {
-                    Ok(target) => batch.push(target),
-                    Err(_) => break,
-                }
-            }
-
-            // Get the probing workers (also verifies the measurement is still active)
-            let probing_workers = {
-                let lock = measurement.read().unwrap();
-                let state = match *lock {
-                    Some(ref s) => s,
-                    None => {
-                        warn!("[Orchestrator] Measurement no longer active");
-                        break;
-                    }
+            // Drain follow-up tasks from the worker stacks
+            let (follow_ups, probing_workers, pending_count) = {
+                let mut lock = measurement.write().unwrap();
+                let Some(state) = lock.as_mut() else {
+                    warn!("[Orchestrator] Measurement no longer active");
+                    break;
                 };
 
                 if state.probing_workers.is_empty() {
                     warn!("[Orchestrator] No more probing workers available, ending measurement.");
                     break;
                 }
-                state.probing_workers.clone()
+
+                let mut follow_ups: Vec<(u32, Vec<Task>)> = Vec::new();
+                for (worker_id, stack) in state.worker_stacks.iter_mut() {
+                    if !stack.is_empty() {
+                        let n = stack.len().min(batch_capacity);
+                        follow_ups.push((*worker_id, stack.drain(..n).collect()));
+                    }
+                }
+
+                let pending_count = state.live.as_ref().map_or(0, |live| live.pending.len());
+                (follow_ups, state.probing_workers.clone(), pending_count)
             };
 
-            // Partition the batch by worker assignment
+            let follow_up_count: usize = follow_ups.iter().map(|(_, tasks)| tasks.len()).sum();
+            for (worker_id, tasks) in follow_ups {
+                // The worker interval only applies to ALL_WORKERS (broadcast) stacks
+                send_to_workers(
+                    &workers,
+                    worker_id,
+                    Instruction {
+                        instruction_type: Some(instruction::InstructionType::Tasks(Tasks {
+                            tasks,
+                        })),
+                    },
+                    1, // TODO enable 'nprobes:'
+                    worker_interval,
+                    0,
+                )
+                .await;
+            }
+
+            // Drain the feed (non-blocking) up to the remaining rate budget
+            let remainder = batch_capacity.saturating_sub(follow_up_count);
+            let mut batch: Vec<LiveTarget> = Vec::new();
+            while batch.len() < remainder {
+                match feed.try_recv() {
+                    Ok(target) => batch.push(target),
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        if !feed_closed {
+                            info!("[Orchestrator] Live feed closed, finishing outstanding tasks.");
+                            feed_closed = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            let dispatched = batch.len();
+
+            // Partition the batch by worker assignment, registering discovery targets
             let mut per_worker: HashMap<u32, Vec<Task>> = HashMap::new();
             let mut broadcast: Vec<Task> = Vec::new();
-            for target in batch {
-                let Some(dst) = target.dst else { continue };
-                let task = make_task(dst, false, target.origin_id);
-                match target.worker_id {
-                    ANY_WORKER => {
-                        // Round-robin across probing workers
-                        current_index %= probing_workers.len();
+            {
+                let mut lock = measurement.write().unwrap();
+                let Some(state) = lock.as_mut() else {
+                    warn!("[Orchestrator] Measurement no longer active");
+                    break;
+                };
+
+                for target in batch {
+                    let Some(dst) = target.dst else { continue };
+
+                    // Do not send discovery probes when the measurement is a single probe
+                    let needs_discovery = target.origin_id == ANY_ORIGIN
+                        || (is_responsive && target.worker_id == ALL_WORKERS);
+                    if needs_discovery {
+                        // Discovery is performed by a single worker
+                        let discovery_worker = match target.worker_id {
+                            ANY_WORKER | ALL_WORKERS => {
+                                current_index %= probing_workers.len();
+                                let id = probing_workers[current_index];
+                                current_index += 1;
+                                id
+                            }
+                            id if probing_workers.contains(&id) => id,
+                            id => {
+                                warn!(
+                                    "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
+                                );
+                                continue;
+                            }
+                        };
+
+                        let Some(live) = state.live.as_mut() else {
+                            continue;
+                        };
+
+                        // origin:any starts with the first origin and retries the rest on timeout
+                        let (origin_id, next_origin_idx) = if target.origin_id == ANY_ORIGIN {
+                            let Some(&first) = live.origin_ids.first() else {
+                                continue;
+                            };
+                            (first, Some(1))
+                        } else {
+                            (target.origin_id, None)
+                        };
+
+                        live.pending.insert(
+                            dst,
+                            PendingTarget {
+                                worker_sel: target.worker_id,
+                                discovery_worker,
+                                next_origin_idx,
+                                deadline: std::time::Instant::now()
+                                    + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS),
+                            },
+                        );
+
                         per_worker
-                            .entry(probing_workers[current_index])
+                            .entry(discovery_worker)
                             .or_default()
-                            .push(task);
-                        current_index += 1;
+                            .push(make_task(dst, true, origin_id));
+                        continue;
                     }
-                    ALL_WORKERS => broadcast.push(task),
-                    id if probing_workers.contains(&id) => {
-                        per_worker.entry(id).or_default().push(task);
+
+                    // Regular probe task
+                    let task = make_task(dst, false, target.origin_id);
+                    match target.worker_id {
+                        ANY_WORKER => {
+                            // Round-robin across probing workers
+                            current_index %= probing_workers.len();
+                            per_worker
+                                .entry(probing_workers[current_index])
+                                .or_default()
+                                .push(task);
+                            current_index += 1;
+                        }
+                        ALL_WORKERS => broadcast.push(task),
+                        id if probing_workers.contains(&id) => {
+                            per_worker.entry(id).or_default().push(task);
+                        }
+                        id => warn!(
+                            "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
+                        ),
                     }
-                    id => warn!(
-                        "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
-                    ),
                 }
             }
 
-            // Send the per-worker tasks (specific and round-robin assignments)
+            // Send the per-worker tasks (specific, round-robin, and discovery assignments)
             for (worker_id, tasks) in per_worker {
                 send_to_workers(
                     &workers,
@@ -568,6 +668,11 @@ pub fn distribute_live_tasks(
                     0,
                 )
                 .await;
+            }
+
+            // Done once the feed is closed and all outstanding work has resolved
+            if feed_closed && dispatched == 0 && follow_up_count == 0 && pending_count == 0 {
+                break;
             }
         }
 
