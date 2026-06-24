@@ -1,5 +1,6 @@
 //! Live feed support: reading NDJSON targets from stdin for feed-based measurements.
 
+use crate::cli::config::resolve_workers;
 use crate::custom_module::manycastr::{Address, CliMessage, LiveTarget, TargetBatch, cli_message};
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use bimap::BiHashMap;
@@ -32,10 +33,11 @@ impl Stream for FeedStream {
 ///
 /// Each line is a JSON object (e.g., `{"dst":"1.1.1.1","worker":"ams01","origin":2}`),
 /// or a bare address (e.g., `1.1.1.1`).
-/// The optional `worker` field selects the probing worker: a worker ID,
-/// a hostname, `"all"` (probe from all workers), or `"any"` (round-robin, default).
+/// The optional `worker` field selects the probing worker: a worker ID, a hostname, a glob
+/// (e.g. `us-*` — probes the target from every matched worker), `"all"` (probe from all
+/// workers), or `"any"` (round-robin, default).
 /// The optional `origin` field selects the origin to send from: an origin ID,
-/// or `"all"` (all configured origins, default).
+/// `"all"` (all configured origins), or `"any"` (first responsive, default).
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
@@ -54,12 +56,14 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        let Some(target) = parse_feed_line(line, &worker_map, &origin_ids) else {
+        let targets = parse_feed_line(line, &worker_map, &origin_ids);
+        if targets.is_empty() {
             warn!("[CLI] Skipping invalid feed line: {line}");
             continue;
-        };
+        }
 
-        let addr = target.dst.expect("parsed target always has a dst");
+        // A line's targets all share one dst; check the IP version once
+        let addr = targets[0].dst.expect("parsed target always has a dst");
         if addr.is_v6() != is_ipv6 {
             // TODO support mixed IPv4/IPv6
             warn!(
@@ -70,9 +74,7 @@ pub fn read_stdin_feed(
         }
 
         let msg = CliMessage {
-            message: Some(cli_message::Message::Targets(TargetBatch {
-                targets: vec![target],
-            })),
+            message: Some(cli_message::Message::Targets(TargetBatch { targets })),
         };
         if feed_tx.blocking_send(msg).is_err() {
             break; // Feed closed (measurement ended)
@@ -80,27 +82,43 @@ pub fn read_stdin_feed(
     }
 }
 
-/// Parse a single feed line into a live target: an NDJSON object
+/// Parse a single feed line into live target(s): an NDJSON object
 /// (e.g., `{"dst":"1.1.1.1","worker":"ams01","origin":2}`) or a bare address (e.g., `1.1.1.1`).
+///
+/// Returns one target per selected worker.
+/// An empty result means the line was invalid or matched no worker.
 fn parse_feed_line(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
     origin_ids: &HashSet<u32>,
-) -> Option<LiveTarget> {
+) -> Vec<LiveTarget> {
     // Bare address shorthand (interactive use): any worker (round-robin), any origin
     if !line.starts_with('{') {
-        return Some(LiveTarget {
-            dst: Some(line.parse::<Address>().ok()?),
+        let Ok(dst) = line.parse::<Address>() else {
+            return Vec::new();
+        };
+        return vec![LiveTarget {
+            dst: Some(dst),
             worker_id: ANY_WORKER,
             origin_id: ANY_ORIGIN,
-        });
+        }];
     }
 
     // NDJSON object (producers/scripts)
+    parse_feed_object(line, worker_map, origin_ids).unwrap_or_default()
+}
+
+/// Parse an NDJSON feed object into one target per selected worker.
+/// Returns `None` on a malformed object, an unknown worker/origin.
+fn parse_feed_object(
+    line: &str,
+    worker_map: &BiHashMap<u32, String>,
+    origin_ids: &HashSet<u32>,
+) -> Option<Vec<LiveTarget>> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let dst = value.get("dst")?.as_str()?.parse::<Address>().ok()?;
-    let worker_id = match value.get("worker") {
-        None => ANY_WORKER,
+    let worker_ids = match value.get("worker") {
+        None => vec![ANY_WORKER],
         Some(worker) => parse_worker(worker, worker_map)?,
     };
     let origin_id = match value.get("origin") {
@@ -108,11 +126,16 @@ fn parse_feed_line(
         Some(origin) => parse_origin(origin, origin_ids)?,
     };
 
-    Some(LiveTarget {
-        dst: Some(dst),
-        worker_id,
-        origin_id,
-    })
+    Some(
+        worker_ids
+            .into_iter()
+            .map(|worker_id| LiveTarget {
+                dst: Some(dst),
+                worker_id,
+                origin_id,
+            })
+            .collect(),
+    )
 }
 
 /// Resolve a feed line's `origin` value to an origin ID:
@@ -142,14 +165,19 @@ fn parse_origin(origin: &serde_json::Value, origin_ids: &HashSet<u32>) -> Option
     None
 }
 
-/// Resolve a feed line's `worker` value to a worker ID: TODO reuse for hitlist-based -x worker parsing
-/// a worker ID (number or numeric string), a hostname, `"all"`, or `"any"`.
-fn parse_worker(worker: &serde_json::Value, worker_map: &BiHashMap<u32, String>) -> Option<u32> {
+/// Resolve a feed line's `worker` value to the worker selection(s):
+/// `"any"` (round-robin) or `"all"` (broadcast) sentinels, or a worker ID, hostname, or glob
+/// (e.g. `us-*`) resolved via [`resolve_workers`] — a glob yields one entry per matched worker.
+/// Returns `None` (skip the line) on an unknown worker or a glob that matched nothing.
+fn parse_worker(
+    worker: &serde_json::Value,
+    worker_map: &BiHashMap<u32, String>,
+) -> Option<Vec<u32>> {
     // Worker ID as JSON number (e.g., "worker":1)
     if let Some(id) = worker.as_u64() {
         let id = u32::try_from(id).ok()?;
         if worker_map.contains_left(&id) {
-            return Some(id);
+            return Some(vec![id]);
         }
         warn!("[CLI] Worker ID '{id}' is not a known worker.");
         return None;
@@ -157,23 +185,16 @@ fn parse_worker(worker: &serde_json::Value, worker_map: &BiHashMap<u32, String>)
 
     let worker = worker.as_str()?;
     match worker {
-        "any" => Some(ANY_WORKER),
-        "all" => Some(ALL_WORKERS),
+        "any" => Some(vec![ANY_WORKER]),
+        "all" => Some(vec![ALL_WORKERS]),
+        // Worker ID, hostname, or glob
         _ => {
-            // Worker ID as numeric string (e.g., "worker":"1")
-            if let Ok(id) = worker.parse::<u32>() {
-                if worker_map.contains_left(&id) {
-                    return Some(id);
-                }
-                warn!("[CLI] Worker ID '{id}' is not a known worker.");
+            let ids = resolve_workers(worker, worker_map);
+            if ids.is_empty() {
+                warn!("[CLI] '{worker}' did not match any known worker ID or hostname.");
                 return None;
             }
-            // Hostname
-            if let Some(&id) = worker_map.get_by_right(worker) {
-                return Some(id);
-            }
-            warn!("[CLI] '{worker}' is not a valid worker ID or known hostname.");
-            None
+            Some(ids)
         }
     }
 }

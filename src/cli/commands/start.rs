@@ -1,5 +1,5 @@
 use crate::cli::client::CliClient;
-use crate::cli::config::{get_hitlist, get_targets, parse_configurations};
+use crate::cli::config::{get_hitlist, get_targets, parse_configurations, resolve_workers};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::Separated;
 use crate::custom_module::manycastr::address::Value::Unicast;
@@ -88,34 +88,26 @@ pub async fn handle(
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
 
-        // Get the workers that have to send out probes
+        // Get the workers that have to send out probes (worker ID, hostname, or glob like `us-*`)
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || vec![ALL_WORKERS], // Default: all workers
             |worker_entries_str| {
-                worker_entries_str
+                let mut ids: Vec<u32> = Vec::new();
+                for token in worker_entries_str
                     .trim_matches(|c| c == '[' || c == ']')
                     .split(',')
-                    .filter_map(|entry_str_untrimmed| {
-                        let entry_str = entry_str_untrimmed.trim();
-                        if entry_str.is_empty() {
-                            return None; // Skip trailing commas
-                        }
-                        // Try to parse as worker ID
-                        if let Ok(id_val) = entry_str.parse::<u32>() {
-                            if worker_map.contains_left(&id_val) {
-                                Some(id_val)
-                            } else {
-                                warn!("Worker ID '{entry_str}' is not a known worker.");
-                                None
-                            }
-                        } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
-                            Some(found_id)
-                        } else {
-                            warn!("'{entry_str}' is not a valid worker ID or known hostname.");
-                            None
-                        }
-                    })
-                    .collect()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                {
+                    let matched = resolve_workers(token, &worker_map);
+                    if matched.is_empty() {
+                        warn!("'{token}' did not match any known worker ID or hostname.");
+                    }
+                    ids.extend(matched);
+                }
+                ids.sort_unstable();
+                ids.dedup(); // overlapping globs may match the same worker
+                ids
             },
         );
         // Get protocol to use (preserving user-specified order for --any fallback)
