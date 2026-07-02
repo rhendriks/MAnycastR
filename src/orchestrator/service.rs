@@ -235,11 +235,10 @@ impl Controller for ControllerService {
         // Determine distribution parameters
         let is_any_protocol = m_def.is_any_protocol;
         let is_tracemap = m_type == MeasurementType::Tracemap;
+        // Whether discovery probes should be sent (unicast latency measurements do not send discovery probes)
         let send_discovery = is_responsive
-            | matches!(
-                m_type,
-                MeasurementType::AnycastLatency | MeasurementType::AnycastTraceroute
-            );
+            || m_type == MeasurementType::AnycastTraceroute
+            || (m_type == MeasurementType::AnycastLatency && has_anycast_origin(&m_def));
         let is_round_robin = send_discovery
             || matches!(
                 m_type,
@@ -596,21 +595,16 @@ impl Controller for ControllerService {
 
             if !discovery_bucket.is_empty() {
                 match state.m_type {
-                    // Perform follow-up from ALL workers
-                    MeasurementType::Laces | MeasurementType::UnicastLatency => {
+                    // Determine worker(s) for follow-up probes
+                    MeasurementType::Laces | MeasurementType::AnycastLatency => {
+                        let follow_up_id = if state.is_responsive {
+                            ALL_WORKERS
+                        } else {
+                            catcher_id
+                        };
                         discovery_handler(
                             discovery_bucket,
-                            ALL_WORKERS,
-                            &mut state.worker_stacks,
-                            origin_id,
-                        );
-                    }
-
-                    // Follow up from only the catching worker
-                    MeasurementType::AnycastLatency => {
-                        discovery_handler(
-                            discovery_bucket,
-                            catcher_id,
+                            follow_up_id,
                             &mut state.worker_stacks,
                             origin_id,
                         );
@@ -655,9 +649,7 @@ impl Controller for ControllerService {
             }
         }
 
-        // Live single-worker origin:any: the measurement probe's own reply is the result,
-        // so cancel its pending retry (the reply is still forwarded to the CLI below).
-        // The cheap read-lock guard avoids taking the write lock for non-live measurements.
+        // Live single-worker origin:any: the measurement probe's own reply is the result
         if !results_bucket.is_empty()
             && self
                 .measurement
@@ -712,13 +704,7 @@ impl ControllerService {
         let mut probing_worker_ids = Vec::new();
 
         // Whether non-probing workers should listen (true when any configuration probes with anycast).
-        let has_anycast_origin = m_def.configurations.iter().any(|config| {
-            !config
-                .origin
-                .as_ref()
-                .and_then(|o| o.src.as_ref())
-                .is_none_or(|s| s.is_unicast())
-        });
+        let is_anycast = has_anycast_origin(m_def);
 
         let workers = {
             let mut workers = self.saved_workers.lock().unwrap().clone();
@@ -741,7 +727,7 @@ impl ControllerService {
                     *status_lock = Probing;
                     probing_worker_ids.push(worker.worker_id);
                     participating_worker_ids.push(worker.worker_id);
-                } else if has_anycast_origin {
+                } else if is_anycast {
                     *status_lock = Listening;
                     participating_worker_ids.push(worker.worker_id);
                 } else {
@@ -796,6 +782,7 @@ impl ControllerService {
             workers_count: participating_ids.len() as u32,
             probing_workers: probing_ids.to_vec(),
             m_type: m_def.m_type(),
+            is_responsive: m_def.is_responsive,
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),
@@ -894,23 +881,32 @@ impl ControllerService {
     }
 }
 
+/// Whether any configuration probes from an anycast source address
+fn has_anycast_origin(m_def: &ScheduleMeasurement) -> bool {
+    m_def.configurations.iter().any(|config| {
+        !config
+            .origin
+            .as_ref()
+            .and_then(|o| o.src.as_ref())
+            .is_none_or(|s| s.is_unicast())
+    })
+}
+
 /// Build and send Start instructions to all participating workers.
-///
-/// For each worker, constructs a per-worker Start instruction containing
-/// its assigned TX origins and the shared RX origins, then sends it directly.
 async fn send_start_instructions(
     workers: &[WorkerSender<Result<Instruction, Status>>],
     m_def: &ScheduleMeasurement,
     m_id: u32,
 ) {
-    // Collect unique RX origins across all configurations
+    // Collect unique anycast RX origins across all configurations
     let mut seen_origins = HashSet::new();
-    let mut rx_origins = vec![];
+    let mut anycast_rx_origins = vec![];
     for configuration in m_def.configurations.iter() {
         if let Some(origin) = &configuration.origin
+            && !origin.src.is_some_and(|s| s.is_unicast())
             && seen_origins.insert(origin.origin_id)
         {
-            rx_origins.push(*origin);
+            anycast_rx_origins.push(*origin);
         }
     }
 
@@ -930,12 +926,21 @@ async fn send_start_instructions(
             }
         }
 
+        // This worker listens on all anycast origins plus its own unicast TX origins
+        let mut rx_origins = anycast_rx_origins.clone();
+        rx_origins.extend(
+            tx_origins
+                .iter()
+                .filter(|o| o.src.is_some_and(|s| s.is_unicast()))
+                .copied(),
+        );
+
         let start_instruction = Instruction {
             instruction_type: Some(instruction::InstructionType::Start(Start {
                 rate: m_def.probing_rate,
                 m_id,
                 tx_origins,
-                rx_origins: rx_origins.clone(),
+                rx_origins,
                 record: m_def.record.clone(),
                 url: m_def.url.clone(),
                 is_ipv6: m_def.is_ipv6,
