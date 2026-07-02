@@ -236,11 +236,11 @@ impl Controller for ControllerService {
         // Determine distribution parameters
         let is_any_protocol = m_def.is_any_protocol;
         let is_tracemap = m_type == MeasurementType::Tracemap;
-        // Whether discovery probes should be sent (unicast latency measurements do not send discovery probes)
-        let send_discovery = is_responsive
-            || m_type == MeasurementType::AnycastTraceroute
+        // Whether discovery probes should be sent
+        let send_discovery = m_type == MeasurementType::AnycastTraceroute
             || (m_type == MeasurementType::AnycastLatency
-                && has_anycast_origin(&m_def.configurations));
+                && has_anycast_origin(&m_def.configurations))
+            || (is_responsive && m_type != MeasurementType::Catchment);
         let is_round_robin = send_discovery
             || matches!(
                 m_type,
@@ -288,6 +288,8 @@ impl Controller for ControllerService {
         let task_config = TaskDistributorConfig {
             hitlist: std::mem::take(&mut m_def.hitlist),
             is_discovery: send_discovery,
+            is_any_protocol,
+            origin_ids,
             first_origin_id,
             measurement: self.measurement.clone(),
             workers,
@@ -304,11 +306,7 @@ impl Controller for ControllerService {
         } else if is_tracemap {
             DistributionStrategy::Tracemap
         } else if send_discovery {
-            DistributionStrategy::Discovery {
-                is_responsive,
-                is_any_protocol,
-                origin_ids,
-            }
+            DistributionStrategy::Discovery { is_responsive }
         } else {
             DistributionStrategy::Broadcast
         };
@@ -673,6 +671,27 @@ impl Controller for ControllerService {
             }
         }
 
+        // --any: a measurement reply resolves the target, no further origins are tried
+        if !results_bucket.is_empty()
+            && self
+                .measurement
+                .read()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.is_any)
+        {
+            let mut lock = self.measurement.write().unwrap();
+            if let Some(state) = lock.as_mut() {
+                for reply in &results_bucket {
+                    if let Some(ReplyData::Measurement(m)) = &reply.reply_data
+                        && let Some(src) = m.src
+                    {
+                        state.resolved_targets.insert(src);
+                    }
+                }
+            }
+        }
+
         if !results_bucket.is_empty() {
             // Forward results to the CLI
             let tx = self.cli_sender.lock().unwrap().clone();
@@ -785,6 +804,7 @@ impl ControllerService {
             probing_workers: probing_ids.to_vec(),
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
+            is_any: m_def.is_any_protocol,
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),
