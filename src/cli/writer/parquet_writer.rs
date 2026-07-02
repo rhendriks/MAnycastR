@@ -206,7 +206,7 @@ fn measurement_reply_to_parquet_row(
     };
 
     match m_type {
-        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+        MeasurementType::AnycastLatency => {
             row.rtt = Some(result.rtt);
         }
         MeasurementType::Catchment => {
