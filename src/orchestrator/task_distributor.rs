@@ -24,7 +24,7 @@ const STACK_LOW_WATERMARK_SECS: usize = 1;
 
 /// How tasks should be distributed to workers
 pub enum DistributionStrategy {
-    /// Broadcast tasks to all probing workers simultaneously (LACeS, and unicast mode)
+    /// Broadcast tasks to all probing workers simultaneously (LACeS, and unicast-only latency)
     Broadcast,
     /// Send tasks to probing workers in round-robin fashion (catchment mode)
     RoundRobin,
@@ -32,10 +32,6 @@ pub enum DistributionStrategy {
     Discovery {
         /// --responsive sends follow-ups to ALL workers; otherwise to the catching worker
         is_responsive: bool,
-        /// --any protocol fallback mode
-        is_any_protocol: bool,
-        /// Ordered origin IDs for --any fallback
-        origin_ids: Vec<u32>,
     },
     /// Seed binary-search trace sessions round-robin, with follow-up task interleaving (tracemap mode)
     Tracemap,
@@ -46,6 +42,10 @@ pub struct TaskDistributorConfig {
     pub hitlist: Vec<Address>,
     /// Whether to wrap addresses in Discovery tasks (true) or Probe tasks (false)
     pub is_discovery: bool,
+    /// --any protocol fallback mode: unresolved targets are retried origin by origin
+    pub is_any: bool,
+    /// Ordered origin IDs for --any fallback (empty when not --any)
+    pub origin_ids: Vec<u32>,
     /// Origin ID for the first (or only) probing round
     pub first_origin_id: u32,
     /// All per-measurement state. `None` when idle.
@@ -181,14 +181,14 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     // Tracemap interleaves follow-up trace probes with session seeding, like discovery modes
     let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. }) || is_tracemap;
     let is_discovery = config.is_discovery;
-    let (is_responsive, is_any_protocol, origin_ids) = match strategy {
+    let is_any_protocol = config.is_any;
+    let origin_ids = config.origin_ids;
+    let is_responsive = matches!(
+        strategy,
         DistributionStrategy::Discovery {
-            is_responsive,
-            is_any_protocol,
-            origin_ids,
-        } => (is_responsive, is_any_protocol, origin_ids),
-        _ => (false, false, vec![]),
-    };
+            is_responsive: true
+        }
+    );
 
     // Wait for the last tasks being sent (accounting for repeated tasks)
     let repeat_secs = (config.number_of_probes.saturating_sub(1)) as u64 * config.probe_interval;
@@ -389,7 +389,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
             // Check if the measurement is finished
             if round.hitlist_exhausted {
-                if has_follow_ups {
+                if has_follow_ups || is_any_protocol {
                     // Discovery: wait for stacks + trace sessions to drain before cooldown
                     let (stacks_empty, traces_active) = {
                         let lock = config.measurement.read().unwrap();
@@ -445,8 +445,8 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             probing_rate_interval.tick().await;
         }
 
-        // Discovery handles cooldown inside the loop; other modes sleep here
-        if !has_follow_ups {
+        // Discovery and --any handle the cooldown inside the loop; other modes sleep here
+        if !has_follow_ups && !is_any_protocol {
             info!("[Orchestrator] All tasks sent. Awaiting a {cooldown_secs}-second cooldown.");
             tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
         }
