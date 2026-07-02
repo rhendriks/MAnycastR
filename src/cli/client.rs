@@ -12,7 +12,7 @@ use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -119,8 +119,6 @@ impl CliClient {
             m_def.m_type()
         );
 
-        let is_ipv6 = m_def.is_ipv6; // TODO support mix IPv4/IPv6
-
         // Bounded channels: when the orchestrator (or its rate limit) cannot keep up, block stdin
         let (feed_tx, mut feed_rx) = channel::<CliMessage>(FEED_CHANNEL_SIZE);
         let (grpc_tx, grpc_rx) = channel::<CliMessage>(16);
@@ -134,12 +132,14 @@ impl CliClient {
 
         // Read NDJSON targets from stdin on a blocking thread
         let worker_map = args.worker_map.clone();
-        let origin_ids: HashSet<u32> = m_def
+        // Origin ID -> IP version, to match feed targets with compatible origins
+        let origins: HashMap<u32, bool> = m_def
             .configurations
             .iter()
-            .filter_map(|conf| conf.origin.map(|origin| origin.origin_id))
+            .filter_map(|conf| conf.origin)
+            .map(|origin| (origin.origin_id, origin.src.is_some_and(|src| src.is_v6())))
             .collect();
-        std::thread::spawn(move || read_stdin_feed(feed_tx, is_ipv6, worker_map, origin_ids));
+        std::thread::spawn(move || read_stdin_feed(feed_tx, worker_map, origins));
 
         // Forward stdin targets to the gRPC stream until EOF or Ctrl+C.
         tokio::spawn(async move {
