@@ -35,10 +35,9 @@ message Finished {
 enum MeasurementType {
   LACES = 0;
   CATCHMENT = 1;
-  ANYCAST_LATENCY = 2;
-  UNICAST_LATENCY = 3;
-  ANYCAST_TRACEROUTE = 4;
-  TRACEMAP = 5;
+  ANYCAST_LATENCY = 2; // TODO rename to 'LATENCY'
+  ANYCAST_TRACEROUTE = 3; // TODO rename to 'TRACEROUTE' and implement unicast traceroute
+  TRACEMAP = 4;
 }
 
 enum ProtocolType {
