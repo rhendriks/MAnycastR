@@ -288,7 +288,7 @@ impl Controller for ControllerService {
         let task_config = TaskDistributorConfig {
             hitlist: std::mem::take(&mut m_def.hitlist),
             is_discovery: send_discovery,
-            is_any_protocol,
+            is_any: is_any_protocol,
             origin_ids,
             first_origin_id,
             measurement: self.measurement.clone(),
