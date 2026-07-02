@@ -18,6 +18,7 @@
 //! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
 //!
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+//! Mixed measurements are supported, e.g., to measure/compare IPv4 and IPv6 for dual-stack deployments.
 //!
 //! # The components
 //!
@@ -336,7 +337,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicast' to probe from each worker's local unicast address")
+                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicast'/'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
                         .conflicts_with("configuration")
                         .required_unless_present("configuration"))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
