@@ -1,6 +1,5 @@
 use crate::ALL_WORKERS;
-use crate::custom_module::manycastr::address::Value::Unicast;
-use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ProtocolType};
+use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
@@ -233,9 +232,7 @@ pub fn parse_configurations(
 
         // Parse 'unicast' as address (each worker uses its local unicast address)
         let src = if parts[1].eq_ignore_ascii_case("unicast") {
-            Address {
-                value: Some(Unicast(Empty {})),
-            }
+            Address::unicast()
         } else {
             let src = Address::from(parts[1]);
             if let Some(v6) = is_ipv6 {

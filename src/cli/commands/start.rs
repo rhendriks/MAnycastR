@@ -1,12 +1,11 @@
 use crate::cli::client::CliClient;
 use crate::cli::config::{get_hitlist, get_targets, parse_configurations, resolve_workers};
 use crate::cli::utils::validate_path_perms;
-use crate::custom_module::Separated;
-use crate::custom_module::manycastr::address::Value::Unicast;
 use crate::custom_module::manycastr::{
-    Address, Configuration, Empty, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
+    Address, Configuration, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
     TraceOptions,
 };
+use crate::custom_module::{Separated, has_anycast_origin};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use clap::ArgMatches;
@@ -79,9 +78,7 @@ pub async fn handle(
             .expect("--address is required unless --configuration is provided");
         // Parse 'unicast', in which case each worker uses its local unicast address
         let src = if address.eq_ignore_ascii_case("unicast") {
-            Address {
-                value: Some(Unicast(Empty {})),
-            }
+            Address::unicast()
         } else {
             Address::from(address)
         };
@@ -153,16 +150,11 @@ pub async fn handle(
         configs
     };
 
-    // Whether any origin probes from an anycast (fixed) source address
-    let has_anycast_origin = configurations.iter().any(|c| {
-        c.origin
-            .as_ref()
-            .and_then(|o| o.src.as_ref())
-            .is_some_and(|src| !src.is_unicast())
-    });
-
     // Anycast latency discovery already skips unresponsive targets
-    if m_type == MeasurementType::AnycastLatency && is_responsive && has_anycast_origin {
+    if m_type == MeasurementType::AnycastLatency
+        && is_responsive
+        && has_anycast_origin(&configurations)
+    {
         let msg = "[CLI] --responsive/--any cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
         error!("{}", msg);
         return Err(msg.into());

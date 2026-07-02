@@ -2,12 +2,12 @@ use crate::cli::commands::start::MeasurementExecutionArgs;
 use crate::cli::feed::{FEED_CHANNEL_SIZE, FeedStream, read_stdin_feed};
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{MetadataArgs, WriteConfig, write_results_csv};
-use crate::custom_module::Separated;
 use crate::custom_module::manycastr::ProtocolType::ChaosDns;
 use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::{
     CliMessage, MeasurementType, ReplyBatch, ScheduleMeasurement, cli_message,
 };
+use crate::custom_module::{Separated, has_anycast_origin};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -61,15 +61,9 @@ impl CliClient {
         };
 
         // Latency anycast measurements divide the hitlist among workers
-        let has_anycast_origin = m_def.configurations.iter().any(|conf| {
-            conf.origin
-                .as_ref()
-                .and_then(|o| o.src.as_ref())
-                .is_some_and(|src| !src.is_unicast())
-        });
         let is_divided = match m_def.m_type() {
             MeasurementType::Catchment | MeasurementType::Tracemap => true,
-            MeasurementType::AnycastLatency => has_anycast_origin,
+            MeasurementType::AnycastLatency => has_anycast_origin(&m_def.configurations),
             _ => false,
         };
 
