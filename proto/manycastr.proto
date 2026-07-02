@@ -66,11 +66,10 @@ message ScheduleMeasurement {
   optional string url = 7; // URL to encode in probes (e.g., opt-out link)
   uint32 probe_interval = 8; // interval between probes from/to the same origin,dst pair
   uint32 number_of_probes = 9; // number of probes to send per origin,dst pair
-  bool is_ipv6 = 10; // whether the measurement is for IPv6
-  bool is_record = 11; // whether to send IPv4 probes with the Record Route options
-  optional TraceOptions trace_options = 12; // Optional traceroute options
-  bool is_responsive = 13; // Whether to probe a target once for responsiveness before sending measurement probes
-  bool is_any_protocol = 14; // Try protocols in order; stop per-target on first responsive protocol
+  bool is_record = 10; // whether to send IPv4 probes with the Record Route options
+  optional TraceOptions trace_options = 11; // Optional traceroute options
+  bool is_responsive = 12; // Whether to probe a target once for responsiveness before sending measurement probes
+  bool is_any_protocol = 13; // Try protocols in order; stop per-target on first responsive protocol
 }
 
 // A message sent by the CLI on a live measurement stream
@@ -112,7 +111,9 @@ message Address {
   oneof value {
     fixed32 v4 = 1;
     IPv6 v6 = 2;
-    Empty unicast = 3; // use unicast origin
+    Empty unicast = 3; // bare unicast placeholder (CLI-side only; resolved to unicast_v4/unicast_v6 before scheduling)
+    Empty unicast_v4 = 4; // use the worker's local IPv4 unicast address
+    Empty unicast_v6 = 5; // use the worker's local IPv6 unicast address
   }
 }
 
@@ -161,9 +162,8 @@ message Start {
   repeated Origin rx_origins = 4; // origins to listen for
   optional string record = 5; // domain to use for DNS queries (TXT/A/AAAA)
   optional string url = 6; // URL encoded in probes
-  bool is_ipv6 = 7; // whether the measurement is for IPv6
-  bool is_record = 8; // send IPv4 probes with the Record Route option
-  MeasurementType m_type = 9; // Measurement type
+  bool is_record = 7; // send IPv4 probes with the Record Route option
+  MeasurementType m_type = 8; // Measurement type
 }
 
 message TraceOptions {
