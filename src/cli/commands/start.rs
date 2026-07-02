@@ -61,6 +61,17 @@ pub async fn handle(
         return Err(msg.into());
     }
 
+    // Disallow --responsive for catchment mappings
+    if m_type == MeasurementType::Catchment
+        && matches.get_flag("responsive")
+        && !is_any_protocol
+        && !is_feed
+    {
+        let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness); use --any for iterative multi-origin mapping.";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
     // TODO support more measurement types
     if is_feed && m_type != MeasurementType::Catchment {
         let msg = "[CLI] --feed currently only supports catchment measurements (-m catchment).";
@@ -263,7 +274,7 @@ pub async fn handle(
             .filter_map(|c| c.origin.as_ref().map(|o| o.origin_id))
             .collect();
         if unique_origins.len() < 2 {
-            let msg = "[CLI] --any requires at least two protocols (e.g., -p icmp,tcp)";
+            let msg = "[CLI] --any requires at least two origins (e.g., -p icmp,tcp or a multi-origin configuration file)";
             error!("{}", msg);
             return Err(msg.into());
         }
