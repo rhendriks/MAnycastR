@@ -45,7 +45,7 @@ pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
     origins
         .into_iter()
         .filter_map(|mut o| {
-            if o.src.is_some_and(|s| s.is_unicast()) {
+            if o.is_unicast() {
                 match src_addr {
                     Some(addr) => o.src = Some(addr),
                     None => {

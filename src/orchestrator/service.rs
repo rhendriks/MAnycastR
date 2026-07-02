@@ -1,3 +1,4 @@
+use crate::custom_module::has_anycast_origin;
 use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listening, Probing};
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
@@ -238,7 +239,8 @@ impl Controller for ControllerService {
         // Whether discovery probes should be sent (unicast latency measurements do not send discovery probes)
         let send_discovery = is_responsive
             || m_type == MeasurementType::AnycastTraceroute
-            || (m_type == MeasurementType::AnycastLatency && has_anycast_origin(&m_def));
+            || (m_type == MeasurementType::AnycastLatency
+                && has_anycast_origin(&m_def.configurations));
         let is_round_robin = send_discovery
             || matches!(
                 m_type,
@@ -704,7 +706,7 @@ impl ControllerService {
         let mut probing_worker_ids = Vec::new();
 
         // Whether non-probing workers should listen (true when any configuration probes with anycast).
-        let is_anycast = has_anycast_origin(m_def);
+        let is_anycast = has_anycast_origin(&m_def.configurations);
 
         let workers = {
             let mut workers = self.saved_workers.lock().unwrap().clone();
@@ -881,17 +883,6 @@ impl ControllerService {
     }
 }
 
-/// Whether any configuration probes from an anycast source address
-fn has_anycast_origin(m_def: &ScheduleMeasurement) -> bool {
-    m_def.configurations.iter().any(|config| {
-        !config
-            .origin
-            .as_ref()
-            .and_then(|o| o.src.as_ref())
-            .is_none_or(|s| s.is_unicast())
-    })
-}
-
 /// Build and send Start instructions to all participating workers.
 async fn send_start_instructions(
     workers: &[WorkerSender<Result<Instruction, Status>>],
@@ -903,7 +894,7 @@ async fn send_start_instructions(
     let mut anycast_rx_origins = vec![];
     for configuration in m_def.configurations.iter() {
         if let Some(origin) = &configuration.origin
-            && !origin.src.is_some_and(|s| s.is_unicast())
+            && !origin.is_unicast()
             && seen_origins.insert(origin.origin_id)
         {
             anycast_rx_origins.push(*origin);
@@ -928,12 +919,7 @@ async fn send_start_instructions(
 
         // This worker listens on all anycast origins plus its own unicast TX origins
         let mut rx_origins = anycast_rx_origins.clone();
-        rx_origins.extend(
-            tx_origins
-                .iter()
-                .filter(|o| o.src.is_some_and(|s| s.is_unicast()))
-                .copied(),
-        );
+        rx_origins.extend(tx_origins.iter().filter(|o| o.is_unicast()).copied());
 
         let start_instruction = Instruction {
             instruction_type: Some(instruction::InstructionType::Start(Start {
