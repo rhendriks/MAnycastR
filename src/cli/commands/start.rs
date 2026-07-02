@@ -74,16 +74,16 @@ pub async fn handle(
         parse_configurations(conf_path, &worker_map)
     } else {
         // Create our own configuration from the arguments
-        let src = if m_type == MeasurementType::UnicastLatency {
+        let address = matches
+            .get_one::<String>("address")
+            .expect("--address is required unless --configuration is provided");
+        // Parse 'unicast', in which case each worker uses its local unicast address
+        let src = if address.eq_ignore_ascii_case("unicast") {
             Address {
                 value: Some(Unicast(Empty {})),
             }
-        } else if let Some(anycast_address) = matches.get_one::<String>("address") {
-            Address::from(anycast_address)
         } else {
-            let msg = "[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.";
-            error!("{}", msg);
-            return Err(msg.into());
+            Address::from(address)
         };
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
@@ -153,13 +153,29 @@ pub async fn handle(
         configs
     };
 
+    // Whether any origin probes from an anycast (fixed) source address
+    let has_anycast_origin = configurations.iter().any(|c| {
+        c.origin
+            .as_ref()
+            .and_then(|o| o.src.as_ref())
+            .is_some_and(|src| !src.is_unicast())
+    });
+
+    // Anycast latency discovery already skips unresponsive targets
+    if m_type == MeasurementType::AnycastLatency && is_responsive && has_anycast_origin {
+        let msg = "[CLI] --responsive/--any cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
     // Get the target IP addresses (--hitlist, --target, or streamed in live mode)
     let is_shuffle = matches.get_flag("shuffle");
     let (hitlist_path, (targets, is_ipv6)) = if is_feed {
-        // Live feed: targets arrive over the stream; derive the IP version from the source address
+        // Derive IP version (ignoring unicast) TODO use -v ipv4/ipv6/both, which is needed for mixed version measurements
         let is_ipv6 = configurations
-            .first()
-            .and_then(|c| c.origin?.src)
+            .iter()
+            .filter_map(|c| c.origin?.src)
+            .find(|src| !src.is_unicast())
             .is_some_and(|src| src.is_v6());
         ("live-feed", (Vec::new(), is_ipv6))
     } else if let Some(target_str) = matches.get_one::<String>("target") {
