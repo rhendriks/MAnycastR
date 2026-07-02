@@ -1,6 +1,8 @@
+use crate::custom_module::has_anycast_origin;
 use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
-    Address, End, Instruction, LiveTarget, Probe, Task, Tasks, instruction, task,
+    Address, End, Instruction, LiveTarget, MeasurementType, Probe, ScheduleMeasurement, Task,
+    Tasks, instruction, task,
 };
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::worker::WorkerSender;
@@ -37,11 +39,42 @@ pub enum DistributionStrategy {
     Tracemap,
 }
 
+impl DistributionStrategy {
+    /// Select the distribution strategy for a measurement definition.
+    ///
+    /// * **catchment** → RoundRobin: one probe per target, which is itself the
+    ///   responsiveness check (--any retries unresolved targets origin by origin)
+    /// * **tracemap** → Tracemap
+    /// * **anycast-traceroute** → Discovery: find the catching worker first
+    /// * **latency** with an anycast origin → Discovery: measure from the catching worker
+    /// * **latency** with only unicast origins → Broadcast: every worker measures
+    ///   from its own unicast address (no discovery needed)
+    /// * **laces** → Broadcast
+    /// * `--responsive` turns a Broadcast mode into Discovery, gating the broadcast
+    ///   behind a single-worker responsiveness probe
+    pub fn select(m_def: &ScheduleMeasurement) -> Self {
+        let is_responsive = m_def.is_responsive;
+        match m_def.m_type() {
+            MeasurementType::Catchment => Self::RoundRobin,
+            MeasurementType::Tracemap => Self::Tracemap,
+            MeasurementType::AnycastTraceroute => Self::Discovery { is_responsive },
+            MeasurementType::AnycastLatency if has_anycast_origin(&m_def.configurations) => {
+                Self::Discovery { is_responsive }
+            }
+            MeasurementType::AnycastLatency | MeasurementType::Laces => {
+                if is_responsive {
+                    Self::Discovery { is_responsive }
+                } else {
+                    Self::Broadcast
+                }
+            }
+        }
+    }
+}
+
 pub struct TaskDistributorConfig {
     /// Target addresses to probe
     pub hitlist: Vec<Address>,
-    /// Whether to wrap addresses in Discovery tasks (true) or Probe tasks (false)
-    pub is_discovery: bool,
     /// --any protocol fallback mode: unresolved targets are retried origin by origin
     pub is_any: bool,
     /// Ordered origin IDs for --any fallback (empty when not --any)
@@ -178,9 +211,10 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
     let is_broadcast = matches!(&strategy, DistributionStrategy::Broadcast);
     let is_tracemap = matches!(&strategy, DistributionStrategy::Tracemap);
+    // Discovery mode wraps hitlist addresses in Discovery tasks (Probe tasks otherwise)
+    let is_discovery = matches!(&strategy, DistributionStrategy::Discovery { .. });
     // Tracemap interleaves follow-up trace probes with session seeding, like discovery modes
-    let has_follow_ups = matches!(&strategy, DistributionStrategy::Discovery { .. }) || is_tracemap;
-    let is_discovery = config.is_discovery;
+    let has_follow_ups = is_discovery || is_tracemap;
     let is_any_protocol = config.is_any;
     let origin_ids = config.origin_ids;
     let is_responsive = matches!(

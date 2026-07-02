@@ -195,7 +195,6 @@ impl Controller for ControllerService {
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         info!("[Orchestrator] Received CLI measurement request for measurement");
         let mut m_def = request.into_inner();
-        let is_responsive = m_def.is_responsive;
         let worker_interval = m_def.worker_interval as u64;
         let probe_interval = m_def.probe_interval as u64;
         let number_of_probes = m_def.number_of_probes as u8;
@@ -233,24 +232,16 @@ impl Controller for ControllerService {
             self.setup_traceroute(trace_options);
         }
 
-        // Determine distribution parameters
+        // The strategy determines task distribution, discovery usage, and pacing
         let is_any_protocol = m_def.is_any_protocol;
         let is_tracemap = m_type == MeasurementType::Tracemap;
-        // Whether discovery probes should be sent
-        let send_discovery = m_type == MeasurementType::AnycastTraceroute
-            || (m_type == MeasurementType::AnycastLatency
-                && has_anycast_origin(&m_def.configurations))
-            || (is_responsive && m_type != MeasurementType::Catchment);
-        let is_round_robin = send_discovery
-            || matches!(
-                m_type,
-                MeasurementType::Catchment | MeasurementType::Tracemap
-            );
+        let strategy = DistributionStrategy::select(&m_def);
 
-        let mut probing_rate_interval = if is_round_robin {
-            tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
-        } else {
+        // Round-robin strategies pace each worker at the full rate; Broadcast paces the batch
+        let mut probing_rate_interval = if matches!(strategy, DistributionStrategy::Broadcast) {
             tokio::time::interval(Duration::from_secs(1))
+        } else {
+            tokio::time::interval(Duration::from_secs(1) / probing_workers_count as u32)
         };
         // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
         probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -287,7 +278,6 @@ impl Controller for ControllerService {
         // Build config and launch task distribution
         let task_config = TaskDistributorConfig {
             hitlist: std::mem::take(&mut m_def.hitlist),
-            is_discovery: send_discovery,
             is_any: is_any_protocol,
             origin_ids,
             first_origin_id,
@@ -299,16 +289,6 @@ impl Controller for ControllerService {
             worker_interval,
             number_of_probes,
             probe_interval,
-        };
-
-        let strategy = if m_type == MeasurementType::Catchment {
-            DistributionStrategy::RoundRobin
-        } else if is_tracemap {
-            DistributionStrategy::Tracemap
-        } else if send_discovery {
-            DistributionStrategy::Discovery { is_responsive }
-        } else {
-            DistributionStrategy::Broadcast
         };
 
         distribute_tasks(task_config, strategy).await;
