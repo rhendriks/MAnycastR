@@ -56,8 +56,7 @@
 //! ## Measurement Types
 //! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
 //! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
-//! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
-//! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
+//! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or — with `-a unicast` — unicast RTTs from all PoPs)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
 //!
@@ -112,9 +111,10 @@
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
+//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicast
 //! ```
 //!
+//! With `-a unicast` each worker probes from its own local unicast address.
 //! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
 //! Each hitlist target receives a single probe from every worker.
 //! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
@@ -210,7 +210,6 @@
 //!
 //! * Unicast traceroute
 //! * Extend the live target feed (`--feed`) beyond catchment mode, with per-target NDJSON fields (worker, TTL, protocol, DNS record)
-//! * Allow for simultaneous/mixed unicast and anycast measurements
 //! * Support any/all protocol types to measure targets with multiple protocols
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
@@ -301,7 +300,7 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(--live_rate <RATE> "Maximum probing rate (probes per second, per worker) enforced for live (feed-based) measurements")
                     .value_parser(value_parser!(u32))
                     .default_value("1000"))
-                //TODO optionally enforce addresses available
+                //TODO optionally enforce addresses available for measurements at the Orc
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
@@ -331,13 +330,15 @@ fn parse_cmd() -> ArgMatches {
                         .default_value("icmp")
                         .ignore_case(true))
                     .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute", "tracemap"]))
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
+                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicast' to probe from each worker's local unicast address")
+                        .conflicts_with("configuration")
+                        .required_unless_present("configuration"))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
