@@ -60,20 +60,27 @@ impl CliClient {
             }
         };
 
-        let m_time = match m_def.m_type() {
-            MeasurementType::Catchment
-            | MeasurementType::AnycastLatency
-            | MeasurementType::Tracemap => {
-                ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32))
-                    + 5.0)
-                    / 60.0
-            }
-            _ => {
-                (((number_of_probers - 1) as f32 * worker_interval as f32) // Last worker starts probing
+        // Latency anycast measurements divide the hitlist among workers
+        let has_anycast_origin = m_def.configurations.iter().any(|conf| {
+            conf.origin
+                .as_ref()
+                .and_then(|o| o.src.as_ref())
+                .is_some_and(|src| !src.is_unicast())
+        });
+        let is_divided = match m_def.m_type() {
+            MeasurementType::Catchment | MeasurementType::Tracemap => true,
+            MeasurementType::AnycastLatency => has_anycast_origin,
+            _ => false,
+        };
+
+        let m_time = if is_divided {
+            ((args.hitlist_length as f32 / (probing_rate as f32 * number_of_probers as f32)) + 5.0)
+                / 60.0
+        } else {
+            ((number_of_probers.saturating_sub(1) as f32 * worker_interval as f32) // Last worker starts probing
             + (args.hitlist_length as f32 / probing_rate as f32) // Time to probe all addresses
             + 5.0) // Time to wait for last replies
             / 60.0 // Convert to minutes
-            }
         };
 
         info!("[CLI] Performing {} measurement", m_def.m_type());
