@@ -46,6 +46,8 @@ pub struct MeasurementState {
     pub probing_workers: Vec<u32>,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
+    /// Whether targets are checked for responsiveness before measurement probes (--responsive/--any)
+    pub is_responsive: bool,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
