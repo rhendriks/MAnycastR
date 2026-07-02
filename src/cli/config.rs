@@ -1,5 +1,6 @@
 use crate::ALL_WORKERS;
-use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
+use crate::custom_module::manycastr::address::Value::Unicast;
+use crate::custom_module::manycastr::{Address, Configuration, Empty, Origin, ProtocolType};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
@@ -158,11 +159,9 @@ fn finalize_hitlist(
         panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
     }
 
-    // Make sure the anycast address is the same type as the hitlist addresses
-    if let Some(src_addr) = configurations.first().and_then(|c| c.origin?.src) {
-        let address_is_unicast = src_addr.is_unicast();
-
-        if !address_is_unicast && (src_addr.is_v6() != hitlist_is_v6) {
+    // Make sure every anycast address is the same type as the hitlist addresses
+    for src_addr in configurations.iter().filter_map(|c| c.origin?.src) {
+        if !src_addr.is_unicast() && (src_addr.is_v6() != hitlist_is_v6) {
             panic!(
                 "Anycast source ({}) does not match hitlist type ({})",
                 if src_addr.is_v6() { "v6" } else { "v4" },
@@ -232,14 +231,22 @@ pub fn parse_configurations(
             ids
         };
 
-        let src = Address::from(parts[1]);
-        if let Some(v6) = is_ipv6 {
-            if v6 != src.is_v6() {
-                panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
+        // Parse 'unicast' as address (each worker uses its local unicast address)
+        let src = if parts[1].eq_ignore_ascii_case("unicast") {
+            Address {
+                value: Some(Unicast(Empty {})),
             }
         } else {
-            is_ipv6 = Some(src.is_v6());
-        }
+            let src = Address::from(parts[1]);
+            if let Some(v6) = is_ipv6 {
+                if v6 != src.is_v6() {
+                    panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
+                }
+            } else {
+                is_ipv6 = Some(src.is_v6());
+            }
+            src
+        };
 
         // Parse to u16 first, must fit in header
         let sport = u16::from_str(parts[2]).expect("Unable to parse src port") as u32;
