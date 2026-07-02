@@ -144,7 +144,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                 let row = match result.reply_data {
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
-                            MeasurementType::UnicastLatency | MeasurementType::AnycastLatency => {
+                            MeasurementType::AnycastLatency => {
                                 get_latency_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
                             MeasurementType::Catchment => {
@@ -194,7 +194,7 @@ pub fn get_header(
         MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
         }
-        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+        MeasurementType::AnycastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
         }
         MeasurementType::Catchment => {
