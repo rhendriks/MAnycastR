@@ -299,8 +299,7 @@ impl Display for MeasurementType {
         let s = match self {
             Self::Laces => "LACeS",
             Self::Catchment => "Catchment Mapping",
-            Self::AnycastLatency => "Anycast Latency",
-            Self::UnicastLatency => "Unicast Latency",
+            Self::AnycastLatency => "Latency",
             Self::AnycastTraceroute => "Anycast Traceroute",
             Self::Tracemap => "Tracemap",
         };
@@ -314,7 +313,6 @@ impl MeasurementType {
             Self::Laces => "laces",
             Self::Catchment => "catchment",
             Self::AnycastLatency => "latency",
-            Self::UnicastLatency => "unicast",
             Self::AnycastTraceroute => "anycast-traceroute",
             Self::Tracemap => "tracemap",
         }
@@ -325,7 +323,6 @@ impl MeasurementType {
             "laces" => Some(Self::Laces),
             "catchment" => Some(Self::Catchment),
             "latency" => Some(Self::AnycastLatency),
-            "unicast" => Some(Self::UnicastLatency),
             "anycast-traceroute" => Some(Self::AnycastTraceroute),
             "tracemap" => Some(Self::Tracemap),
             _ => None,
