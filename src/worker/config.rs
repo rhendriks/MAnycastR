@@ -2,6 +2,7 @@ use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{Address, Origin};
 use local_ip_address::{local_ip, local_ipv6};
+use log::warn;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tonic::transport::Channel;
@@ -26,6 +27,8 @@ pub struct Worker {
 /// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,
 /// and returns the modified list of origins.
 ///
+/// Drops unicast origins when no local unicast address can be found.
+///
 /// # Arguments
 /// * `origins` - A vector of Origin structs to be modified.
 /// * `is_ipv6` - A boolean indicating whether to use the local IPv6 address (true) or IPv4 address (false).
@@ -41,11 +44,21 @@ pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
 
     origins
         .into_iter()
-        .map(|mut o| {
+        .filter_map(|mut o| {
             if o.src.is_some_and(|s| s.is_unicast()) {
-                o.src = src_addr;
+                match src_addr {
+                    Some(addr) => o.src = Some(addr),
+                    None => {
+                        warn!(
+                            "[Worker] No local {} address available; skipping unicast origin {}",
+                            if is_ipv6 { "IPv6" } else { "IPv4" },
+                            o.origin_id
+                        );
+                        return None;
+                    }
+                }
             }
-            o
+            Some(o)
         })
         .collect()
 }
