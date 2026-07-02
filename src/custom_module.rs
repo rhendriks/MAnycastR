@@ -39,7 +39,7 @@ impl Display for Address {
 }
 
 impl Address {
-    /// The unicast sentinel: an origin source address that each worker replaces
+    /// A template unicast origin source address that each worker replaces
     /// with its own local unicast address at measurement start.
     pub fn unicast() -> Self {
         Address {
