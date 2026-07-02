@@ -48,6 +48,8 @@ pub struct MeasurementState {
     pub m_type: MeasurementType,
     /// Whether targets are checked for responsiveness before measurement probes (--responsive/--any)
     pub is_responsive: bool,
+    /// Whether unresolved targets are retried origin by origin (--any)
+    pub is_any: bool,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
