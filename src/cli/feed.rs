@@ -6,7 +6,7 @@ use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use bimap::BiHashMap;
 use futures_core::Stream;
 use log::warn;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -42,9 +42,8 @@ impl Stream for FeedStream {
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
     feed_tx: mpsc::Sender<CliMessage>,
-    is_ipv6: bool,
     worker_map: BiHashMap<u32, String>,
-    origin_ids: HashSet<u32>,
+    origins: HashMap<u32, bool>, // origin ID -> is_v6
 ) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -56,7 +55,7 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        let targets = parse_feed_line(line, &worker_map, &origin_ids);
+        let targets = parse_feed_line(line, &worker_map, &origins);
         if targets.is_empty() {
             warn!("[CLI] Skipping invalid feed line: {line}");
             continue;
@@ -64,11 +63,11 @@ pub fn read_stdin_feed(
 
         // A line's targets all share one dst; check the IP version once
         let addr = targets[0].dst.expect("parsed target always has a dst");
-        if addr.is_v6() != is_ipv6 {
-            // TODO support mixed IPv4/IPv6
+        // Skip IPv4/IPv6 targets when no origin with the same IP version exists
+        if !origins.values().any(|&is_v6| is_v6 == addr.is_v6()) {
             warn!(
-                "[CLI] Skipping target {addr}: IP version does not match the measurement ({})",
-                if is_ipv6 { "IPv6" } else { "IPv4" }
+                "[CLI] Skipping target {addr}: no {} origin is configured",
+                if addr.is_v6() { "IPv6" } else { "IPv4" }
             );
             continue;
         }
@@ -90,7 +89,7 @@ pub fn read_stdin_feed(
 fn parse_feed_line(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origin_ids: &HashSet<u32>,
+    origins: &HashMap<u32, bool>,
 ) -> Vec<LiveTarget> {
     // Bare address shorthand (interactive use): any worker (round-robin), any origin
     if !line.starts_with('{') {
@@ -105,7 +104,7 @@ fn parse_feed_line(
     }
 
     // NDJSON object (producers/scripts)
-    parse_feed_object(line, worker_map, origin_ids).unwrap_or_default()
+    parse_feed_object(line, worker_map, origins).unwrap_or_default()
 }
 
 /// Parse an NDJSON feed object into one target per selected worker.
@@ -113,7 +112,7 @@ fn parse_feed_line(
 fn parse_feed_object(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origin_ids: &HashSet<u32>,
+    origins: &HashMap<u32, bool>,
 ) -> Option<Vec<LiveTarget>> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let dst = value.get("dst")?.as_str()?.parse::<Address>().ok()?;
@@ -123,7 +122,7 @@ fn parse_feed_object(
     };
     let origin_id = match value.get("origin") {
         None => ANY_ORIGIN,
-        Some(origin) => parse_origin(origin, origin_ids)?,
+        Some(origin) => parse_origin(origin, origins, dst.is_v6())?,
     };
 
     Some(
@@ -141,7 +140,12 @@ fn parse_feed_object(
 /// Resolve a feed line's `origin` value to an origin ID:
 /// an origin ID (number or numeric string) of a configured origin, `"all"`,
 /// or `"any"` (try origins in order; stop on the first responsive one).
-fn parse_origin(origin: &serde_json::Value, origin_ids: &HashSet<u32>) -> Option<u32> {
+/// A specific origin must match the target's IP version.
+fn parse_origin(
+    origin: &serde_json::Value,
+    origins: &HashMap<u32, bool>,
+    dst_is_v6: bool,
+) -> Option<u32> {
     let id = match origin {
         // Origin ID as JSON number (e.g., "origin":2)
         serde_json::Value::Number(n) => u32::try_from(n.as_u64()?).ok()?,
@@ -158,11 +162,22 @@ fn parse_origin(origin: &serde_json::Value, origin_ids: &HashSet<u32>) -> Option
         _ => return None,
     };
 
-    if origin_ids.contains(&id) {
-        return Some(id);
+    // IP version of origin must match the target address
+    match origins.get(&id) {
+        Some(&is_v6) if is_v6 == dst_is_v6 => Some(id),
+        Some(&is_v6) => {
+            warn!(
+                "[CLI] Origin {id} is {} but the target is {}.",
+                if is_v6 { "IPv6" } else { "IPv4" },
+                if dst_is_v6 { "IPv6" } else { "IPv4" }
+            );
+            None
+        }
+        None => {
+            warn!("[CLI] Origin ID '{id}' is not a configured origin.");
+            None
+        }
     }
-    warn!("[CLI] Origin ID '{id}' is not a configured origin.");
-    None
 }
 
 /// Resolve a feed line's `worker` value to the worker selection(s):
