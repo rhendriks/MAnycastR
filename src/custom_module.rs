@@ -1,6 +1,6 @@
-use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
+use crate::custom_module::manycastr::{Configuration, MeasurementType, Origin, ProtocolType};
 use manycastr::{
-    Ack, Address, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6,
+    Ack, Address, Empty, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6,
 };
 use std::fmt;
 use std::fmt::Display;
@@ -39,6 +39,14 @@ impl Display for Address {
 }
 
 impl Address {
+    /// The unicast sentinel: an origin source address that each worker replaces
+    /// with its own local unicast address at measurement start.
+    pub fn unicast() -> Self {
+        Address {
+            value: Some(Unicast(Empty {})),
+        }
+    }
+
     /// Returns the integer representation of the IP address as u128.
     pub fn as_numeric(&self) -> u128 {
         match &self.value {
@@ -100,6 +108,21 @@ impl Address {
             _ => [0u8; 16],
         }
     }
+}
+
+impl Origin {
+    /// Whether this origin probes from workers' local unicast addresses
+    pub fn is_unicast(&self) -> bool {
+        self.src.is_some_and(|s| s.is_unicast())
+    }
+}
+
+/// Whether any configuration probes from an anycast source address
+pub fn has_anycast_origin(configurations: &[Configuration]) -> bool {
+    configurations
+        .iter()
+        .filter_map(|c| c.origin.as_ref().and_then(|o| o.src.as_ref()))
+        .any(|src| !src.is_unicast())
 }
 
 /// Address -> u32 (panic if not V4)
