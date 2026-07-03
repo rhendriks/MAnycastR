@@ -42,6 +42,67 @@ pub fn resolve_workers(token: &str, worker_map: &BiHashMap<u32, String>) -> Vec<
         .unwrap_or_default()
 }
 
+/// IP versions present in a set of addresses (hitlist targets or origin sources).
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct IpVersions {
+    pub has_v4: bool,
+    pub has_v6: bool,
+}
+
+impl IpVersions {
+    /// Collect the IP versions used by the (resolved) origin source addresses.
+    pub fn from_origins(configurations: &[Configuration]) -> Self {
+        let mut versions = IpVersions::default();
+        for src in configurations.iter().filter_map(|c| c.origin?.src) {
+            if src.is_v6() {
+                versions.has_v6 = true;
+            } else {
+                versions.has_v4 = true;
+            }
+        }
+        versions
+    }
+
+    /// Collect the IP versions present in a list of target addresses.
+    pub fn from_targets(targets: &[Address]) -> Self {
+        let mut versions = IpVersions::default();
+        for addr in targets {
+            if addr.is_v6() {
+                versions.has_v6 = true;
+            } else {
+                versions.has_v4 = true;
+            }
+        }
+        versions
+    }
+
+    /// Human-readable label, e.g. "IPv4" or "IPv4+IPv6".
+    pub fn label(&self) -> &'static str {
+        match (self.has_v4, self.has_v6) {
+            (true, true) => "IPv4+IPv6",
+            (false, true) => "IPv6",
+            _ => "IPv4",
+        }
+    }
+}
+
+/// Parse an origin source address token: an anycast IP address, or one of the
+/// unicast keywords `unicastv4`/`unicastv6`.
+///
+/// # Panics
+/// * If the token is not a valid address or unicast keyword.
+pub fn parse_src_address(token: &str) -> Address {
+    if token.eq_ignore_ascii_case("unicastv4") {
+        Address::unicast_v4()
+    } else if token.eq_ignore_ascii_case("unicastv6") {
+        Address::unicast_v6()
+    } else if token.eq_ignore_ascii_case("unicast") {
+        panic!("'unicast' must specify an IP version: use 'unicastv4' or 'unicastv6'");
+    } else {
+        Address::from(token)
+    }
+}
+
 /// Match `text` against a `*`-wildcard `pattern`
 fn glob_match(pattern: &str, text: &str) -> bool {
     let parts: Vec<&str> = pattern.split('*').collect();
@@ -73,21 +134,15 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 ///
 /// # Arguments
 /// * `hitlist_path` - path to the hitlist file
-/// * `configurations` - list of configurations to check the source address type
 /// * `is_shuffle` - boolean whether the hitlist should be shuffled or not
 ///
 /// # Returns
-/// * A tuple containing a vector of addresses and a boolean indicating whether the addresses are IPv6 or IPv4.
+/// * A tuple containing a vector of addresses and the IP versions present.
 ///
 /// # Panics
 /// * If the hitlist file cannot be opened.
-/// * If the anycast source address type (v4 or v6) does not match the hitlist addresses.
-/// * If the hitlist addresses are of mixed types (v4 and v6).
-pub fn get_hitlist(
-    hitlist_path: &str,
-    configurations: &[Configuration],
-    is_shuffle: bool,
-) -> (Vec<Address>, bool) {
+/// * If the hitlist is empty.
+pub fn get_hitlist(hitlist_path: &str, is_shuffle: bool) -> (Vec<Address>, IpVersions) {
     let file =
         File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {hitlist_path}"));
 
@@ -106,7 +161,7 @@ pub fn get_hitlist(
         .map(Address::from)
         .collect();
 
-    finalize_hitlist(ips, configurations, is_shuffle)
+    finalize_hitlist(ips, is_shuffle)
 }
 
 /// Build a hitlist from a comma-separated list of target addresses (e.g. from the
@@ -115,16 +170,11 @@ pub fn get_hitlist(
 ///
 /// # Arguments
 /// * `targets` - comma-separated address list, e.g. "1.1.1.1" or "1.1.1.1,8.8.8.8"
-/// * `configurations` - list of configurations to check the source address type
 /// * `is_shuffle` - whether the resulting hitlist should be shuffled
 ///
 /// # Returns
-/// * A tuple of the parsed addresses and whether they are IPv6.
-pub fn get_targets(
-    targets: &str,
-    configurations: &[Configuration],
-    is_shuffle: bool,
-) -> (Vec<Address>, bool) {
+/// * A tuple of the parsed addresses and the IP versions present.
+pub fn get_targets(targets: &str, is_shuffle: bool) -> (Vec<Address>, IpVersions) {
     let ips: Vec<Address> = targets
         .split(',')
         .map(str::trim)
@@ -132,48 +182,27 @@ pub fn get_targets(
         .map(Address::from)
         .collect();
 
-    finalize_hitlist(ips, configurations, is_shuffle)
+    finalize_hitlist(ips, is_shuffle)
 }
 
-/// Validate a parsed hitlist (non-empty, single IP version, matching source
-/// address type) and optionally shuffle it. Shared by [`get_hitlist`] (file) and
+/// Validate that a parsed hitlist is non-empty, collect the IP versions it uses,
+/// and optionally shuffle it. Shared by [`get_hitlist`] (file) and
 /// [`get_targets`] (inline `--target` list).
 ///
 /// # Panics
 /// * If the hitlist is empty.
-/// * If the addresses are of mixed types (v4 and v6).
-/// * If the anycast source address type does not match the hitlist addresses.
-fn finalize_hitlist(
-    mut ips: Vec<Address>,
-    configurations: &[Configuration],
-    is_shuffle: bool,
-) -> (Vec<Address>, bool) {
+fn finalize_hitlist(mut ips: Vec<Address>, is_shuffle: bool) -> (Vec<Address>, IpVersions) {
     if ips.is_empty() {
         panic!("No target addresses provided (empty hitlist / target list)");
     }
 
-    let hitlist_is_v6 = ips[0].is_v6();
-    // Panic if the ips in the hitlist are not all the same type
-    if ips.iter().any(|ip| ip.is_v6() != hitlist_is_v6) {
-        panic!("Hitlist addresses are not all of the same type! (mixed IPv4 & IPv6)");
-    }
-
-    // Make sure every anycast address is the same type as the hitlist addresses
-    for src_addr in configurations.iter().filter_map(|c| c.origin?.src) {
-        if !src_addr.is_unicast() && (src_addr.is_v6() != hitlist_is_v6) {
-            panic!(
-                "Anycast source ({}) does not match hitlist type ({})",
-                if src_addr.is_v6() { "v6" } else { "v4" },
-                if hitlist_is_v6 { "v6" } else { "v4" }
-            );
-        }
-    }
+    let versions = IpVersions::from_targets(&ips);
 
     // Shuffle the hitlist, if desired
     if is_shuffle {
         ips.as_mut_slice().shuffle(&mut rand::rng());
     }
-    (ips, hitlist_is_v6)
+    (ips, versions)
 }
 
 /// Parse the worker configurations from a file.
@@ -188,7 +217,6 @@ fn finalize_hitlist(
 /// # Panics
 /// * If the configuration file cannot be opened.
 /// * If the configuration file contains invalid formats.
-/// * If the configuration file contains mixed IPv4 and IPv6 addresses.
 /// * If no valid configurations are found in the file.
 pub fn parse_configurations(
     conf_file: &str,
@@ -199,7 +227,6 @@ pub fn parse_configurations(
         .unwrap_or_else(|_| panic!("Unable to open configuration file {conf_file}"));
     let buf_reader = BufReader::new(file);
     let mut origin_id = 0;
-    let mut is_ipv6: Option<bool> = None;
     let mut configurations: Vec<Configuration> = Vec::new();
 
     for line in buf_reader.lines() {
@@ -230,20 +257,8 @@ pub fn parse_configurations(
             ids
         };
 
-        // Parse 'unicast' as address (each worker uses its local unicast address)
-        let src = if parts[1].eq_ignore_ascii_case("unicast") {
-            Address::unicast()
-        } else {
-            let src = Address::from(parts[1]);
-            if let Some(v6) = is_ipv6 {
-                if v6 != src.is_v6() {
-                    panic!("Configuration file contains mixed IPv4 and IPv6 addresses!");
-                }
-            } else {
-                is_ipv6 = Some(src.is_v6());
-            }
-            src
-        };
+        // Parse the source address
+        let src = parse_src_address(parts[1]);
 
         // Parse to u16 first, must fit in header
         let sport = u16::from_str(parts[2]).expect("Unable to parse src port") as u32;
