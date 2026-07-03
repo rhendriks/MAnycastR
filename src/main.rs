@@ -57,7 +57,7 @@
 //! ## Measurement Types
 //! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
 //! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
-//! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or — with `-a unicast` — unicast RTTs from all PoPs)
+//! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or unicast RTTs from all PoPs)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
 //!
@@ -112,10 +112,10 @@
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicast
+//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicastv6
 //! ```
 //!
-//! With `-a unicast` each worker probes from its own local unicast address.
+//! With `-a unicastv6` (or `-a unicastv4`) each worker probes from its own local unicast address of that IP version.
 //! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
 //! Each hitlist target receives a single probe from every worker.
 //! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
@@ -337,7 +337,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
                         .action(ArgAction::SetTrue)
                         .requires_if("icmp", "p_type"))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicast'/'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
+                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
                         .conflicts_with("configuration")
                         .required_unless_present("configuration"))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
