@@ -1,6 +1,7 @@
 use crate::custom_module::manycastr::{Configuration, MeasurementType, Origin, ProtocolType};
 use manycastr::{
-    Ack, Address, Empty, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6,
+    Ack, Address, Empty, IPv6, address::Value::UnicastV4, address::Value::UnicastV6,
+    address::Value::V4, address::Value::V6,
 };
 use std::fmt;
 use std::fmt::Display;
@@ -32,18 +33,27 @@ impl Display for Address {
                 let val: u128 = self.into();
                 write!(f, "{}", Ipv6Addr::from(val))
             }
-            Some(Unicast(_)) => write!(f, "UNICAST"),
+            Some(UnicastV4(_)) => write!(f, "unicastv4"),
+            Some(UnicastV6(_)) => write!(f, "unicastv6"),
             None => write!(f, "None"),
         }
     }
 }
 
 impl Address {
-    /// A template unicast origin source address that each worker replaces
-    /// with its own local unicast address at measurement start.
-    pub fn unicast() -> Self {
+    /// A unicast origin source address that each worker replaces
+    /// with its own local IPv4 unicast address at measurement start.
+    pub fn unicast_v4() -> Self {
         Address {
-            value: Some(Unicast(Empty {})),
+            value: Some(UnicastV4(Empty {})),
+        }
+    }
+
+    /// A unicast origin source address that each worker replaces
+    /// with its own local IPv6 unicast address at measurement start.
+    pub fn unicast_v6() -> Self {
+        Address {
+            value: Some(UnicastV6(Empty {})),
         }
     }
 
@@ -56,12 +66,14 @@ impl Address {
         }
     }
 
+    /// Whether this address is IPv6.
     pub fn is_v6(&self) -> bool {
-        matches!(self.value, Some(V6(_)))
+        matches!(self.value, Some(V6(_)) | Some(UnicastV6(_)))
     }
 
+    /// Whether this address is unicast.
     pub fn is_unicast(&self) -> bool {
-        matches!(self.value, Some(Unicast(_)))
+        matches!(self.value, Some(UnicastV4(_)) | Some(UnicastV6(_)))
     }
 
     /// Get the prefix of the address (/24 for IPv4 and /48 for IPv6)
