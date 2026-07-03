@@ -111,9 +111,8 @@ message Address {
   oneof value {
     fixed32 v4 = 1;
     IPv6 v6 = 2;
-    Empty unicast = 3; // bare unicast placeholder (CLI-side only; resolved to unicast_v4/unicast_v6 before scheduling)
-    Empty unicast_v4 = 4; // use the worker's local IPv4 unicast address
-    Empty unicast_v6 = 5; // use the worker's local IPv6 unicast address
+    Empty unicast_v4 = 3; // use the worker's local IPv4 unicast address
+    Empty unicast_v6 = 4; // use the worker's local IPv6 unicast address
   }
 }
 
