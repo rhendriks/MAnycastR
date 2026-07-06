@@ -24,28 +24,31 @@ pub struct Worker {
     pub(crate) abort_inbound: Arc<AtomicBool>,
 }
 
-/// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,
-/// and returns the modified list of origins.
+/// Takes a list of origins, replaces any unicast placeholder addresses with the local
+/// address of the placeholder's IP version, and returns the modified list of origins.
 ///
-/// Drops unicast origins when no local unicast address can be found.
+/// Drops unicast origins when no local unicast address of that version can be found.
 ///
 /// # Arguments
 /// * `origins` - A vector of Origin structs to be modified.
-/// * `is_ipv6` - A boolean indicating whether to use the local IPv6 address (true) or IPv4 address (false).
 ///
 /// # Returns
-/// * A vector of Origin structs with unspecified unicast addresses replaced by local addresses.
-pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
-    let src_addr = if is_ipv6 {
-        local_ipv6().ok().map(Address::from)
-    } else {
-        local_ip().ok().map(Address::from)
-    };
+/// * A vector of Origin structs with unicast placeholders replaced by local addresses.
+pub fn set_unicast_origins(origins: Vec<Origin>) -> Vec<Origin> {
+    // Resolve the local addresses once (a version is looked up only when an origin needs it)
+    let mut local_v4: Option<Option<Address>> = None;
+    let mut local_v6: Option<Option<Address>> = None;
 
     origins
         .into_iter()
         .filter_map(|mut o| {
             if o.is_unicast() {
+                let is_ipv6 = o.src.expect("no src").is_v6();
+                let src_addr = if is_ipv6 {
+                    *local_v6.get_or_insert_with(|| local_ipv6().ok().map(Address::from))
+                } else {
+                    *local_v4.get_or_insert_with(|| local_ip().ok().map(Address::from))
+                };
                 match src_addr {
                     Some(addr) => o.src = Some(addr),
                     None => {
