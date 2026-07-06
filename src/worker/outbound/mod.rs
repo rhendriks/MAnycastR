@@ -100,6 +100,15 @@ pub fn outbound(
                             if task.origin_id != config.origin_id && task.origin_id != ALL_ORIGINS {
                                 continue; // Not for us
                             }
+                            // Skip targets of the other IP version (mixed-version measurements)
+                            let dst = match &task.task_type {
+                                Some(TaskType::Probe(p)) | Some(TaskType::Discovery(p)) => p.dst,
+                                Some(TaskType::Trace(t)) => t.dst,
+                                None => None,
+                            };
+                            if dst.is_some_and(|dst| dst.is_v6() != config.src.is_v6()) {
+                                continue;
+                            }
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
                                     let (s, f) = if !config.is_record {
