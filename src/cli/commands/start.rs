@@ -1,6 +1,7 @@
 use crate::cli::client::CliClient;
 use crate::cli::config::{
-    IpVersions, get_hitlist, get_targets, parse_configurations, parse_src_address, resolve_workers,
+    get_hitlist, get_targets, parse_configurations, parse_src_address, resolve_workers,
+    validate_ip_versions,
 };
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::{
@@ -181,37 +182,21 @@ pub async fn handle(
         (path, targets, Some(versions))
     };
 
-    let origin_versions = IpVersions::from_origins(&configurations);
-    // The IP version(s) measured: those of the hitlist, or of the origins (live feed)
-    let versions = hitlist_versions.unwrap_or(origin_versions);
-
-    // Every target IP version needs at least one origin of that version
-    for (present, has_origin, label) in [
-        (versions.has_v4, origin_versions.has_v4, "IPv4"),
-        (versions.has_v6, origin_versions.has_v6, "IPv6"),
-    ] {
-        if present && !has_origin {
-            let msg = format!(
-                "[CLI] The hitlist contains {label} targets but no {label} origin is configured."
-            );
+    // Validate the IP-version rules and get the measured version(s)
+    let versions = match validate_ip_versions(
+        &configurations,
+        hitlist_versions,
+        is_record,
+        m_type,
+        is_any_protocol,
+    ) {
+        Ok(versions) => versions,
+        Err(e) => {
+            let msg = format!("[CLI] {e}");
             error!("{}", msg);
             return Err(msg.into());
         }
-    }
-
-    // The Record Route option only exists in the IPv4 header
-    if is_record && (versions.has_v6 || origin_versions.has_v6) {
-        let msg = "[CLI] --record (Record Route) is IPv4-only and cannot be combined with IPv6 targets or origins.";
-        error!("{}", msg);
-        return Err(msg.into());
-    }
-
-    // Tracemap tasks use a single origin and cannot serve two IP versions TODO
-    if m_type == MeasurementType::Tracemap && versions.has_v4 && versions.has_v6 {
-        let msg = "[CLI] tracemap does not support a mixed IPv4/IPv6 hitlist (tasks use a single origin).";
-        error!("{}", msg);
-        return Err(msg.into());
-    }
+    };
 
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
@@ -290,38 +275,6 @@ pub async fn handle(
     } else {
         None
     };
-
-    if is_any_protocol {
-        // Count unique origins per IP version: fallback only exists among same-version origins
-        let mut v4_origins: HashSet<u32> = HashSet::new();
-        let mut v6_origins: HashSet<u32> = HashSet::new();
-        for origin in configurations.iter().filter_map(|c| c.origin.as_ref()) {
-            if origin.is_v6() {
-                v6_origins.insert(origin.origin_id);
-            } else {
-                v4_origins.insert(origin.origin_id);
-            }
-        }
-        let per_version = [
-            (versions.has_v4, v4_origins.len(), "IPv4"),
-            (versions.has_v6, v6_origins.len(), "IPv6"),
-        ];
-        if per_version
-            .iter()
-            .all(|(present, count, _)| !present || *count < 2)
-        {
-            let msg = "[CLI] --any requires at least two origins of the targets' IP version (e.g., -p icmp,tcp or a multi-origin configuration file)";
-            error!("{}", msg);
-            return Err(msg.into());
-        }
-        for (present, count, label) in per_version {
-            if present && count < 2 {
-                warn!(
-                    "[CLI] --any: only {count} {label} origin(s) configured; {label} targets have no protocol fallback"
-                );
-            }
-        }
-    }
 
     // Create the measurement definition and send it to the orchestrator
     let m_definition = ScheduleMeasurement {
