@@ -246,15 +246,15 @@ impl Controller for ControllerService {
         // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
         probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // Build ordered list of origin_ids for --any protocol fallback
-        let origin_ids: Vec<u32> = if is_any_protocol {
+        // Build ordered list of (origin_id, is_v6) for '--any' probing
+        let origin_ids: Vec<(u32, bool)> = if is_any_protocol {
             let mut seen = HashSet::new();
             let mut ids = Vec::new();
             for config in &m_def.configurations {
                 if let Some(origin) = &config.origin
                     && seen.insert(origin.origin_id)
                 {
-                    ids.push(origin.origin_id);
+                    ids.push((origin.origin_id, origin.src.is_some_and(|src| src.is_v6())));
                 }
             }
             ids
@@ -262,7 +262,7 @@ impl Controller for ControllerService {
             vec![]
         };
         let first_origin_id = if is_any_protocol {
-            origin_ids[0]
+            origin_ids[0].0
         } else if is_tracemap {
             // Tracemap tasks must use an origin TODO test traceroute/tracemap with multi-origins
             m_def
@@ -389,20 +389,27 @@ impl Controller for ControllerService {
         // Initialize measurement state (errors if already active)
         self.init_measurement(&m_def, &participating_ids, &probing_ids)?;
 
-        // Initialize live state: pending discovery targets and the origin order for origin:any
-        let origin_ids: Vec<u32> = {
+        // Determine IPv4 and IPv6 origins
+        let (origin_ids_v4, origin_ids_v6) = {
             let mut seen = HashSet::new();
-            m_def
-                .configurations
-                .iter()
-                .filter_map(|c| c.origin.map(|o| o.origin_id))
-                .filter(|id| seen.insert(*id))
-                .collect()
+            let mut v4 = Vec::new();
+            let mut v6 = Vec::new();
+            for origin in m_def.configurations.iter().filter_map(|c| c.origin) {
+                if seen.insert(origin.origin_id) {
+                    if origin.src.is_some_and(|src| src.is_v6()) {
+                        v6.push(origin.origin_id);
+                    } else {
+                        v4.push(origin.origin_id);
+                    }
+                }
+            }
+            (v4, v6)
         };
         if let Some(state) = self.measurement.write().unwrap().as_mut() {
             state.live = Some(LiveState {
                 pending: HashMap::new(),
-                origin_ids,
+                origin_ids_v4,
+                origin_ids_v6,
             });
         }
 
@@ -828,11 +835,10 @@ impl ControllerService {
                         continue;
                     };
 
-                    // origin:any -> retry with the next origin (in configuration order)
+                    // Any -> iteratively try origin configurations in order (w/ matching IP version)
                     if let Some(idx) = pending.next_origin_idx
-                        && idx < live.origin_ids.len()
+                        && let Some(&origin_id) = live.origin_ids_for(addr.is_v6()).get(idx)
                     {
-                        let origin_id = live.origin_ids[idx];
                         pending.next_origin_idx = Some(idx + 1);
                         pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
                         // Single-worker origin:any tries each protocol with a measurement probe
@@ -929,7 +935,6 @@ async fn send_start_instructions(
                 rx_origins,
                 record: m_def.record.clone(),
                 url: m_def.url.clone(),
-                is_ipv6: m_def.is_ipv6,
                 is_record: m_def.is_record,
                 m_type: m_def.m_type,
             })),
