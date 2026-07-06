@@ -34,6 +34,9 @@ pub(crate) type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
 type TaskMessage = Result<Instruction, Status>;
 
+/// Shared registry of connected worker senders. Updated when a worker reconnects.
+pub(crate) type WorkerRegistry = Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>;
+
 /// Shared handle to the active measurement state. `None` when no measurement is running.
 pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
 
@@ -122,7 +125,7 @@ pub struct TracerouteConfig {
 #[derive(Debug)]
 pub struct ControllerService {
     /// List of connected workers
-    saved_workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    saved_workers: WorkerRegistry,
     /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
     /// All per-measurement state. `None` when idle.
