@@ -1,9 +1,12 @@
 use crate::ALL_WORKERS;
-use crate::custom_module::manycastr::{Address, Configuration, Origin, ProtocolType};
+use crate::custom_module::manycastr::{
+    Address, Configuration, MeasurementType, Origin, ProtocolType,
+};
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
-use log::info;
+use log::{info, warn};
 use rand::prelude::SliceRandom;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
@@ -84,6 +87,97 @@ impl IpVersions {
             _ => "IPv4",
         }
     }
+}
+
+/// Ensure IP-version rules are met.
+/// * All hitlist targets must have an origin with a matching IP version
+/// * `--record` is IPv4 only
+/// * `--any` requires > 1 origin per IP version used
+/// * tracemap does not support mixed IP version TODO
+/// Validate the IP-version rules of a measurement and return the measured version(s).
+///
+/// # Arguments
+/// * `configurations` - the measurement configurations
+/// * `hitlist_versions` - IP versions of the hitlist targets (`None` for a live feed)
+/// * `is_record` - whether probes carry the IPv4 Record Route option
+/// * `m_type` - the measurement type
+/// * `is_any_protocol` - whether unresolved targets are retried origin by origin (--any)
+///
+/// # Returns
+/// The IP version(s) measured: those of the hitlist, or of the origins (live feed).
+pub fn validate_ip_versions(
+    configurations: &[Configuration],
+    hitlist_versions: Option<IpVersions>,
+    is_record: bool,
+    m_type: MeasurementType,
+    is_any_protocol: bool,
+) -> Result<IpVersions, String> {
+    let origin_versions = IpVersions::from_origins(configurations);
+    // The IP version(s) measured: those of the hitlist, or of the origins (live feed)
+    let versions = hitlist_versions.unwrap_or(origin_versions);
+
+    // Every target IP version needs at least one origin of that version
+    for (present, has_origin, label) in [
+        (versions.has_v4, origin_versions.has_v4, "IPv4"),
+        (versions.has_v6, origin_versions.has_v6, "IPv6"),
+    ] {
+        if present && !has_origin {
+            return Err(format!(
+                "The hitlist contains {label} targets but no {label} origin is configured."
+            ));
+        }
+    }
+
+    // The Record Route option only exists in the IPv4 header
+    if is_record && (versions.has_v6 || origin_versions.has_v6) {
+        return Err(
+            "--record (Record Route) is IPv4-only and cannot be combined with IPv6 targets or origins."
+                .to_string(),
+        );
+    }
+
+    // Tracemap tasks use a single origin and cannot serve two IP versions TODO
+    if m_type == MeasurementType::Tracemap && versions.has_v4 && versions.has_v6 {
+        return Err(
+            "tracemap does not support a mixed IPv4/IPv6 hitlist (tasks use a single origin)."
+                .to_string(),
+        );
+    }
+
+    if is_any_protocol {
+        // Count unique origins per IP version: fallback only exists among same-version origins
+        let mut v4_origins: HashSet<u32> = HashSet::new();
+        let mut v6_origins: HashSet<u32> = HashSet::new();
+        for origin in configurations.iter().filter_map(|c| c.origin.as_ref()) {
+            if origin.is_v6() {
+                v6_origins.insert(origin.origin_id);
+            } else {
+                v4_origins.insert(origin.origin_id);
+            }
+        }
+        let per_version = [
+            (versions.has_v4, v4_origins.len(), "IPv4"),
+            (versions.has_v6, v6_origins.len(), "IPv6"),
+        ];
+        if per_version
+            .iter()
+            .all(|(present, count, _)| !present || *count < 2)
+        {
+            return Err(
+                "--any requires at least two origins of the targets' IP version (e.g., -p icmp,tcp or a multi-origin configuration file)"
+                    .to_string(),
+            );
+        }
+        for (present, count, label) in per_version {
+            if present && count < 2 {
+                warn!(
+                    "[CLI] --any: only {count} {label} origin(s) configured; {label} targets have no protocol fallback"
+                );
+            }
+        }
+    }
+
+    Ok(versions)
 }
 
 /// Parse an origin source address token: an anycast IP address, or one of the
