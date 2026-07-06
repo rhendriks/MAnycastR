@@ -18,6 +18,7 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
     ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementState, TracerouteConfig,
+    WorkerRegistry,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
 use log::{error, info, warn};
@@ -35,7 +36,6 @@ const FEED_BUFFER_SECS: usize = 5;
 
 /// Workers classified by role for a measurement.
 struct ClassifiedWorkers {
-    senders: Vec<WorkerSender<Result<Instruction, Status>>>,
     participating_ids: Vec<u32>,
     probing_ids: Vec<u32>,
 }
@@ -203,7 +203,6 @@ impl Controller for ControllerService {
 
         // Classify workers and validate configuration
         let ClassifiedWorkers {
-            senders: workers,
             participating_ids,
             probing_ids,
         } = self.classify_workers(&m_def)?;
@@ -224,7 +223,7 @@ impl Controller for ControllerService {
 
         // Send Start instructions to all participating workers
         let m_id = rand::random_range(0..u32::MAX);
-        send_start_instructions(&workers, &m_def, m_id).await;
+        send_start_instructions(&self.saved_workers, &m_def, m_id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Initialize traceroute if applicable
@@ -282,7 +281,7 @@ impl Controller for ControllerService {
             origin_ids,
             first_origin_id,
             measurement: self.measurement.clone(),
-            workers,
+            workers: Arc::clone(&self.saved_workers),
             probing_rate,
             probing_rate_interval,
             number_of_probing_workers: probing_workers_count,
@@ -374,7 +373,6 @@ impl Controller for ControllerService {
 
         // Classify workers and validate configuration
         let ClassifiedWorkers {
-            senders: workers,
             participating_ids,
             probing_ids,
         } = self.classify_workers(&m_def)?;
@@ -429,7 +427,7 @@ impl Controller for ControllerService {
         // Send Start instructions to all participating workers
         // TODO: enable reconnect of Workers
         let m_id = rand::random_range(0..u32::MAX);
-        send_start_instructions(&workers, &m_def, m_id).await;
+        send_start_instructions(&self.saved_workers, &m_def, m_id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Rate-limiting: when full, the orchestrator stops reading the CLI stream
@@ -464,7 +462,7 @@ impl Controller for ControllerService {
         distribute_live_tasks(
             feed_rx,
             self.measurement.clone(),
-            workers,
+            Arc::clone(&self.saved_workers),
             probing_rate,
             m_def.worker_interval as u64,
             m_def.is_responsive,
@@ -714,37 +712,33 @@ impl ControllerService {
         // Whether non-probing workers should listen (true when any configuration probes with anycast).
         let is_anycast = has_anycast_origin(&m_def.configurations);
 
-        let workers = {
-            let mut workers = self.saved_workers.lock().unwrap().clone();
+        let workers = self.saved_workers.lock().unwrap();
 
-            for worker in workers.iter_mut() {
-                let mut status_lock = worker.status.lock().unwrap();
+        for worker in workers.iter() {
+            let mut status_lock = worker.status.lock().unwrap();
 
-                // Skip disconnected workers
-                if *status_lock == Disconnected {
-                    warn!("[Orchestrator] Worker {} unavailable.", worker.hostname);
-                    continue;
-                }
-
-                // Probing if any configuration is assigned to this worker
-                let is_probing = m_def.configurations.iter().any(|config| {
-                    config.worker_id == worker.worker_id || config.worker_id == ALL_WORKERS
-                });
-
-                if is_probing {
-                    *status_lock = Probing;
-                    probing_worker_ids.push(worker.worker_id);
-                    participating_worker_ids.push(worker.worker_id);
-                } else if is_anycast {
-                    *status_lock = Listening;
-                    participating_worker_ids.push(worker.worker_id);
-                } else {
-                    *status_lock = Idle;
-                };
+            // Skip disconnected workers
+            if *status_lock == Disconnected {
+                warn!("[Orchestrator] Worker {} unavailable.", worker.hostname);
+                continue;
             }
 
-            workers
-        };
+            // Probing if any configuration is assigned to this worker
+            let is_probing = m_def.configurations.iter().any(|config| {
+                config.worker_id == worker.worker_id || config.worker_id == ALL_WORKERS
+            });
+
+            if is_probing {
+                *status_lock = Probing;
+                probing_worker_ids.push(worker.worker_id);
+                participating_worker_ids.push(worker.worker_id);
+            } else if is_anycast {
+                *status_lock = Listening;
+                participating_worker_ids.push(worker.worker_id);
+            } else {
+                *status_lock = Idle;
+            };
+        }
 
         // Validate: at least one participating worker
         if participating_worker_ids.is_empty() {
@@ -764,7 +758,6 @@ impl ControllerService {
         }
 
         Ok(ClassifiedWorkers {
-            senders: workers,
             participating_ids: participating_worker_ids,
             probing_ids: probing_worker_ids,
         })
@@ -890,11 +883,7 @@ impl ControllerService {
 }
 
 /// Build and send Start instructions to all participating workers.
-async fn send_start_instructions(
-    workers: &[WorkerSender<Result<Instruction, Status>>],
-    m_def: &ScheduleMeasurement,
-    m_id: u32,
-) {
+async fn send_start_instructions(workers: &WorkerRegistry, m_def: &ScheduleMeasurement, m_id: u32) {
     // Collect unique anycast RX origins across all configurations
     let mut seen_origins = HashSet::new();
     let mut anycast_rx_origins = vec![];
@@ -907,10 +896,16 @@ async fn send_start_instructions(
         }
     }
 
-    for worker in workers {
-        if !worker.is_participating() {
-            continue;
-        }
+    // Get current workers connected at measurement start
+    let participants: Vec<_> = workers
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|w| w.is_participating())
+        .cloned()
+        .collect();
+
+    for worker in participants {
         let worker_id = worker.worker_id;
 
         // Collect TX origins assigned to this specific worker
