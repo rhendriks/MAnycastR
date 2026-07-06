@@ -1,9 +1,10 @@
 use crate::cli::client::CliClient;
-use crate::cli::config::{get_hitlist, get_targets, parse_configurations, resolve_workers};
+use crate::cli::config::{
+    IpVersions, get_hitlist, get_targets, parse_configurations, parse_src_address, resolve_workers,
+};
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::{
-    Address, Configuration, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
-    TraceOptions,
+    Configuration, MeasurementType, Origin, ProtocolType, ScheduleMeasurement, TraceOptions,
 };
 use crate::custom_module::{Separated, has_anycast_origin};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -87,12 +88,8 @@ pub async fn handle(
         let address = matches
             .get_one::<String>("address")
             .expect("--address is required unless --configuration is provided");
-        // Parse 'unicast', in which case each worker uses its local unicast address
-        let src = if address.eq_ignore_ascii_case("unicast") {
-            Address::unicast()
-        } else {
-            Address::from(address)
-        };
+        // 'unicastv4'/'unicastv6' means each worker uses its local unicast address
+        let src = parse_src_address(address);
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
 
@@ -173,23 +170,49 @@ pub async fn handle(
 
     // Get the target IP addresses (--hitlist, --target, or streamed in live mode)
     let is_shuffle = matches.get_flag("shuffle");
-    let (hitlist_path, (targets, is_ipv6)) = if is_feed {
-        // Derive IP version (ignoring unicast) TODO use -v ipv4/ipv6/both, which is needed for mixed version measurements
-        let is_ipv6 = configurations
-            .iter()
-            .filter_map(|c| c.origin?.src)
-            .find(|src| !src.is_unicast())
-            .is_some_and(|src| src.is_v6());
-        ("live-feed", (Vec::new(), is_ipv6))
+    let (hitlist_path, targets, hitlist_versions) = if is_feed {
+        ("live-feed", Vec::new(), None)
     } else if let Some(target_str) = matches.get_one::<String>("target") {
-        (
-            target_str.as_str(),
-            get_targets(target_str, &configurations, is_shuffle),
-        )
+        let (targets, versions) = get_targets(target_str, is_shuffle);
+        (target_str.as_str(), targets, Some(versions))
     } else {
         let path = matches.get_one::<String>("hitlist").unwrap().as_str();
-        (path, get_hitlist(path, &configurations, is_shuffle))
+        let (targets, versions) = get_hitlist(path, is_shuffle);
+        (path, targets, Some(versions))
     };
+
+    let origin_versions = IpVersions::from_origins(&configurations);
+    // The IP version(s) measured: those of the hitlist, or of the origins (live feed)
+    let versions = hitlist_versions.unwrap_or(origin_versions);
+
+    // Every target IP version needs at least one origin of that version
+    for (present, has_origin, label) in [
+        (versions.has_v4, origin_versions.has_v4, "IPv4"),
+        (versions.has_v6, origin_versions.has_v6, "IPv6"),
+    ] {
+        if present && !has_origin {
+            let msg = format!(
+                "[CLI] The hitlist contains {label} targets but no {label} origin is configured."
+            );
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    }
+
+    // The Record Route option only exists in the IPv4 header
+    if is_record && (versions.has_v6 || origin_versions.has_v6) {
+        let msg = "[CLI] --record (Record Route) is IPv4-only and cannot be combined with IPv6 targets or origins.";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // Tracemap tasks use a single origin and cannot serve two IP versions TODO
+    if m_type == MeasurementType::Tracemap && versions.has_v4 && versions.has_v6 {
+        let msg = "[CLI] tracemap does not support a mixed IPv4/IPv6 hitlist (tasks use a single origin).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
@@ -200,7 +223,7 @@ pub async fn handle(
     let hitlist_length = targets.len();
 
     // Get protocol and IP version
-    let ip_version = if is_ipv6 { "(IPv6)" } else { "(IPv4)" };
+    let ip_version = format!("({})", versions.label());
 
     if is_feed {
         info!(
@@ -269,14 +292,34 @@ pub async fn handle(
     };
 
     if is_any_protocol {
-        let unique_origins: HashSet<_> = configurations
+        // Count unique origins per IP version: fallback only exists among same-version origins
+        let mut v4_origins: HashSet<u32> = HashSet::new();
+        let mut v6_origins: HashSet<u32> = HashSet::new();
+        for origin in configurations.iter().filter_map(|c| c.origin.as_ref()) {
+            if origin.src.is_some_and(|src| src.is_v6()) {
+                v6_origins.insert(origin.origin_id);
+            } else {
+                v4_origins.insert(origin.origin_id);
+            }
+        }
+        let per_version = [
+            (versions.has_v4, v4_origins.len(), "IPv4"),
+            (versions.has_v6, v6_origins.len(), "IPv6"),
+        ];
+        if per_version
             .iter()
-            .filter_map(|c| c.origin.as_ref().map(|o| o.origin_id))
-            .collect();
-        if unique_origins.len() < 2 {
-            let msg = "[CLI] --any requires at least two origins (e.g., -p icmp,tcp or a multi-origin configuration file)";
+            .all(|(present, count, _)| !present || *count < 2)
+        {
+            let msg = "[CLI] --any requires at least two origins of the targets' IP version (e.g., -p icmp,tcp or a multi-origin configuration file)";
             error!("{}", msg);
             return Err(msg.into());
+        }
+        for (present, count, label) in per_version {
+            if present && count < 2 {
+                warn!(
+                    "[CLI] --any: only {count} {label} origin(s) configured; {label} targets have no protocol fallback"
+                );
+            }
         }
     }
 
@@ -292,7 +335,6 @@ pub async fn handle(
         url: url.cloned(),
         probe_interval,
         number_of_probes,
-        is_ipv6,
         is_record,
         trace_options,
         is_any_protocol,
