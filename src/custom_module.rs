@@ -127,6 +127,11 @@ impl Origin {
     pub fn is_unicast(&self) -> bool {
         self.src.is_some_and(|s| s.is_unicast())
     }
+
+    /// Whether this origin's source address is IPv6
+    pub fn is_v6(&self) -> bool {
+        self.src.is_some_and(|s| s.is_v6())
+    }
 }
 
 /// Whether any configuration probes from an anycast source address
