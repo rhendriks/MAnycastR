@@ -68,8 +68,21 @@ pub const LIVE_DISCOVERY_TIMEOUT_SECS: u64 = 3;
 pub struct LiveState {
     /// In-flight discovery targets awaiting a response
     pub pending: HashMap<Address, PendingTarget>,
-    /// Origin IDs in configuration order (the order in which `origin:any` tries origins)
-    pub origin_ids: Vec<u32>,
+    /// IPv4 origin IDs in configuration order (the order in which `origin:any` tries origins)
+    pub origin_ids_v4: Vec<u32>,
+    /// IPv6 origin IDs in configuration order (the order in which `origin:any` tries origins)
+    pub origin_ids_v6: Vec<u32>,
+}
+
+impl LiveState {
+    /// The `origin:any` candidate origins for a target of the given IP version.
+    pub fn origin_ids_for(&self, is_v6: bool) -> &[u32] {
+        if is_v6 {
+            &self.origin_ids_v6
+        } else {
+            &self.origin_ids_v4
+        }
+    }
 }
 
 /// A live target awaiting a probe reply before it is resolved (or retried/given up).
