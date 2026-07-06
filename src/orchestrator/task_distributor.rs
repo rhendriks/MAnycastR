@@ -5,8 +5,9 @@ use crate::custom_module::manycastr::{
     Tasks, instruction, task,
 };
 use crate::orchestrator::trace::seed_tracemap_sessions;
-use crate::orchestrator::worker::WorkerSender;
-use crate::orchestrator::{LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget};
+use crate::orchestrator::{
+    LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget, WorkerRegistry,
+};
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
@@ -14,7 +15,6 @@ use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, Interval, MissedTickBehavior};
-use tonic::Status;
 
 /// Grace period (seconds) after the hitlist is exhausted
 const REPLY_GRACE_SECS: u64 = 5;
@@ -83,8 +83,8 @@ pub struct TaskDistributorConfig {
     pub first_origin_id: u32,
     /// All per-measurement state. `None` when idle.
     pub measurement: MeasurementHandle,
-    /// Worker senders (cloned from the saved_workers list at measurement start)
-    pub workers: Vec<WorkerSender<Result<Instruction, Status>>>,
+    /// Shared list of worker senders, updated on reconnect.
+    pub workers: WorkerRegistry,
     /// Number of tasks to send per interval (equal to probing rate)
     pub probing_rate: u32,
     /// Interval at which to send tasks
@@ -115,14 +115,14 @@ fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
 /// Send an instruction to workers according to the specified parameters.
 ///
 /// # Arguments
-/// * `workers` - the list of worker senders
+/// * `workers` - registry of worker senders
 /// * `worker_id` - target: `ALL_WORKERS` for broadcast, or a specific worker ID
 /// * `instruction` - the instruction to send
 /// * `nprobes` - how many times to send (1 = no repeat)
 /// * `inter_worker_interval` - seconds between workers for broadcast sends
 /// * `inter_probe_interval` - seconds between repeated probes
 async fn send_to_workers(
-    workers: &[WorkerSender<Result<Instruction, Status>>],
+    workers: &WorkerRegistry,
     worker_id: u32,
     instruction: Instruction,
     nprobes: u8,
@@ -131,35 +131,40 @@ async fn send_to_workers(
 ) {
     if worker_id == ALL_WORKERS {
         // Broadcast to all probing workers with inter-worker delay
-        let mut probing_index: u64 = 0;
+        let senders: Vec<_> = workers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|sender| *sender.status == Probing)
+            .cloned()
+            .collect();
 
-        for sender in workers {
-            if *sender.status == Probing {
-                let sender_c = sender.clone();
-                let task_c = instruction.clone();
-                spawn(async move {
-                    // Wait inter-client probing interval
-                    tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
-                        .await;
+        for (probing_index, sender) in (0_u64..).zip(senders) {
+            let task_c = instruction.clone();
+            spawn(async move {
+                // Wait inter-client probing interval
+                tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
+                    .await;
 
-                    for _ in 0..nprobes {
-                        let _ = sender_c.send(Ok(task_c.clone())).await;
-                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                    }
-                });
-                probing_index += 1;
-            }
+                for _ in 0..nprobes {
+                    let _ = sender.send(Ok(task_c.clone())).await;
+                    tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
+                }
+            });
         }
     } else {
         // Send to a specific worker
-        if let Some(sender) = workers.iter().find(|s| s.worker_id == worker_id) {
+        let sender = {
+            let workers = workers.lock().unwrap();
+            workers.iter().find(|s| s.worker_id == worker_id).cloned()
+        };
+        if let Some(sender) = sender {
             if nprobes < 2 {
                 let _ = sender.send(Ok(instruction)).await;
             } else {
-                let sender_c = sender.clone();
                 spawn(async move {
                     for _ in 0..nprobes {
-                        let _ = sender_c.send(Ok(instruction.clone())).await;
+                        let _ = sender.send(Ok(instruction.clone())).await;
                         tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
                     }
                 });
@@ -173,17 +178,15 @@ async fn send_to_workers(
 /// Finalize a measurement once task distribution is done: send the end-of-measurement
 /// instruction to all workers (marking them finished), then wait for every worker to
 /// report back before the distributor task exits.
-async fn finalize_measurement(
-    workers: &[WorkerSender<Result<Instruction, Status>>],
-    measurement: &MeasurementHandle,
-) {
+async fn finalize_measurement(workers: &WorkerRegistry, measurement: &MeasurementHandle) {
     info!("[Orchestrator] Task distribution finished.");
 
     // Notify all workers that the measurement is over
     let end = Instruction {
         instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
     };
-    for sender in workers {
+    let senders: Vec<_> = workers.lock().unwrap().clone();
+    for sender in &senders {
         let _ = sender.send(Ok(end.clone())).await;
         sender.finished();
     }
@@ -513,7 +516,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 pub fn distribute_live_tasks(
     mut feed: mpsc::Receiver<LiveTarget>,
     measurement: MeasurementHandle,
-    workers: Vec<WorkerSender<Result<Instruction, Status>>>,
+    workers: WorkerRegistry,
     probing_rate: u32,
     worker_interval: u64,
     is_responsive: bool,
@@ -740,7 +743,8 @@ pub fn distribute_live_tasks(
         }
 
         // Wait for the last (staggered) probes to be sent and their replies to arrive
-        let cooldown_secs = workers.len() as u64 * worker_interval + REPLY_GRACE_SECS;
+        let worker_count = workers.lock().unwrap().len() as u64;
+        let cooldown_secs = worker_count * worker_interval + REPLY_GRACE_SECS;
         info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
         tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
 
