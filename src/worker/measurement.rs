@@ -34,15 +34,14 @@ impl Worker {
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
         let m_id = start.m_id;
-        let is_ipv6 = start.is_ipv6;
         let m_type = start.m_type();
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
-        let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
-        let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
+        // Replace unicast placeholder addresses in rx_origins, tx_origins with local addresses
+        let rx_origins = set_unicast_origins(start.rx_origins);
+        let tx_origins = set_unicast_origins(start.tx_origins);
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
@@ -53,6 +52,8 @@ impl Worker {
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
+            // The IP version is a per-origin property (mixed-version measurements)
+            let is_ipv6 = rx_origin.src.expect("no src").is_v6();
             let is_transport_traceroute =
                 is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
 
