@@ -910,9 +910,8 @@ impl ControllerService {
     }
 }
 
-/// Build and send Start instructions to all participating workers.
-/// Each built Start is persisted in the measurement state so it can be
-/// re-sent when a worker rejoins mid-measurement.
+/// Builds Start instruction for all participating workers.
+/// Sends them for measurement init, and persists them for re-joining workers.
 async fn send_start_instructions(
     workers: &WorkerRegistry,
     measurement: &MeasurementHandle,
