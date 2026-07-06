@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::custom_module;
-use crate::custom_module::manycastr::{Address, MeasurementType};
+use crate::custom_module::manycastr::{Address, MeasurementType, Start, WorkerStatus};
 use crate::orchestrator::config::{load_tls, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::result_handler::SessionTracker;
@@ -43,10 +43,16 @@ pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
 /// All state associated with a single active measurement.
 #[derive(Debug)]
 pub struct MeasurementState {
+    /// The measurement ID (used to filter on replies for the current measurement)
+    pub m_id: u32,
     /// Number of Workers still participating (decremented when a Worker finishes)
     pub workers_count: u32,
     /// Worker IDs of connected Workers that are actively probing
     pub probing_workers: Vec<u32>,
+    /// Role (Probing or Listening) of each participating worker (for reconnects)
+    pub participants: HashMap<u32, WorkerStatus>,
+    /// Per-worker Start instructions (for reconnects)
+    pub start_instructions: HashMap<u32, Start>,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
     /// Whether targets are checked for responsiveness before measurement probes (--responsive/--any)
