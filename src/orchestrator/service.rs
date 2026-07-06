@@ -17,8 +17,8 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
-    ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementState, TracerouteConfig,
-    WorkerRegistry,
+    ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementHandle, MeasurementState,
+    TracerouteConfig, WorkerRegistry,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
 use log::{error, info, warn};
@@ -66,8 +66,19 @@ impl Controller for ControllerService {
         {
             let mut lock = self.measurement.write().unwrap();
             if let Some(ref mut state) = *lock {
+                if state.m_id != m_id {
+                    warn!(
+                        "[Orchestrator] Worker {finished_worker_id} finished measurement {m_id}, but the active measurement is {}",
+                        state.m_id
+                    );
+                }
+
                 // Active measurement, remove this worker from the probing workers list (if it was probing)
                 state.probing_workers.retain(|&id| id != finished_worker_id);
+
+                // No longer a participant (must not be restored if it rejoins)
+                state.participants.remove(&finished_worker_id);
+                state.start_instructions.remove(&finished_worker_id);
 
                 // Decrement the participating workers count
                 state.workers_count -= 1;
@@ -209,7 +220,8 @@ impl Controller for ControllerService {
         let probing_workers_count = probing_ids.len();
 
         // Initialize measurement state (errors if already active)
-        self.init_measurement(&m_def, &participating_ids, &probing_ids)?;
+        let m_id = rand::random_range(0..u32::MAX);
+        self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
 
         info!(
             "[Orchestrator] {} participating workers, {} will probe ({worker_interval} seconds between probing workers)",
@@ -222,8 +234,7 @@ impl Controller for ControllerService {
         let _ = self.cli_sender.lock().unwrap().insert(cli_tx);
 
         // Send Start instructions to all participating workers
-        let m_id = rand::random_range(0..u32::MAX);
-        send_start_instructions(&self.saved_workers, &m_def, m_id).await;
+        send_start_instructions(&self.saved_workers, &self.measurement, &m_def, m_id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Initialize traceroute if applicable
@@ -385,7 +396,8 @@ impl Controller for ControllerService {
         }
 
         // Initialize measurement state (errors if already active)
-        self.init_measurement(&m_def, &participating_ids, &probing_ids)?;
+        let m_id = rand::random_range(0..u32::MAX);
+        self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
 
         // Determine IPv4 and IPv6 origins
         let (origin_ids_v4, origin_ids_v6) = {
@@ -426,8 +438,7 @@ impl Controller for ControllerService {
 
         // Send Start instructions to all participating workers
         // TODO: enable reconnect of Workers
-        let m_id = rand::random_range(0..u32::MAX);
-        send_start_instructions(&self.saved_workers, &m_def, m_id).await;
+        send_start_instructions(&self.saved_workers, &self.measurement, &m_def, m_id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Rate-limiting: when full, the orchestrator stops reading the CLI stream
@@ -767,6 +778,7 @@ impl ControllerService {
     fn init_measurement(
         &self,
         m_def: &ScheduleMeasurement,
+        m_id: u32,
         participating_ids: &[u32],
         probing_ids: &[u32],
     ) -> Result<(), Status> {
@@ -779,9 +791,25 @@ impl ControllerService {
             ));
         }
 
+        // Record each participant's role, so a rejoining worker can be restored
+        let participants = participating_ids
+            .iter()
+            .map(|&id| {
+                let role = if probing_ids.contains(&id) {
+                    Probing
+                } else {
+                    Listening
+                };
+                (id, role)
+            })
+            .collect();
+
         *lock = Some(MeasurementState {
+            m_id,
             workers_count: participating_ids.len() as u32,
             probing_workers: probing_ids.to_vec(),
+            participants,
+            start_instructions: HashMap::new(),
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
             is_any: m_def.is_any_protocol,
@@ -883,7 +911,14 @@ impl ControllerService {
 }
 
 /// Build and send Start instructions to all participating workers.
-async fn send_start_instructions(workers: &WorkerRegistry, m_def: &ScheduleMeasurement, m_id: u32) {
+/// Each built Start is persisted in the measurement state so it can be
+/// re-sent when a worker rejoins mid-measurement.
+async fn send_start_instructions(
+    workers: &WorkerRegistry,
+    measurement: &MeasurementHandle,
+    m_def: &ScheduleMeasurement,
+    m_id: u32,
+) {
     // Collect unique anycast RX origins across all configurations
     let mut seen_origins = HashSet::new();
     let mut anycast_rx_origins = vec![];
@@ -922,17 +957,24 @@ async fn send_start_instructions(workers: &WorkerRegistry, m_def: &ScheduleMeasu
         let mut rx_origins = anycast_rx_origins.clone();
         rx_origins.extend(tx_origins.iter().filter(|o| o.is_unicast()).copied());
 
+        let start = Start {
+            rate: m_def.probing_rate,
+            m_id,
+            tx_origins,
+            rx_origins,
+            record: m_def.record.clone(),
+            url: m_def.url.clone(),
+            is_record: m_def.is_record,
+            m_type: m_def.m_type,
+        };
+
+        // Persist the Start instruction for re-sending on rejoin
+        if let Some(state) = measurement.write().unwrap().as_mut() {
+            state.start_instructions.insert(worker_id, start.clone());
+        }
+
         let start_instruction = Instruction {
-            instruction_type: Some(instruction::InstructionType::Start(Start {
-                rate: m_def.probing_rate,
-                m_id,
-                tx_origins,
-                rx_origins,
-                record: m_def.record.clone(),
-                url: m_def.url.clone(),
-                is_record: m_def.is_record,
-                m_type: m_def.m_type,
-            })),
+            instruction_type: Some(instruction::InstructionType::Start(start)),
         };
 
         worker
