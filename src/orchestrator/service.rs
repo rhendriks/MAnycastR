@@ -254,7 +254,7 @@ impl Controller for ControllerService {
                 if let Some(origin) = &config.origin
                     && seen.insert(origin.origin_id)
                 {
-                    ids.push((origin.origin_id, origin.src.is_some_and(|src| src.is_v6())));
+                    ids.push((origin.origin_id, origin.is_v6()));
                 }
             }
             ids
@@ -396,7 +396,7 @@ impl Controller for ControllerService {
             let mut v6 = Vec::new();
             for origin in m_def.configurations.iter().filter_map(|c| c.origin) {
                 if seen.insert(origin.origin_id) {
-                    if origin.src.is_some_and(|src| src.is_v6()) {
+                    if origin.is_v6() {
                         v6.push(origin.origin_id);
                     } else {
                         v4.push(origin.origin_id);
