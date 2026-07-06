@@ -137,7 +137,7 @@ impl CliClient {
             .configurations
             .iter()
             .filter_map(|conf| conf.origin)
-            .map(|origin| (origin.origin_id, origin.src.is_some_and(|src| src.is_v6())))
+            .map(|origin| (origin.origin_id, origin.is_v6()))
             .collect();
         std::thread::spawn(move || read_stdin_feed(feed_tx, worker_map, origins));
 

@@ -296,7 +296,7 @@ pub async fn handle(
         let mut v4_origins: HashSet<u32> = HashSet::new();
         let mut v6_origins: HashSet<u32> = HashSet::new();
         for origin in configurations.iter().filter_map(|c| c.origin.as_ref()) {
-            if origin.src.is_some_and(|src| src.is_v6()) {
+            if origin.is_v6() {
                 v6_origins.insert(origin.origin_id);
             } else {
                 v4_origins.insert(origin.origin_id);
