@@ -77,8 +77,8 @@ pub struct TaskDistributorConfig {
     pub hitlist: Vec<Address>,
     /// --any protocol fallback mode: unresolved targets are retried origin by origin
     pub is_any: bool,
-    /// Ordered origin IDs for --any fallback (empty when not --any)
-    pub origin_ids: Vec<u32>,
+    /// Ordered origin IDs for IPv4 and IPv6 for --any fallback (empty when not --any);
+    pub origin_ids: Vec<(u32, bool)>,
     /// Origin ID for the first (or only) probing round
     pub first_origin_id: u32,
     /// All per-measurement state. `None` when idle.
@@ -236,9 +236,14 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     let mut probing_rate_interval = config.probing_rate_interval;
 
     let (all_addresses, initial_addresses) = if is_any_protocol {
-        // Keep the original address list to re-filter for subsequent protocol rounds
+        // Keep track of all hitlist targets, and targets discovered for --any
         let addrs = config.hitlist;
-        let initial = addrs.clone();
+        let first_is_v6 = origin_ids[0].1;
+        let initial: Vec<Address> = addrs
+            .iter()
+            .filter(|addr| addr.is_v6() == first_is_v6)
+            .cloned()
+            .collect();
         (addrs, initial)
     } else {
         // Keep only the original vec (which gets consumed directly)
@@ -596,25 +601,25 @@ pub fn distribute_live_tasks(
                     break;
                 };
 
-                // Ignore origin:any when there is only a single origin
-                let single_origin = state.live.as_ref().is_some_and(|l| l.origin_ids.len() == 1);
-
                 for mut target in batch {
                     let Some(dst) = target.dst else { continue };
 
-                    if target.origin_id == ANY_ORIGIN && single_origin {
+                    // Ignore origin:any when there is only a single origin of the target's IP version
+                    if target.origin_id == ANY_ORIGIN
+                        && state
+                            .live
+                            .as_ref()
+                            .is_some_and(|l| l.origin_ids_for(dst.is_v6()).len() == 1)
+                    {
                         target.origin_id = ALL_ORIGINS;
                     }
 
-                    // A probe gated by a single worker is needed for origin:any (to find the
-                    // responsive origin) and for --responsive worker:all (to avoid probing an
-                    // unresponsive target from every worker). Single-worker --responsive is
-                    // skipped: the measurement is a single probe, so a check first gains nothing.
+                    // Check whether discovery probes are needed (--any or --responsive)
                     let is_origin_any = target.origin_id == ANY_ORIGIN;
                     let needs_probe_gate =
                         is_origin_any || (is_responsive && target.worker_id == ALL_WORKERS);
                     if needs_probe_gate {
-                        // The gating probe is sent by a single worker
+                        // The discovery probe is sent by a single worker
                         let probe_worker = match target.worker_id {
                             ANY_WORKER | ALL_WORKERS => {
                                 current_index %= probing_workers.len();
@@ -635,9 +640,12 @@ pub fn distribute_live_tasks(
                             continue;
                         };
 
-                        // origin:any starts with the first origin and retries the rest on timeout
+                        // origin:any starts with the first origin of the target's IP version
                         let (origin_id, next_origin_idx) = if is_origin_any {
-                            let Some(&first) = live.origin_ids.first() else {
+                            let Some(&first) = live.origin_ids_for(dst.is_v6()).first() else {
+                                warn!(
+                                    "[Orchestrator] Dropping target {dst}: no origin of its IP version is configured"
+                                );
                                 continue;
                             };
                             (first, Some(1))
@@ -751,53 +759,54 @@ struct RoundState {
     cooldown_timer: Option<Instant>,
 }
 
-/// Attempts to advance to the next --any protocol round.
+/// Iteratively go over the origins (depending on IP version).
+/// At each iteration get the currently unresolved targets, which are probed.
 /// Returns `true` if a new round was started (caller should `continue` the loop),
 /// `false` if all protocols are exhausted or all targets are resolved.
 fn try_next_any_protocol(
     measurement: &MeasurementHandle,
     all_addresses: &[Address],
-    origin_ids: &[u32],
+    origin_ids: &[(u32, bool)],
     round: &mut RoundState,
 ) -> bool {
-    round.origin_index += 1;
+    while round.origin_index + 1 < origin_ids.len() {
+        round.origin_index += 1;
+        let (next_origin_id, next_is_v6) = origin_ids[round.origin_index];
 
-    if round.origin_index < origin_ids.len() {
-        let next_origin_id = origin_ids[round.origin_index];
         let lock = measurement.read().unwrap();
         let state = lock.as_ref().unwrap();
         let resolved_count = state.resolved_targets.len();
 
-        // Collect addresses that have not responded yet
+        // Collect same-version addresses that have not responded yet
         let unresolved: Vec<Address> = all_addresses
             .iter()
-            .filter(|addr| !state.resolved_targets.contains(addr))
+            .filter(|addr| addr.is_v6() == next_is_v6 && !state.resolved_targets.contains(addr))
             .cloned()
             .collect();
         let unresolved_count = unresolved.len();
         drop(lock);
 
-        if unresolved_count > 0 {
-            info!(
-                "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
-            );
-            round.hitlist_iter = unresolved.into_iter();
-            round.hitlist_exhausted = false;
-            round.hitlist_exhausted_at = None;
-            round.cooldown_timer = None;
-            round.current_origin_id = next_origin_id;
-            return true; // Caller should continue the loop
+        if unresolved_count == 0 {
+            continue; // No unresolved targets for this origin's IP version
         }
 
-        info!("[Orchestrator] --any: all {resolved_count} targets resolved.");
-    } else {
-        let lock = measurement.read().unwrap();
-        let resolved_count = lock.as_ref().map(|s| s.resolved_targets.len()).unwrap_or(0);
-        let total = all_addresses.len();
         info!(
-            "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
+            "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
         );
+        round.hitlist_iter = unresolved.into_iter();
+        round.hitlist_exhausted = false;
+        round.hitlist_exhausted_at = None;
+        round.cooldown_timer = None;
+        round.current_origin_id = next_origin_id;
+        return true; // Caller should continue the loop
     }
+
+    let lock = measurement.read().unwrap();
+    let resolved_count = lock.as_ref().map(|s| s.resolved_targets.len()).unwrap_or(0);
+    let total = all_addresses.len();
+    info!(
+        "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
+    );
 
     false // No more protocols to try
 }
