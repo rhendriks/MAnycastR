@@ -181,6 +181,11 @@ async fn send_to_workers(
 async fn finalize_measurement(workers: &WorkerRegistry, measurement: &MeasurementHandle) {
     info!("[Orchestrator] Task distribution finished.");
 
+    // Start the finalizing, disallowing reconnects
+    if let Some(state) = measurement.write().unwrap().as_mut() {
+        state.is_finalizing = true;
+    }
+
     // Notify all workers that the measurement is over
     let end = Instruction {
         instruction_type: Some(instruction::InstructionType::End(End { code: 0 })),
