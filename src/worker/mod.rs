@@ -1,8 +1,8 @@
 use clap::ArgMatches;
 use gethostname::gethostname;
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
 
 pub(crate) use crate::worker::config::Worker;
 
@@ -34,7 +34,7 @@ impl Worker {
         let mut worker = Self {
             grpc_client,
             hostname,
-            current_m_id: Arc::new(Mutex::new(None)),
+            is_busy: Arc::new(AtomicBool::new(false)),
             outbound_txs: vec![],
             outbound_handles: vec![],
             abort_inbound: Arc::new(AtomicBool::new(false)),
