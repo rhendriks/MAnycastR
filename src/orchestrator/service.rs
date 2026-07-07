@@ -5,7 +5,7 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
     Ack, Address, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
     MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceOptions,
-    TraceReply, Worker, cli_message, instruction, task,
+    TraceReply, Worker, WorkerStatus, cli_message, instruction, task,
 };
 use crate::orchestrator::cli::CLIReceiver;
 use crate::orchestrator::result_handler::{
@@ -18,7 +18,7 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
     ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementHandle, MeasurementState,
-    TracerouteConfig, WorkerRegistry,
+    Participant, TracerouteConfig, WorkerRegistry,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
 use log::{error, info, warn};
@@ -67,30 +67,34 @@ impl Controller for ControllerService {
             let mut lock = self.measurement.write().unwrap();
             if let Some(ref mut state) = *lock {
                 if state.m_id != m_id {
+                    // A stale signal must not release a claim on the current measurement
                     warn!(
                         "[Orchestrator] Worker {finished_worker_id} finished measurement {m_id}, but the active measurement is {}",
                         state.m_id
                     );
+                    return Err(Status::not_found("Measurement ID mismatch"));
                 }
 
-                // Active measurement, remove this worker from the probing workers list (if it was probing)
+                // Remove worker as participant (disallowing reconnect for the current measurement)
+                if state.participants.remove(&finished_worker_id).is_none() {
+                    warn!(
+                        "[Orchestrator] Received finished signal from non-participant worker {finished_worker_id}"
+                    );
+                    return Ok(Response::new(Ack::ok()));
+                }
+                state.start_instructions.remove(&finished_worker_id);
                 state.probing_workers.retain(|&id| id != finished_worker_id);
 
-                // No longer a participant (must not be restored if it rejoins)
-                state.participants.remove(&finished_worker_id);
-                state.start_instructions.remove(&finished_worker_id);
-
-                // Decrement the participating workers count
-                state.workers_count -= 1;
-
                 // Set state to IDLE
-                let workers = self.saved_workers.lock().unwrap();
-                if let Some(w) = workers.iter().find(|w| w.worker_id == finished_worker_id) {
-                    w.finished();
+                {
+                    let workers = self.saved_workers.lock().unwrap();
+                    if let Some(w) = workers.iter().find(|w| w.worker_id == finished_worker_id) {
+                        w.finished();
+                    }
                 }
 
-                if state.workers_count == 0 {
-                    // This is the last worker
+                if state.active_workers() == 0 {
+                    // This was the last worker still holding a completion claim
                     info!(
                         "[Orchestrator] All workers finished for measurement {m_id}. Notifying CLI"
                     );
@@ -158,7 +162,7 @@ impl Controller for ControllerService {
         let worker_status = Arc::new(Mutex::new(Idle));
 
         let worker_tx = WorkerSender {
-            inner: tx,
+            inner: tx.clone(),
             worker_id,
             hostname: hostname.clone(),
             status: worker_status.clone(),
@@ -174,6 +178,11 @@ impl Controller for ControllerService {
 
         // Add the new worker sender to the list of workers
         self.saved_workers.lock().unwrap().push(worker_tx);
+
+        // Check if this is a reconnecting worker
+        if is_reconnect {
+            self.try_rejoin(worker_id, &hostname, &tx, &worker_status);
+        }
 
         // Create stream receiver for the worker
         let worker_rx = WorkerReceiver {
@@ -774,6 +783,61 @@ impl ControllerService {
         })
     }
 
+    /// Re-admit a reconnecting worker into the active measurement, if it was participating.
+    ///
+    /// Sends the Start instruction for the worker, and restores it for the task distributor.
+    ///
+    /// Rejoin is refused if the measurement is finalizing.
+    fn try_rejoin(
+        &self,
+        worker_id: u32,
+        hostname: &str,
+        tx: &mpsc::Sender<Result<Instruction, Status>>,
+        status: &Arc<Mutex<WorkerStatus>>,
+    ) {
+        let mut lock = self.measurement.write().unwrap();
+        let Some(state) = lock.as_mut() else {
+            return; // No active measurement
+        };
+        if !state.participants.contains_key(&worker_id) {
+            return; // Not a participant of the measurement
+        }
+        if state.is_finalizing {
+            return; // Measurement being finished
+        }
+        let Some(start) = state.start_instructions.get(&worker_id) else {
+            return; // Should not happen
+        };
+
+        // Send the Start instruction to the reconnecting worker
+        let start_instruction = Instruction {
+            instruction_type: Some(instruction::InstructionType::Start(start.clone())),
+        };
+        if tx.try_send(Ok(start_instruction)).is_err() { // TODO implement try_send function with warn printing
+            warn!(
+                "[Orchestrator] Could not queue Start instruction for rejoining worker {hostname}"
+            );
+            return;
+        }
+
+        // Restore the worker's role, probing slot for the distributor, and completion claim
+        let role = state.participants[&worker_id].role;
+        *status.lock().unwrap() = role;
+        if role == Probing && !state.probing_workers.contains(&worker_id) {
+            state.probing_workers.push(worker_id);
+        }
+        // Ensure the measurement waits for this worker when finalizing
+        if let Some(participant) = state.participants.get_mut(&worker_id) {
+            participant.is_counted = true;
+        }
+
+        info!(
+            "[Orchestrator] Worker {hostname} rejoined measurement {} ({})",
+            state.m_id,
+            role.as_str_name()
+        );
+    }
+
     /// Initialize the shared measurement state. Errors if a measurement is already active.
     fn init_measurement(
         &self,
@@ -791,7 +855,7 @@ impl ControllerService {
             ));
         }
 
-        // Record each participant's role, so a rejoining worker can be restored
+        // Each participant starts with a claim on measurement completion
         let participants = participating_ids
             .iter()
             .map(|&id| {
@@ -800,16 +864,22 @@ impl ControllerService {
                 } else {
                     Listening
                 };
-                (id, role)
+                (
+                    id,
+                    Participant {
+                        role,
+                        is_counted: true,
+                    },
+                )
             })
             .collect();
 
         *lock = Some(MeasurementState {
             m_id,
-            workers_count: participating_ids.len() as u32,
             probing_workers: probing_ids.to_vec(),
             participants,
             start_instructions: HashMap::new(),
+            is_finalizing: false,
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
             is_any: m_def.is_any_protocol,
