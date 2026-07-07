@@ -209,9 +209,9 @@
 //!
 //! # Future
 //!
+
 //! * Unicast traceroute
 //! * Extend the live target feed (`--feed`) beyond catchment mode, with per-target NDJSON fields (worker, TTL, protocol, DNS record)
-//! * Support any/all protocol types to measure targets with multiple protocols
 
 use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{ArgAction, ArgMatches, Command, arg, value_parser};

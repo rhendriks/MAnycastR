@@ -65,6 +65,7 @@ impl<T> Drop for WorkerReceiver<T> {
                 state.probing_workers.retain(|&id| id != worker_id);
 
                 // Discard state owned by this worker so the measurement can still terminate
+                // TODO consider keeping follow-up tasks and trace sessions for reconnects
                 if let Some(stack) = state.worker_stacks.remove(&worker_id)
                     && !stack.is_empty()
                 {

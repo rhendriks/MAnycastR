@@ -446,7 +446,6 @@ impl Controller for ControllerService {
         let _ = self.cli_sender.lock().unwrap().insert(cli_tx);
 
         // Send Start instructions to all participating workers
-        // TODO: enable reconnect of Workers
         send_start_instructions(&self.saved_workers, &self.measurement, &m_def, m_id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
