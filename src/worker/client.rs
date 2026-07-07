@@ -95,31 +95,28 @@ impl Worker {
             };
 
             // Check if we are currently busy with a measurement
-            let active_m_id = *self
-                .current_m_id
-                .lock()
-                .map_err(|_| "Unable to obtain m_id mutex")?;
+            let is_busy = self.is_busy.load(Ordering::SeqCst);
 
-            match (active_m_id, instr_type) {
+            match (is_busy, instr_type) {
                 // Starting a measurement (whilst idle)
-                (None, InstructionType::Start(start)) => {
+                (false, InstructionType::Start(start)) => {
                     abort_outbound = Arc::new(AtomicBool::new(false));
                     self.handle_start_instruction(start, worker_id, abort_outbound.clone())?;
                 }
 
                 // Ending a measurement (whilst busy)
-                (Some(_), InstructionType::End(data)) => {
+                (true, InstructionType::End(data)) => {
                     self.handle_end_instruction(data, abort_outbound.clone())
                         .await?;
                 }
 
                 // Receiving a new measurement (whilst busy) [INVALID]
-                (Some(_), InstructionType::Start(_)) => {
+                (true, InstructionType::Start(_)) => {
                     warn!("[Worker] Received new measurement while busy; ignoring.");
                 }
 
                 // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
-                (Some(_), InstructionType::Tasks(task_batch)) => {
+                (true, InstructionType::Tasks(task_batch)) => {
                     if let [(_, tx)] = self.outbound_txs.as_slice() {
                         // Single origin: forward the batch as-is (the outbound thread skips non-matching tasks)
                         let _ = tx.send(InstructionType::Tasks(task_batch)).await;
@@ -139,12 +136,12 @@ impl Worker {
                 }
 
                 // Receiving any other instruction (whilst busy) [INVALID]
-                (Some(_), _) => {
+                (true, _) => {
                     warn!("[Worker] Received unexpected instruction while busy; ignoring.");
                 }
 
                 // Receiving anything but a new measurement (whilst idle) [INVALID]
-                (None, _) => {
+                (false, _) => {
                     warn!("[Worker] Received task data while idle; ignoring.");
                 }
             }
@@ -156,7 +153,7 @@ impl Worker {
     }
 
     /// Start a new measurement.
-    /// Sets the Orchestrator assigned measurement ID,
+    /// Marks the worker as busy,
     /// Initializes the abort signals to False (for outbound and inbound threads)
     /// Calls the function to initialize the measurement
     ///
@@ -172,8 +169,8 @@ impl Worker {
     ) -> Result<(), Box<dyn Error>> {
         info!("[Worker] Starting measurement {}", start.m_id);
 
-        // Set the measurement ID and abort signal
-        *self.current_m_id.lock().unwrap() = Some(start.m_id);
+        // Mark busy and reset the abort signal
+        self.is_busy.store(true, Ordering::SeqCst);
         self.abort_inbound.store(false, Ordering::SeqCst);
 
         // Initialize the measurement threads
