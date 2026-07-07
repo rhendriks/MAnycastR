@@ -40,19 +40,31 @@ pub(crate) type WorkerRegistry = Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>;
 /// Shared handle to the active measurement state. `None` when no measurement is running.
 pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
 
+/// A worker participating in the active measurement.
+/// Participants can re-join after disconnect.
+///
+/// The entry is removed when the worker finishes.
+#[derive(Debug)]
+pub struct Participant {
+    /// The worker's role in the measurement (Probing or Listening)
+    pub role: WorkerStatus,
+    /// When true, the Orchestrator waits for this participant before measurement finish.
+    pub is_counted: bool,
+}
+
 /// All state associated with a single active measurement.
 #[derive(Debug)]
 pub struct MeasurementState {
     /// The measurement ID (used to filter on replies for the current measurement)
     pub m_id: u32,
-    /// Number of Workers still participating (decremented when a Worker finishes)
-    pub workers_count: u32,
     /// Worker IDs of connected Workers that are actively probing
     pub probing_workers: Vec<u32>,
-    /// Role (Probing or Listening) of each participating worker (for reconnects)
-    pub participants: HashMap<u32, WorkerStatus>,
-    /// Per-worker Start instructions (for reconnects)
+    /// Participating workers (removed when a worker finishes; kept on disconnect for rejoin)
+    pub participants: HashMap<u32, Participant>,
+    /// Per-worker Start instructions (re-sent when a worker rejoins mid-measurement)
     pub start_instructions: HashMap<u32, Start>,
+    /// Whether the current measurement is being finalized (no new tasks being sent)
+    pub is_finalizing: bool,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
     /// Whether targets are checked for responsiveness before measurement probes (--responsive/--any)
@@ -67,6 +79,14 @@ pub struct MeasurementState {
     pub resolved_targets: HashSet<Address>,
     /// Live feed state (None for hitlist-based measurements)
     pub live: Option<LiveState>,
+}
+
+impl MeasurementState {
+    /// Number of connected workers participating in a measurement.
+    /// The measurement is complete when this reaches zero.
+    pub fn active_workers(&self) -> usize {
+        self.participants.values().filter(|p| p.is_counted).count()
+    }
 }
 
 /// Timeout for live-feed discovery probes
