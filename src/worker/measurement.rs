@@ -173,6 +173,7 @@ impl Worker {
                     break;
                 }
 
+                // TODO retry with backoff instead of breaking
                 if let Err(e) = grpc_client_clone.send_result(batch).await {
                     error!("[Worker] Failed to forward batch: {e}");
                     break;

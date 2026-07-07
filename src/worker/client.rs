@@ -150,6 +150,7 @@ impl Worker {
             }
         }
         info!("[Worker] Stream closed by Orchestrator");
+        // TODO in-process reconnect
 
         Ok(())
     }
