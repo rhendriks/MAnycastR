@@ -3,8 +3,8 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{Address, Origin};
 use local_ip_address::{local_ip, local_ipv6};
 use log::warn;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
 use tonic::transport::Channel;
 
 /// The worker that is run at the anycast PoPs and performs measurements as instructed by the orchestrator.
@@ -14,8 +14,8 @@ pub struct Worker {
     pub(crate) grpc_client: ControllerClient<Channel>,
     /// Hostname of the worker
     pub(crate) hostname: String,
-    /// ID of the current measurement (None indicates no active measurement ongoing)
-    pub(crate) current_m_id: Arc<Mutex<Option<u32>>>,
+    /// Whether a measurement is currently active on this worker
+    pub(crate) is_busy: Arc<AtomicBool>,
     /// Instructions senders to the outbound probing threads, paired with their origin ID
     pub(crate) outbound_txs: Vec<(u32, tokio::sync::mpsc::Sender<InstructionType>)>,
     /// Join handles of the outbound probing threads, awaited on graceful end before closing inbound
