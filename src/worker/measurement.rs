@@ -14,7 +14,7 @@ use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 impl Worker {
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
@@ -152,15 +152,13 @@ impl Worker {
         }
 
         // Spawn thread to forward reply batches to the CLI
-        let m_id_handle = self.current_m_id.clone();
+        let is_busy = self.is_busy.clone();
         let mut grpc_client_clone = self.grpc_client.clone();
         tokio::spawn(async move {
             while let Some(batch) = inbound_rx.recv().await {
                 if batch == ReplyBatch::default() {
-                    // Set the current measurement ID to None (no active measurement)
-                    if let Ok(mut guard) = m_id_handle.lock() {
-                        *guard = None;
-                    }
+                    // Mark the worker as idle (no active measurement)
+                    is_busy.store(false, Ordering::SeqCst);
                     info!(
                         "[Worker] Letting the orchestrator know that this worker finished the measurement"
                     );
