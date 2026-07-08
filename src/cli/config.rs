@@ -89,17 +89,14 @@ impl IpVersions {
     }
 }
 
-/// Ensure IP-version rules are met.
+/// Validate the IP-version rules of a measurement and return the measured version(s).
 /// * All hitlist targets must have an origin with a matching IP version
-/// * `--record` is IPv4 only
 /// * `--any` requires > 1 origin per IP version used
 /// * tracemap does not support mixed IP version TODO
-/// Validate the IP-version rules of a measurement and return the measured version(s).
 ///
 /// # Arguments
 /// * `configurations` - the measurement configurations
 /// * `hitlist_versions` - IP versions of the hitlist targets (`None` for a live feed)
-/// * `is_record` - whether probes carry the IPv4 Record Route option
 /// * `m_type` - the measurement type
 /// * `is_any_protocol` - whether unresolved targets are retried origin by origin (--any)
 ///
@@ -108,7 +105,6 @@ impl IpVersions {
 pub fn validate_ip_versions(
     configurations: &[Configuration],
     hitlist_versions: Option<IpVersions>,
-    is_record: bool,
     m_type: MeasurementType,
     is_any_protocol: bool,
 ) -> Result<IpVersions, String> {
@@ -126,14 +122,6 @@ pub fn validate_ip_versions(
                 "The hitlist contains {label} targets but no {label} origin is configured."
             ));
         }
-    }
-
-    // The Record Route option only exists in the IPv4 header
-    if is_record && (versions.has_v6 || origin_versions.has_v6) {
-        return Err(
-            "--record (Record Route) is IPv4-only and cannot be combined with IPv6 targets or origins."
-                .to_string(),
-        );
     }
 
     // Tracemap tasks use a single origin and cannot serve two IP versions TODO

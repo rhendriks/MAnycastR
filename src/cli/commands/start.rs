@@ -30,8 +30,6 @@ pub struct MeasurementExecutionArgs<'a> {
     pub out_path: String,
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicates a Record Route measurement
-    pub is_record: bool,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -50,7 +48,6 @@ pub async fn handle(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let is_any_protocol = matches.get_flag("any");
     let is_responsive = matches.get_flag("responsive") || is_any_protocol;
-    let is_record = matches.get_flag("record");
     let is_feed = matches.get_flag("feed");
     let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
@@ -186,7 +183,6 @@ pub async fn handle(
     let versions = match validate_ip_versions(
         &configurations,
         hitlist_versions,
-        is_record,
         m_type,
         is_any_protocol,
     ) {
@@ -288,7 +284,6 @@ pub async fn handle(
         url: url.cloned(),
         probe_interval,
         number_of_probes,
-        is_record,
         trace_options,
         is_any_protocol,
     };
@@ -301,7 +296,6 @@ pub async fn handle(
         hitlist_length,
         out_path: path,
         worker_map,
-        is_record,
     };
 
     if is_feed {

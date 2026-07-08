@@ -41,8 +41,6 @@ pub struct WriteConfig<'a> {
     pub is_multi_origin: bool,
     /// A bidirectional map used to convert worker IDs (u16) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicate whether Record Route is used
-    pub is_record: bool,
     /// Indicate whether any Origin is for CHAOS
     pub is_chaos: bool,
 }
@@ -120,12 +118,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
     };
 
     // Write header
-    let header = get_header(
-        config.is_chaos,
-        config.is_multi_origin,
-        config.is_record,
-        config.m_type,
-    );
+    let header = get_header(config.is_chaos, config.is_multi_origin, config.m_type);
     dual_wtr
         .write_record(header)
         .expect("Failed to write header to file");
@@ -181,12 +174,10 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 /// # Arguments
 /// * `is_chaos` - Whether CHAOS queries are sent
 /// * `is_multi_origin` - A boolean that determines whether multiple origins are used
-/// * `is_record` - Whether Record Route is used
 /// * `m_type` - Measurement type performed
 pub fn get_header(
     is_chaos: bool,
     is_multi_origin: bool,
-    is_record: bool,
     m_type: MeasurementType,
 ) -> Vec<&'static str> {
     // Determine headers based on measurement type
@@ -216,9 +207,6 @@ pub fn get_header(
     }
     if is_multi_origin {
         header.push("origin_id");
-    }
-    if is_record {
-        header.push("record_route");
     }
 
     header

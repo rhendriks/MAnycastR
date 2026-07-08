@@ -123,7 +123,6 @@ impl TCPPacket {
                     src: src.into(),
                     dst: dst.into(),
                     payload: PacketPayload::Tcp { value: tcp_packet },
-                    options: None,
                 };
                 (&v4_packet).into()
             }

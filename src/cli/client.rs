@@ -257,8 +257,6 @@ async fn stream_results_to_file(
         }
     };
 
-    // Determine Record Route measurements
-    let is_record = args.is_record;
     // Determine the file extension based on the output format
     let mut is_parquet = args.is_parquet;
 
@@ -314,7 +312,6 @@ async fn stream_results_to_file(
         m_type: row_m_type,
         is_multi_origin,
         worker_map: args.worker_map.clone(),
-        is_record,
         is_chaos,
     };
 
