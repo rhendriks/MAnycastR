@@ -579,15 +579,16 @@ impl Controller for ControllerService {
                         sel => sel,
                     };
 
-                    // Follow up with the origin the target responded on
+                    let task = Task {
+                        task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
+                        origin_id,
+                    };
+                    // Add follow-up task to the worker stack, and duplicate based on nprobes
                     state
                         .worker_stacks
                         .entry(follow_up_worker)
                         .or_default()
-                        .push_back(Task {
-                            task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
-                            origin_id,
-                        });
+                        .extend(std::iter::repeat_n(task, pending.nprobes.max(1) as usize));
                 }
             }
 
@@ -931,21 +932,26 @@ impl ControllerService {
                     {
                         pending.next_origin_idx = Some(idx + 1);
                         pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
-                        // Single-worker origin:any tries each protocol with a measurement probe
                         let probe = Probe { dst: Some(addr) };
-                        let task_type = if pending.probe_is_measurement {
-                            task::TaskType::Probe(probe)
+                        let (task_type, count) = if pending.probe_is_measurement {
+                            (
+                                task::TaskType::Probe(probe),
+                                pending.nprobes.max(1) as usize, // Repeat nprobes times
+                            )
                         } else {
-                            task::TaskType::Discovery(probe)
+                            (task::TaskType::Discovery(probe), 1) // Discovery probes are sent once
                         };
                         state
                             .worker_stacks
                             .entry(pending.discovery_worker)
                             .or_default()
-                            .push_back(Task {
-                                task_type: Some(task_type),
-                                origin_id,
-                            });
+                            .extend(std::iter::repeat_n(
+                                Task {
+                                    task_type: Some(task_type),
+                                    origin_id,
+                                },
+                                count,
+                            ));
                         live.pending.insert(addr, pending);
                     }
                     // else: target is unresponsive on all attempted origins -> give up
