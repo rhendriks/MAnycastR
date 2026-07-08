@@ -11,7 +11,6 @@ use crate::orchestrator::{
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
-use std::iter::repeat_n;
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -95,14 +94,16 @@ pub struct TaskDistributorConfig {
     /// Inter-worker interval in seconds between workers
     pub worker_interval: u64,
     /// Number of times to repeat each measurement probe (discovery probes are always sent once)
-    pub number_of_probes: u8,
+    pub nprobes: u32,
     /// Inter-probe interval in seconds between repeated probes
     pub probe_interval: u64,
 }
 
 /// Build a `Task` from a raw address and the current distribution metadata.
+/// The worker sends the probe `nprobes` times (spaced by the measurement's probe interval);
+/// discovery tasks are always built with `nprobes` 1.
 #[inline]
-fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
+fn make_task(addr: Address, is_discovery: bool, origin_id: u32, nprobes: u32) -> Task {
     Task {
         task_type: Some(if is_discovery {
             task::TaskType::Discovery(Probe { dst: Some(addr) })
@@ -110,6 +111,7 @@ fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
             task::TaskType::Probe(Probe { dst: Some(addr) })
         }),
         origin_id,
+        nprobes,
     }
 }
 
@@ -119,16 +121,12 @@ fn make_task(addr: Address, is_discovery: bool, origin_id: u32) -> Task {
 /// * `workers` - registry of worker senders
 /// * `worker_id` - target: `ALL_WORKERS` for broadcast, or a specific worker ID
 /// * `instruction` - the instruction to send
-/// * `nprobes` - how many times to send (1 = no repeat)
 /// * `inter_worker_interval` - seconds between workers for broadcast sends
-/// * `inter_probe_interval` - seconds between repeated probes
 async fn send_to_workers(
     workers: &WorkerRegistry,
     worker_id: u32,
     instruction: Instruction,
-    nprobes: u8,
     inter_worker_interval: u64,
-    inter_probe_interval: u64,
 ) {
     if worker_id == ALL_WORKERS {
         // Broadcast to all probing workers with inter-worker delay
@@ -147,10 +145,7 @@ async fn send_to_workers(
                 tokio::time::sleep(Duration::from_secs(probing_index * inter_worker_interval))
                     .await;
 
-                for _ in 0..nprobes {
-                    let _ = sender.send(Ok(task_c.clone())).await;
-                    tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                }
+                let _ = sender.send(Ok(task_c)).await;
             });
         }
     } else {
@@ -160,16 +155,7 @@ async fn send_to_workers(
             workers.iter().find(|s| s.worker_id == worker_id).cloned()
         };
         if let Some(sender) = sender {
-            if nprobes < 2 {
-                let _ = sender.send(Ok(instruction)).await;
-            } else {
-                spawn(async move {
-                    for _ in 0..nprobes {
-                        let _ = sender.send(Ok(instruction.clone())).await;
-                        tokio::time::sleep(Duration::from_secs(inter_probe_interval)).await;
-                    }
-                });
-            }
+            let _ = sender.send(Ok(instruction)).await;
         } else {
             warn!("[Orchestrator] No sender found for worker ID {worker_id}");
         }
@@ -233,8 +219,8 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         }
     );
 
-    // Wait for the last tasks being sent (accounting for repeated tasks)
-    let repeat_secs = (config.number_of_probes.saturating_sub(1)) as u64 * config.probe_interval;
+    // Wait for the last tasks being sent (accounting for repeated probes)
+    let repeat_secs = (config.nprobes.saturating_sub(1)) as u64 * config.probe_interval;
     let cooldown_secs = if is_broadcast || is_responsive {
         // Also wait for the inter-worker staggering of the last broadcast batch
         (config.number_of_probing_workers as u64 * config.worker_interval) + repeat_secs + 1
@@ -267,10 +253,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         cooldown_timer: None,
     };
 
-    // nprobes: measurement probes are repeated, discovery probes are not
-    let nprobes = config.number_of_probes;
+    // nprobes: measurement probes are repeated (by the worker), discovery probes are not
+    let task_nprobes = if has_follow_ups {
+        1
+    } else {
+        config.nprobes
+    };
     let inter_worker_interval = config.worker_interval;
-    let inter_probe_interval = config.probe_interval;
 
     // Follow-up backlog watermarks, expressed in seconds of drain at the probing rate
     let high_watermark = STACK_HIGH_WATERMARK_SECS * config.probing_rate as usize;
@@ -362,9 +351,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 tasks: follow_up_tasks,
                             })),
                         },
-                        nprobes,
                         inter_worker_interval,
-                        inter_probe_interval,
                     )
                     .await;
                 }
@@ -401,7 +388,9 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                         .hitlist_iter
                         .by_ref()
                         .take(remainder)
-                        .map(|addr| make_task(addr, is_discovery, round.current_origin_id))
+                        .map(|addr| {
+                            make_task(addr, is_discovery, round.current_origin_id, task_nprobes)
+                        })
                         .collect()
                 };
 
@@ -416,9 +405,6 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                 }
 
                 if !tasks.is_empty() {
-                    // Discovery probes are sent once; measurement probes are repeated nprobes times
-                    let hitlist_nprobes = if has_follow_ups { 1 } else { nprobes };
-
                     send_to_workers(
                         &config.workers,
                         worker_id,
@@ -427,9 +413,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 tasks,
                             })),
                         },
-                        hitlist_nprobes,
                         inter_worker_interval,
-                        inter_probe_interval,
                     )
                     .await;
                 }
@@ -512,7 +496,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 /// or a specific worker. Some tasks may be discovery tasks (--responsive, --any)
 /// which are registered as pending to track required follow-up probe configurations.
 ///
-/// Measurement probes are duplicated when `nprobes` > 1.
+/// Measurement probes are optionally repeated by the worker (nprobes > 1).
 ///
 /// The measurement ends when the feed has closed (the CLI ended its stream or
 /// disconnected) and all follow-ups and pending discoveries have resolved,
@@ -523,6 +507,7 @@ pub fn distribute_live_tasks(
     workers: WorkerRegistry,
     probing_rate: u32,
     worker_interval: u64,
+    probe_interval: u64,
     is_responsive: bool,
 ) {
     info!("[Orchestrator] Starting Live Task Distributor.");
@@ -533,6 +518,7 @@ pub fn distribute_live_tasks(
         let mut current_index: usize = 0;
         let batch_capacity = probing_rate as usize;
         let mut feed_closed = false;
+        let mut max_nprobes: u32 = 1; // Max nprobes used
 
         loop {
             tick_interval.tick().await;
@@ -573,9 +559,7 @@ pub fn distribute_live_tasks(
                             tasks,
                         })),
                     },
-                    1, // per-target nprobes is applied by task duplication
                     worker_interval,
-                    0,
                 )
                 .await;
             }
@@ -610,8 +594,7 @@ pub fn distribute_live_tasks(
 
                 for mut target in batch {
                     let Some(dst) = target.dst else { continue };
-                    // Measurement probes are repeated nprobes times
-                    let nprobes = target.nprobes.max(1) as usize;
+                    max_nprobes = max_nprobes.max(target.nprobes);
 
                     // Ignore origin:any when there is only a single origin of the target's IP version
                     if target.origin_id == ANY_ORIGIN
@@ -672,23 +655,29 @@ pub fn distribute_live_tasks(
                                 discovery_worker: probe_worker,
                                 next_origin_idx,
                                 probe_is_measurement,
-                                nprobes: nprobes as u32,
+                                nprobes: target.nprobes,
                                 deadline: std::time::Instant::now()
                                     + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS),
                             },
                         );
 
                         // A discovery probe is sent once, a measurement probe is repeated (nprobes)
-                        let count = if probe_is_measurement { nprobes } else { 1 };
-                        per_worker.entry(probe_worker).or_default().extend(repeat_n(
-                            make_task(dst, !probe_is_measurement, origin_id),
+                        let count = if probe_is_measurement {
+                            target.nprobes
+                        } else {
+                            1
+                        };
+                        per_worker.entry(probe_worker).or_default().push(make_task(
+                            dst,
+                            !probe_is_measurement,
+                            origin_id,
                             count,
                         ));
                         continue;
                     }
 
                     // Regular probe task
-                    let task = make_task(dst, false, target.origin_id);
+                    let task = make_task(dst, false, target.origin_id, target.nprobes);
                     match target.worker_id {
                         ANY_WORKER => {
                             // Round-robin across probing workers
@@ -696,15 +685,12 @@ pub fn distribute_live_tasks(
                             per_worker
                                 .entry(probing_workers[current_index])
                                 .or_default()
-                                .extend(repeat_n(task, nprobes));
+                                .push(task);
                             current_index += 1;
                         }
-                        ALL_WORKERS => broadcast.extend(repeat_n(task, nprobes)),
+                        ALL_WORKERS => broadcast.push(task),
                         id if probing_workers.contains(&id) => {
-                            per_worker
-                                .entry(id)
-                                .or_default()
-                                .extend(repeat_n(task, nprobes));
+                            per_worker.entry(id).or_default().push(task);
                         }
                         id => warn!(
                             "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
@@ -723,8 +709,6 @@ pub fn distribute_live_tasks(
                             tasks,
                         })),
                     },
-                    1, // per-target nprobes is applied by task duplication
-                    0,
                     0,
                 )
                 .await;
@@ -740,9 +724,7 @@ pub fn distribute_live_tasks(
                             tasks: broadcast,
                         })),
                     },
-                    1, // per-target nprobes is applied by task duplication
                     worker_interval,
-                    0,
                 )
                 .await;
             }
@@ -753,9 +735,10 @@ pub fn distribute_live_tasks(
             }
         }
 
-        // Wait for the last (staggered) probes to be sent and their replies to arrive
+        // Wait for the last probes to be sent and their replies
         let worker_count = workers.lock().unwrap().len() as u64;
-        let cooldown_secs = worker_count * worker_interval + REPLY_GRACE_SECS;
+        let repeat_secs = (max_nprobes as u64 - 1) * probe_interval;
+        let cooldown_secs = worker_count * worker_interval + repeat_secs + REPLY_GRACE_SECS;
         info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
         tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
 
