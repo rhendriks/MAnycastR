@@ -119,7 +119,7 @@ impl LiveState {
 pub struct PendingTarget {
     /// Worker selection for the follow-up measurement probes (ANY_WORKER, ALL_WORKERS, or a specific ID)
     pub worker_sel: u32,
-    /// Worker performing the probe(s)
+    /// Worker performing the task
     pub discovery_worker: u32,
     /// Next origin index to try on timeout for `origin:any` (None for `--responsive`)
     pub next_origin_idx: Option<usize>,
