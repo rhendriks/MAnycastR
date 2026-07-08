@@ -125,6 +125,8 @@ pub struct PendingTarget {
     pub next_origin_idx: Option<usize>,
     /// Whether the probe sent is itself the measurement (single-worker `origin:any`)
     pub probe_is_measurement: bool,
+    /// Number of measurement probes to send (per worker) once the target resolves
+    pub nprobes: u32,
     /// When the current attempt expires
     pub deadline: Instant,
 }
