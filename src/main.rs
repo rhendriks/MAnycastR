@@ -187,9 +187,8 @@
 //!
 //! Next, distribute the binary to the workers.
 //!
-//! For ICMP-only measurements (no traceroute or record route), workers can run without sudo.
-//!
-//! For TCP, DNS, traceroute, or record route measurements, workers need sudo or CAP_NET_RAW:
+//! For ICMP, DNS measurements (no traceroute), workers can run without sudo.
+//! For TCP, or traceroute measurements, workers need sudo or CAP_NET_RAW:
 //! ```bash
 //! sudo setcap cap_net_raw,cap_net_admin=eip manycast
 //! ```
@@ -334,9 +333,6 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap"]))
                         .default_value("laces")
                         .ignore_case(true))
-                    .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
-                        .action(ArgAction::SetTrue)
-                        .requires_if("icmp", "p_type"))
                     .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
                         .conflicts_with("configuration")
                         .required_unless_present("configuration"))
