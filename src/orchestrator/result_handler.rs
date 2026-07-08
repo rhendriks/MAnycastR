@@ -13,11 +13,13 @@ use std::time::{Duration, Instant};
 /// * `worker_id` - worker that will perform the follow-up tasks
 /// * `worker_stacks` - shared stack to put worker tasks in
 /// * `origin_id` - Origin for which these replies are received
+/// * `nprobes` - number of times the worker sends each follow-up probe
 pub fn discovery_handler(
     discovery_results: Vec<DiscoveryReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     origin_id: u32,
+    nprobes: u32,
 ) {
     // Get the target addresses from the results
     let responsive_targets: Vec<Task> = discovery_results
@@ -25,6 +27,7 @@ pub fn discovery_handler(
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
+            nprobes,
         })
         .collect();
 
@@ -95,6 +98,7 @@ pub fn trace_discovery_handler(
                 ttl: traceroute_config.initial_hop,
             })),
             origin_id,
+            nprobes: 1,
         });
     }
 }
@@ -204,6 +208,7 @@ pub fn trace_replies_handler(
                         ttl: next_ttl as u32,
                     })),
                     origin_id,
+                    nprobes: 1,
                 });
         } else {
             session_tracker.sessions.remove(&identifier);
