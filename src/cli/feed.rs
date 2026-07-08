@@ -39,7 +39,7 @@ impl Stream for FeedStream {
 /// The optional `origin` field selects the origin to send from: an origin ID,
 /// `"all"` (all configured origins), or `"any"` (first responsive, default).
 /// The optional `nprobes` field sets how many measurement probes are sent to
-/// the target (default 1).
+/// the target (default 1), spaced by the measurement's probe interval.
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
