@@ -120,11 +120,20 @@ impl Worker {
 
                 // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
                 (true, InstructionType::Tasks(task_batch)) => {
-                    // Send the task to the appropriate origins
-                    let repeats = next_repeat_round(&task_batch.tasks);
+                    // Tasks with nprobes > 1 are re-sent every probe_interval seconds
+                    let mut repeats: Vec<Task> = task_batch
+                        .tasks
+                        .iter()
+                        .filter(|task| task.nprobes > 1)
+                        .copied()
+                        .collect();
+
+                    // Send the tasks to the appropriate origins
                     route_tasks(&self.outbound_txs, task_batch).await;
+
                     if !repeats.is_empty() {
-                        // If nprobes > 1, schedule the next repetitions for this task
+                        // Schedule the remaining sends for multi-probe tasks
+                        repeats.sort_unstable_by_key(|task| task.nprobes);
                         schedule_repeats(self.outbound_txs.clone(), repeats, probe_interval);
                     }
                 }
@@ -246,36 +255,24 @@ async fn route_tasks(outbound_txs: &[(u32, Sender<InstructionType>)], task_batch
     }
 }
 
-/// The next repeat round of a task batch: the tasks that are to be sent again
-/// (`nprobes` > 1), with their remaining send count decremented.
-fn next_repeat_round(tasks: &[Task]) -> Vec<Task> {
-    tasks
-        .iter()
-        .filter(|task| task.nprobes > 1)
-        .map(|task| Task {
-            nprobes: task.nprobes - 1,
-            ..*task
-        })
-        .collect()
-}
-
-/// Re-send a repeat round every `probe_interval` seconds until no repeats remain,
-/// spacing out the repeated probes of tasks with `nprobes` > 1.
+/// Re-send `repeats` every `probe_interval` seconds until every task has been
+/// sent `nprobes` times, spacing out the repeated probes.
 /// Stops early when the measurement ends (all outbound channels closed).
 fn schedule_repeats(
     outbound_txs: Vec<(u32, Sender<InstructionType>)>,
-    mut tasks: Vec<Task>,
+    mut repeats: Vec<Task>,
     probe_interval: u64,
 ) {
     tokio::spawn(async move {
-        while !tasks.is_empty() {
+        for round in 1u32.. {
             tokio::time::sleep(Duration::from_secs(probe_interval)).await;
-            if outbound_txs.iter().all(|(_, tx)| tx.is_closed()) {
-                break; // Measurement ended
+            // Remove all finished multi-probe tasks (assumes a list sorted by nprobes)
+            repeats.drain(..repeats.partition_point(|task| task.nprobes <= round));
+            if repeats.is_empty() || outbound_txs.iter().all(|(_, tx)| tx.is_closed()) {
+                break; // All sends done, or the measurement ended
             }
-            let next = next_repeat_round(&tasks);
+            let tasks = repeats.clone();
             route_tasks(&outbound_txs, Tasks { tasks }).await;
-            tasks = next;
         }
     });
 }
