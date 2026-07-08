@@ -225,10 +225,10 @@ mod net;
 mod orchestrator;
 mod worker;
 
-pub const ALL_WORKERS: u32 = u32::MAX; // All workers
-pub const ANY_WORKER: u32 = 0; // No specific worker assigned (live feed round-robin; worker IDs start at 1)
-pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
-pub const ANY_ORIGIN: u32 = u32::MAX - 1; // Try origins in order; stop on the first responsive one (live feed)
+pub const ALL_WORKERS: u32 = 0;
+pub const ANY_WORKER: u32 = u32::MAX; // Round-robin select a random worker
+pub const ALL_ORIGINS: u32 = 0;
+pub const ANY_ORIGIN: u32 = u32::MAX; // Try origins in order; stop on the first responsive one (live feed)
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
 /// Derive a 6-bit DNS identifier from a measurement ID for filtering.
