@@ -23,12 +23,7 @@ const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 /// * `rx` - The receiver channel that receives the results.
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
-    let headers = get_header(
-        config.is_chaos,
-        config.is_multi_origin,
-        config.is_record,
-        config.m_type,
-    );
+    let headers = get_header(config.is_chaos, config.is_multi_origin, config.m_type);
     let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
