@@ -18,7 +18,7 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
     ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementHandle, MeasurementState,
-    Participant, TracerouteConfig, WorkerRegistry,
+    Participant, TracerouteConfig, WorkerRegistry, wire_nprobes,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
 use log::{error, info, warn};
@@ -588,7 +588,7 @@ impl Controller for ControllerService {
                         .push_back(Task {
                             task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
                             origin_id,
-                            nprobes: pending.nprobes,
+                            nprobes: wire_nprobes(pending.nprobes),
                         });
                 }
             }
@@ -937,9 +937,9 @@ impl ControllerService {
                         pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
                         let probe = Probe { dst: Some(addr) };
                         let (task_type, nprobes) = if pending.probe_is_measurement {
-                            (task::TaskType::Probe(probe), pending.nprobes) // Worker repeats nprobes times
+                            (task::TaskType::Probe(probe), wire_nprobes(pending.nprobes)) // Worker repeats nprobes times
                         } else {
-                            (task::TaskType::Discovery(probe), 1) // Discovery probes are sent once
+                            (task::TaskType::Discovery(probe), 0) // Discovery probes are sent once
                         };
                         state
                             .worker_stacks

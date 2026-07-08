@@ -91,6 +91,12 @@ impl MeasurementState {
     }
 }
 
+/// Encode nprobes 1 as 0 for gRPC compression
+#[inline]
+pub fn wire_nprobes(nprobes: u32) -> u32 {
+    if nprobes > 1 { nprobes } else { 0 }
+}
+
 /// Timeout for live-feed discovery probes
 pub const LIVE_DISCOVERY_TIMEOUT_SECS: u64 = 3;
 

@@ -6,7 +6,7 @@ use crate::custom_module::manycastr::{
 };
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::{
-    LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget, WorkerRegistry,
+    LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget, WorkerRegistry, wire_nprobes,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
@@ -100,8 +100,7 @@ pub struct TaskDistributorConfig {
 }
 
 /// Build a `Task` from a raw address and the current distribution metadata.
-/// The worker sends the probe `nprobes` times (spaced by the measurement's probe interval);
-/// discovery tasks are always built with `nprobes` 1.
+/// The worker sends the probe `nprobes` times (spaced by the measurement's probe interval).
 #[inline]
 fn make_task(addr: Address, is_discovery: bool, origin_id: u32, nprobes: u32) -> Task {
     Task {
@@ -111,7 +110,7 @@ fn make_task(addr: Address, is_discovery: bool, origin_id: u32, nprobes: u32) ->
             task::TaskType::Probe(Probe { dst: Some(addr) })
         }),
         origin_id,
-        nprobes,
+        nprobes: wire_nprobes(nprobes),
     }
 }
 
@@ -254,11 +253,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     };
 
     // nprobes: measurement probes are repeated (by the worker), discovery probes are not
-    let task_nprobes = if has_follow_ups {
-        1
-    } else {
-        config.nprobes
-    };
+    let task_nprobes = if has_follow_ups { 1 } else { config.nprobes };
     let inter_worker_interval = config.worker_interval;
 
     // Follow-up backlog watermarks, expressed in seconds of drain at the probing rate
