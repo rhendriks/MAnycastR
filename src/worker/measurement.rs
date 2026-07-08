@@ -64,7 +64,6 @@ impl Worker {
                     ProtocolType::Icmp,
                     rx_origin,
                     true, // Attaches Time Exceeded + Dest Unreachable BPF filter
-                    false,
                     m_id,
                 );
                 let (tx, _) = Self::get_socket(
@@ -72,7 +71,6 @@ impl Worker {
                     rx_origin.p_type(),
                     rx_origin,
                     true, // forces a raw socket (TTL + checksum control)
-                    false,
                     m_id,
                 );
                 (rx, tx, false)
@@ -82,7 +80,6 @@ impl Worker {
                     rx_origin.p_type(),
                     rx_origin,
                     is_traceroute,
-                    start.is_record,
                     m_id,
                 );
                 (socket.clone(), socket, is_dgram)
@@ -94,7 +91,6 @@ impl Worker {
                 p_type: rx_origin.p_type(),
                 abort_s: self.abort_inbound.clone(),
                 is_traceroute,
-                is_record: start.is_record,
                 is_dgram,
                 origin_id: rx_origin.origin_id,
                 sport: rx_origin.sport as u16,
@@ -107,7 +103,6 @@ impl Worker {
                 inbound(
                     InboundConfig {
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
-                        is_record: false,
                         is_dgram: false, // raw transport socket
                         is_transport_trace: true,
                         ..inbound_config.clone()
@@ -137,7 +132,6 @@ impl Worker {
                         qname: start.record.clone(),
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
-                        is_record: start.is_record,
                         is_dgram,
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
@@ -221,7 +215,6 @@ impl Worker {
     /// * `p_type` - Protocol type used (ICMP, UDP, or TCP)
     /// * `origin` - Origin used in this measurement (anycast or local unicast address)
     /// * `is_traceroute` - Whether this is a traceroute measurement (raw-only)
-    /// * `is_record` - Whether this is a Record Route measurement (raw-only)
     ///
     /// # Returns
     /// (Arc<Socket>, bool) containing a Socket and whether it is a DGRAM socket
@@ -230,7 +223,6 @@ impl Worker {
         p_type: ProtocolType,
         origin: Origin,
         is_traceroute: bool,
-        is_record: bool,
         m_id: u32,
     ) -> (Arc<Socket>, bool) {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
@@ -248,7 +240,7 @@ impl Worker {
         };
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
-        let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
+        let is_ping = p_type == ProtocolType::Icmp && !is_traceroute;
         let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
         // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies), except for traceroute
@@ -311,7 +303,7 @@ impl Worker {
                     "ICMP traceroute".to_string(),
                 ),
                 ProtocolType::Icmp => (
-                    // Plain echo and Record Route: both are echo replies with id == dport
+                    // Echo replies with id == dport
                     attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
                     format!("ICMP (id {})", origin.dport),
                 ),

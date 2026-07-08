@@ -118,7 +118,6 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
                 rtt,
                 tx_id,
                 chaos,
-                recorded_hops: None,
             })),
         })
     }

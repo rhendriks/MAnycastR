@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Address, DiscoveryReply, MeasurementReply, RecordedHops, Reply, TraceReply,
+    Address, DiscoveryReply, MeasurementReply, Reply, TraceReply,
 };
 use crate::net::ICMPPacket;
 use crate::worker::inbound::ReplyMeta;
@@ -33,21 +33,21 @@ pub fn parse_icmp(
             return None;
         }
         let icmp_packet = ICMPPacket::from(packet_bytes);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     } else if is_dgram {
         // DGRAM: kernel strips IPv4 header, ICMP data starts at offset 0
         if packet_bytes.len() < 32 || packet_bytes[0] != 0 {
             return None;
         }
         let icmp_packet = ICMPPacket::from(packet_bytes);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     } else {
         // RAW: IPv4 header included, ICMP starts at offset 20
         if packet_bytes.len() < 52 || packet_bytes[20] != 0 {
             return None;
         }
         let icmp_packet = ICMPPacket::from(&packet_bytes[20..]);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     }
 }
 
@@ -56,16 +56,14 @@ pub fn parse_icmp(
 /// # Arguments
 /// * `icmp_packet` - Unparsed ICMP packet
 /// * `m_id` - the ID of the current measurement
-/// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
 /// * `is_traceroute` - whether this is a traceroute target ping reply
 /// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
-pub fn parse_icmp_inner(
+fn parse_icmp_inner(
     icmp_packet: &ICMPPacket,
     m_id: u32,
-    recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,
     meta: ReplyMeta,
 ) -> Option<Reply> {
@@ -133,7 +131,6 @@ pub fn parse_icmp_inner(
                 rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 chaos: None,
-                recorded_hops,
             })),
         })
     }
