@@ -217,7 +217,7 @@ impl Controller for ControllerService {
         let mut m_def = request.into_inner();
         let worker_interval = m_def.worker_interval as u64;
         let probe_interval = m_def.probe_interval as u64;
-        let number_of_probes = m_def.number_of_probes;
+        let nprobes = m_def.number_of_probes;
         let probing_rate = m_def.probing_rate;
         let m_type = m_def.m_type();
 
@@ -306,7 +306,7 @@ impl Controller for ControllerService {
             probing_rate_interval,
             number_of_probing_workers: probing_workers_count,
             worker_interval,
-            number_of_probes,
+            nprobes,
             probe_interval,
         };
 
