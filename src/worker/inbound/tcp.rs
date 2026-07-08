@@ -74,7 +74,6 @@ pub fn parse_tcp(
                 rtt: super::rtt_ms(rx_time, tx_time_21b as u64, super::TxEncoding::Tcp21),
                 tx_id,
                 chaos: None,
-                recorded_hops: None,
             })),
         })
     }

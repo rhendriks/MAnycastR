@@ -1,5 +1,4 @@
 mod probe;
-mod record_route;
 mod trace;
 
 use log::{info, warn};
@@ -16,7 +15,6 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::worker::outbound::probe::send_probe;
-use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
@@ -39,8 +37,6 @@ pub struct OutboundConfig {
     pub info_url: Option<String>,
     /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
-    /// Whether to add the Record Route option to IPv4 probes
-    pub is_record: bool,
     /// Whether the socket is DGRAM (unprivileged ICMP, kernel writes IP headers)
     pub is_dgram: bool,
     /// Source address to use
@@ -111,24 +107,14 @@ pub fn outbound(
                             }
                             match &task.task_type {
                                 Some(TaskType::Probe(task)) => {
-                                    let (s, f) = if !config.is_record {
-                                        send_probe(
-                                            &config,
-                                            &task.dst.unwrap(),
-                                            &socket,
-                                            &mut limiter,
-                                            false,
-                                            &mut packet_buffer,
-                                        )
-                                    } else {
-                                        send_record_route_probe(
-                                            &config,
-                                            &task.dst.unwrap(),
-                                            &socket,
-                                            &mut limiter,
-                                            &mut packet_buffer,
-                                        )
-                                    };
+                                    let (s, f) = send_probe(
+                                        &config,
+                                        &task.dst.unwrap(),
+                                        &socket,
+                                        &mut limiter,
+                                        false,
+                                        &mut packet_buffer,
+                                    );
                                     sent += s;
                                     failed += f;
                                 }
@@ -168,7 +154,7 @@ pub fn outbound(
 }
 
 /// Send a packet (vector of bytes) to a destination using the socket
-/// IPv4: Send IPv4 header (optional Record Route option) and IP payload
+/// IPv4: Send IPv4 header and IP payload
 /// IPv6: Send only payload (kernel writes IPv6 header)
 ///
 /// # Arguments

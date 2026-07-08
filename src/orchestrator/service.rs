@@ -1036,7 +1036,6 @@ async fn send_start_instructions(
             rx_origins,
             record: m_def.record.clone(),
             url: m_def.url.clone(),
-            is_record: m_def.is_record,
             m_type: m_def.m_type,
             probe_interval: m_def.probe_interval,
         };

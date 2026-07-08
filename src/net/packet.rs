@@ -68,47 +68,6 @@ pub fn create_icmp(
     ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl, is_dgram)
 }
 
-/// Create a Record Route ICMP packet to send.
-/// # Arguments
-/// * `src` - the source address for the ping packet
-/// * `dst` - the destination address for the ping packet
-/// * `identifier` - the identifier to use in the ICMP header
-/// * `seq` - the sequence number to use in the ICMP header
-/// * `payload` - payload data
-/// * `ttl` - the time-to-live (TTL) value to set in the IP header
-/// # Returns
-/// A reverse traceroute ICMP packet (including the IP header) as a byte vector.
-pub fn create_record_route_icmp(
-    src: &Address,
-    dst: &Address,
-    identifier: u16,
-    seq: u16,
-    payload: &ProbePayload,
-    ttl: u8,
-) -> Vec<u8> {
-    let tx_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
-
-    // Create the ping payload bytes
-    let mut payload_bytes: Vec<u8> = Vec::new();
-    payload_bytes.extend_from_slice(&payload.m_id.to_be_bytes()); // Bytes 0 - 3
-    payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
-    payload_bytes.extend_from_slice(&payload.worker_id.to_be_bytes()); // Bytes 12 - 15
-
-    // Add addresses to payload (used for spoofing detection)
-    payload_bytes.extend_from_slice(&src.to_be_bytes()); // Bytes 16 - 33 (v6) or 16 - 19 (v4)
-    payload_bytes.extend_from_slice(&dst.to_be_bytes()); // Bytes 34 - 51 (v6) or 20 - 23 (v4)
-
-    // Add info URL to payload
-    if let Some(info_url) = &payload.info_url {
-        payload_bytes.extend_from_slice(info_url.as_bytes());
-    }
-
-    ICMPPacket::record_route_icmpv4(identifier, seq, payload_bytes, src.into(), dst.into(), ttl)
-}
-
 pub struct DnsProbeId {
     pub worker_id: u32,
     pub m_id: u32,

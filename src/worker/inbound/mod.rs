@@ -11,14 +11,12 @@ use crate::custom_module::Separated;
 use crate::custom_module::manycastr::{Address, ProtocolType, Reply, ReplyBatch};
 use crate::worker::inbound::dns::{DnsContext, parse_dns};
 use crate::worker::inbound::ping::parse_icmp;
-use crate::worker::inbound::record_route::parse_record_route;
 use crate::worker::inbound::tcp::parse_tcp;
 use crate::worker::inbound::trace::parse_trace;
 use socket2::{MaybeUninitSlice, MsgHdrMut, SockAddr, Socket};
 
 mod dns;
 mod ping;
-mod record_route;
 mod tcp;
 mod trace;
 
@@ -38,8 +36,6 @@ pub struct InboundConfig {
     pub abort_s: Arc<AtomicBool>,
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
-    /// Indicates if the measurement is a Record Route measurement.
-    pub is_record: bool,
     /// Whether the socket is DGRAM (unprivileged ICMP, no IP header in packets)
     pub is_dgram: bool,
     /// Origin ID associated with the Socket
@@ -110,20 +106,18 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                     Err(e) => panic!("Socket error: {}", e),
                 };
 
-                let result = match (config.is_traceroute, config.is_record, config.p_type) {
-                    (true, _, _) => parse_trace(packet, config.m_id, meta),
+                let result = match (config.is_traceroute, config.p_type) {
+                    (true, _) => parse_trace(packet, config.m_id, meta),
 
-                    (_, true, _) => parse_record_route(packet, config.m_id, meta),
-
-                    (_, _, ProtocolType::Icmp) => {
+                    (_, ProtocolType::Icmp) => {
                         parse_icmp(packet, config.m_id, false, is_dgram, meta)
                     }
 
-                    (_, _, ProtocolType::ADns) | (_, _, ProtocolType::ChaosDns) => {
+                    (_, ProtocolType::ADns) | (_, ProtocolType::ChaosDns) => {
                         parse_dns(packet, meta, &dns_ctx)
                     }
 
-                    (_, _, ProtocolType::Tcp) => {
+                    (_, ProtocolType::Tcp) => {
                         parse_tcp(packet, config.sport, config.is_transport_trace, meta)
                     }
                 };
