@@ -90,7 +90,7 @@ message LiveTarget {
   Address dst = 1; // target address to probe
   uint32 worker_id = 2; // 0 = any worker (round-robin, default), u32::MAX = all probing workers, otherwise a specific worker ID
   uint32 origin_id = 3; // origin to send from: u32::MAX = all origins (default, set by the CLI), otherwise a specific origin ID
-  uint32 nprobes = 4; // number of measurement probes to send (0 = unspecified, treated as 1)
+  uint32 nprobes = 4; // number of measurement probes to send (always >= 1, default 1 set by the CLI)
 }
 
 // A list of workers
@@ -147,6 +147,7 @@ message Task {
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
   }
   uint32 origin_id = 4; // Origin from which to send this probe
+  uint32 nprobes = 5; // number of times the worker sends this probe, spaced by the Start probe_interval (set to 1 for discovery/trace tasks)
 }
 
 // Initial message to worker, contains the worker ID assigned by the orchestrator
@@ -164,6 +165,7 @@ message Start {
   optional string url = 6; // URL encoded in probes
   bool is_record = 7; // send IPv4 probes with the Record Route option
   MeasurementType m_type = 8; // Measurement type
+  uint32 probe_interval = 9; // seconds between repeated sends of a task with nprobes > 1
 }
 
 message TraceOptions {
