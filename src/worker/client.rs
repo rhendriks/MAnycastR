@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
@@ -85,6 +86,7 @@ impl Worker {
         info!("[Worker] Connected to Orchestrator with assigned worker ID: {worker_id}");
 
         // Await instructions
+        let mut probe_interval: u64 = 1;
         while let Some(instruction) = stream.message().await? {
             let instr_type = match instruction.instruction_type {
                 Some(it) => it,
@@ -101,6 +103,7 @@ impl Worker {
                 // Starting a measurement (whilst idle)
                 (false, InstructionType::Start(start)) => {
                     abort_outbound = Arc::new(AtomicBool::new(false));
+                    probe_interval = start.probe_interval as u64;
                     self.handle_start_instruction(start, worker_id, abort_outbound.clone())?;
                 }
 
@@ -117,21 +120,12 @@ impl Worker {
 
                 // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
                 (true, InstructionType::Tasks(task_batch)) => {
-                    if let [(_, tx)] = self.outbound_txs.as_slice() {
-                        // Single origin: forward the batch as-is (the outbound thread skips non-matching tasks)
-                        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
-                    } else {
-                        for (origin_id, tx) in &self.outbound_txs {
-                            let tasks: Vec<Task> = task_batch
-                                .tasks
-                                .iter()
-                                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
-                                .cloned()
-                                .collect();
-                            if !tasks.is_empty() {
-                                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
-                            }
-                        }
+                    // Send the task to the appropriate origins
+                    let repeats = next_repeat_round(&task_batch.tasks);
+                    route_tasks(&self.outbound_txs, task_batch).await;
+                    if !repeats.is_empty() {
+                        // If nprobes > 1, schedule the next repetitions for this task
+                        schedule_repeats(self.outbound_txs.clone(), repeats, probe_interval);
                     }
                 }
 
@@ -229,4 +223,59 @@ impl Worker {
 
         Ok(())
     }
+}
+
+/// Route a task batch to the outbound sender(s) of each task's origin.
+async fn route_tasks(outbound_txs: &[(u32, Sender<InstructionType>)], task_batch: Tasks) {
+    if let [(_, tx)] = outbound_txs {
+        // Simple forward when there is only a single origin
+        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
+    } else {
+        // Forward when there is a matching origin_id attached, or ALL_ORIGINS is specified
+        for (origin_id, tx) in outbound_txs {
+            let tasks: Vec<Task> = task_batch
+                .tasks
+                .iter()
+                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
+                .cloned()
+                .collect();
+            if !tasks.is_empty() {
+                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
+            }
+        }
+    }
+}
+
+/// The next repeat round of a task batch: the tasks that are to be sent again
+/// (`nprobes` > 1), with their remaining send count decremented.
+fn next_repeat_round(tasks: &[Task]) -> Vec<Task> {
+    tasks
+        .iter()
+        .filter(|task| task.nprobes > 1)
+        .map(|task| Task {
+            nprobes: task.nprobes - 1,
+            ..*task
+        })
+        .collect()
+}
+
+/// Re-send a repeat round every `probe_interval` seconds until no repeats remain,
+/// spacing out the repeated probes of tasks with `nprobes` > 1.
+/// Stops early when the measurement ends (all outbound channels closed).
+fn schedule_repeats(
+    outbound_txs: Vec<(u32, Sender<InstructionType>)>,
+    mut tasks: Vec<Task>,
+    probe_interval: u64,
+) {
+    tokio::spawn(async move {
+        while !tasks.is_empty() {
+            tokio::time::sleep(Duration::from_secs(probe_interval)).await;
+            if outbound_txs.iter().all(|(_, tx)| tx.is_closed()) {
+                break; // Measurement ended
+            }
+            let next = next_repeat_round(&tasks);
+            route_tasks(&outbound_txs, Tasks { tasks }).await;
+            tasks = next;
+        }
+    });
 }
