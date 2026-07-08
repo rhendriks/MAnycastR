@@ -1,7 +1,7 @@
 extern crate byteorder;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 
-use crate::custom_module::manycastr::{Address, RecordedHops, address};
+use crate::custom_module::manycastr::{Address, address};
 pub(crate) use crate::net::icmp::ICMPPacket;
 pub(crate) use crate::net::tcp::TCPPacket;
 pub(crate) use crate::net::udp::{DNSAnswer, DNSRecord, TXTRecord, UDPPacket};
@@ -15,13 +15,12 @@ mod udp;
 /// A struct detailing an IPv4Packet <https://en.wikipedia.org/wiki/Internet_Protocol_version_4>
 #[derive(Debug)]
 pub struct IPv4Packet {
-    pub length: u16,              // 16-bit Total Length
-    pub ttl: u8,                  // 8-bit Time To Live
-    pub src: u32,                 // 32-bit Source IP Address
-    pub dst: u32,                 // 32-bit Destination IP Address
-    pub payload: PacketPayload,   // Payload
-    pub identifier: u16,          // 16-bit Identification
-    pub options: Option<Vec<u8>>, // Optional options field (variable length)
+    pub length: u16,            // 16-bit Total Length
+    pub ttl: u8,                // 8-bit Time To Live
+    pub src: u32,               // 32-bit Source IP Address
+    pub dst: u32,               // 32-bit Destination IP Address
+    pub payload: PacketPayload, // Payload
+    pub identifier: u16,        // 16-bit Identification
 }
 
 /// Convert list of u8 (i.e. received bytes) into an IPv4Packet
@@ -48,20 +47,11 @@ impl From<&[u8]> for IPv4Packet {
                 dst,
                 payload: PacketPayload::Unimplemented,
                 identifier,
-                options: None,
             };
         }
 
-        // If the header length is greater than 20 bytes, read the options field
-        let options = (ihl > 20)
-            .then(|| {
-                let mut bytes = vec![0; ihl - 20];
-                cursor.read_exact(&mut bytes).ok().map(|_| bytes)
-            })
-            .flatten();
-
-        let payload_start = cursor.position() as usize;
-        let payload_bytes = &data[payload_start..];
+        // The payload starts after the header (skipping any options)
+        let payload_bytes = &data[ihl..];
 
         let payload = match packet_type {
             1 => {
@@ -101,7 +91,6 @@ impl From<&[u8]> for IPv4Packet {
             dst,
             payload,
             identifier,
-            options,
         }
     }
 }
@@ -116,18 +105,10 @@ impl From<&IPv4Packet> for Vec<u8> {
             PacketPayload::Unimplemented => (0, vec![]),
         };
 
-        // Pad options to a multiple of 4 bytes if they exist
-        let mut options = packet.options.clone().unwrap_or_default();
-        while !options.len().is_multiple_of(4) {
-            options.push(1); // Padding with NOP (1)
-        }
+        const TOTAL_HEADER_LENGTH: usize = 20; // Base header length (no options)
+        let ihl = (TOTAL_HEADER_LENGTH / 4) as u8;
 
-        // Calculate header length (IHL) including options if they exist
-        let options_length = options.len();
-        let total_header_length = 20 + options_length; // Base header length (20 bytes) + options length
-        let ihl = (total_header_length / 4) as u8;
-
-        let mut wtr = Vec::with_capacity(total_header_length);
+        let mut wtr = Vec::with_capacity(TOTAL_HEADER_LENGTH);
         wtr.write_u8((4 << 4) | ihl)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Version (4) and header length (5)
         wtr.write_u8(0x00)
@@ -149,17 +130,13 @@ impl From<&IPv4Packet> for Vec<u8> {
         wtr.write_u32::<NetworkEndian>(packet.dst)
             .expect("Unable to write to byte buffer for IPv4 packet"); // Destination IP Address
 
-        // Write options (will be empty if none)
-        wtr.write_all(&options)
-            .expect("Unable to write to byte buffer for IPv4 packet");
-
         // Calculate and write the checksum
         let checksum = ICMPPacket::calc_checksum(&wtr);
         let mut cursor = Cursor::new(wtr);
         cursor.set_position(10); // Checksum position
         cursor.write_u16::<NetworkEndian>(checksum).unwrap();
 
-        cursor.set_position(total_header_length as u64); // Skip the IP header
+        cursor.set_position(TOTAL_HEADER_LENGTH as u64); // Skip the IP header
 
         // Add the payload
         cursor
@@ -168,39 +145,6 @@ impl From<&IPv4Packet> for Vec<u8> {
 
         cursor.into_inner()
     }
-}
-
-/// Create a Record Route option for IPv4 packets (maximum 9 addresses).
-fn record_route_option() -> Vec<u8> {
-    let mut option = vec![1]; // Start with NOP for 4-byte alignment, then Record Route option
-    option.push(7); // Option type: Record Route
-    option.push(39); // Option length: 39 bytes (maximum for Record Route)
-    option.push(4); // Pointer: starts at 4 (first address)
-    option.extend(vec![0; 36]); // 9 addresses (4 bytes each) initialized to zero
-    option
-}
-
-/// Convert a record route option byte array into a vector of IP addresses.
-pub fn parse_record_route_option(data: &[u8]) -> Option<RecordedHops> {
-    if data.len() < 3 || data[0] != 7 {
-        return None; // Not a valid Record Route option
-    }
-
-    let mut addresses = vec![];
-    let mut cursor = Cursor::new(data);
-    // Skip the first 3 bytes (option type, length, pointer)
-    cursor.set_position(3);
-    while cursor.position() < data.len() as u64 {
-        if let Ok(addr) = cursor.read_u32::<NetworkEndian>() {
-            if addr != 0 {
-                addresses.push(Address::from(addr));
-            }
-        } else {
-            break;
-        }
-    }
-
-    Some(RecordedHops { hops: addresses })
 }
 
 /// A struct detailing an IPv6Packet <https://en.wikipedia.org/wiki/IPv6>
@@ -375,7 +319,6 @@ pub(crate) fn build_ip_packet(
             src: src.into(),
             dst: dst.into(),
             payload,
-            options: None,
         })
             .into(),
         (s, d) => panic!("IP version mismatch or unset address: src={s:?}, dst={d:?}"),
