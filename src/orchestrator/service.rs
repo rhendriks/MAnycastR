@@ -217,7 +217,7 @@ impl Controller for ControllerService {
         let mut m_def = request.into_inner();
         let worker_interval = m_def.worker_interval as u64;
         let probe_interval = m_def.probe_interval as u64;
-        let number_of_probes = m_def.number_of_probes as u8;
+        let number_of_probes = m_def.number_of_probes;
         let probing_rate = m_def.probing_rate;
         let m_type = m_def.m_type();
 
@@ -484,6 +484,7 @@ impl Controller for ControllerService {
             Arc::clone(&self.saved_workers),
             probing_rate,
             m_def.worker_interval as u64,
+            m_def.probe_interval as u64,
             m_def.is_responsive,
         );
 
@@ -579,16 +580,16 @@ impl Controller for ControllerService {
                         sel => sel,
                     };
 
-                    let task = Task {
-                        task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
-                        origin_id,
-                    };
-                    // Add follow-up task to the worker stack, and duplicate based on nprobes
+                    // Add follow-up task to the worker stack (the worker repeats it nprobes times)
                     state
                         .worker_stacks
                         .entry(follow_up_worker)
                         .or_default()
-                        .extend(std::iter::repeat_n(task, pending.nprobes.max(1) as usize));
+                        .push_back(Task {
+                            task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
+                            origin_id,
+                            nprobes: pending.nprobes,
+                        });
                 }
             }
 
@@ -612,6 +613,7 @@ impl Controller for ControllerService {
                             follow_up_id,
                             &mut state.worker_stacks,
                             origin_id,
+                            state.nprobes,
                         );
                     }
 
@@ -883,6 +885,7 @@ impl ControllerService {
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
             is_any: m_def.is_any_protocol,
+            nprobes: m_def.number_of_probes,
             worker_stacks: HashMap::new(),
             trace_config: None,
             resolved_targets: HashSet::new(),
@@ -933,11 +936,8 @@ impl ControllerService {
                         pending.next_origin_idx = Some(idx + 1);
                         pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
                         let probe = Probe { dst: Some(addr) };
-                        let (task_type, count) = if pending.probe_is_measurement {
-                            (
-                                task::TaskType::Probe(probe),
-                                pending.nprobes.max(1) as usize, // Repeat nprobes times
-                            )
+                        let (task_type, nprobes) = if pending.probe_is_measurement {
+                            (task::TaskType::Probe(probe), pending.nprobes) // Worker repeats nprobes times
                         } else {
                             (task::TaskType::Discovery(probe), 1) // Discovery probes are sent once
                         };
@@ -945,13 +945,11 @@ impl ControllerService {
                             .worker_stacks
                             .entry(pending.discovery_worker)
                             .or_default()
-                            .extend(std::iter::repeat_n(
-                                Task {
-                                    task_type: Some(task_type),
-                                    origin_id,
-                                },
-                                count,
-                            ));
+                            .push_back(Task {
+                                task_type: Some(task_type),
+                                origin_id,
+                                nprobes,
+                            });
                         live.pending.insert(addr, pending);
                     }
                     // else: target is unresponsive on all attempted origins -> give up
@@ -1040,6 +1038,7 @@ async fn send_start_instructions(
             url: m_def.url.clone(),
             is_record: m_def.is_record,
             m_type: m_def.m_type,
+            probe_interval: m_def.probe_interval,
         };
 
         // Persist the Start instruction for re-sending on rejoin
