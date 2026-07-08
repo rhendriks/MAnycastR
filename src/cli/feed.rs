@@ -38,6 +38,8 @@ impl Stream for FeedStream {
 /// workers), or `"any"` (round-robin, default).
 /// The optional `origin` field selects the origin to send from: an origin ID,
 /// `"all"` (all configured origins), or `"any"` (first responsive, default).
+/// The optional `nprobes` field sets how many measurement probes are sent to
+/// the target (default 1).
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
@@ -61,7 +63,6 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        // A line's targets all share one dst; check the IP version once
         let addr = targets[0].dst.expect("parsed target always has a dst");
         // Skip IPv4/IPv6 targets when no origin with the same IP version exists
         if !origins.values().any(|&is_v6| is_v6 == addr.is_v6()) {
@@ -91,7 +92,7 @@ fn parse_feed_line(
     worker_map: &BiHashMap<u32, String>,
     origins: &HashMap<u32, bool>,
 ) -> Vec<LiveTarget> {
-    // Bare address shorthand (interactive use): any worker (round-robin), any origin
+    // Parse a bare address (with default configs)
     if !line.starts_with('{') {
         let Ok(dst) = line.parse::<Address>() else {
             return Vec::new();
@@ -100,15 +101,16 @@ fn parse_feed_line(
             dst: Some(dst),
             worker_id: ANY_WORKER,
             origin_id: ANY_ORIGIN,
+            nprobes: 1,
         }];
     }
 
-    // NDJSON object (producers/scripts)
+    // parse NDJSON format
     parse_feed_object(line, worker_map, origins).unwrap_or_default()
 }
 
 /// Parse an NDJSON feed object into one target per selected worker.
-/// Returns `None` on a malformed object, an unknown worker/origin.
+/// Returns `None` on a malformed object, an unknown worker/origin, or an invalid nprobes.
 fn parse_feed_object(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
@@ -124,6 +126,10 @@ fn parse_feed_object(
         None => ANY_ORIGIN,
         Some(origin) => parse_origin(origin, origins, dst.is_v6())?,
     };
+    let nprobes = match value.get("nprobes") {
+        None => 1,
+        Some(nprobes) => parse_nprobes(nprobes)?,
+    };
 
     Some(
         worker_ids
@@ -132,9 +138,28 @@ fn parse_feed_object(
                 dst: Some(dst),
                 worker_id,
                 origin_id,
+                nprobes,
             })
             .collect(),
     )
+}
+
+/// Parse `nprobes`, that specifies the number of probes to send to this target.
+fn parse_nprobes(nprobes: &serde_json::Value) -> Option<u32> {
+    let n = match nprobes {
+        // Probe count as JSON number (e.g., "nprobes":3)
+        serde_json::Value::Number(n) => n.as_u64()?,
+        // Probe count as numeric string (e.g., "nprobes":"3")
+        serde_json::Value::String(s) => s.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    if (1..=u8::MAX as u64).contains(&n) {
+        Some(n as u32)
+    } else {
+        warn!("[CLI] '{n}' is not a valid nprobes value (1-255).");
+        None
+    }
 }
 
 /// Resolve a feed line's `origin` value to an origin ID:
