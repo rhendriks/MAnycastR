@@ -11,6 +11,7 @@ use crate::orchestrator::{
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN, ANY_WORKER};
 use log::{info, warn};
 use std::collections::HashMap;
+use std::iter::repeat_n;
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc;
@@ -504,16 +505,14 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
 /// Live task distributor for feed-based measurements.
 ///
-/// Ticks once per second: first drains follow-up tasks (discovery follow-ups and
-/// `origin:any` retries) from the worker stacks, then drains targets from `feed`
-/// up to the remaining rate budget (`probing_rate`, enforced via the orchestrator's
-/// `--live_rate`; no worker receives more than `probing_rate` tasks per second).
+/// Prioritizes follow-up tasks for workers (--discovery, or --any).
+/// Drains targets up to the probing rate (optinally enforced by the orchestrator).
 ///
-/// Each target carries a worker assignment: `ANY_WORKER` (round-robin, default),
-/// `ALL_WORKERS` (broadcast, staggered by the worker interval), or a specific worker ID.
-/// Targets requiring discovery (--responsive, or `origin:any`) are sent as discovery
-/// tasks to a single worker and registered as pending; their measurement probes
-/// follow once a discovery reply arrives (see `send_result` and the sweeper).
+/// Tasks might be for `ANY_WORKER` (round-robin, default), `ALL_WORKERS` (broadcast),
+/// or a specific worker. Some tasks may be discovery tasks (--responsive, --any)
+/// which are registered as pending to track required follow-up probe configurations.
+///
+/// Measurement probes are duplicated when `nprobes` > 1.
 ///
 /// The measurement ends when the feed has closed (the CLI ended its stream or
 /// disconnected) and all follow-ups and pending discoveries have resolved,
@@ -574,7 +573,7 @@ pub fn distribute_live_tasks(
                             tasks,
                         })),
                     },
-                    1, // TODO enable 'nprobes:'
+                    1, // per-target nprobes is applied by task duplication
                     worker_interval,
                     0,
                 )
@@ -611,6 +610,8 @@ pub fn distribute_live_tasks(
 
                 for mut target in batch {
                     let Some(dst) = target.dst else { continue };
+                    // Measurement probes are repeated nprobes times
+                    let nprobes = target.nprobes.max(1) as usize;
 
                     // Ignore origin:any when there is only a single origin of the target's IP version
                     if target.origin_id == ANY_ORIGIN
@@ -671,15 +672,17 @@ pub fn distribute_live_tasks(
                                 discovery_worker: probe_worker,
                                 next_origin_idx,
                                 probe_is_measurement,
+                                nprobes: nprobes as u32,
                                 deadline: std::time::Instant::now()
                                     + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS),
                             },
                         );
 
-                        per_worker.entry(probe_worker).or_default().push(make_task(
-                            dst,
-                            !probe_is_measurement,
-                            origin_id,
+                        // A discovery probe is sent once, a measurement probe is repeated (nprobes)
+                        let count = if probe_is_measurement { nprobes } else { 1 };
+                        per_worker.entry(probe_worker).or_default().extend(repeat_n(
+                            make_task(dst, !probe_is_measurement, origin_id),
+                            count,
                         ));
                         continue;
                     }
@@ -693,12 +696,15 @@ pub fn distribute_live_tasks(
                             per_worker
                                 .entry(probing_workers[current_index])
                                 .or_default()
-                                .push(task);
+                                .extend(repeat_n(task, nprobes));
                             current_index += 1;
                         }
-                        ALL_WORKERS => broadcast.push(task),
+                        ALL_WORKERS => broadcast.extend(repeat_n(task, nprobes)),
                         id if probing_workers.contains(&id) => {
-                            per_worker.entry(id).or_default().push(task);
+                            per_worker
+                                .entry(id)
+                                .or_default()
+                                .extend(repeat_n(task, nprobes));
                         }
                         id => warn!(
                             "[Orchestrator] Dropping target {dst}: worker {id} is not probing in this measurement"
@@ -717,7 +723,7 @@ pub fn distribute_live_tasks(
                             tasks,
                         })),
                     },
-                    1, // TODO enable 'nprobes:'
+                    1, // per-target nprobes is applied by task duplication
                     0,
                     0,
                 )
@@ -734,7 +740,7 @@ pub fn distribute_live_tasks(
                             tasks: broadcast,
                         })),
                     },
-                    1, // TODO enable 'nprobes:'
+                    1, // per-target nprobes is applied by task duplication
                     worker_interval,
                     0,
                 )
