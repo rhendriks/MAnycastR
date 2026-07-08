@@ -1,5 +1,5 @@
 use crate::custom_module::manycastr::{Address, address};
-use crate::net::{IPv4Packet, PacketPayload, record_route_option};
+use crate::net::{IPv4Packet, PacketPayload};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Write};
 
@@ -96,7 +96,6 @@ impl ICMPPacket {
                         src,
                         dst,
                         payload: PacketPayload::Icmp { value: packet },
-                        options: None,
                     };
                     (&v4_packet).into()
                 }
@@ -132,43 +131,6 @@ impl ICMPPacket {
 
             _ => panic!("Source and Destination IP versions must match"),
         }
-    }
-
-    /// Create an ICMPv4 packet with Record Route option and checksum.
-    pub fn record_route_icmpv4(
-        icmp_identifier: u16,
-        sequence_number: u16,
-        payload: Vec<u8>,
-        src: u32,
-        dst: u32,
-        ttl: u8,
-    ) -> Vec<u8> {
-        let body_len = payload.len() as u16;
-        let mut packet = ICMPPacket {
-            icmp_type: 8, // Echo Request
-            code: 0,
-            checksum: 0,
-            icmp_identifier,
-            sequence_number,
-            payload,
-        };
-
-        // Turn everything into a vec of bytes and calculate checksum
-        let icmp_bytes: Vec<u8> = (&packet).into();
-        packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
-
-        let options = record_route_option();
-        let v4_packet = IPv4Packet {
-            length: 20 + 8 + body_len + options.len() as u16, // IP header (20) + ICMP header (8) + body length + options length
-            identifier: 15037,
-            ttl,
-            src,
-            dst,
-            options: Some(options),
-            payload: PacketPayload::Icmp { value: packet },
-        };
-
-        (&v4_packet).into()
     }
 
     /// Calculate the ICMP Checksum.
