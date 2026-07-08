@@ -1,8 +1,8 @@
 use crate::custom_module::manycastr::{DiscoveryReply, Probe, Task, Trace, TraceReply, task};
-use crate::orchestrator::TracerouteConfig;
 pub(crate) use crate::orchestrator::trace::{
     SessionTracker, TraceIdentifier, TraceProgress, TraceSession, ttl_midpoint,
 };
+use crate::orchestrator::{TracerouteConfig, wire_nprobes};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -27,7 +27,7 @@ pub fn discovery_handler(
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
-            nprobes,
+            nprobes: wire_nprobes(nprobes),
         })
         .collect();
 
@@ -98,7 +98,7 @@ pub fn trace_discovery_handler(
                 ttl: traceroute_config.initial_hop,
             })),
             origin_id,
-            nprobes: 1,
+            nprobes: 0, // single send
         });
     }
 }
@@ -208,7 +208,7 @@ pub fn trace_replies_handler(
                         ttl: next_ttl as u32,
                     })),
                     origin_id,
-                    nprobes: 1,
+                    nprobes: 0, // single send
                 });
         } else {
             session_tracker.sessions.remove(&identifier);

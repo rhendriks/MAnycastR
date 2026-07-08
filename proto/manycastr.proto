@@ -147,7 +147,7 @@ message Task {
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
   }
   uint32 origin_id = 4; // Origin from which to send this probe
-  uint32 nprobes = 5; // number of times the worker sends this probe, spaced by the Start probe_interval (set to 1 for discovery/trace tasks)
+  uint32 nprobes = 5; // number of times the worker sends this probe, spaced by the Start probe_interval
 }
 
 // Initial message to worker, contains the worker ID assigned by the orchestrator

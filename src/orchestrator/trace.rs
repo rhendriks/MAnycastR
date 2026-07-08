@@ -126,7 +126,7 @@ pub fn seed_tracemap_sessions(
                     ttl: mid as u32,
                 })),
                 origin_id,
-                nprobes: 1,
+                nprobes: 0, // single send
             }
         })
         .collect()
@@ -289,7 +289,7 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                                 ttl: next_ttl as u32,
                             })),
                             origin_id: session.origin_id,
-                            nprobes: 1,
+                            nprobes: 0, // single send
                         },
                     ));
                     session_tracker
