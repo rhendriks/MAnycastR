@@ -71,6 +71,8 @@ pub struct MeasurementState {
     pub is_responsive: bool,
     /// Whether unresolved targets are retried origin by origin (--any)
     pub is_any: bool,
+    /// Number of times each measurement probe is sent (always >= 1)
+    pub nprobes: u32,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
@@ -125,7 +127,7 @@ pub struct PendingTarget {
     pub next_origin_idx: Option<usize>,
     /// Whether the probe sent is itself the measurement (single-worker `origin:any`)
     pub probe_is_measurement: bool,
-    /// Number of measurement probes to send (per worker) once the target resolves
+    /// Number of measurement probes to send (per worker) once the target resolves (always >= 1)
     pub nprobes: u32,
     /// When the current attempt expires
     pub deadline: Instant,
