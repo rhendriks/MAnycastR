@@ -86,6 +86,11 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                 .expect("Failed to write final batch to Parquet file");
         }
 
+        // Add end_time on close
+        writer.append_key_value_metadata(parquet::file::metadata::KeyValue::new(
+            "end_time".to_string(),
+            chrono::Utc::now().to_rfc3339(),
+        ));
         writer.close().expect("Failed to close Parquet writer");
         rx.close();
     });
