@@ -1,4 +1,4 @@
-use crate::cli::writer::{MetadataArgs, WriteConfig, get_header};
+use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -12,9 +12,8 @@ use std::fs::File;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
+const ROW_BUFFER_CAPACITY: usize = 1_000_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
-// TODO should we order each buffer by IP for better compression?
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -23,7 +22,7 @@ const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 /// * `rx` - The receiver channel that receives the results.
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
-    let headers = get_header(config.is_chaos, config.is_multi_origin, config.m_type);
+    let headers = get_parquet_header(config.m_type);
     let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
@@ -75,7 +74,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
             // If the buffer is full, write the batch to the file
             if row_buffer.len() >= ROW_BUFFER_CAPACITY {
-                write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+                write_batch_to_parquet(&mut writer, &mut row_buffer, &headers)
                     .expect("Failed to write batch to Parquet file");
                 row_buffer.clear();
             }
@@ -83,7 +82,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
         // Write any remaining rows in the buffer
         if !row_buffer.is_empty() {
-            write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+            write_batch_to_parquet(&mut writer, &mut row_buffer, &headers)
                 .expect("Failed to write final batch to Parquet file");
         }
 
@@ -98,6 +97,9 @@ pub fn get_parquet_metadata(
     worker_map: &BiHashMap<u32, String>,
 ) -> Vec<(String, String)> {
     let mut md = Vec::new();
+
+    // Version of the Parquet output format (bump when making incompatible changes)
+    md.push(("format_version".to_string(), "1".to_string()));
 
     md.push((
         "measurement_type".to_string(),
@@ -212,7 +214,10 @@ fn measurement_reply_to_parquet_row(
         }
         MeasurementType::Laces => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-            row.rtt = Some(result.rtt);
+            // CHAOS replies carry no transmit timestamp, so there is no RTT to report
+            if row.chaos_data.is_none() {
+                row.rtt = Some(result.rtt);
+            }
         }
     }
 
@@ -247,6 +252,32 @@ fn trace_reply_to_parquet_row(
     }
 }
 
+/// Returns the fixed superset of columns for a measurement type.
+pub fn get_parquet_header(m_type: MeasurementType) -> Vec<&'static str> {
+    match m_type {
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+            vec![
+                "rx",
+                "addr",
+                "ttl",
+                "tx",
+                "trace_dst",
+                "hop_count",
+                "rtt",
+                "chaos_data",
+                "origin_id",
+            ]
+        }
+        MeasurementType::AnycastLatency => {
+            vec!["rx", "addr", "ttl", "rtt", "chaos_data", "origin_id"]
+        }
+        MeasurementType::Catchment => vec!["rx", "addr", "ttl", "chaos_data", "origin_id"],
+        MeasurementType::Laces => {
+            vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"]
+        }
+    }
+}
+
 /// Creates a parquet data schema from the headers based on the measurement type and configuration.
 ///
 /// # Arguments
@@ -256,14 +287,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 
     for &header in &headers {
         let field = match header {
-            "rx" | "tx" => {
-                SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
-                    .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Enum))
-                    .build()
-                    .unwrap()
-            }
-            "chaos_data" => {
+            "rx" | "tx" | "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::String))
@@ -303,11 +327,14 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 }
 
 /// Writes a batch of ParquetDataRow to the Parquet file using the provided writer.
+/// The batch is sorted by reply source address for better compression.
 pub fn write_batch_to_parquet(
     writer: &mut SerializedFileWriter<File>,
-    batch: &[ParquetDataRow],
+    batch: &mut [ParquetDataRow],
     headers: &[&str],
 ) -> Result<(), parquet::errors::ParquetError> {
+    batch.sort_unstable_by(|a, b| a.addr.cmp(&b.addr));
+
     let mut row_group_writer = writer.next_row_group()?;
 
     for &header in headers {
