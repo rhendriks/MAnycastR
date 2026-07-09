@@ -225,7 +225,6 @@ mod orchestrator;
 mod worker;
 
 pub const ALL_WORKERS: u32 = 0;
-pub const ANY_WORKER: u32 = u32::MAX; // Round-robin select a random worker
 pub const ALL_ORIGINS: u32 = 0;
 pub const ANY_ORIGIN: u32 = u32::MAX; // Try origins in order; stop on the first responsive one (live feed)
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
