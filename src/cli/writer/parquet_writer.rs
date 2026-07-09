@@ -100,20 +100,52 @@ pub fn get_parquet_metadata(
 
     // Version of the Parquet output format (bump when making incompatible changes)
     md.push(("format_version".to_string(), "1".to_string()));
+    md.push((
+        "tool_version".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    ));
 
     md.push((
         "measurement_type".to_string(),
         args.m_type.as_str().to_string(),
     ));
 
+    let start_time = chrono::DateTime::from_timestamp(args.start_time as i64, 0)
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_default();
+    md.push(("start_time".to_string(), start_time));
+
     if args.is_responsive {
         md.push(("responsive_mode".to_string(), "true".to_string()));
     }
 
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
+    md.push((
+        "hitlist_length".to_string(),
+        args.hitlist_length.to_string(),
+    ));
     md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
     md.push(("probing_rate".to_string(), args.probing_rate.to_string()));
     md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
+    md.push((
+        "probe_interval_s".to_string(),
+        args.probe_interval.to_string(),
+    ));
+    md.push((
+        "number_of_probes".to_string(),
+        args.number_of_probes.to_string(),
+    ));
+    md.push((
+        "any_protocol_mode".to_string(),
+        args.is_any_protocol.to_string(),
+    ));
+
+    if let Some(record) = args.record {
+        md.push(("record".to_string(), record.to_string()));
+    }
+    if let Some(url) = args.url {
+        md.push(("url".to_string(), url.to_string()));
+    }
 
     let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();
     md.push((
@@ -125,37 +157,33 @@ pub fn get_parquet_metadata(
         args.all_workers.len().to_string(),
     ));
 
-    let config_str = args
+    // Structured origin definitions; this mapping is required to interpret the origin_id column
+    let configurations = args
         .configurations
         .iter()
         .map(|c| {
-            format!(
-                "Worker: {}, Origin ID: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
-                if c.worker_id == ALL_WORKERS {
-                    "ALL".to_string()
-                } else {
-                    worker_map
-                        .get_by_left(&c.worker_id)
-                        .unwrap_or(&String::from("Unknown"))
-                        .to_string()
-                },
-                c.origin.as_ref().map_or(0, |o| o.origin_id),
-                c.origin
-                    .as_ref()
-                    .and_then(|o| o.src)
-                    .map_or("N/A".to_string(), |s| s.to_string()),
-                c.origin.as_ref().map_or(0, |o| o.sport),
-                c.origin.as_ref().map_or(0, |o| o.dport),
-                c.origin
-                    .as_ref()
-                    .map_or("N/A".to_string(), |o| o.p_type().to_string())
-            )
+            let worker = if c.worker_id == ALL_WORKERS {
+                "ALL".to_string()
+            } else {
+                worker_map
+                    .get_by_left(&c.worker_id)
+                    .unwrap_or(&String::from("Unknown"))
+                    .to_string()
+            };
+            serde_json::json!({
+                "worker": worker,
+                "origin_id": c.origin.as_ref().map_or(0, |o| o.origin_id),
+                "src": c.origin.as_ref().and_then(|o| o.src).map(|s| s.to_string()),
+                "sport": c.origin.as_ref().map_or(0, |o| o.sport),
+                "dport": c.origin.as_ref().map_or(0, |o| o.dport),
+                "protocol": c.origin.as_ref().map(|o| o.p_type().to_string()),
+            })
         })
         .collect::<Vec<_>>();
 
     md.push((
         "configurations".to_string(),
-        serde_json::to_string(&config_str).unwrap_or_default(),
+        serde_json::to_string(&configurations).unwrap_or_default(),
     ));
 
     md
