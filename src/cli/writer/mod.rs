@@ -49,6 +49,8 @@ pub struct WriteConfig<'a> {
 pub struct MetadataArgs<'a> {
     /// Path to the hitlist used.
     pub hitlist: &'a str,
+    /// Number of targets in the hitlist.
+    pub hitlist_length: usize,
     /// Whether the hitlist was shuffled.
     pub is_shuffle: bool,
     /// The probing rate used.
@@ -63,6 +65,18 @@ pub struct MetadataArgs<'a> {
     pub is_responsive: bool,
     /// Measurement type
     pub m_type: MeasurementType,
+    /// Measurement start time (Unix epoch seconds).
+    pub start_time: u64,
+    /// Record to send CHAOS (TXT) or A/AAAA requests for.
+    pub record: Option<&'a str>,
+    /// URL encoded in probes (e.g., opt-out link).
+    pub url: Option<&'a str>,
+    /// Interval between probes from/to the same origin,dst pair (seconds).
+    pub probe_interval: u32,
+    /// Number of probes sent per origin,dst pair.
+    pub number_of_probes: u32,
+    /// Whether protocols are tried in order until the target responds.
+    pub is_any_protocol: bool,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
