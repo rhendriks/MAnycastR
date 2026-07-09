@@ -516,25 +516,47 @@ SELECT * FROM read_csv('results.csv.gz', comment='#');
 ## Parquet output format
 
 When using `--parquet`, results are written as Apache Parquet files with Zstd compression.
-Measurement metadata (type, hitlist, probing rate, connected workers, etc.) is stored in the Parquet file's key-value metadata.
+Rows are sorted by `addr` within each row group (1M rows) for better compression and predicate pushdown.
 
 ### Columns
 
-Columns depend on the measurement type:
+The schema is fixed per measurement type: every column the measurement type can produce is always present,
+and is null when unused (e.g., `origin_id` in a single-origin measurement).
+The "Populated by" column below indicates which measurements fill in actual values:
 
-| Column | Type | Description | Measurement types |
+| Column | Type | Description | Populated by |
 |--------|------|-------------|-------------------|
-| `rx` | `ENUM` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
+| `rx` | `STRING` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Traceroute, LACeS |
-| `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
+| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Traceroute, LACeS (null for CHAOS replies) |
+| `tx` | `STRING` | Hostname of the sending worker | LACeS, Traceroute |
 | `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
 | `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
 | `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
 | `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
 
 > **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time — it is the signed offset `rx_time - tx_time` (milliseconds). Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be **different PoPs**, so this is a one-way delay plus clock offset rather than a round-trip, and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the value is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
+
+### File metadata
+
+Measurement provenance is stored in the Parquet file's key-value metadata:
+
+| Key | Description |
+|-----|-------------|
+| `format_version` | Version of the Parquet output format (currently `1`; bumped on incompatible changes) |
+| `tool_version` | MAnycastR version that produced the file |
+| `measurement_type` | Measurement type performed |
+| `start_time` / `end_time` | Measurement start and end (RFC 3339, UTC) |
+| `responsive_mode` | Present (`true`) when `--responsive` was used |
+| `hitlist_path` / `hitlist_length` / `hitlist_shuffled` | Hitlist used, its target count, and whether it was shuffled |
+| `probing_rate` | Probing rate (probes per second) |
+| `worker_interval_ms` | Interval between probes from different workers |
+| `probe_interval_s` / `number_of_probes` | Interval between and count of probes per origin,dst pair |
+| `any_protocol_mode` | Whether protocols were tried in order until the target responded |
+| `record` / `url` | DNS record queried / URL encoded in probes (present when set) |
+| `connected_workers` / `connected_workers_count` | Hostnames and count of connected workers |
+| `configurations` | JSON array of origin definitions (`worker`, `origin_id`, `src`, `sport`, `dport`, `protocol`) — the mapping needed to interpret the `origin_id` column |
 
 ### IP address encoding
 
