@@ -282,6 +282,7 @@ async fn stream_results_to_file(
 
     let metadata_args = MetadataArgs {
         hitlist: args.hitlist_path,
+        hitlist_length: args.hitlist_length,
         is_shuffle: args.is_shuffle,
         probing_rate: m_def.probing_rate,
         interval: m_def.worker_interval,
@@ -289,6 +290,12 @@ async fn stream_results_to_file(
         configurations: &m_def.configurations,
         is_responsive: m_def.is_responsive,
         m_type: m_def.m_type(),
+        start_time: start,
+        record: m_def.record.as_deref(),
+        url: m_def.url.as_deref(),
+        probe_interval: m_def.probe_interval,
+        number_of_probes: m_def.number_of_probes,
+        is_any_protocol: m_def.is_any_protocol,
     };
 
     // Check if any configuration has an origin ID
