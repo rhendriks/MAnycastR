@@ -87,7 +87,7 @@ message TargetBatch {
 // A live-feed target with an optional worker and origin assignment
 message LiveTarget {
   Address dst = 1; // target address to probe
-  uint32 worker_id = 2; // worker to use for this target
+  repeated uint32 worker_ids = 2; // probing workers: empty = any worker (round-robin), [0] = all workers, else specific worker IDs
   uint32 origin_id = 3; // origin to use for this target
   uint32 nprobes = 4; // number of measurement probes to send
 }
