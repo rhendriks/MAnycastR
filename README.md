@@ -53,13 +53,13 @@ When creating a measurement you can specify (for more information run --help):
 * **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
-* **Measurement Type** - `laces`, `catchment`, `unicast`, `latency`, `anycast-traceroute`, or `tracemap`
+* **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, or `tracemap`
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
-* **Selective** - specify which workers have to send out probes (all connected workers will listen for packets)
+* **Selective** (`-x`) - specify which workers have to send out probes (all connected workers will listen for packets). Accepts a comma-separated list of worker IDs, hostnames, or hostname globs with `*` (e.g. `-x 'us-*'` selects all workers whose hostname starts with `us-`, `-x '*-eqx'` all ending in `-eqx`)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
 * **Probe-interval** - interval between probes sent by a worker to the same target (default: 1s)
 * **nprobes** - number of probes to send to each target (default: 1)
-* **Address** - source anycast address to use for the probes
+* **Address** - source anycast address to use for the probes, or `unicastv4`/`unicastv6` to have each worker probe from its own local unicast address of that IP version
 * **Source port** - source port to use for probes (default: 62321)
 * **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
 * **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
@@ -95,6 +95,23 @@ To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf
 manycastr worker -a [ORC ADDRESS]
 ```
 Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
+
+### Worker connection loss and reconnects
+
+A worker that loses its connection to the orchestrator exits.
+When it reconnects with the same hostname (`-n`, default: `$HOSTNAME`) it keeps its worker ID,
+and if the measurement it was participating in is still active it rejoins it and resumes probing.
+Do note that there may be missed probe replies for the period that the worker was disconnected.
+Furthermore, the orchestrator drops follow-up tasks queued for the worker on disconnect.
+
+We recommend running workers under a supervisor that restarts them, e.g., systemd:
+
+```ini
+[Service]
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+```
 
 To confirm that the workers are connected, you can run the worker-list command on the CLI.
 ```
@@ -169,18 +186,62 @@ Catchment is inferred based on where the ping reply ends up.
 
 Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
 
+#### Iterative catchment mapping with protocol fallback (--any)
+
+```
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp,tcp -a 10.0.0.0 --any
+```
+
+With `--any` and multiple origins, the catchment is mapped iteratively:
+all targets are probed with the first origin, and targets that did not reply are retried with the next origin, until all origins are exhausted.
+A target's catchment is resolved by the first origin that receives a reply.
+The `origin_id` column identifies which origin resolved each target.
+
 ### Live catchment measurement
 
 ```
 manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 10.0.0.0 -o results.csv.gz
 ```
 
-Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSON, one JSON object per line:
+Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSON (or bare addresses), one JSON object per line.
 
 ```
 {"dst":"192.0.2.1"}
-{"dst":"203.0.113.7"}
+{"dst":"203.0.113.7","worker":"ams01"}
+{"dst":"203.0.113.7","worker":"all"}
+{"dst":"198.51.100.9","origin":"any","worker":"all"}
+192.0.2.1
 ```
+
+The optional `worker` field selects which worker(s) probe the target:
+* `"any"` - any worker (round-robin, default)
+* a worker ID (`1`) or hostname (`"ams01"`) - that specific worker
+* a hostname glob (`"us-*"`) - probe the target from every matched worker
+* `"all"` - probe from all workers
+
+When multiple workers are selected (a glob or `"all"`), their probes to the target
+are spaced by the worker interval (`-w`, default 1 second).
+
+The optional `origin` field selects which origin (source address, ports, protocol) the probe is sent from:
+* `"any"` - try origins in configuration order, stopping at the first origin the
+  target responds on (default).
+* `"all"` - all configured origins
+* an origin ID (`2`) - that specific origin (e.g., `{"dst":"192.0.2.1","origin":2}`)
+
+The optional `nprobes` field sets how many measurement probes are sent to the target
+(1-255, default 1), per selected worker (e.g., `{"dst":"192.0.2.1","nprobes":3}` with
+`worker:"all"` sends three probes from every worker). Repeated probes are spaced by
+`--probe_interval` (`-i`, default 1 second). Discovery probes are never repeated:
+with `origin:any` or `--responsive`, the repeated measurement probes follow once the target
+resolves.
+TODO: like `--nprobes` for hitlist measurements, repeated probes are not counted
+against the probing rate.
+
+Origins must be shared among all workers (live mode does not support worker-specific origins).
+
+Adding `--responsive` gates multi-worker targets (a glob or `worker:"all"`) behind a
+single-worker discovery probe first, so an unresponsive target is not probed from
+every selected worker.
 
 This enables reactive measurements: any process that can write lines can schedule probes, e.g.,
 re-mapping the catchment of a target after observing off-catchment packets (possible spoofing),
@@ -191,7 +252,8 @@ bgp-monitor | manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 
 ```
 
 Notes:
-* Targets are probed (round-robin across workers) as they arrive.
+* Targets are probed as they arrive.
+* Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
 * The measurement runs until stdin reaches EOF or Ctrl+C is pressed, after which the last results are awaited and the output file is finalized.
 * The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
 * Workers that connect while a live measurement is running do not participate until the next measurement.
@@ -215,13 +277,50 @@ the measurement then takes proportionally longer.
 ### Unicast latency measurement using ICMPv6
 
 ```
-manycastr cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
+manycastr cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicastv6
 ```
 
-Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
+`-a unicastv6` (or `-a unicastv4`) creates an origin where each worker probes from its own local unicast address of that IP version.
+When a latency measurement uses only unicast origins, probes will be sent from all workers to measure the latency of the target to all PoPs.
 Each hitlist target receives a single probe from every worker.
 Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
 Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
+
+### Mixed anycast and unicast measurements
+
+A configuration file (`-f`) may declare both anycast and unicast origins by using the keyword `unicastv4` (or `unicastv6`) in the source address field:
+
+```
+# Worker, src_addr, src_port, dst_port, protocol
+ALL, 10.0.0.0, 62321, 63853, icmp
+ALL, unicastv4, 62321, 63853, icmp
+```
+
+With `-m laces`, every worker probes each target from **all** of its origins — the anycast address *and* its own unicast address — in a single run.
+Replies are tagged with the `origin_id` column, giving anycast catchment/latency and per-PoP unicast RTTs from one measurement.
+
+### Mixed IPv4/IPv6 measurements
+
+A configuration file may declare IPv4 and IPv6 origins side by side, and the hitlist may mix IPv4 and IPv6 targets.
+Each target is probed only by the origins of its own IP version (an origin simply skips targets of the other version).
+
+```
+# Worker, src_addr, src_port, dst_port, protocol
+ALL, 10.0.0.0, 62321, 63853, icmp
+ALL, 2001:db8::1, 62321, 63853, icmp
+ALL, unicastv4, 62321, 63853, icmp
+ALL, unicastv6, 62321, 63853, icmp
+```
+
+```
+manycastr cli -a [::1]:50001 start -m catchment --hitlist mixed_hitlist.txt -f mixed.conf
+```
+
+The version of an anycast origin follows from its address; for unicast origins it is part of the keyword (`unicastv4`/`unicastv6`).
+Every hitlist IP version must be covered by at least one origin of that version.
+With `--any`, unresolved targets are retried only on the remaining origins of their own IP version.
+For live measurements (`--feed`), targets whose IP version has no configured origin are skipped, and `origin:any` tries the configured origins of the target's version in order.
+Note that `tracemap` does not support mixed-version runs.
 
 ### LACeS measurement
 
@@ -377,7 +476,7 @@ All values are stored as text. Columns depend on the measurement type:
 | `rx`         | `String`           | Hostname of the receiving worker (`*` for unresponsive trace hops — no reply was received)                            | All                                 |
 | `addr`       | `String`           | Source IP of the reply, or traceroute hop address (`*` if no reply)                                                   | All                                 |
 | `ttl`        | `String (integer)` | TTL of the reply                                                                                                      | All                                 |
-| `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
+| `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note)        | Latency, Traceroute, LACeS          |
 | `tx`         | `String`           | Hostname of the sending worker                                                                                        | LACeS, Traceroute                   |
 | `trace_dst`  | `String`           | Traceroute destination IP address                                                                                     | Traceroute                          |
 | `hop_count`  | `String (integer)` | TTL used to trigger this hop reply                                                                                    | Traceroute                          |
@@ -389,7 +488,7 @@ All values are stored as text. Columns depend on the measurement type:
 | Measurement type  | Columns (in order)                                                |
 |-------------------|-------------------------------------------------------------------|
 | Catchment         | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`]              |
-| Latency / Unicast | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`]                        |
+| Latency           | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`]                        |
 | LACeS             | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
 | Traceroute        | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt`        |
 
@@ -428,7 +527,7 @@ Columns depend on the measurement type:
 | `rx` | `ENUM` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
 | `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
 | `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Unicast/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Unicast, Traceroute, LACeS |
+| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Traceroute, LACeS |
 | `tx` | `ENUM` | Hostname of the sending worker | LACeS, Traceroute |
 | `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
 | `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
@@ -606,7 +705,7 @@ MAnycastR as a tool for anycast censuses was developed for the following paper. 
       series = {IMC '25}
 }
 ```
-* Use `-m unicast` to perform GCD measurements (for iGreedy).
+* Use `-m latency -a unicastv4` (or `unicastv6`) to perform GCD measurements (for iGreedy).
 * Use `-m laces` to perform anycast-based measurements (similar to [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf)).
 ---
 MAnycastR as a tool for detecting networks experiencing anycast site flipping was used for the following paper. Please cite this when using MAnycastR to detect anycast site flipping.
