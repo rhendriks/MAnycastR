@@ -38,6 +38,7 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   This works with `--responsive` and `origin:any` as only measurement probes are repeated.
 
 ### Changed
+- **Parquet output overhaul** — fixed schema per measurement type and extended metadata.
 - **Glob hostname support** — when selecting workers by hostname, globs (`*`) may be used.
   This works with inter-worker intervals and `--responsive` discovery probing.
 - **nprobes encoded in tasks** — Multi-probe tasks are now encoded in the task
