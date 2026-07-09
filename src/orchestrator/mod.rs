@@ -100,6 +100,28 @@ pub fn wire_nprobes(nprobes: u32) -> u32 {
 /// Timeout for live-feed discovery probes
 pub const LIVE_DISCOVERY_TIMEOUT_SECS: u64 = 3;
 
+/// Worker selection of a live-feed target (parsed from `LiveTarget.worker_ids`).
+#[derive(Debug)]
+pub enum WorkerSel {
+    /// Any single worker (round-robin over probing workers)
+    Any,
+    /// All probing workers (staggered broadcast)
+    All,
+    /// An explicit set of workers, staggered like a broadcast (sorted and deduplicated)
+    Set(Vec<u32>),
+}
+
+impl WorkerSel {
+    /// Whether the selection targets more than one worker.
+    pub fn is_multi(&self) -> bool {
+        match self {
+            WorkerSel::Any => false,
+            WorkerSel::All => true,
+            WorkerSel::Set(ids) => ids.len() > 1,
+        }
+    }
+}
+
 /// State for a live (feed-based) measurement.
 #[derive(Debug)]
 pub struct LiveState {
@@ -109,6 +131,8 @@ pub struct LiveState {
     pub origin_ids_v4: Vec<u32>,
     /// IPv6 origin IDs in configuration order (the order in which `origin:any` tries origins)
     pub origin_ids_v6: Vec<u32>,
+    /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast)
+    pub set_stacks: HashMap<Vec<u32>, VecDeque<Task>>,
 }
 
 impl LiveState {
@@ -125,8 +149,8 @@ impl LiveState {
 /// A live target awaiting a probe reply before it is resolved (or retried/given up).
 #[derive(Debug)]
 pub struct PendingTarget {
-    /// Worker selection for the follow-up measurement probes (ANY_WORKER, ALL_WORKERS, or a specific ID)
-    pub worker_sel: u32,
+    /// Worker selection for the follow-up measurement probes
+    pub worker_sel: WorkerSel,
     /// Worker performing the task
     pub discovery_worker: u32,
     /// Next origin index to try on timeout for `origin:any` (None for `--responsive`)
