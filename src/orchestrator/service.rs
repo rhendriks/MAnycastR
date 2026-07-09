@@ -18,9 +18,9 @@ use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
     ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementHandle, MeasurementState,
-    Participant, TracerouteConfig, WorkerRegistry, wire_nprobes,
+    Participant, TracerouteConfig, WorkerRegistry, WorkerSel, wire_nprobes,
 };
-use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_WORKER, custom_module};
+use crate::{ALL_ORIGINS, ALL_WORKERS, custom_module};
 use log::{error, info, warn};
 
 use std::collections::{HashMap, HashSet};
@@ -429,6 +429,7 @@ impl Controller for ControllerService {
                 pending: HashMap::new(),
                 origin_ids_v4,
                 origin_ids_v6,
+                set_stacks: HashMap::new(),
             });
         }
 
@@ -574,22 +575,31 @@ impl Controller for ControllerService {
                         continue; // Unknown target or duplicate reply
                     };
 
-                    // ANY_WORKER follow-ups are performed by the discovery worker
-                    let follow_up_worker = match pending.worker_sel {
-                        ANY_WORKER => pending.discovery_worker,
-                        sel => sel,
+                    // Follow-up task (the worker repeats it nprobes times)
+                    let task = Task {
+                        task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
+                        origin_id,
+                        nprobes: wire_nprobes(pending.nprobes),
                     };
-
-                    // Add follow-up task to the worker stack (the worker repeats it nprobes times)
-                    state
-                        .worker_stacks
-                        .entry(follow_up_worker)
-                        .or_default()
-                        .push_back(Task {
-                            task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
-                            origin_id,
-                            nprobes: wire_nprobes(pending.nprobes),
-                        });
+                    match pending.worker_sel {
+                        // Any-worker follow-ups are performed by the discovery worker
+                        WorkerSel::Any => state
+                            .worker_stacks
+                            .entry(pending.discovery_worker)
+                            .or_default()
+                            .push_back(task),
+                        WorkerSel::All => state
+                            .worker_stacks
+                            .entry(ALL_WORKERS)
+                            .or_default()
+                            .push_back(task),
+                        // Worker-set follow-ups are staggered by the live distributor
+                        WorkerSel::Set(worker_ids) => live
+                            .set_stacks
+                            .entry(worker_ids)
+                            .or_default()
+                            .push_back(task),
+                    }
                 }
             }
 
