@@ -217,7 +217,7 @@ impl Worker {
     /// * `is_traceroute` - Whether this is a traceroute measurement (raw-only)
     ///
     /// # Returns
-    /// (Arc<Socket>, bool) containing a Socket and whether it is a DGRAM socket
+    /// (`Arc<Socket>`, bool) containing a Socket and whether it is a DGRAM socket
     fn get_socket(
         is_ipv6: bool,
         p_type: ProtocolType,

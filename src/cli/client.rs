@@ -384,7 +384,9 @@ impl CliClient {
     /// A gRPC client that is connected to the orchestrator
     ///
     /// # Remarks
-    /// TLS enabled requires a certificate at ./tls/orchestrator.crt
+    /// When `fqdn` is set, the connection is made over TLS and the orchestrator is
+    /// authenticated against the CA certificate at `./tls/orchestrator.crt`.
+    /// The `fqdn` must match a Subject Alternative Name (SAN) entry of that certificate.
     pub(crate) async fn connect(
         address: &str,
         fqdn: Option<&String>,

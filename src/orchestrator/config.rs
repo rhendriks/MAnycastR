@@ -92,13 +92,20 @@ pub fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<Hash
     (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
 }
 
-// 1. Generate private key:
-// openssl genpkey -algorithm RSA -out orchestrator.key -pkeyopt rsa_keygen_bits:2048
-// 2. Generate certificate signing request:
-// openssl req -new -key orchestrator.key -out orchestrator.csr
-// 3. Generate self-signed certificate:
-// openssl x509 -req -in orchestrator.csr -signkey orchestrator.key -out orchestrator.crt -days 3650
-// 4. Distribute orchestrator.crt to clients
+/// Load the orchestrator's TLS identity (certificate + private key).
+///
+/// Reads the certificate from `./tls/orchestrator.crt` and the
+/// private key from `./tls/orchestrator.key`.
+///
+/// Workers and CLIs need a copy of `orchestrator.crt` in their own `./tls/` directory
+/// and validate the FQDN passed to their `--tls <FQDN>` argument against the
+/// certificate's Subject Alternative Name (SAN).
+///
+/// # Returns
+/// A tonic [`Identity`] to be used in the server's `ServerTlsConfig`.
+///
+/// # Panics
+/// If `./tls/orchestrator.crt` or `./tls/orchestrator.key` cannot be read.
 pub fn load_tls() -> Identity {
     // Load TLS certificate
     let cert = fs::read("tls/orchestrator.crt")

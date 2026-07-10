@@ -23,6 +23,13 @@ impl Worker {
     /// # Arguments
     /// * `address` - the address of the orchestrator in string format, containing both the IPv4 address and port number
     /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
+    ///
+    /// # Returns
+    /// A gRPC client that is connected to the orchestrator
+    ///
+    /// # Remarks
+    /// When `fqdn` is set, the connection is made over TLS and the orchestrator is
+    /// authenticated against the CA certificate at `./tls/orchestrator.crt`
     pub(crate) async fn connect(
         address: String,
         fqdn: Option<&str>,
