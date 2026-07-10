@@ -60,6 +60,8 @@
 //! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or unicast RTTs from all PoPs)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
+//! * **feed** - live measurement: NDJSON targets are streamed over stdin and probed as they arrive, until EOF/Ctrl+C
+//! * **feed-trace** - live measurement with TTL-limited probes supported (per-target `ttl` field, default 255)
 //!
 //! # Usage
 //!
@@ -205,13 +207,6 @@
 //! ```bash
 //! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
 //! ```
-//!
-//! # Future
-//!
-
-//! * Unicast traceroute
-//! * Extend the live target feed (`--feed`) beyond catchment mode, with per-target NDJSON fields (worker, TTL, protocol, DNS record)
-
 use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
@@ -317,19 +312,15 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
-                        .value_parser(value_parser!(String))
-                        .required_unless_present_any(["hitlist", "feed"]))
-                    .arg(arg!(--feed "Live mode: read NDJSON targets from stdin (e.g., {\"dst\":\"1.1.1.1\"}), runs until EOF/Ctrl+C [catchment only]")
-                        .action(ArgAction::SetTrue)
-                        .conflicts_with_all(["hitlist", "target", "shuffle", "any"]))
+                        .value_parser(value_parser!(String)))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
                         .action(ArgAction::Append)
                         .default_value("icmp")
                         .ignore_case(true))
-                    .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap"]))
+                    .arg(arg!(-m --m_type <MODE> "Measurement type to perform")
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap", "feed", "feed-trace"]))
                         .default_value("laces")
                         .ignore_case(true))
                     .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
