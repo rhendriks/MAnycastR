@@ -35,12 +35,10 @@ impl CliClient {
     /// # Arguments
     /// * `m_def` - measurement definition  for the orchestrator created from the command-line arguments
     /// * `args` - contains additional arguments for the measurement execution
-    /// * `m_type` - Measurement type
     pub(crate) async fn do_measurement_to_server(
         &mut self,
         m_def: ScheduleMeasurement,
         args: MeasurementExecutionArgs<'_>,
-        m_type: MeasurementType,
     ) -> Result<(), Box<dyn Error>> {
         let probing_rate = m_def.probing_rate;
         let worker_interval = m_def.worker_interval;
@@ -96,7 +94,7 @@ impl CliClient {
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
 
-        stream_results_to_file(stream, &m_def, args, m_type, Some(m_time)).await
+        stream_results_to_file(stream, &m_def, args, Some(m_time)).await
     }
 
     /// Perform a live (feed-based) measurement at the orchestrator.
@@ -139,7 +137,8 @@ impl CliClient {
             .filter_map(|conf| conf.origin)
             .map(|origin| (origin.origin_id, origin.is_v6()))
             .collect();
-        std::thread::spawn(move || read_stdin_feed(feed_tx, worker_map, origins));
+        let is_trace = m_def.m_type() == MeasurementType::FeedTrace;
+        std::thread::spawn(move || read_stdin_feed(feed_tx, worker_map, origins, is_trace));
 
         // Forward stdin targets to the gRPC stream until EOF or Ctrl+C.
         tokio::spawn(async move {
@@ -186,8 +185,7 @@ impl CliClient {
             .expect("Unable to obtain the orchestrator stream")
             .into_inner();
 
-        // Live results are written as LACeS rows TODO support separate live traceroute mode
-        stream_results_to_file(stream, &m_def, args, MeasurementType::Laces, None).await
+        stream_results_to_file(stream, &m_def, args, None).await
     }
 }
 
@@ -195,13 +193,10 @@ impl CliClient {
 ///
 /// Shared by hitlist-based and live measurements. A progress bar is shown only when
 /// an estimated measurement duration is provided (live measurements are open-ended).
-/// `row_m_type` selects the output row format (live measurements use LACeS rows);
-/// the file name and metadata reflect the measurement definition's own type.
 async fn stream_results_to_file(
     mut stream: Streaming<ReplyBatch>,
     m_def: &ScheduleMeasurement,
     args: MeasurementExecutionArgs<'_>,
-    row_m_type: MeasurementType,
     m_time: Option<f32>,
 ) -> Result<(), Box<dyn Error>> {
     // Get start time of measurement
@@ -316,7 +311,7 @@ async fn stream_results_to_file(
         print_to_cli: args.is_cli,
         output_file: file,
         metadata_args,
-        m_type: row_m_type,
+        m_type: m_def.m_type(),
         is_multi_origin,
         worker_map: args.worker_map.clone(),
         is_chaos,
