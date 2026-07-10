@@ -342,6 +342,8 @@ impl Display for MeasurementType {
             Self::AnycastLatency => "Latency",
             Self::AnycastTraceroute => "Anycast Traceroute",
             Self::Tracemap => "Tracemap",
+            Self::Feed => "Live Feed",
+            Self::FeedTrace => "Live Feed Traceroute",
         };
         write!(f, "{}", s)
     }
@@ -355,6 +357,8 @@ impl MeasurementType {
             Self::AnycastLatency => "latency",
             Self::AnycastTraceroute => "anycast-traceroute",
             Self::Tracemap => "tracemap",
+            Self::Feed => "feed",
+            Self::FeedTrace => "feed-trace",
         }
     }
 
@@ -365,8 +369,15 @@ impl MeasurementType {
             "latency" => Some(Self::AnycastLatency),
             "anycast-traceroute" => Some(Self::AnycastTraceroute),
             "tracemap" => Some(Self::Tracemap),
+            "feed" => Some(Self::Feed),
+            "feed-trace" => Some(Self::FeedTrace),
             _ => None,
         }
+    }
+
+    /// Whether this is a live (feed-based) measurement type (targets streamed over stdin).
+    pub fn is_feed(&self) -> bool {
+        matches!(self, Self::Feed | Self::FeedTrace)
     }
 }
 
