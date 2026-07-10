@@ -48,10 +48,39 @@ pub async fn handle(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let is_any_protocol = matches.get_flag("any");
     let is_responsive = matches.get_flag("responsive") || is_any_protocol;
-    let is_feed = matches.get_flag("feed");
     let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
+    let is_feed = m_type.is_feed();
+
+    // Feed measurements read targets from stdin; hitlist-based options do not apply
+    if is_feed {
+        let invalid = [
+            (matches.contains_id("hitlist"), "--hitlist"),
+            (matches.contains_id("target"), "--target"),
+            (matches.get_flag("shuffle"), "--shuffle"),
+            (is_any_protocol, "--any"),
+        ];
+        if let Some((_, flag)) = invalid.iter().find(|(is_set, _)| *is_set) {
+            let msg = format!(
+                "[CLI] {flag} cannot be combined with a feed measurement (-m {}).",
+                m_type.as_str()
+            );
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    } else if !matches.contains_id("hitlist") && !matches.contains_id("target") {
+        let msg = "[CLI] --hitlist or --target is required for hitlist-based measurements.";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // --responsive cannot be combined with trace mode (unresponsive hops)
+    if m_type == MeasurementType::FeedTrace && is_responsive {
+        let msg = "[CLI] --responsive cannot be combined with feed-trace (TTL-limited probes may never reach the target).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
 
     // Tracemap targets unresponsive prefixes; there is nothing to discover first
     if m_type == MeasurementType::Tracemap && is_responsive {
@@ -61,19 +90,8 @@ pub async fn handle(
     }
 
     // Disallow --responsive for catchment mappings
-    if m_type == MeasurementType::Catchment
-        && matches.get_flag("responsive")
-        && !is_any_protocol
-        && !is_feed
-    {
+    if m_type == MeasurementType::Catchment && matches.get_flag("responsive") && !is_any_protocol {
         let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness); use --any for iterative multi-origin mapping.";
-        error!("{}", msg);
-        return Err(msg.into());
-    }
-
-    // TODO support more measurement types
-    if is_feed && m_type != MeasurementType::Catchment {
-        let msg = "[CLI] --feed currently only supports catchment measurements (-m catchment).";
         error!("{}", msg);
         return Err(msg.into());
     }
@@ -312,7 +330,7 @@ pub async fn handle(
             .await
     } else {
         grpc_client
-            .do_measurement_to_server(m_definition, args, m_type)
+            .do_measurement_to_server(m_definition, args)
             .await
     }
 }
