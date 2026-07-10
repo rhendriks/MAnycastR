@@ -221,6 +221,13 @@ impl Controller for ControllerService {
         let probing_rate = m_def.probing_rate;
         let m_type = m_def.m_type();
 
+        // Feed measurements stream their targets over the live measurement RPC
+        if m_type.is_feed() {
+            return Err(Status::invalid_argument(
+                "Feed measurements must use the live measurement stream",
+            ));
+        }
+
         // Classify workers and validate configuration
         let ClassifiedWorkers {
             participating_ids,
@@ -350,10 +357,9 @@ impl Controller for ControllerService {
             }
         };
 
-        if m_def.m_type() != MeasurementType::Catchment {
-            // TODO live-measurement should be measurement type agnostic (mixed types)
+        if !m_def.m_type().is_feed() {
             return Err(Status::invalid_argument(
-                "Live measurements currently only support catchment mode",
+                "Live measurements require a feed measurement type (-m feed or -m feed-trace)",
             ));
         }
 
@@ -483,10 +489,7 @@ impl Controller for ControllerService {
             feed_rx,
             self.measurement.clone(),
             Arc::clone(&self.saved_workers),
-            probing_rate,
-            m_def.worker_interval as u64,
-            m_def.probe_interval as u64,
-            m_def.is_responsive,
+            &m_def,
         );
 
         // Return CLI result stream
@@ -640,28 +643,39 @@ impl Controller for ControllerService {
                         }
                     }
 
-                    MeasurementType::Catchment | MeasurementType::Tracemap => warn!(
+                    MeasurementType::Catchment
+                    | MeasurementType::Tracemap
+                    | MeasurementType::Feed
+                    | MeasurementType::FeedTrace => warn!(
                         "[Orchestrator] Received discovery results for Origin {origin_id}, from Worker {catcher_id}, for unsupported mode: {}",
                         state.m_type
                     ),
                 }
             }
 
-            if !trace_bucket.is_empty()
-                && let Some(config) = state.trace_config.as_mut()
-            {
-                // Only forward trace replies that matched an active trace session
-                let matched_replies = trace_replies_handler(
-                    trace_bucket,
-                    &mut state.worker_stacks,
-                    config,
-                    origin_id,
-                );
+            if !trace_bucket.is_empty() {
+                if let Some(config) = state.trace_config.as_mut() {
+                    // Only forward trace replies that matched an active trace session
+                    let matched_replies = trace_replies_handler(
+                        trace_bucket,
+                        &mut state.worker_stacks,
+                        config,
+                        origin_id,
+                    );
 
-                for t in matched_replies {
-                    results_bucket.push(Reply {
-                        reply_data: Some(ReplyData::Trace(t)),
-                    });
+                    for t in matched_replies {
+                        results_bucket.push(Reply {
+                            reply_data: Some(ReplyData::Trace(t)),
+                        });
+                    }
+                } else if state.m_type == MeasurementType::FeedTrace {
+                    // Feed-trace has no session tracking (TTLs are user-driven);
+                    // forward hop/destination replies directly to the CLI
+                    for t in trace_bucket {
+                        results_bucket.push(Reply {
+                            reply_data: Some(ReplyData::Trace(t)),
+                        });
+                    }
                 }
             }
         }
