@@ -53,6 +53,7 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
 - `-a`/`--address` is now required unless `--configuration` is given.
 
 ### Fixed
+- **Multi-origin traceroute output no longer panics the CSV writer**.
 - **Robust measurement finishing** — completion is now tracked per-participant.
   This fixes a hang when a worker disconnects between receiving End and reporting Finished.
 - **Hitlist catchment with `--responsive`** — would yield no results.
