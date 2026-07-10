@@ -40,12 +40,14 @@ impl Stream for FeedStream {
 /// `"all"` (all configured origins), or `"any"` (first responsive, default).
 /// The optional `nprobes` field sets how many measurement probes are sent to
 /// the target (default 1), spaced by the measurement's probe interval.
+/// The optional `ttl` field (feed-trace only) sets the probe TTL (default 255)
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
     feed_tx: mpsc::Sender<CliMessage>,
     worker_map: BiHashMap<u32, String>,
     origins: HashMap<u32, bool>, // origin ID -> is_v6
+    is_trace: bool,              // feed-trace measurement (enables the per-target `ttl` field)
 ) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -57,7 +59,7 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        let Some(target) = parse_feed_line(line, &worker_map, &origins) else {
+        let Some(target) = parse_feed_line(line, &worker_map, &origins, is_trace) else {
             warn!("[CLI] Skipping invalid feed line: {line}");
             continue;
         };
@@ -91,6 +93,7 @@ fn parse_feed_line(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
     origins: &HashMap<u32, bool>,
+    is_trace: bool,
 ) -> Option<LiveTarget> {
     // Parse a bare address (with default configs)
     if !line.starts_with('{') {
@@ -99,20 +102,22 @@ fn parse_feed_line(
             dst: Some(dst),
             worker_ids: Vec::new(), // any worker (round-robin)
             origin_id: ANY_ORIGIN,
-            nprobes: 1,
+            nprobes: 1, // TODO use unset value of 0 (defaulting to 1)
+            ttl: 0, // unset (default 255 for feed-trace)
         });
     }
 
     // parse NDJSON format
-    parse_feed_object(line, worker_map, origins)
+    parse_feed_object(line, worker_map, origins, is_trace)
 }
 
 /// Parse an NDJSON feed object into a live target carrying its worker selection.
-/// Returns `None` on a malformed object, an unknown worker/origin, or an invalid nprobes.
+/// Returns `None` on a malformed object, an unknown worker/origin, or an invalid nprobes/ttl.
 fn parse_feed_object(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
     origins: &HashMap<u32, bool>,
+    is_trace: bool,
 ) -> Option<LiveTarget> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let dst = value.get("dst")?.as_str()?.parse::<Address>().ok()?;
@@ -128,13 +133,40 @@ fn parse_feed_object(
         None => 1,
         Some(nprobes) => parse_nprobes(nprobes)?,
     };
+    let ttl = match value.get("ttl") {
+        None => 0, // unset (default 255 for feed-trace)
+        Some(_) if !is_trace => {
+            warn!("[CLI] The 'ttl' field requires a feed-trace measurement (-m feed-trace).");
+            return None;
+        }
+        Some(ttl) => parse_ttl(ttl)?,
+    };
 
     Some(LiveTarget {
         dst: Some(dst),
         worker_ids,
         origin_id,
         nprobes,
+        ttl,
     })
+}
+
+/// Parse `ttl`, the probe TTL used for this target (feed-trace only, 1-255).
+fn parse_ttl(ttl: &serde_json::Value) -> Option<u32> {
+    let n = match ttl {
+        // TTL as JSON number (e.g., "ttl":12)
+        serde_json::Value::Number(n) => n.as_u64()?,
+        // TTL as numeric string (e.g., "ttl":"12")
+        serde_json::Value::String(s) => s.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    if (1..=u8::MAX as u64).contains(&n) {
+        Some(n as u32)
+    } else {
+        warn!("[CLI] '{n}' is not a valid ttl value (1-255).");
+        None
+    }
 }
 
 /// Parse `nprobes`, that specifies the number of probes to send to this target.
