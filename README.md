@@ -53,7 +53,7 @@ When creating a measurement you can specify (for more information run --help):
 * **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
-* **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, or `tracemap`
+* **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, or `feed-trace` (the feed types read NDJSON targets from stdin instead of a hitlist, see [Live (feed) measurements](#live-feed-measurements))
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** (`-x`) - specify which workers have to send out probes (all connected workers will listen for packets). Accepts a comma-separated list of worker IDs, hostnames, or hostname globs with `*` (e.g. `-x 'us-*'` selects all workers whose hostname starts with `us-`, `-x '*-eqx'` all ending in `-eqx`)
 * **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
@@ -72,7 +72,6 @@ When creating a measurement you can specify (for more information run --help):
 * **Shuffle** - shuffle the hitlist
 * **Responsive** - check if a target is responsive before probing from all workers
 * **Parquet** - store results in .parquet format instead of .csv.gz
-* **Feed** (`--feed`) - live mode: read NDJSON targets from stdin instead of a hitlist (catchment only, see [Live catchment measurement](#live-catchment-measurement))
 
 
 ## Usage
@@ -188,7 +187,7 @@ As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissio
 
 For DNS measurements we prefer `SOCK_DGRAM` to avoid generating ICMP port-unreachable replies, which would be generated for every DNS reply if a raw socket were used (since the kernel has no UDP listener bound to the source port).
 
-> **Traceroute exception:** UDP/DNS and TCP traceroute (`-m anycast-traceroute -p dns|tcp`) always require a raw socket (`CAP_NET_RAW`), even for DNS, because the worker needs per-probe TTL control and direct access to the checksum / sequence-number fields. See [Anycast traceroute measurement](#anycast-traceroute-measurement).
+> **Traceroute exception:** traceroute measurements (`-m anycast-traceroute`, `-m tracemap`, and `-m feed-trace`) always require a raw socket (`CAP_NET_RAW`).
 
 ### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
 
@@ -241,10 +240,10 @@ all targets are probed with the first origin, and targets that did not reply are
 A target's catchment is resolved by the first origin that receives a reply.
 The `origin_id` column identifies which origin resolved each target.
 
-### Live catchment measurement
+### Live (feed) measurements
 
 ```
-manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 10.0.0.0 -o results.csv.gz
+manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0 -o results.csv.gz
 ```
 
 Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSON (or bare addresses), one JSON object per line.
@@ -292,7 +291,7 @@ re-mapping the catchment of a target after observing off-catchment packets (poss
 or re-evaluating catchments after a routing change observed in passive BGP data.
 
 ```
-bgp-monitor | manycastr cli -a [::1]:50001 start -m catchment --feed -p icmp -a 10.0.0.0
+bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
 ```
 
 Notes:
@@ -301,6 +300,27 @@ Notes:
 * The measurement runs until stdin reaches EOF or Ctrl+C is pressed, after which the last results are awaited and the output file is finalized.
 * The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
 * Workers that connect while a live measurement is running do not participate until the next measurement.
+
+#### Live traceroute (feed-trace)
+
+```
+manycastr cli -a [::1]:50001 start -m feed-trace -p icmp -a 10.0.0.0 -o results.csv.gz
+```
+
+`-m feed-trace` sends TTL-limited probes and puts workers in traceroute mode: they listen for
+ICMP **Time Exceeded** replies (in addition to regular replies from the target).
+Feed lines accept an additional `ttl` field (1-255) setting the probe TTL.
+
+```
+{"dst":"192.0.2.1","ttl":4}
+{"dst":"192.0.2.1","ttl":5}
+{"dst":"192.0.2.1"}
+```
+
+Notes:
+* Results are written as traceroute rows with the TTL used per probe:
+  `rx`, `addr` (the replying hop or target), `ttl` (of the reply), `tx`, `trace_dst` (the probed target), `probe_ttl` (TTL the probe was sent with), `rtt`.
+* Workers always require a raw socket (`CAP_NET_RAW`) for feed-trace, for all protocols (per-probe TTL control).
 
 ### Anycast latency measurement using TCPv4
 
@@ -363,7 +383,7 @@ manycastr cli -a [::1]:50001 start -m catchment --hitlist mixed_hitlist.txt -f m
 The version of an anycast origin follows from its address; for unicast origins it is part of the keyword (`unicastv4`/`unicastv6`).
 Every hitlist IP version must be covered by at least one origin of that version.
 With `--any`, unresolved targets are retried only on the remaining origins of their own IP version.
-For live measurements (`--feed`), targets whose IP version has no configured origin are skipped, and `origin:any` tries the configured origins of the target's version in order.
+For live measurements (`-m feed`/`feed-trace`), targets whose IP version has no configured origin are skipped, and `origin:any` tries the configured origins of the target's version in order.
 Note that `tracemap` does not support mixed-version runs.
 
 ### LACeS measurement
