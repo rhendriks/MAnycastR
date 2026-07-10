@@ -241,12 +241,19 @@ pub async fn handle(
                 )
             };
 
+            // ICMP probes carry no source port (dport used as the ICMP identifier)
+            let sport = if origin.p_type() == ProtocolType::Icmp {
+                "n/a".to_string()
+            } else {
+                origin.sport.to_string()
+            };
+
             table.add_row(row![
                 worker_name,
                 worker_id_str,
                 origin.origin_id,
                 origin.src.unwrap().to_string(),
-                origin.sport,
+                sport,
                 origin.dport,
                 origin.p_type()
             ]);
