@@ -131,11 +131,12 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             .then(|| Writer::from_writer(io::stdout())),
     };
 
-    // Write header
+    // Write header and flush it immediately
     let header = get_header(config.is_chaos, config.is_multi_origin, config.m_type);
     dual_wtr
         .write_record(header)
         .expect("Failed to write header to file");
+    dual_wtr.flush().expect("Failed to flush header");
 
     tokio::spawn(async move {
         // Receive task results from the outbound channel
