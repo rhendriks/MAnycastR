@@ -321,6 +321,9 @@ Notes:
 * Results are written as traceroute rows with the TTL used per probe:
   `rx`, `addr` (the replying hop or target), `ttl` (of the reply), `tx`, `trace_dst` (the probed target), `probe_ttl` (TTL the probe was sent with), `rtt`.
 * Workers always require a raw socket (`CAP_NET_RAW`) for feed-trace, for all protocols (per-probe TTL control).
+* Stray ICMP errors (e.g., backscatter arriving at an anycast origin) are filtered by the
+  orchestrator: a trace reply is only forwarded if its quoted destination was recently probed
+  by the feed and its decoded sender is a participating worker.
 
 ### Anycast latency measurement using TCPv4
 
@@ -443,9 +446,6 @@ load-balancers forward every probe of a trace along the same path. The per-probe
 (hop TTL, worker ID, send timestamp) is therefore encoded in header fields that are *not* part
 of the flow hash, and recovered from the ICMP Time Exceeded quote (original IP header + first 8
 transport bytes):
-
-**NOTE** Multiple origins (with varying port or IP address values) can be used to purposefully (and in a controlled manner)
-trigger load-balancers and observe their behavior (e.g., for detecting anycast site flipping).
 
 | Protocol | Identity carried in                                                                                            |
 |----------|----------------------------------------------------------------------------------------------------------------|
