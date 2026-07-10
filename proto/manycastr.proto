@@ -36,8 +36,10 @@ enum MeasurementType {
   LACES = 0;
   CATCHMENT = 1;
   ANYCAST_LATENCY = 2; // TODO rename to 'LATENCY'
-  ANYCAST_TRACEROUTE = 3; // TODO rename to 'TRACEROUTE' and implement unicast traceroute
+  ANYCAST_TRACEROUTE = 3; // TODO rename to 'TRACEROUTE'
   TRACEMAP = 4;
+  FEED = 5;
+  FEED_TRACE = 6;
 }
 
 enum ProtocolType {
@@ -90,6 +92,7 @@ message LiveTarget {
   repeated uint32 worker_ids = 2; // probing workers: empty = any worker (round-robin), [0] = all workers, else specific worker IDs
   uint32 origin_id = 3; // origin to use for this target
   uint32 nprobes = 4; // number of measurement probes to send
+  uint32 ttl = 5; // probe TTL (FEED_TRACE only): 0 = unset (default 255)
 }
 
 // A list of workers
