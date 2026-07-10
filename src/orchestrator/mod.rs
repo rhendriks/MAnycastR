@@ -133,6 +133,8 @@ pub struct LiveState {
     pub origin_ids_v6: Vec<u32>,
     /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast)
     pub set_stacks: HashMap<Vec<u32>, VecDeque<Task>>,
+    /// Recently dispatched trace targets and their reply deadline (feed-trace only).
+    pub trace_targets: HashMap<Address, Instant>,
 }
 
 impl LiveState {

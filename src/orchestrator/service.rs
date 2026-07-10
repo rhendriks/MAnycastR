@@ -436,6 +436,7 @@ impl Controller for ControllerService {
                 origin_ids_v4,
                 origin_ids_v6,
                 set_stacks: HashMap::new(),
+                trace_targets: HashMap::new(),
             });
         }
 
@@ -669,12 +670,21 @@ impl Controller for ControllerService {
                         });
                     }
                 } else if state.m_type == MeasurementType::FeedTrace {
-                    // Feed-trace has no session tracking (TTLs are user-driven);
-                    // forward hop/destination replies directly to the CLI
-                    for t in trace_bucket {
-                        results_bucket.push(Reply {
-                            reply_data: Some(ReplyData::Trace(t)),
-                        });
+                    // Check there is a matching trace target for the received reply
+                    let now = std::time::Instant::now();
+                    if let Some(live) = state.live.as_ref() {
+                        for t in trace_bucket {
+                            let is_probed_target = t.trace_dst.is_some_and(|dst| {
+                                live.trace_targets
+                                    .get(&dst)
+                                    .is_some_and(|deadline| *deadline > now)
+                            });
+                            if is_probed_target && state.participants.contains_key(&t.tx_id) {
+                                results_bucket.push(Reply {
+                                    reply_data: Some(ReplyData::Trace(t)),
+                                });
+                            }
+                        }
                     }
                 }
             }

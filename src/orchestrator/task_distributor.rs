@@ -618,6 +618,12 @@ pub fn distribute_live_tasks(
                             set_follow_ups.push((worker_ids.clone(), stack.drain(..n).collect()));
                         }
                     }
+
+                    // Drop trace targets whose reply window has passed (stray filtering)
+                    if is_trace {
+                        let now = std::time::Instant::now();
+                        live.trace_targets.retain(|_, deadline| *deadline > now);
+                    }
                 }
 
                 let pending_count = state.live.as_ref().map_or(0, |live| live.pending.len());
@@ -718,6 +724,16 @@ pub fn distribute_live_tasks(
                         } else {
                             target.origin_id
                         };
+
+                        // Track the trace packet sent for filtering
+                        if let Some(live) = state.live.as_mut() {
+                            let window = probing_workers.len() as u64 * worker_interval
+                                + target.nprobes.max(1).saturating_sub(1) as u64 * probe_interval
+                                + REPLY_GRACE_SECS;
+                            let deadline =
+                                std::time::Instant::now() + Duration::from_secs(window);
+                            live.trace_targets.insert(dst, deadline);
+                        }
 
                         // Default to a high TTL that reaches the target itself
                         let ttl = if target.ttl == 0 { 255 } else { target.ttl };
