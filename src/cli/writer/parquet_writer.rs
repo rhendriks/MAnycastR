@@ -65,7 +65,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                         origin_id,
                     ),
                     Some(ReplyData::Trace(trace_reply)) => {
-                        trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map)
+                        trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map, origin_id)
                     }
                     _ => panic!("Unexpected reply data"),
                 };
@@ -264,6 +264,7 @@ fn trace_reply_to_parquet_row(
     reply: TraceReply,
     rx_worker_id: u32,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
 ) -> ParquetDataRow {
     // Unresponsive hops have no calculated RTT, and no worker received a reply
     let (rx, rtt) = if reply.hop_addr.is_some() {
@@ -283,6 +284,7 @@ fn trace_reply_to_parquet_row(
         rtt,
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
         hop_count: Some(reply.hop_count as u8),
+        origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
         ..Default::default()
     }
 }

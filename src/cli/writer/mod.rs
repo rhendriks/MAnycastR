@@ -166,7 +166,9 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                                 panic!("Received regular reply during a traceroute measurement")
                             }
                         },
-                        ReplyData::Trace(reply) => get_trace_row(reply, &rx_id, &config.worker_map),
+                        ReplyData::Trace(reply) => {
+                            get_trace_row(reply, &rx_id, &config.worker_map, origin_id)
+                        }
                         ReplyData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
@@ -220,8 +222,12 @@ pub fn get_header(
         }
     };
 
-    // Optional fields
-    if is_chaos {
+    // Optional fields (trace replies carry no CHAOS data; trace DNS probes are always A queries)
+    let is_trace = matches!(
+        m_type,
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap | MeasurementType::FeedTrace
+    );
+    if is_chaos && !is_trace {
         header.push("chaos_data");
     }
     if is_multi_origin {
