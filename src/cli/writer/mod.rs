@@ -157,10 +157,12 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                             MeasurementType::Catchment => {
                                 get_catchment_csv_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::Laces => {
+                            MeasurementType::Laces | MeasurementType::Feed => {
                                 get_laces_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+                            MeasurementType::AnycastTraceroute
+                            | MeasurementType::Tracemap
+                            | MeasurementType::FeedTrace => {
                                 panic!("Received regular reply during a traceroute measurement")
                             }
                         },
@@ -199,13 +201,16 @@ pub fn get_header(
         MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
         }
+        MeasurementType::FeedTrace => {
+            vec!["rx", "addr", "ttl", "tx", "trace_dst", "probe_ttl", "rtt"]
+        }
         MeasurementType::AnycastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
         }
         MeasurementType::Catchment => {
             vec!["rx", "addr", "ttl"]
         }
-        MeasurementType::Laces => {
+        MeasurementType::Laces | MeasurementType::Feed => {
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if is_chaos {
                 vec!["rx", "addr", "ttl", "tx"]
