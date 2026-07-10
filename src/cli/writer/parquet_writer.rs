@@ -242,10 +242,12 @@ fn measurement_reply_to_parquet_row(
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
         }
-        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+        MeasurementType::AnycastTraceroute
+        | MeasurementType::Tracemap
+        | MeasurementType::FeedTrace => {
             panic!("Received MeasurementReply during a traceroute measurement")
         }
-        MeasurementType::Laces => {
+        MeasurementType::Laces | MeasurementType::Feed => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if row.chaos_data.is_none() {
@@ -301,11 +303,24 @@ pub fn get_parquet_header(m_type: MeasurementType) -> Vec<&'static str> {
                 "origin_id",
             ]
         }
+        MeasurementType::FeedTrace => {
+            vec![
+                "rx",
+                "addr",
+                "ttl",
+                "tx",
+                "trace_dst",
+                "probe_ttl",
+                "rtt",
+                "chaos_data",
+                "origin_id",
+            ]
+        }
         MeasurementType::AnycastLatency => {
             vec!["rx", "addr", "ttl", "rtt", "chaos_data", "origin_id"]
         }
         MeasurementType::Catchment => vec!["rx", "addr", "ttl", "chaos_data", "origin_id"],
-        MeasurementType::Laces => {
+        MeasurementType::Laces | MeasurementType::Feed => {
             vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"]
         }
     }
@@ -335,7 +350,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "ttl" | "origin_id" | "hop_count" => {
+            "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::integer(8, false)))
@@ -418,7 +433,7 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "ttl" | "origin_id" | "hop_count" => {
+                "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
@@ -426,7 +441,7 @@ pub fn write_batch_to_parquet(
                             let opt_val: Option<u8> = match header {
                                 "ttl" => row.ttl,
                                 "origin_id" => row.origin_id,
-                                "hop_count" => row.hop_count,
+                                "hop_count" | "probe_ttl" => row.hop_count, // TODO use single name for consistency
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
