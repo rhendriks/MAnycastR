@@ -2,23 +2,26 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [2.0.0] - 2026-07-09
-Adds live (feed-based) catchment measurements: enabling reactive measurements
+## [2.0.0] - 2026-07-10
+Adds live (feed-based) measurements: enabling reactive measurements
 (e.g., mapping the catchment when receiving potentially spoofed packets or
-observing a routing change in passive BGP data).
+observing a routing change in passive BGP data), and live traceroute
+(user-driven, TTL-limited probes over the feed).
 For third party measurement support the orchestrator may enforce a probing rate limit on the live feed.
 Workers can now reconnect during measurements, and disconnects no longer hang the measurement to improve robustness.
 Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack anycast.
 
 
 ### Added
-- **Live catchment measurements** (`start --feed -m catchment`) - the CLI reads
+- **Live measurements** (`-m feed`) - the CLI reads
   NDJSON targets (`{"dst":"192.0.2.1"}`, or bare addresses as shorthand) from
   stdin and forwards them to the orchestrator over a new bidirectional
   `LiveMeasurement` gRPC stream; replies stream back as usual.
   Supported fields are `dst` (target), `nprobes` (number of probes),
   `worker` (worker ID/hostname/`"all"`/`"any"`), and `origin` (origin ID/`"all"`/`"any"`).
   Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
+- **Live traceroute measurements** (`-m feed-trace`) — live measurements with
+  TTL-limited probes.
 - **Orchestrator live rate limit** (`orchestrator --live_rate`, default 1000) —
   To support live measurements from third parties, the orchestrator can now enforce
   a probing rate limit on the live feed.
@@ -33,9 +36,8 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   Each origin is tried in order until a responsive origin is found, or all origins are exhausted.
 - **Reconnecting workers** — during measurements workers that disconnect can now rejoin.
   However, queued follow-up tasks are discarded and probe replies may be missed.
-- **Per-target `nprobes` in the live feed** — live (`--feed`) NDJSON targets
+- **Per-target `nprobes` in the live feed** — live (`-m feed`/`feed-trace`) NDJSON targets
   accept an optional `nprobes` field setting how many measurement probes are sent.
-  This works with `--responsive` and `origin:any` as only measurement probes are repeated.
 
 ### Changed
 - **Parquet output overhaul** — fixed schema per measurement type and extended metadata.
@@ -47,7 +49,7 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
 - **Reducing gRPC formats** — `ALL_ORIGINS` is now 0 instead of `u32::MAX`
   as such values are not encoded on the wire.
   Similarly, `SINGLE_ORIGIN` is now 0 instead of 1.
-  For the same reason, for `--feed` measurements, the worker vector is empty for `worker:any`.
+  For the same reason, for live (feed) measurements, the worker vector is empty for `worker:any`.
 - `-a`/`--address` is now required unless `--configuration` is given.
 
 ### Fixed
