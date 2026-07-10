@@ -45,9 +45,12 @@ impl Worker {
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
+        // Traceroute mode: raw-only sockets, ICMP Time Exceeded BPF filter, trace reply parsing
         let is_traceroute = matches!(
             m_type,
-            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap
+            MeasurementType::AnycastTraceroute
+                | MeasurementType::Tracemap
+                | MeasurementType::FeedTrace
         );
 
         // Start inbound/outbound threads for each origin
