@@ -2,7 +2,7 @@ use crate::custom_module::has_anycast_origin;
 use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
     Address, End, Instruction, LiveTarget, MeasurementType, Probe, ScheduleMeasurement, Task,
-    Tasks, instruction, task,
+    Tasks, Trace, instruction, task,
 };
 use crate::orchestrator::trace::seed_tracemap_sessions;
 use crate::orchestrator::{
@@ -61,6 +61,10 @@ impl DistributionStrategy {
             MeasurementType::AnycastTraceroute => Self::Discovery { is_responsive },
             MeasurementType::AnycastLatency if has_anycast_origin(&m_def.configurations) => {
                 Self::Discovery { is_responsive }
+            }
+            // Feed measurements are rejected by do_measurement and use the live distributor
+            MeasurementType::Feed | MeasurementType::FeedTrace => {
+                unreachable!("feed measurements use the live task distributor")
             }
             MeasurementType::AnycastLatency | MeasurementType::Laces => {
                 if is_responsive {
@@ -554,6 +558,9 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 ///
 /// Measurement probes are optionally repeated by the worker (nprobes > 1).
 ///
+/// In feed-trace mode (`is_trace`), targets are probed with TTL-limited trace
+/// probes (per-target `ttl`, default 255)
+///
 /// The measurement ends when the feed has closed (the CLI ended its stream or
 /// disconnected) and all follow-ups and pending discoveries have resolved,
 /// or when no probing workers remain.
@@ -561,12 +568,15 @@ pub fn distribute_live_tasks(
     mut feed: mpsc::Receiver<LiveTarget>,
     measurement: MeasurementHandle,
     workers: WorkerRegistry,
-    probing_rate: u32,
-    worker_interval: u64,
-    probe_interval: u64,
-    is_responsive: bool,
+    m_def: &ScheduleMeasurement,
 ) {
     info!("[Orchestrator] Starting Live Task Distributor.");
+
+    let probing_rate = m_def.probing_rate;
+    let worker_interval = m_def.worker_interval as u64;
+    let probe_interval = m_def.probe_interval as u64;
+    let is_responsive = m_def.is_responsive;
+    let is_trace = m_def.m_type() == MeasurementType::FeedTrace;
 
     spawn(async move {
         let mut tick_interval = tokio::time::interval(Duration::from_secs(1));
@@ -689,6 +699,53 @@ pub fn distribute_live_tasks(
                     ) else {
                         continue;
                     };
+
+                    // Feed-trace: each target is a TTL-limited trace probe
+                    if is_trace {
+                        // origin:any needs a discovery reply to resolve; use the first origin instead
+                        let origin_id = if target.origin_id == ANY_ORIGIN {
+                            let first = state
+                                .live
+                                .as_ref()
+                                .and_then(|l| l.origin_ids_for(dst.is_v6()).first().copied());
+                            let Some(first) = first else {
+                                warn!(
+                                    "[Orchestrator] Dropping target {dst}: no origin of its IP version is configured"
+                                );
+                                continue;
+                            };
+                            first
+                        } else {
+                            target.origin_id
+                        };
+
+                        // Default to a high TTL that reaches the target itself
+                        let ttl = if target.ttl == 0 { 255 } else { target.ttl };
+                        let task = Task {
+                            task_type: Some(task::TaskType::Trace(Trace {
+                                dst: Some(dst),
+                                ttl,
+                            })),
+                            origin_id,
+                            nprobes: wire_nprobes(target.nprobes),
+                        };
+                        match sel {
+                            WorkerSel::Any => {
+                                // Round-robin across probing workers
+                                current_index %= probing_workers.len();
+                                per_set
+                                    .entry(vec![probing_workers[current_index]])
+                                    .or_default()
+                                    .push(task);
+                                current_index += 1;
+                            }
+                            WorkerSel::All => broadcast.push(task),
+                            WorkerSel::Set(ids) => {
+                                per_set.entry(ids).or_default().push(task);
+                            }
+                        }
+                        continue;
+                    }
 
                     // Ignore origin:any when there is only a single origin of the target's IP version
                     if target.origin_id == ANY_ORIGIN
