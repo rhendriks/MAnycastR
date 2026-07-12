@@ -76,7 +76,14 @@ impl CliClient {
         };
 
         info!("[CLI] Performing {} measurement", m_def.m_type());
-        info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
+        if m_def.is_responsive {
+            // Non-deterministic (depending on responsiveness)
+            info!(
+                "[CLI] This measurement will take at most an estimated {m_time:.2} minutes (less, depending on target responsiveness)"
+            );
+        } else {
+            info!("[CLI] This measurement will take an estimated {m_time:.2} minutes");
+        }
 
         let response = self
             .grpc_client
