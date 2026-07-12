@@ -1,4 +1,5 @@
 use crate::custom_module::has_anycast_origin;
+use crate::custom_module::manycastr::WorkerStatus;
 use crate::custom_module::manycastr::WorkerStatus::Probing;
 use crate::custom_module::manycastr::{
     Address, End, Instruction, LiveTarget, MeasurementType, Probe, ScheduleMeasurement, Task,
@@ -10,7 +11,7 @@ use crate::orchestrator::{
     wire_nprobes,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN};
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::spawn;
@@ -150,7 +151,9 @@ async fn send_to_workers(
             workers.iter().find(|s| s.worker_id == worker_id).cloned()
         };
         if let Some(sender) = sender {
-            let _ = sender.send(Ok(instruction)).await;
+            if sender.get_status() != WorkerStatus::Disconnected {
+                let _ = sender.send(Ok(instruction)).await;
+            }
         } else {
             warn!("[Orchestrator] No sender found for worker ID {worker_id}");
         }
@@ -319,6 +322,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         hitlist_exhausted: false,
         hitlist_exhausted_at: None,
         cooldown_timer: None,
+        cooldown_announced: false,
     };
 
     // nprobes: measurement probes are repeated (by the worker), discovery probes are not
@@ -523,9 +527,16 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                             .is_some_and(|t| t.elapsed() >= Duration::from_secs(REPLY_GRACE_SECS))
                         {
                             // Grace period elapsed — start the idle cooldown
-                            info!(
-                                "[Orchestrator] No more tasks. Awaiting a {cooldown_secs}-second cooldown."
-                            );
+                            if round.cooldown_announced {
+                                debug!(
+                                    "[Orchestrator] Idle again after late follow-ups. Restarting the {cooldown_secs}-second cooldown."
+                                );
+                            } else {
+                                info!(
+                                    "[Orchestrator] No more tasks. Awaiting a {cooldown_secs}-second cooldown."
+                                );
+                                round.cooldown_announced = true;
+                            }
                             round.cooldown_timer = Some(Instant::now());
                         }
                     } else {
@@ -915,6 +926,9 @@ struct RoundState {
     /// When the hitlist was first exhausted (used for the reply grace period).
     hitlist_exhausted_at: Option<Instant>,
     cooldown_timer: Option<Instant>,
+    /// Whether the idle cooldown has been announced for this round
+    /// (late follow-ups restart the cooldown without re-announcing).
+    cooldown_announced: bool,
 }
 
 /// Iteratively go over the origins (depending on IP version).
@@ -955,6 +969,7 @@ fn try_next_any_protocol(
         round.hitlist_exhausted = false;
         round.hitlist_exhausted_at = None;
         round.cooldown_timer = None;
+        round.cooldown_announced = false;
         round.current_origin_id = next_origin_id;
         return true; // Caller should continue the loop
     }

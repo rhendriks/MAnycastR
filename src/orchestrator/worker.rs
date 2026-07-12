@@ -2,7 +2,7 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::{Address, ReplyBatch, WorkerStatus};
 use crate::orchestrator::{CliHandle, MeasurementHandle};
 use futures_core::Stream;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -133,16 +133,23 @@ impl<T> WorkerSender<T> {
     }
 
     /// Sends an instruction to the worker.
-    /// On failure, logs a warning and marks the worker as disconnected.
+    /// On failure, logs a warning (once) and marks the worker as disconnected.
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         match self.inner.send(task).await {
             Ok(_) => Ok(()),
             Err(e) => {
-                warn!(
-                    "[Orchestrator] Failed to send to worker {}: {e}",
-                    self.hostname
-                );
-                self.cleanup();
+                if self.get_status() == Disconnected {
+                    debug!(
+                        "[Orchestrator] Dropping send to disconnected worker {}",
+                        self.hostname
+                    );
+                } else {
+                    warn!(
+                        "[Orchestrator] Failed to send to worker {}: {e}",
+                        self.hostname
+                    );
+                    self.cleanup();
+                }
                 Err(e)
             }
         }
