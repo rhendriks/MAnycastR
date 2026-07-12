@@ -339,7 +339,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
         loop {
             // Get next worker ID (also verifies measurement is still active)
-            let worker_id = {
+            let (worker_id, n_probing) = {
                 let lock = config.measurement.read().unwrap();
                 let state = match *lock {
                     Some(ref s) => s,
@@ -349,37 +349,40 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     }
                 };
 
+                let workers = &state.probing_workers;
+                if workers.is_empty() {
+                    warn!("[Orchestrator] No more probing workers available, ending measurement.");
+                    break;
+                }
+
                 // Determine which worker(s) perform the current batch
                 if is_broadcast {
-                    ALL_WORKERS
+                    (ALL_WORKERS, workers.len())
                 } else {
-                    let workers = &state.probing_workers;
-                    if workers.is_empty() {
-                        warn!(
-                            "[Orchestrator] No more probing workers available, ending measurement."
-                        );
-                        break;
-                    }
                     current_index %= workers.len();
                     let id = workers[current_index];
                     current_index = (current_index + 1) % workers.len();
-                    id
+                    (id, workers.len())
                 }
             };
 
             // Add follow-up tasks from worker stacks (discovery mode only) to this batch
             let follow_up_count = if has_follow_ups {
-                let f_worker_id = if is_responsive {
-                    ALL_WORKERS
+                // Responsive probes are broadcasted and incur a follow-up cost for each probers
+                let (f_worker_id, f_budget) = if is_responsive {
+                    (
+                        ALL_WORKERS,
+                        std::cmp::max(1, config.probing_rate as usize / n_probing),
+                    )
                 } else {
-                    worker_id
+                    (worker_id, config.probing_rate as usize)
                 };
 
                 let (follow_up_tasks, max_stack_depth): (Vec<Task>, usize) = {
                     let mut lock = config.measurement.write().unwrap();
                     if let Some(ref mut state) = *lock {
                         let tasks = if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
-                            let n = std::cmp::min(config.probing_rate as usize, queue.len());
+                            let n = std::cmp::min(f_budget, queue.len());
                             queue.drain(..n).collect()
                         } else {
                             Vec::new()
@@ -429,7 +432,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             };
 
             // Fill remainder of the batch with hitlist tasks
-            let remainder = (config.probing_rate as usize).saturating_sub(follow_up_count);
+            let follow_up_cost = if is_responsive {
+                // Account for responsive follow-ups being sent by all workers
+                follow_up_count.saturating_mul(n_probing)
+            } else {
+                follow_up_count
+            };
+            let remainder = (config.probing_rate as usize).saturating_sub(follow_up_cost);
 
             if remainder > 0 && !round.hitlist_exhausted && !discovery_paused {
                 // Wrap target addresses into tasks
