@@ -79,6 +79,8 @@ impl DistributionStrategy {
 }
 
 pub struct TaskDistributorConfig {
+    /// ID of the measurement this distributor belongs to
+    pub m_id: u32,
     /// Target addresses to probe
     pub hitlist: Vec<Address>,
     /// --any protocol fallback mode: unresolved targets are retried origin by origin
@@ -236,13 +238,22 @@ fn resolve_worker_sel(
 /// Finalize a measurement once task distribution is done: send the end-of-measurement
 /// instruction to all workers (marking them finished), then wait for every worker to
 /// report back before the distributor task exits.
-async fn finalize_measurement(workers: &WorkerRegistry, measurement: &MeasurementHandle) {
-    info!("[Orchestrator] Task distribution finished.");
-
+///
+/// Does nothing when measurement `m_id` is no longer the active one (the CLI dropped
+/// and tore it down, possibly replacing it with a new measurement in the meantime).
+async fn finalize_measurement(workers: &WorkerRegistry, measurement: &MeasurementHandle, m_id: u32) {
     // Start the finalizing, disallowing reconnects
-    if let Some(state) = measurement.write().unwrap().as_mut() {
-        state.is_finalizing = true;
+    {
+        let mut lock = measurement.write().unwrap();
+        match lock.as_mut() {
+            Some(state) if state.m_id == m_id => state.is_finalizing = true,
+            _ => {
+                warn!("[Orchestrator] Measurement {m_id} already ended, skipping finalization.");
+                return;
+            }
+        }
     }
+    info!("[Orchestrator] Task distribution finished.");
 
     // Notify all workers that the measurement is over
     let end = Instruction {
@@ -254,8 +265,8 @@ async fn finalize_measurement(workers: &WorkerRegistry, measurement: &Measuremen
         sender.finished();
     }
 
-    // Wait for all workers to finish
-    while measurement.read().unwrap().is_some() {
+    // Wait for all workers to finish this measurement
+    while matches!(*measurement.read().unwrap(), Some(ref state) if state.m_id == m_id) {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
@@ -338,12 +349,12 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
         let mut discovery_paused = false;
 
         loop {
-            // Get next worker ID (also verifies measurement is still active)
+            // Get next worker ID (also verifies our measurement is still the active one)
             let (worker_id, n_probing) = {
                 let lock = config.measurement.read().unwrap();
                 let state = match *lock {
-                    Some(ref s) => s,
-                    None => {
+                    Some(ref s) if s.m_id == config.m_id => s,
+                    _ => {
                         warn!("[Orchestrator] Measurement no longer active");
                         break;
                     }
@@ -380,22 +391,25 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
                 let (follow_up_tasks, max_stack_depth): (Vec<Task>, usize) = {
                     let mut lock = config.measurement.write().unwrap();
-                    if let Some(ref mut state) = *lock {
-                        let tasks = if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
-                            let n = std::cmp::min(f_budget, queue.len());
-                            queue.drain(..n).collect()
-                        } else {
-                            Vec::new()
-                        };
-                        let depth = state
-                            .worker_stacks
-                            .values()
-                            .map(|q| q.len())
-                            .max()
-                            .unwrap_or(0);
-                        (tasks, depth)
-                    } else {
-                        (Vec::new(), 0)
+                    match lock.as_mut() {
+                        Some(state) if state.m_id == config.m_id => {
+                            let tasks = if let Some(queue) =
+                                state.worker_stacks.get_mut(&f_worker_id)
+                            {
+                                let n = std::cmp::min(f_budget, queue.len());
+                                queue.drain(..n).collect()
+                            } else {
+                                Vec::new()
+                            };
+                            let depth = state
+                                .worker_stacks
+                                .values()
+                                .map(|q| q.len())
+                                .max()
+                                .unwrap_or(0);
+                            (tasks, depth)
+                        }
+                        _ => (Vec::new(), 0),
                     }
                 };
 
@@ -446,7 +460,11 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     // Register a binary-search session per target, assigned to this round's worker
                     let addrs: Vec<Address> = round.hitlist_iter.by_ref().take(remainder).collect();
                     let mut lock = config.measurement.write().unwrap();
-                    match lock.as_mut().and_then(|state| state.trace_config.as_mut()) {
+                    match lock
+                        .as_mut()
+                        .filter(|state| state.m_id == config.m_id)
+                        .and_then(|state| state.trace_config.as_mut())
+                    {
                         Some(trace_config) => seed_tracemap_sessions(
                             addrs,
                             worker_id,
@@ -502,16 +520,15 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     // Discovery: wait for stacks + trace sessions to drain before cooldown
                     let (stacks_empty, traces_active) = {
                         let lock = config.measurement.read().unwrap();
-                        if let Some(ref state) = *lock {
-                            (
+                        match *lock {
+                            Some(ref state) if state.m_id == config.m_id => (
                                 state.worker_stacks.values().all(|q| q.is_empty()),
                                 state
                                     .trace_config
                                     .as_ref()
                                     .is_some_and(|c| !c.session_tracker.sessions.is_empty()),
-                            )
-                        } else {
-                            break; // Measurement canceled
+                            ),
+                            _ => break, // Measurement canceled
                         }
                     };
 
@@ -522,6 +539,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 if is_any_protocol
                                     && try_next_any_protocol(
                                         &config.measurement,
+                                        config.m_id,
                                         &all_addresses,
                                         &origin_ids,
                                         &mut round,
@@ -567,7 +585,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
         }
 
-        finalize_measurement(&config.workers, &config.measurement).await;
+        finalize_measurement(&config.workers, &config.measurement, config.m_id).await;
     });
 }
 
@@ -589,6 +607,7 @@ pub fn distribute_live_tasks(
     measurement: MeasurementHandle,
     workers: WorkerRegistry,
     m_def: &ScheduleMeasurement,
+    m_id: u32,
 ) {
     info!("[Orchestrator] Starting Live Task Distributor.");
 
@@ -612,7 +631,7 @@ pub fn distribute_live_tasks(
             // Drain follow-up tasks from the worker and worker-set stacks
             let (follow_ups, set_follow_ups, probing_workers, pending_count) = {
                 let mut lock = measurement.write().unwrap();
-                let Some(state) = lock.as_mut() else {
+                let Some(state) = lock.as_mut().filter(|s| s.m_id == m_id) else {
                     warn!("[Orchestrator] Measurement no longer active");
                     break;
                 };
@@ -708,7 +727,7 @@ pub fn distribute_live_tasks(
             let mut broadcast: Vec<Task> = Vec::new();
             {
                 let mut lock = measurement.write().unwrap();
-                let Some(state) = lock.as_mut() else {
+                let Some(state) = lock.as_mut().filter(|s| s.m_id == m_id) else {
                     warn!("[Orchestrator] Measurement no longer active");
                     break;
                 };
@@ -922,7 +941,7 @@ pub fn distribute_live_tasks(
         info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
         tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
 
-        finalize_measurement(&workers, &measurement).await;
+        finalize_measurement(&workers, &measurement, m_id).await;
     });
 }
 
@@ -946,6 +965,7 @@ struct RoundState {
 /// `false` if all protocols are exhausted or all targets are resolved.
 fn try_next_any_protocol(
     measurement: &MeasurementHandle,
+    m_id: u32,
     all_addresses: &[Address],
     origin_ids: &[(u32, bool)],
     round: &mut RoundState,
@@ -955,7 +975,9 @@ fn try_next_any_protocol(
         let (next_origin_id, next_is_v6) = origin_ids[round.origin_index];
 
         let lock = measurement.read().unwrap();
-        let state = lock.as_ref().unwrap();
+        let Some(state) = lock.as_ref().filter(|s| s.m_id == m_id) else {
+            return false; // Measurement no longer active
+        };
         let resolved_count = state.resolved_targets.len();
 
         // Collect same-version addresses that have not responded yet
@@ -984,7 +1006,11 @@ fn try_next_any_protocol(
     }
 
     let lock = measurement.read().unwrap();
-    let resolved_count = lock.as_ref().map(|s| s.resolved_targets.len()).unwrap_or(0);
+    let resolved_count = lock
+        .as_ref()
+        .filter(|s| s.m_id == m_id)
+        .map(|s| s.resolved_targets.len())
+        .unwrap_or(0);
     let total = all_addresses.len();
     info!(
         "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."

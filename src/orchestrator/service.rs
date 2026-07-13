@@ -303,6 +303,7 @@ impl Controller for ControllerService {
 
         // Build config and launch task distribution
         let task_config = TaskDistributorConfig {
+            m_id,
             hitlist: std::mem::take(&mut m_def.hitlist),
             is_any: is_any_protocol,
             origin_ids,
@@ -323,6 +324,8 @@ impl Controller for ControllerService {
         Ok(Response::new(CLIReceiver {
             inner: cli_rx,
             measurement: self.measurement.clone(),
+            workers: Arc::clone(&self.saved_workers),
+            m_id,
         }))
     }
 
@@ -491,12 +494,15 @@ impl Controller for ControllerService {
             self.measurement.clone(),
             Arc::clone(&self.saved_workers),
             &m_def,
+            m_id,
         );
 
         // Return CLI result stream
         Ok(Response::new(CLIReceiver {
             inner: cli_rx,
             measurement: self.measurement.clone(),
+            workers: Arc::clone(&self.saved_workers),
+            m_id,
         }))
     }
 

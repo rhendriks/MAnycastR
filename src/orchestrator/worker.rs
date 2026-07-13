@@ -155,6 +155,11 @@ impl<T> WorkerSender<T> {
         }
     }
 
+    /// Sends an instruction to the worker without blocking
+    pub fn try_send(&self, task: T) -> Result<(), mpsc::error::TrySendError<T>> {
+        self.inner.try_send(task)
+    }
+
     /// Marks the worker as disconnected
     pub(crate) fn cleanup(&self) {
         *self.status.lock().unwrap() = Disconnected;
