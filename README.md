@@ -138,11 +138,19 @@ mkdir tls
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout tls/orchestrator.key -out tls/orchestrator.crt \
   -subj "/CN=orchestrator.example.com" \
-  -addext "subjectAltName=DNS:orchestrator.example.com"
+  -addext "subjectAltName=DNS:orchestrator.example.com" \
+  -addext "basicConstraints=critical,CA:FALSE" \
+  -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+  -addext "extendedKeyUsage=serverAuth"
 ```
 
 Replace `orchestrator.example.com` with the FQDN of your orchestrator.
 An SAN is required, the name does not need to be resolvable in DNS.
+
+The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
+marks the certificate as a CA by default, and clients will reject it with
+`InvalidCertificate(CaUsedAsEndEntity)` because rustls does not allow a CA certificate to be
+presented as a server certificate.
 
 ### 2. Start the orchestrator with TLS
 
