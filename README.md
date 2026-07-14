@@ -305,7 +305,7 @@ bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
 Notes:
 * Targets are probed as they arrive.
 * Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
-* The measurement runs until stdin reaches EOF or Ctrl+C is pressed, after which the last results are awaited and the output file is finalized.
+* The measurement runs until stdin reaches EOF or Ctrl+C is pressed. Ctrl+C exits immediately and stops the live measurement.
 * The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
 * Workers that connect while a live measurement is running do not participate until the next measurement.
 
