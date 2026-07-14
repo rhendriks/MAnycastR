@@ -623,7 +623,6 @@ pub fn distribute_live_tasks(
         let mut current_index: usize = 0;
         let batch_capacity = probing_rate as usize;
         let mut feed_closed = false;
-        let mut max_nprobes: u32 = 1; // Max nprobes used
 
         loop {
             tick_interval.tick().await;
@@ -734,7 +733,6 @@ pub fn distribute_live_tasks(
 
                 for mut target in batch {
                     let Some(dst) = target.dst else { continue };
-                    max_nprobes = max_nprobes.max(target.nprobes);
 
                     // Resolve the target's worker selection (drops targets with no probing worker)
                     let Some(sel) = resolve_worker_sel(
@@ -934,13 +932,7 @@ pub fn distribute_live_tasks(
             }
         }
 
-        // Wait for the last probes to be sent and their replies
-        let worker_count = workers.lock().unwrap().len() as u64;
-        let repeat_secs = (max_nprobes as u64 - 1) * probe_interval;
-        let cooldown_secs = worker_count * worker_interval + repeat_secs + REPLY_GRACE_SECS;
-        info!("[Orchestrator] Awaiting a {cooldown_secs}-second cooldown.");
-        tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
-
+        // Exit the measurement
         finalize_measurement(&workers, &measurement, m_id).await;
     });
 }
