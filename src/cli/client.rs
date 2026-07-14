@@ -107,9 +107,7 @@ impl CliClient {
     /// Perform a live (feed-based) measurement at the orchestrator.
     ///
     /// Opens a bidirectional stream: the measurement definition is sent first, then
-    /// NDJSON targets read from stdin are forwarded as they arrive. The measurement
-    /// runs (possibly idle) until stdin reaches EOF or Ctrl+C is pressed, after which
-    /// the feed is closed and the last results are awaited.
+    /// NDJSON targets read from stdin are forwarded as they arrive.
     ///
     /// # Arguments
     /// * `m_def` - measurement definition for the orchestrator (empty hitlist)
@@ -152,12 +150,8 @@ impl CliClient {
             loop {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {
-                        info!("[CLI] Ctrl+C received, closing the live feed (awaiting last results; Ctrl+C again to force quit)");
-                        tokio::spawn(async {
-                            let _ = tokio::signal::ctrl_c().await;
-                            std::process::exit(1);
-                        });
-                        break;
+                        info!("[CLI] Ctrl+C received, exiting...");
+                        std::process::exit(130);
                     }
                     msg = feed_rx.recv() => match msg {
                         Some(msg) => {
