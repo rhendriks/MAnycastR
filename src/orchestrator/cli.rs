@@ -55,9 +55,7 @@ impl<T> Drop for CLIReceiver<T> {
         };
         let senders: Vec<_> = self.workers.lock().unwrap().clone();
         for sender in senders {
-            if !participant_ids.contains(&sender.worker_id)
-                || sender.get_status() == Disconnected
-            {
+            if !participant_ids.contains(&sender.worker_id) || sender.get_status() == Disconnected {
                 continue;
             }
             if sender.try_send(Ok(abort.clone())).is_err() {
