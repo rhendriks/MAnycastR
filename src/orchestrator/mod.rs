@@ -55,7 +55,7 @@ pub struct Participant {
 /// All state associated with a single active measurement.
 #[derive(Debug)]
 pub struct MeasurementState {
-    /// The measurement ID (used to filter on replies for the current measurement)
+    /// 16-bit measurement ID (filtering replies) + 16-bit session ID (reply attribution).
     pub m_id: u32,
     /// Worker IDs of connected Workers that are actively probing
     pub probing_workers: Vec<u32>,
@@ -77,8 +77,8 @@ pub struct MeasurementState {
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
     pub trace_config: Option<TracerouteConfig>,
-    /// Targets that responded to discovery (deduplicates follow-up tasks; --any uses it to skip resolved targets)
-    pub resolved_targets: HashSet<Address>,
+    /// Resolved --responsive targets (address, session ID)
+    pub resolved_targets: HashSet<(Address, u32)>,
     /// Live feed state (None for hitlist-based measurements)
     pub live: Option<LiveState>,
 }
@@ -125,13 +125,13 @@ impl WorkerSel {
 /// State for a live (feed-based) measurement.
 #[derive(Debug)]
 pub struct LiveState {
-    /// In-flight discovery targets awaiting a response
-    pub pending: HashMap<Address, PendingTarget>,
-    /// IPv4 origin IDs in configuration order (the order in which `origin:any` tries origins)
+    /// Pending discovery probes awaiting a response tracked by address and session ID.
+    pub pending: HashMap<(Address, u32), PendingTarget>,
+    /// IPv4 origin IDs in configuration order (the order in which `origin:any` tries origins).
     pub origin_ids_v4: Vec<u32>,
-    /// IPv6 origin IDs in configuration order (the order in which `origin:any` tries origins)
+    /// IPv6 origin IDs in configuration order (the order in which `origin:any` tries origins).
     pub origin_ids_v6: Vec<u32>,
-    /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast)
+    /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast).
     pub set_stacks: HashMap<Vec<u32>, VecDeque<Task>>,
     /// Recently dispatched trace targets and their reply deadline (feed-trace only).
     pub trace_targets: HashMap<Address, Instant>,
@@ -145,6 +145,24 @@ impl LiveState {
         } else {
             &self.origin_ids_v4
         }
+    }
+
+    /// When receiving a --discovery probe reply, remove the associated pending target.
+    /// Makes use of session_id when used in discovery probes (ICMP/DNS-A only).
+    pub fn remove_pending(
+        &mut self,
+        addr: Address,
+        session_id: u32,
+    ) -> Option<(u32, PendingTarget)> {
+        if let Some(pending) = self.pending.remove(&(addr, session_id)) {
+            return Some((session_id, pending));
+        }
+        if session_id == 0 {
+            let key = self.pending.keys().find(|(a, _)| *a == addr).copied()?;
+            let pending = self.pending.remove(&key)?;
+            return Some((key.1, pending));
+        }
+        None
     }
 }
 
@@ -249,6 +267,11 @@ impl ControllerService {
         // Return a new unique ID
         let new_id = self.get_unique_id();
         Ok((new_id, false))
+    }
+
+    /// Get a random measurement ID (u16)
+    fn next_m_id(&self) -> u32 {
+        rand::random::<u16>() as u32
     }
 }
 
