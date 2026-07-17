@@ -18,7 +18,7 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   stdin and forwards them to the orchestrator over a new bidirectional
   `LiveMeasurement` gRPC stream; replies stream back as usual.
   Supported fields are `dst` (target), `nprobes` (number of probes),
-  `worker` (worker ID/hostname/`"all"`/`"any"`), and `origin` (origin ID/`"all"`/`"any"`).
+  `worker` (worker ID/hostname/`"all"`/`"any"`), and `origin` (origin ID/`"all"`).
   Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
 - **Live traceroute measurements** (`-m feed-trace`) — live measurements with
   TTL-limited probes.
@@ -29,16 +29,12 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   This requires multi-origins, e.g., a configuration file declaring both an IPv4 and IPv6 origin.
   Targets are only probed origins that match their IP version.
   Unicast origins are now declared using `unicastv4`/`unicastv6` to support this change.
-  `--any` now respect the target's IP version when selecting origins to iteratively try.
 - **Unicast measurements** - `-m unicast` is now deprecated in favor of `-m latency -a unicastv4` or `unicastv6`.
   Unicast latency measurements automatically probe from all workers, whereas anycast latency measurements probe from the catching worker (found using a discovery probe).
-- **`--any` catchment mappings** - when using multiple origins, catchments are mapped iteratively.
-  Each origin is tried in order until a responsive origin is found, or all origins are exhausted.
 - **Reconnecting workers** — during measurements workers that disconnect can now rejoin.
   However, queued follow-up tasks are discarded and probe replies may be missed.
 - **Per-target `nprobes` in the live feed** — live (`-m feed`/`feed-trace`) NDJSON targets
   accept an optional `nprobes` field setting how many measurement probes are sent.
-### Added
 - **Feed sessions** (`--sessions`) - optional flag for `-m feed` measurements to attribute probe replies to a particular session.
   This enables multiple sessions to share a single live feed (e.g., a web dashboard with multiple users).
 
@@ -66,6 +62,9 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
 - **`--record` (IPv4 Record Route) measurements** — the measurement type
   proved not useful and overshadowed by traceroute.
 - **`-m unicast` measurement type** — replaced by `-m latency -a unicastv4`.
+- **`--any` protocol fallback** (added in 1.7.0) — hitlists are built for a specific
+  protocol, so falling back to other protocols per target made little sense and
+  complicated task distribution.
 
 ## [1.10.0] - 2026-06-12
 
