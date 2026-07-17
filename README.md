@@ -237,17 +237,6 @@ Catchment is inferred based on where the ping reply ends up.
 
 Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
 
-#### Iterative catchment mapping with protocol fallback (--any)
-
-```
-manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp,tcp -a 10.0.0.0 --any
-```
-
-With `--any` and multiple origins, the catchment is mapped iteratively:
-all targets are probed with the first origin, and targets that did not reply are retried with the next origin, until all origins are exhausted.
-A target's catchment is resolved by the first origin that receives a reply.
-The `origin_id` column identifies which origin resolved each target.
-
 ### Live (feed) measurements
 
 ```
@@ -260,7 +249,7 @@ Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSO
 {"dst":"192.0.2.1"}
 {"dst":"203.0.113.7","worker":"ams01"}
 {"dst":"203.0.113.7","worker":"all"}
-{"dst":"198.51.100.9","origin":"any","worker":"all"}
+{"dst":"198.51.100.9","origin":2,"worker":"all"}
 192.0.2.1
 ```
 
@@ -274,17 +263,16 @@ When multiple workers are selected (a glob or `"all"`), their probes to the targ
 are spaced by the worker interval (`-w`, default 1 second).
 
 The optional `origin` field selects which origin (source address, ports, protocol) the probe is sent from:
-* `"any"` - try origins in configuration order, stopping at the first origin the
-  target responds on (default).
-* `"all"` - all configured origins
 * an origin ID (`2`) - that specific origin (e.g., `{"dst":"192.0.2.1","origin":2}`)
+* `"all"` - all configured origins
+
+When omitted, the first configured origin of the target's IP version is used.
 
 The optional `nprobes` field sets how many measurement probes are sent to the target
 (1-255, default 1), per selected worker (e.g., `{"dst":"192.0.2.1","nprobes":3}` with
 `worker:"all"` sends three probes from every worker). Repeated probes are spaced by
 `--probe_interval` (`-i`, default 1 second). Discovery probes are never repeated:
-with `origin:any` or `--responsive`, the repeated measurement probes follow once the target
-resolves.
+with `--responsive`, the repeated measurement probes follow once the target resolves.
 TODO: like `--nprobes` for hitlist measurements, repeated probes are not counted
 against the probing rate.
 
@@ -400,8 +388,7 @@ manycastr cli -a [::1]:50001 start -m catchment --hitlist mixed_hitlist.txt -f m
 
 The version of an anycast origin follows from its address; for unicast origins it is part of the keyword (`unicastv4`/`unicastv6`).
 Every hitlist IP version must be covered by at least one origin of that version.
-With `--any`, unresolved targets are retried only on the remaining origins of their own IP version.
-For live measurements (`-m feed`/`feed-trace`), targets whose IP version has no configured origin are skipped, and `origin:any` tries the configured origins of the target's version in order.
+For live measurements (`-m feed`/`feed-trace`), targets whose IP version has no configured origin are skipped, and targets without an `origin` field use the first configured origin of their IP version.
 Note that `tracemap` does not support mixed-version runs.
 
 ### LACeS measurement
@@ -632,7 +619,6 @@ Measurement provenance is stored in the Parquet file's key-value metadata:
 | `probing_rate` | Probing rate (probes per second) |
 | `worker_interval_ms` | Interval between probes from different workers |
 | `probe_interval_s` / `number_of_probes` | Interval between and count of probes per origin,dst pair |
-| `any_protocol_mode` | Whether protocols were tried in order until the target responded |
 | `record` / `url` | DNS record queried / URL encoded in probes (present when set) |
 | `connected_workers` / `connected_workers_count` | Hostnames and count of connected workers |
 | `configurations` | JSON array of origin definitions (`worker`, `origin_id`, `src`, `sport`, `dport`, `protocol`) — the mapping needed to interpret the `origin_id` column |
