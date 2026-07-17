@@ -43,6 +43,8 @@ pub struct WriteConfig<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// Indicate whether any Origin is for CHAOS
     pub is_chaos: bool,
+    /// Whether feed sessions are enabled (--sessions; adds a 'session' column to feed output)
+    pub is_sessions: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
@@ -132,7 +134,12 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
     };
 
     // Write header and flush it immediately
-    let header = get_header(config.is_chaos, config.is_multi_origin, config.m_type);
+    let header = get_header(
+        config.is_chaos,
+        config.is_multi_origin,
+        config.m_type,
+        config.is_sessions,
+    );
     dual_wtr
         .write_record(header)
         .expect("Failed to write header to file");
@@ -158,8 +165,18 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                             MeasurementType::Catchment => {
                                 get_catchment_csv_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::Laces | MeasurementType::Feed => {
+                            MeasurementType::Laces => {
                                 get_laces_row(reply, &rx_id, &config.worker_map, origin_id)
+                            }
+                            MeasurementType::Feed => {
+                                // Write session IDs for attribution if enabled (0 = no session)
+                                let session_id = reply.session_id;
+                                let mut row =
+                                    get_laces_row(reply, &rx_id, &config.worker_map, origin_id);
+                                if config.is_sessions {
+                                    row.push(session_id.to_string());
+                                }
+                                row
                             }
                             MeasurementType::AnycastTraceroute
                             | MeasurementType::Tracemap
@@ -194,10 +211,12 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 /// * `is_chaos` - Whether CHAOS queries are sent
 /// * `is_multi_origin` - A boolean that determines whether multiple origins are used
 /// * `m_type` - Measurement type performed
+/// * `is_sessions` - Whether feed sessions are enabled (--sessions)
 pub fn get_header(
     is_chaos: bool,
     is_multi_origin: bool,
     m_type: MeasurementType,
+    is_sessions: bool,
 ) -> Vec<&'static str> {
     // Determine headers based on measurement type
     let mut header = match m_type {
@@ -233,6 +252,10 @@ pub fn get_header(
     }
     if is_multi_origin {
         header.push("origin_id");
+    }
+    // With --sessions, feed replies are attributed to the session of their target
+    if m_type == MeasurementType::Feed && is_sessions {
+        header.push("session");
     }
 
     header
