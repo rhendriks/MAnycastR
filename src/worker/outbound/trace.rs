@@ -34,6 +34,8 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
         ts14: (now.as_millis() & 0x3FFF) as u16,
     };
     let ttl = tag.ttl;
+    // No probe ID for trace tasks (no space in probe encoding)
+    let probe_id = crate::probe_id(config.m_id, 0);
 
     let packet = match p_type {
         ProtocolType::Icmp => {
@@ -42,7 +44,7 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
 
             let payload_fields = ProbePayload {
                 worker_id,
-                m_id: config.m_id,
+                probe_id,
                 trace_ttl: Some(ttl),
                 info_url,
             };
@@ -71,7 +73,7 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
                 desired_checksum,
                 &TraceDnsId {
                     tx_id: worker_id,
-                    m_id: config.m_id,
+                    probe_id,
                     tx_micros,
                     ttl,
                     qname: config.qname.as_deref().unwrap_or("example.org"),
