@@ -68,11 +68,12 @@ fn parse_icmp_inner(
     meta: ReplyMeta,
 ) -> Option<Reply> {
     let ReplyMeta { src, ttl, rx_time } = meta;
-    // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?;
-    if u32::from_be_bytes(pkt_measurement_id) != m_id {
+    // Verify this packet belongs to the current measurement (based on 16-bit m_id)
+    let pkt_probe_id = u32::from_be_bytes(icmp_packet.payload[0..4].try_into().ok()?);
+    if crate::m_id_of(pkt_probe_id) != m_id {
         return None;
     }
+    let session_id = crate::session_id_of(pkt_probe_id);
 
     let is_ipv6 = src.is_v6();
 
@@ -102,7 +103,10 @@ fn parse_icmp_inner(
     if is_discovery {
         // Discovery reply
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
+                src: Some(src),
+                session_id,
+            })),
         })
     } else if is_traceroute {
         // Trace reply
@@ -131,6 +135,7 @@ fn parse_icmp_inner(
                 rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 chaos: None,
+                session_id,
             })),
         })
     }
