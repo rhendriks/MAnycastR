@@ -110,7 +110,13 @@ pub struct TaskDistributorConfig {
 /// Build a `Task` from a raw address and the current distribution metadata.
 /// The worker sends the probe `nprobes` times (spaced by the measurement's probe interval).
 #[inline]
-fn make_task(addr: Address, is_discovery: bool, origin_id: u32, nprobes: u32) -> Task {
+fn make_task(
+    addr: Address,
+    is_discovery: bool,
+    origin_id: u32,
+    nprobes: u32,
+    session_id: u32,
+) -> Task {
     Task {
         task_type: Some(if is_discovery {
             task::TaskType::Discovery(Probe { dst: Some(addr) })
@@ -119,6 +125,7 @@ fn make_task(addr: Address, is_discovery: bool, origin_id: u32, nprobes: u32) ->
         }),
         origin_id,
         nprobes: wire_nprobes(nprobes),
+        session_id,
     }
 }
 
@@ -241,7 +248,11 @@ fn resolve_worker_sel(
 ///
 /// Does nothing when measurement `m_id` is no longer the active one (the CLI dropped
 /// and tore it down, possibly replacing it with a new measurement in the meantime).
-async fn finalize_measurement(workers: &WorkerRegistry, measurement: &MeasurementHandle, m_id: u32) {
+async fn finalize_measurement(
+    workers: &WorkerRegistry,
+    measurement: &MeasurementHandle,
+    m_id: u32,
+) {
     // Start the finalizing, disallowing reconnects
     {
         let mut lock = measurement.write().unwrap();
@@ -393,14 +404,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     let mut lock = config.measurement.write().unwrap();
                     match lock.as_mut() {
                         Some(state) if state.m_id == config.m_id => {
-                            let tasks = if let Some(queue) =
-                                state.worker_stacks.get_mut(&f_worker_id)
-                            {
-                                let n = std::cmp::min(f_budget, queue.len());
-                                queue.drain(..n).collect()
-                            } else {
-                                Vec::new()
-                            };
+                            let tasks =
+                                if let Some(queue) = state.worker_stacks.get_mut(&f_worker_id) {
+                                    let n = std::cmp::min(f_budget, queue.len());
+                                    queue.drain(..n).collect()
+                                } else {
+                                    Vec::new()
+                                };
                             let depth = state
                                 .worker_stacks
                                 .values()
@@ -484,7 +494,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                         .by_ref()
                         .take(remainder)
                         .map(|addr| {
-                            make_task(addr, is_discovery, round.current_origin_id, task_nprobes)
+                            make_task(addr, is_discovery, round.current_origin_id, task_nprobes, 0)
                         })
                         .collect()
                 };
@@ -673,8 +683,14 @@ pub fn distribute_live_tasks(
                 )
             };
 
-            let follow_up_count: usize = follow_ups.iter().map(|(_, tasks)| tasks.len()).sum::<usize>()
-                + set_follow_ups.iter().map(|(_, tasks)| tasks.len()).sum::<usize>();
+            let follow_up_count: usize = follow_ups
+                .iter()
+                .map(|(_, tasks)| tasks.len())
+                .sum::<usize>()
+                + set_follow_ups
+                    .iter()
+                    .map(|(_, tasks)| tasks.len())
+                    .sum::<usize>();
             for (worker_id, tasks) in follow_ups {
                 // The worker interval only applies to ALL_WORKERS (broadcast) stacks
                 send_to_workers(
@@ -767,8 +783,7 @@ pub fn distribute_live_tasks(
                             let window = probing_workers.len() as u64 * worker_interval
                                 + target.nprobes.max(1).saturating_sub(1) as u64 * probe_interval
                                 + REPLY_GRACE_SECS;
-                            let deadline =
-                                std::time::Instant::now() + Duration::from_secs(window);
+                            let deadline = std::time::Instant::now() + Duration::from_secs(window);
                             live.trace_targets.insert(dst, deadline);
                         }
 
@@ -781,6 +796,7 @@ pub fn distribute_live_tasks(
                             })),
                             origin_id,
                             nprobes: wire_nprobes(target.nprobes),
+                            session_id: 0,
                         };
                         match sel {
                             WorkerSel::Any => {
@@ -850,7 +866,7 @@ pub fn distribute_live_tasks(
                         let probe_is_measurement = is_origin_any && !sel.is_multi();
 
                         live.pending.insert(
-                            dst,
+                            (dst, target.session_id),
                             PendingTarget {
                                 worker_sel: sel,
                                 discovery_worker: probe_worker,
@@ -868,17 +884,27 @@ pub fn distribute_live_tasks(
                         } else {
                             1
                         };
-                        per_set.entry(vec![probe_worker]).or_default().push(make_task(
-                            dst,
-                            !probe_is_measurement,
-                            origin_id,
-                            count,
-                        ));
+                        per_set
+                            .entry(vec![probe_worker])
+                            .or_default()
+                            .push(make_task(
+                                dst,
+                                !probe_is_measurement,
+                                origin_id,
+                                count,
+                                target.session_id,
+                            ));
                         continue;
                     }
 
                     // Regular probe task
-                    let task = make_task(dst, false, target.origin_id, target.nprobes);
+                    let task = make_task(
+                        dst,
+                        false,
+                        target.origin_id,
+                        target.nprobes,
+                        target.session_id,
+                    );
                     match sel {
                         WorkerSel::Any => {
                             // Round-robin across probing workers
@@ -947,7 +973,6 @@ struct RoundState {
     hitlist_exhausted_at: Option<Instant>,
     cooldown_timer: Option<Instant>,
     /// Whether the idle cooldown has been announced for this round
-    /// (late follow-ups restart the cooldown without re-announcing).
     cooldown_announced: bool,
 }
 
