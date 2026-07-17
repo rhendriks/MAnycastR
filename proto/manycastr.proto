@@ -93,6 +93,7 @@ message LiveTarget {
   uint32 origin_id = 3; // origin to use for this target
   uint32 nprobes = 4; // number of measurement probes to send
   uint32 ttl = 5; // probe TTL (FEED_TRACE only): 0 = unset (default 255)
+  uint32 session_id = 6; // 16-bit session this target belongs to (0 = no session); echoed in replies for ICMP/DNS-A probes
 }
 
 // A list of workers
@@ -150,6 +151,7 @@ message Task {
   }
   uint32 origin_id = 4; // Origin from which to send this probe
   uint32 nprobes = 5; // number of times the worker sends this probe, spaced by the Start probe_interval
+  uint32 session_id = 6; // 16-bit session ID encoded in the probe; ICMP/DNS-A only
 }
 
 // Initial message to worker, contains the worker ID assigned by the orchestrator
@@ -160,7 +162,7 @@ message Init {
 // A start control instruction, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  uint32 m_id = 2;
+  uint32 m_id = 2; // Measurement ID (for filtering replies)
   repeated Origin tx_origins = 3; // origins to send with
   repeated Origin rx_origins = 4; // origins to listen for
   optional string record = 5; // domain to use for DNS queries (TXT/A/AAAA)
@@ -227,6 +229,7 @@ message Reply {
 // Contains discovery reply data (used for follow-up tasks)
 message DiscoveryReply {
   Address src = 1;
+  uint32 session_id = 2; // session ID recovered from the reply (0 for TCP/CHAOS, which cannot echo it)
 }
 
 // Contains measured reply data (forwarded to the CLI and written to file)
@@ -236,6 +239,7 @@ message MeasurementReply {
   float rtt = 3; // Round-trip time in milliseconds
   uint32 tx_id = 4;
   optional string chaos = 5;
+  uint32 session_id = 6; // session ID recovered from the reply (0 for TCP/CHAOS, which cannot echo it)
 }
 
 // Traceroute reply
