@@ -4,9 +4,8 @@ use crate::custom_module::manycastr::{
 };
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
-use log::{info, warn};
+use log::info;
 use rand::prelude::SliceRandom;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
@@ -91,14 +90,12 @@ impl IpVersions {
 
 /// Validate the IP-version rules of a measurement and return the measured version(s).
 /// * All hitlist targets must have an origin with a matching IP version
-/// * `--any` requires > 1 origin per IP version used
 /// * tracemap does not support mixed IP version TODO
 ///
 /// # Arguments
 /// * `configurations` - the measurement configurations
 /// * `hitlist_versions` - IP versions of the hitlist targets (`None` for a live feed)
 /// * `m_type` - the measurement type
-/// * `is_any_protocol` - whether unresolved targets are retried origin by origin (--any)
 ///
 /// # Returns
 /// The IP version(s) measured: those of the hitlist, or of the origins (live feed).
@@ -106,7 +103,6 @@ pub fn validate_ip_versions(
     configurations: &[Configuration],
     hitlist_versions: Option<IpVersions>,
     m_type: MeasurementType,
-    is_any_protocol: bool,
 ) -> Result<IpVersions, String> {
     let origin_versions = IpVersions::from_origins(configurations);
     // The IP version(s) measured: those of the hitlist, or of the origins (live feed)
@@ -130,39 +126,6 @@ pub fn validate_ip_versions(
             "tracemap does not support a mixed IPv4/IPv6 hitlist (tasks use a single origin)."
                 .to_string(),
         );
-    }
-
-    if is_any_protocol {
-        // Count unique origins per IP version: fallback only exists among same-version origins
-        let mut v4_origins: HashSet<u32> = HashSet::new();
-        let mut v6_origins: HashSet<u32> = HashSet::new();
-        for origin in configurations.iter().filter_map(|c| c.origin.as_ref()) {
-            if origin.is_v6() {
-                v6_origins.insert(origin.origin_id);
-            } else {
-                v4_origins.insert(origin.origin_id);
-            }
-        }
-        let per_version = [
-            (versions.has_v4, v4_origins.len(), "IPv4"),
-            (versions.has_v6, v6_origins.len(), "IPv6"),
-        ];
-        if per_version
-            .iter()
-            .all(|(present, count, _)| !present || *count < 2)
-        {
-            return Err(
-                "--any requires at least two origins of the targets' IP version (e.g., -p icmp,tcp or a multi-origin configuration file)"
-                    .to_string(),
-            );
-        }
-        for (present, count, label) in per_version {
-            if present && count < 2 {
-                warn!(
-                    "[CLI] --any: only {count} {label} origin(s) configured; {label} targets have no protocol fallback"
-                );
-            }
-        }
     }
 
     Ok(versions)
