@@ -253,11 +253,17 @@ impl Controller for ControllerService {
 
         // Initialize traceroute if applicable
         if let Some(trace_options) = m_def.trace_options.take() {
-            self.setup_traceroute(trace_options);
+            // Tracemap seed probes must use a single origin TODO test traceroute/tracemap with multi-origins
+            let trace_origin_id = m_def
+                .configurations
+                .first()
+                .and_then(|c| c.origin)
+                .map(|o| o.origin_id)
+                .unwrap_or(ALL_ORIGINS);
+            self.setup_traceroute(trace_options, trace_origin_id);
         }
 
         // The strategy determines task distribution, discovery usage, and pacing
-        let is_tracemap = m_type == MeasurementType::Tracemap;
         let strategy = DistributionStrategy::select(&m_def);
 
         // Round-robin strategies pace each worker at the full rate; Broadcast paces the batch
@@ -269,23 +275,10 @@ impl Controller for ControllerService {
         // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
         probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        let origin_id = if is_tracemap {
-            // Tracemap tasks must use an origin TODO test traceroute/tracemap with multi-origins
-            m_def
-                .configurations
-                .first()
-                .and_then(|c| c.origin)
-                .map(|o| o.origin_id)
-                .unwrap_or(ALL_ORIGINS)
-        } else {
-            ALL_ORIGINS
-        };
-
         // Build config and launch task distribution
         let task_config = TaskDistributorConfig {
             m_id,
             hitlist: std::mem::take(&mut m_def.hitlist),
-            origin_id,
             measurement: self.measurement.clone(),
             workers: Arc::clone(&self.saved_workers),
             probing_rate,
@@ -960,12 +953,13 @@ impl ControllerService {
 
     /// Initialize traceroute configuration within the measurement state and spawn the
     /// timeout handler thread that monitors active trace sessions.
-    fn setup_traceroute(&self, trace_options: TraceOptions) {
+    fn setup_traceroute(&self, trace_options: TraceOptions, origin_id: u32) {
         {
             let mut lock = self.measurement.write().unwrap();
             if let Some(ref mut state) = *lock {
                 state.trace_config = Some(TracerouteConfig {
                     session_tracker: SessionTracker::new(),
+                    origin_id,
                     timeout: trace_options.timeout as u64,
                     max_hops: trace_options.max_hops,
                     initial_hop: trace_options.initial_hop,
