@@ -359,7 +359,6 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
                     .arg(arg!(--sessions "Enable feed sessions (-m feed only): NDJSON targets may carry a 'session' field (1-65535), reported per reply in the output's 'session' column").action(ArgAction::SetTrue))
-                    .arg(arg!(--any "Try protocols in order (as specified by -p); stop per-target on first responsive protocol. Implies --responsive").action(ArgAction::SetTrue))
                     .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures (tracemap: confirmation window past a silent midpoint, default 3)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("tracemap".into()), Some("3"))
