@@ -26,7 +26,7 @@ mod trace;
 /// that listens for and processes incoming measurement packets.
 #[derive(Clone)]
 pub struct InboundConfig {
-    /// The unique ID of the measurement.
+    /// The 16-bit measurement ID.
     pub m_id: u32,
     /// The unique ID of this specific worker.
     pub worker_id: u16,
