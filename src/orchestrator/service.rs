@@ -234,9 +234,7 @@ impl Controller for ControllerService {
             probing_ids,
         } = self.classify_workers(&m_def)?;
         let probing_workers_count = probing_ids.len();
-
-        // Initialize measurement state (errors if already active)
-        let m_id = rand::random_range(0..u32::MAX);
+        let m_id = self.next_m_id();
         self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
 
         info!(
@@ -414,7 +412,7 @@ impl Controller for ControllerService {
         }
 
         // Initialize measurement state (errors if already active)
-        let m_id = rand::random_range(0..u32::MAX);
+        let m_id = self.next_m_id();
         self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
 
         // Determine IPv4 and IPv6 origins
@@ -581,15 +579,17 @@ impl Controller for ControllerService {
             if let Some(live) = state.live.as_mut() {
                 for reply in discovery_bucket.drain(..) {
                     let Some(src) = reply.src else { continue };
-                    let Some(pending) = live.pending.remove(&src) else {
+                    let Some((session_id, pending)) = live.remove_pending(src, reply.session_id)
+                    else {
                         continue; // Unknown target or duplicate reply
                     };
 
-                    // Follow-up task (the worker repeats it nprobes times)
+                    // Create the follow-up task
                     let task = Task {
                         task_type: Some(task::TaskType::Probe(Probe { dst: Some(src) })),
                         origin_id,
-                        nprobes: wire_nprobes(pending.nprobes),
+                        nprobes: wire_nprobes(pending.nprobes), // repeat nprobes times
+                        session_id,
                     };
                     match pending.worker_sel {
                         // Any-worker follow-ups are performed by the discovery worker
@@ -712,7 +712,7 @@ impl Controller for ControllerService {
                     if let Some(ReplyData::Measurement(m)) = &reply.reply_data
                         && let Some(src) = m.src
                     {
-                        live.pending.remove(&src);
+                        live.remove_pending(src, m.session_id);
                     }
                 }
             }
@@ -855,7 +855,8 @@ impl ControllerService {
         let start_instruction = Instruction {
             instruction_type: Some(instruction::InstructionType::Start(start.clone())),
         };
-        if tx.try_send(Ok(start_instruction)).is_err() { // TODO implement try_send function with warn printing
+        if tx.try_send(Ok(start_instruction)).is_err() {
+            // TODO implement try_send function with warn printing
             warn!(
                 "[Orchestrator] Could not queue Start instruction for rejoining worker {hostname}"
             );
@@ -957,15 +958,15 @@ impl ControllerService {
                 };
 
                 let now = Instant::now();
-                let expired: Vec<Address> = live
+                let expired: Vec<(Address, u32)> = live
                     .pending
                     .iter()
                     .filter(|(_, pending)| pending.deadline <= now)
-                    .map(|(addr, _)| *addr)
+                    .map(|(key, _)| *key)
                     .collect();
 
-                for addr in expired {
-                    let Some(mut pending) = live.pending.remove(&addr) else {
+                for (addr, session_id) in expired {
+                    let Some(mut pending) = live.pending.remove(&(addr, session_id)) else {
                         continue;
                     };
 
@@ -989,8 +990,9 @@ impl ControllerService {
                                 task_type: Some(task_type),
                                 origin_id,
                                 nprobes,
+                                session_id,
                             });
-                        live.pending.insert(addr, pending);
+                        live.pending.insert((addr, session_id), pending);
                     }
                     // else: target is unresponsive on all attempted origins -> give up
                 }
