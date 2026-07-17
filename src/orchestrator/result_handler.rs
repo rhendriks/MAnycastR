@@ -28,7 +28,7 @@ pub fn discovery_handler(
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
             nprobes: wire_nprobes(nprobes),
-            session_id: result.session_id,
+            session_id: 0, // sessions are feed only (not hitlist-based)
         })
         .collect();
 
