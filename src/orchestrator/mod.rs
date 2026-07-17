@@ -67,10 +67,8 @@ pub struct MeasurementState {
     pub is_finalizing: bool,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
-    /// Whether targets are checked for responsiveness before measurement probes (--responsive/--any)
+    /// Whether targets are checked for responsiveness before measurement probes (--responsive)
     pub is_responsive: bool,
-    /// Whether unresolved targets are retried origin by origin (--any)
-    pub is_any: bool,
     /// Number of times each measurement probe is sent (always >= 1)
     pub nprobes: u32,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
