@@ -38,6 +38,9 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   However, queued follow-up tasks are discarded and probe replies may be missed.
 - **Per-target `nprobes` in the live feed** — live (`-m feed`/`feed-trace`) NDJSON targets
   accept an optional `nprobes` field setting how many measurement probes are sent.
+### Added
+- **Feed sessions** (`--sessions`) - optional flag for `-m feed` measurements to attribute probe replies to a particular session.
+  This enables multiple sessions to share a single live feed (e.g., a web dashboard with multiple users).
 
 ### Changed
 - **Parquet output overhaul** — fixed schema per measurement type and extended metadata.
