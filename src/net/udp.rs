@@ -1,7 +1,7 @@
 use crate::custom_module::manycastr::Address;
-use crate::dns_identifier;
 use crate::net::packet::DnsProbeId;
 use crate::net::{PacketPayload, PseudoHeader, build_ip_packet, calculate_checksum};
+use crate::{dns_identifier, m_id_of};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use prost::bytes::Buf;
 use std::io::{Cursor, Read, Write};
@@ -283,15 +283,16 @@ impl UDPPacket {
         let src_num = src.as_numeric();
         let dst_num = dst.as_numeric();
         let tx_id = id.worker_id;
-        let m_id = id.m_id;
+        let probe_id = id.probe_id;
 
         let subdomain =
-            format!("{tx_time}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{domain_name}");
+            format!("{tx_time}.{src_num}.{dst_num}.{tx_id}.{sport}.{probe_id}.{domain_name}");
         let mut dns_body: Vec<u8> = Vec::new();
 
         // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID)
         let tx_id_raw: u16 = tx_id as u16;
-        let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | (tx_id_raw & 0x03FF);
+        let encoded_tx_id =
+            ((dns_identifier(m_id_of(probe_id)) as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
         dns_body
@@ -362,7 +363,8 @@ impl UDPPacket {
 
         // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID)
         let tx_id_raw: u16 = id.worker_id as u16;
-        let encoded_tx_id = ((dns_identifier(id.m_id) as u16) << 10) | (tx_id_raw & 0x03FF);
+        let encoded_tx_id =
+            ((dns_identifier(m_id_of(id.probe_id)) as u16) << 10) | (tx_id_raw & 0x03FF);
 
         // DNS Header
         dns_body
@@ -392,7 +394,7 @@ impl UDPPacket {
 /// The QNAME encodes the probe identity so that the **destination DNS server's** reply
 /// can be matched to a trace session and terminate it:
 ///
-/// `{tx_micros}.{src}.{dst}.{worker_id}.{sport}.{m_id}.{ttl}.{qname}`
+/// `{tx_micros}.{src}.{dst}.{worker_id}.{sport}.{probe_id}.{ttl}.{qname}`
 ///
 /// where `tx_micros` is the full microsecond send time (so the destination-hop RTT is a
 /// plain epoch delta, matching the ICMP/discovery convention).
@@ -404,7 +406,7 @@ pub(crate) fn dns_a_trace_body(
 ) -> Vec<u8> {
     let &crate::net::packet::TraceDnsId {
         tx_id,
-        m_id,
+        probe_id,
         tx_micros,
         ttl,
         qname,
@@ -412,12 +414,14 @@ pub(crate) fn dns_a_trace_body(
 
     let src_num = src.as_numeric();
     let dst_num = dst.as_numeric();
-    let subdomain = format!("{tx_micros}.{src_num}.{dst_num}.{tx_id}.{sport}.{m_id}.{ttl}.{qname}");
+    let subdomain =
+        format!("{tx_micros}.{src_num}.{dst_num}.{tx_id}.{sport}.{probe_id}.{ttl}.{qname}");
 
     let mut dns_body: Vec<u8> = Vec::new();
 
     // Transaction ID (6-bit measurement identifier + 10-bit tx worker ID), as in dns_request.
-    let encoded_tx_id = ((dns_identifier(m_id) as u16) << 10) | ((tx_id as u16) & 0x03FF);
+    let encoded_tx_id =
+        ((dns_identifier(m_id_of(probe_id)) as u16) << 10) | ((tx_id as u16) & 0x03FF);
     dns_body
         .write_u16::<byteorder::BigEndian>(encoded_tx_id)
         .unwrap(); // Transaction ID
