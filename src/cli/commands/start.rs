@@ -30,6 +30,8 @@ pub struct MeasurementExecutionArgs<'a> {
     pub out_path: String,
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
+    /// If true, tags probes with session IDs for attribution (--sessions for -m feed).
+    pub is_sessions: bool,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -48,10 +50,18 @@ pub async fn handle(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let is_any_protocol = matches.get_flag("any");
     let is_responsive = matches.get_flag("responsive") || is_any_protocol;
+    let is_sessions = matches.get_flag("sessions");
     let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
     let is_feed = m_type.is_feed();
+
+    // Sessions only exist for live feed measurements (traceroute probes cannot carry one)
+    if is_sessions && m_type != MeasurementType::Feed { // TODO enforce this in arg parsing?
+        let msg = "[CLI] --sessions requires a live feed measurement (-m feed).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
 
     // Feed measurements read targets from stdin; hitlist-based options do not apply
     if is_feed {
@@ -197,20 +207,16 @@ pub async fn handle(
         (path, targets, Some(versions))
     };
 
-    // Validate the IP-version rules and get the measured version(s)
-    let versions = match validate_ip_versions(
-        &configurations,
-        hitlist_versions,
-        m_type,
-        is_any_protocol,
-    ) {
-        Ok(versions) => versions,
-        Err(e) => {
-            let msg = format!("[CLI] {e}");
-            error!("{}", msg);
-            return Err(msg.into());
-        }
-    };
+    // Validate the IP-version rules and get the measured versions
+    let versions =
+        match validate_ip_versions(&configurations, hitlist_versions, m_type, is_any_protocol) {
+            Ok(versions) => versions,
+            Err(e) => {
+                let msg = format!("[CLI] {e}");
+                error!("{}", msg);
+                return Err(msg.into());
+            }
+        };
 
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
@@ -322,6 +328,7 @@ pub async fn handle(
         hitlist_length,
         out_path: path,
         worker_map,
+        is_sessions,
     };
 
     if is_feed {
