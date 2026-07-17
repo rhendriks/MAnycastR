@@ -48,8 +48,7 @@ pub async fn handle(
     grpc_client: &mut CliClient,
     worker_map: BiHashMap<u32, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let is_any_protocol = matches.get_flag("any");
-    let is_responsive = matches.get_flag("responsive") || is_any_protocol;
+    let is_responsive = matches.get_flag("responsive");
     let is_sessions = matches.get_flag("sessions");
     let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
@@ -70,7 +69,6 @@ pub async fn handle(
             (matches.contains_id("hitlist"), "--hitlist"),
             (matches.contains_id("target"), "--target"),
             (matches.get_flag("shuffle"), "--shuffle"),
-            (is_any_protocol, "--any"),
         ];
         if let Some((_, flag)) = invalid.iter().find(|(is_set, _)| *is_set) {
             let msg = format!(
@@ -86,23 +84,23 @@ pub async fn handle(
         return Err(msg.into());
     }
 
-    // --responsive cannot be combined with trace mode (unresponsive hops)
+    // --responsive cannot be combined with trace mode (unresponsive hops) TODO enforce in arg parse
     if m_type == MeasurementType::FeedTrace && is_responsive {
         let msg = "[CLI] --responsive cannot be combined with feed-trace (TTL-limited probes may never reach the target).";
         error!("{}", msg);
         return Err(msg.into());
     }
 
-    // Tracemap targets unresponsive prefixes; there is nothing to discover first
+    // Tracemap targets unresponsive prefixes; there is nothing to discover first TODO enforce in arg parse
     if m_type == MeasurementType::Tracemap && is_responsive {
-        let msg = "[CLI] --responsive/--any cannot be combined with tracemap (targets are assumed unresponsive).";
+        let msg = "[CLI] --responsive cannot be combined with tracemap (targets are assumed unresponsive).";
         error!("{}", msg);
         return Err(msg.into());
     }
 
-    // Disallow --responsive for catchment mappings
-    if m_type == MeasurementType::Catchment && matches.get_flag("responsive") && !is_any_protocol {
-        let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness); use --any for iterative multi-origin mapping.";
+    // Disallow --responsive for catchment mappings TODO enforce in arg parse
+    if m_type == MeasurementType::Catchment && is_responsive {
+        let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness).";
         error!("{}", msg);
         return Err(msg.into());
     }
@@ -142,7 +140,7 @@ pub async fn handle(
                 ids
             },
         );
-        // Get protocol to use (preserving user-specified order for --any fallback)
+        // Get the protocols to use (deduplicated, preserving user-specified order)
         let p_types: Vec<ProtocolType> = {
             let mut seen = HashSet::new();
             matches
@@ -185,12 +183,12 @@ pub async fn handle(
         configs
     };
 
-    // Anycast latency discovery already skips unresponsive targets
+    // Anycast latency discovery already skips unresponsive targets TODO enforce in arg parse
     if m_type == MeasurementType::AnycastLatency
         && is_responsive
         && has_anycast_origin(&configurations)
     {
-        let msg = "[CLI] --responsive/--any cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
+        let msg = "[CLI] --responsive cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
         error!("{}", msg);
         return Err(msg.into());
     }
@@ -209,15 +207,14 @@ pub async fn handle(
     };
 
     // Validate the IP-version rules and get the measured versions
-    let versions =
-        match validate_ip_versions(&configurations, hitlist_versions, m_type, is_any_protocol) {
-            Ok(versions) => versions,
-            Err(e) => {
-                let msg = format!("[CLI] {e}");
-                error!("{}", msg);
-                return Err(msg.into());
-            }
-        };
+    let versions = match validate_ip_versions(&configurations, hitlist_versions, m_type) {
+        Ok(versions) => versions,
+        Err(e) => {
+            let msg = format!("[CLI] {e}");
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    };
 
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
@@ -318,7 +315,6 @@ pub async fn handle(
         probe_interval,
         number_of_probes,
         trace_options,
-        is_any_protocol,
     };
 
     let args = MeasurementExecutionArgs {
