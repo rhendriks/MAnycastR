@@ -21,13 +21,14 @@ pub fn discovery_handler(
     origin_id: u32,
     nprobes: u32,
 ) {
-    // Get the target addresses from the results
+    // Get the discovery results as a vector of tasks
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
             nprobes: wire_nprobes(nprobes),
+            session_id: result.session_id,
         })
         .collect();
 
@@ -98,7 +99,8 @@ pub fn trace_discovery_handler(
                 ttl: traceroute_config.initial_hop,
             })),
             origin_id,
-            nprobes: 0, // single send
+            nprobes: 0,    // single send
+            session_id: 0, // trace probes carry no session
         });
     }
 }
@@ -208,7 +210,8 @@ pub fn trace_replies_handler(
                         ttl: next_ttl as u32,
                     })),
                     origin_id,
-                    nprobes: 0, // single send
+                    nprobes: 0,    // single send
+                    session_id: 0, // trace probes carry no session
                 });
         } else {
             session_tracker.sessions.remove(&identifier);
