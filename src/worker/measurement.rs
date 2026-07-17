@@ -78,13 +78,8 @@ impl Worker {
                 );
                 (rx, tx, false)
             } else {
-                let (socket, is_dgram) = Self::get_socket(
-                    is_ipv6,
-                    rx_origin.p_type(),
-                    rx_origin,
-                    is_traceroute,
-                    m_id,
-                );
+                let (socket, is_dgram) =
+                    Self::get_socket(is_ipv6, rx_origin.p_type(), rx_origin, is_traceroute, m_id);
                 (socket.clone(), socket, is_dgram)
             };
 
@@ -106,7 +101,7 @@ impl Worker {
                 inbound(
                     InboundConfig {
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
-                        is_dgram: false, // raw transport socket
+                        is_dgram: false,      // raw transport socket
                         is_transport_trace: true,
                         ..inbound_config.clone()
                     },
