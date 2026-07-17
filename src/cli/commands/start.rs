@@ -57,7 +57,8 @@ pub async fn handle(
     let is_feed = m_type.is_feed();
 
     // Sessions only exist for live feed measurements (traceroute probes cannot carry one)
-    if is_sessions && m_type != MeasurementType::Feed { // TODO enforce this in arg parsing?
+    if is_sessions && m_type != MeasurementType::Feed {
+        // TODO enforce this in arg parsing?
         let msg = "[CLI] --sessions requires a live feed measurement (-m feed).";
         error!("{}", msg);
         return Err(msg.into());
