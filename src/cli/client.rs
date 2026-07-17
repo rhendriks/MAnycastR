@@ -1,5 +1,5 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
-use crate::cli::feed::{FEED_CHANNEL_SIZE, FeedOrigin, FeedStream, read_stdin_feed};
+use crate::cli::feed::{FEED_CHANNEL_SIZE, FeedOrigins, FeedStream, read_stdin_feed};
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{MetadataArgs, WriteConfig, write_results_csv};
 use crate::custom_module::manycastr::ProtocolType::ChaosDns;
@@ -12,7 +12,7 @@ use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -135,21 +135,8 @@ impl CliClient {
 
         // Read NDJSON targets from stdin on a blocking thread
         let worker_map = args.worker_map.clone();
-        // Origin ID -> IP version and protocol, to match feed targets with compatible origins
-        let origins: HashMap<u32, FeedOrigin> = m_def
-            .configurations
-            .iter()
-            .filter_map(|conf| conf.origin)
-            .map(|origin| {
-                (
-                    origin.origin_id,
-                    FeedOrigin {
-                        is_v6: origin.is_v6(),
-                        p_type: origin.p_type(),
-                    },
-                )
-            })
-            .collect();
+        // The configured origins, and the default origin per IP version
+        let origins = FeedOrigins::new(&m_def.configurations);
         let is_trace = m_def.m_type() == MeasurementType::FeedTrace;
         let is_sessions = args.is_sessions;
         std::thread::spawn(move || {
