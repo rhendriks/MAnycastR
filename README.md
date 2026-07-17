@@ -288,6 +288,13 @@ resolves.
 TODO: like `--nprobes` for hitlist measurements, repeated probes are not counted
 against the probing rate.
 
+For CLI's running in multi-user environments (e.g., a shared dashboard), we enable the `--sessions` option.
+This flag will encode session ID in probes that will be echoed back and reported in the results.
+The application can then multiplex multiple sessions over a single feed, and attribute results to the corresponding session.
+
+> **Session attribution is not supported for TCP and DNS CHAOS probes**,
+> Sessions are also unsupported for `feed-trace`.
+
 Origins must be shared among all workers (live mode does not support worker-specific origins).
 
 Adding `--responsive` gates multi-worker targets (a glob or `worker:"all"`) behind a
@@ -304,7 +311,7 @@ bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
 
 Notes:
 * Targets are probed as they arrive.
-* Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
+* Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`), plus a `session` column with `--sessions`.
 * The measurement runs until stdin reaches EOF or Ctrl+C is pressed. Ctrl+C exits immediately and stops the live measurement.
 * The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
 * Workers that connect while a live measurement is running do not participate until the next measurement.
