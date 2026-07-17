@@ -1,5 +1,5 @@
 use crate::cli::commands::start::MeasurementExecutionArgs;
-use crate::cli::feed::{FEED_CHANNEL_SIZE, FeedStream, read_stdin_feed};
+use crate::cli::feed::{FEED_CHANNEL_SIZE, FeedOrigin, FeedStream, read_stdin_feed};
 use crate::cli::writer::parquet_writer::write_results_parquet;
 use crate::cli::writer::{MetadataArgs, WriteConfig, write_results_csv};
 use crate::custom_module::manycastr::ProtocolType::ChaosDns;
@@ -135,15 +135,26 @@ impl CliClient {
 
         // Read NDJSON targets from stdin on a blocking thread
         let worker_map = args.worker_map.clone();
-        // Origin ID -> IP version, to match feed targets with compatible origins
-        let origins: HashMap<u32, bool> = m_def
+        // Origin ID -> IP version and protocol, to match feed targets with compatible origins
+        let origins: HashMap<u32, FeedOrigin> = m_def
             .configurations
             .iter()
             .filter_map(|conf| conf.origin)
-            .map(|origin| (origin.origin_id, origin.is_v6()))
+            .map(|origin| {
+                (
+                    origin.origin_id,
+                    FeedOrigin {
+                        is_v6: origin.is_v6(),
+                        p_type: origin.p_type(),
+                    },
+                )
+            })
             .collect();
         let is_trace = m_def.m_type() == MeasurementType::FeedTrace;
-        std::thread::spawn(move || read_stdin_feed(feed_tx, worker_map, origins, is_trace));
+        let is_sessions = args.is_sessions;
+        std::thread::spawn(move || {
+            read_stdin_feed(feed_tx, worker_map, origins, is_trace, is_sessions)
+        });
 
         // Forward stdin targets to the gRPC stream until EOF or Ctrl+C.
         tokio::spawn(async move {
@@ -316,6 +327,7 @@ async fn stream_results_to_file(
         is_multi_origin,
         worker_map: args.worker_map.clone(),
         is_chaos,
+        is_sessions: args.is_sessions,
     };
 
     // Start thread that writes results to file
