@@ -125,10 +125,6 @@ impl WorkerSel {
 pub struct LiveState {
     /// Pending discovery probes awaiting a response tracked by address and session ID.
     pub pending: HashMap<(Address, u32), PendingTarget>,
-    /// IPv4 origin IDs in configuration order (the order in which `origin:any` tries origins).
-    pub origin_ids_v4: Vec<u32>,
-    /// IPv6 origin IDs in configuration order (the order in which `origin:any` tries origins).
-    pub origin_ids_v6: Vec<u32>,
     /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast).
     pub set_stacks: HashMap<Vec<u32>, VecDeque<Task>>,
     /// Recently dispatched trace targets and their reply deadline (feed-trace only).
@@ -136,15 +132,6 @@ pub struct LiveState {
 }
 
 impl LiveState {
-    /// The `origin:any` candidate origins for a target of the given IP version.
-    pub fn origin_ids_for(&self, is_v6: bool) -> &[u32] {
-        if is_v6 {
-            &self.origin_ids_v6
-        } else {
-            &self.origin_ids_v4
-        }
-    }
-
     /// When receiving a --discovery probe reply, remove the associated pending target.
     /// Makes use of session_id when used in discovery probes (ICMP/DNS-A only).
     pub fn remove_pending(
@@ -164,20 +151,16 @@ impl LiveState {
     }
 }
 
-/// A live target awaiting a probe reply before it is resolved (or retried/given up).
+/// A live target awaiting a discovery reply before it is probed (or given up on timeout).
 #[derive(Debug)]
 pub struct PendingTarget {
     /// Worker selection for the follow-up measurement probes
     pub worker_sel: WorkerSel,
-    /// Worker performing the task
+    /// Worker performing the discovery probe
     pub discovery_worker: u32,
-    /// Next origin index to try on timeout for `origin:any` (None for `--responsive`)
-    pub next_origin_idx: Option<usize>,
-    /// Whether the probe sent is itself the measurement (single-worker `origin:any`)
-    pub probe_is_measurement: bool,
     /// Number of measurement probes to send (per worker) once the target resolves (always >= 1)
     pub nprobes: u32,
-    /// When the current attempt expires
+    /// When the discovery attempt expires
     pub deadline: Instant,
 }
 
