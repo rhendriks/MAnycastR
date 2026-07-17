@@ -2,9 +2,9 @@
 
 use crate::cli::config::resolve_workers;
 use crate::custom_module::manycastr::{
-    Address, CliMessage, LiveTarget, ProtocolType, TargetBatch, cli_message,
+    Address, CliMessage, Configuration, LiveTarget, ProtocolType, TargetBatch, cli_message,
 };
-use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN};
+use crate::{ALL_ORIGINS, ALL_WORKERS};
 use bimap::BiHashMap;
 use futures_core::Stream;
 use log::warn;
@@ -32,6 +32,61 @@ impl FeedOrigin {
     }
 }
 
+/// The configured origins available to feed targets, and the default origins for each IP version.
+pub struct FeedOrigins {
+    /// Origin ID -> IP version and protocol, to match feed targets with compatible origins
+    by_id: HashMap<u32, FeedOrigin>,
+    /// First configured IPv4 origin (default for IPv4 targets without an `origin` field)
+    default_v4: Option<u32>,
+    /// First configured IPv6 origin (default for IPv6 targets without an `origin` field)
+    default_v6: Option<u32>,
+}
+
+impl FeedOrigins {
+    /// Collect the unique origins of a measurement.
+    /// Set the first origin of each IP version as that version's default.
+    pub fn new(configurations: &[Configuration]) -> Self {
+        let mut by_id = HashMap::new();
+        let mut default_v4 = None;
+        let mut default_v6 = None;
+        for origin in configurations.iter().filter_map(|c| c.origin) {
+            by_id.entry(origin.origin_id).or_insert(FeedOrigin {
+                is_v6: origin.is_v6(),
+                p_type: origin.p_type(),
+            });
+            let default = if origin.is_v6() {
+                &mut default_v6
+            } else {
+                &mut default_v4
+            };
+            default.get_or_insert(origin.origin_id);
+        }
+        Self {
+            by_id,
+            default_v4,
+            default_v6,
+        }
+    }
+
+    /// The default origin for a target of the given IP version.
+    /// Returns `None` if no origin of that version is configured.
+    fn default_for(&self, is_v6: bool) -> Option<u32> {
+        let default = if is_v6 { self.default_v6 } else { self.default_v4 };
+        if default.is_none() {
+            warn!(
+                "[CLI] No {} origin is configured.",
+                if is_v6 { "IPv6" } else { "IPv4" }
+            );
+        }
+        default
+    }
+
+    /// Whether an origin of the given IP version is configured.
+    fn has_version(&self, is_v6: bool) -> bool {
+        self.by_id.values().any(|origin| origin.is_v6 == is_v6)
+    }
+}
+
 /// Wraps the feed receiver as a `Stream` so it can be used as a gRPC streaming request.
 pub struct FeedStream {
     pub(crate) inner: mpsc::Receiver<CliMessage>,
@@ -53,8 +108,9 @@ impl Stream for FeedStream {
 /// The optional `worker` field selects the probing worker(s): a worker ID, a hostname, a glob
 /// (e.g. `us-*` — probes the target from every matched worker, spaced by the worker interval),
 /// `"all"` (probe from all workers), or `"any"` (round-robin, default).
-/// The optional `origin` field selects the origin to send from: an origin ID,
-/// `"all"` (all configured origins), or `"any"` (first responsive, default).
+/// The optional `origin` field selects the origin to send from: an origin ID, or
+/// `"all"` (all configured origins). Defaults to the first configured origin of
+/// the target's IP version.
 /// The optional `nprobes` field sets how many measurement probes are sent to
 /// the target (default 1), spaced by the measurement's probe interval.
 /// The optional `ttl` field (feed-trace only) sets the probe TTL (default 255)
@@ -65,7 +121,7 @@ impl Stream for FeedStream {
 pub fn read_stdin_feed(
     feed_tx: mpsc::Sender<CliMessage>,
     worker_map: BiHashMap<u32, String>,
-    origins: HashMap<u32, FeedOrigin>,
+    origins: FeedOrigins,
     is_trace: bool,    // feed-trace measurement (enables the per-target `ttl` field)
     is_sessions: bool, // feed sessions enabled (--sessions; enables the per-target `session` field)
 ) {
@@ -86,8 +142,8 @@ pub fn read_stdin_feed(
         };
 
         let addr = target.dst.expect("parsed target always has a dst");
-        // Skip IPv4/IPv6 targets when no origin with the same IP version exists
-        if !origins.values().any(|origin| origin.is_v6 == addr.is_v6()) {
+        // Skip origin:all targets when no origin with the same IP version exists
+        if !origins.has_version(addr.is_v6()) {
             warn!(
                 "[CLI] Skipping target {addr}: no {} origin is configured",
                 if addr.is_v6() { "IPv6" } else { "IPv4" }
@@ -113,7 +169,7 @@ pub fn read_stdin_feed(
 fn parse_feed_line(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origins: &HashMap<u32, FeedOrigin>,
+    origins: &FeedOrigins,
     is_trace: bool,
     is_sessions: bool,
 ) -> Option<LiveTarget> {
@@ -123,7 +179,7 @@ fn parse_feed_line(
         return Some(LiveTarget {
             dst: Some(dst),
             worker_ids: Vec::new(), // any worker (round-robin)
-            origin_id: ANY_ORIGIN,
+            origin_id: origins.default_for(dst.is_v6())?,
             nprobes: 1,    // TODO use unset value of 0 (defaulting to 1)
             ttl: 0,        // unset (default 255 for feed-trace)
             session_id: 0, // no session
@@ -139,7 +195,7 @@ fn parse_feed_line(
 fn parse_feed_object(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origins: &HashMap<u32, FeedOrigin>,
+    origins: &FeedOrigins,
     is_trace: bool,
     is_sessions: bool,
 ) -> Option<LiveTarget> {
@@ -150,7 +206,7 @@ fn parse_feed_object(
         Some(worker) => parse_worker(worker, worker_map)?,
     };
     let origin_id = match value.get("origin") {
-        None => ANY_ORIGIN,
+        None => origins.default_for(dst.is_v6())?,
         Some(origin) => parse_origin(origin, origins, dst.is_v6())?,
     };
     let nprobes = match value.get("nprobes") {
@@ -192,7 +248,7 @@ fn parse_feed_object(
 fn parse_session(
     session: &serde_json::Value,
     origin_id: u32,
-    origins: &HashMap<u32, FeedOrigin>,
+    origins: &FeedOrigins,
     dst_is_v6: bool,
 ) -> Option<u32> {
     let n = match session {
@@ -213,10 +269,14 @@ fn parse_session(
 
     // Warn when using CHAOS/TCP that cannot encode sessions in probes
     let unattributable = match origin_id {
-        ANY_ORIGIN | ALL_ORIGINS => origins
+        ALL_ORIGINS => origins
+            .by_id
             .values()
             .any(|origin| origin.is_v6 == dst_is_v6 && !origin.supports_sessions()),
-        id => origins.get(&id).is_some_and(|o| !o.supports_sessions()),
+        id => origins
+            .by_id
+            .get(&id)
+            .is_some_and(|o| !o.supports_sessions()),
     };
     if unattributable {
         warn!(
@@ -264,19 +324,17 @@ fn parse_nprobes(nprobes: &serde_json::Value) -> Option<u32> {
 }
 
 /// Resolve a feed line's `origin` value to an origin ID:
-/// an origin ID (number or numeric string) of a configured origin, `"all"`,
-/// or `"any"` (try origins in order; stop on the first responsive one).
+/// an origin ID (number or numeric string) of a configured origin, or `"all"`.
 /// A specific origin must match the target's IP version.
 fn parse_origin(
     origin: &serde_json::Value,
-    origins: &HashMap<u32, FeedOrigin>,
+    origins: &FeedOrigins,
     dst_is_v6: bool,
 ) -> Option<u32> {
     let id = match origin {
         // Origin ID as JSON number (e.g., "origin":2)
         serde_json::Value::Number(n) => u32::try_from(n.as_u64()?).ok()?,
         serde_json::Value::String(s) if s == "all" => return Some(ALL_ORIGINS),
-        serde_json::Value::String(s) if s == "any" => return Some(ANY_ORIGIN),
         // Origin ID as numeric string (e.g., "origin":"2")
         serde_json::Value::String(s) => match s.parse::<u32>() {
             Ok(id) => id,
@@ -289,7 +347,7 @@ fn parse_origin(
     };
 
     // IP version of origin must match the target address
-    match origins.get(&id) {
+    match origins.by_id.get(&id) {
         Some(origin) if origin.is_v6 == dst_is_v6 => Some(id),
         Some(origin) => {
             warn!(
