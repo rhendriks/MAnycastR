@@ -10,8 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct ProbePayload<'a> {
     /// Sender worker ID
     pub worker_id: u32,
-    /// Unique measurement ID (to verify reply)
-    pub m_id: u32,
+    /// On-wire probe ID: 16-bit measurement ID + 16-bit session ID (to verify and attribute the reply)
+    pub probe_id: u32,
     /// Optional TTL value of the IP header (for traceroute)
     pub trace_ttl: Option<u8>,
     /// Optional URL (e.g., opt-out information)
@@ -47,7 +47,7 @@ pub fn create_icmp(
 
     // Create the ping payload bytes
     let mut payload_bytes: Vec<u8> = Vec::new();
-    payload_bytes.extend_from_slice(&payload.m_id.to_be_bytes()); // Bytes 0 - 3
+    payload_bytes.extend_from_slice(&payload.probe_id.to_be_bytes()); // Bytes 0 - 3
     payload_bytes.extend_from_slice(&tx_time.to_be_bytes()); // Bytes 4 - 11
     payload_bytes.extend_from_slice(&payload.worker_id.to_be_bytes()); // Bytes 12 - 15
 
@@ -70,7 +70,7 @@ pub fn create_icmp(
 
 pub struct DnsProbeId {
     pub worker_id: u32,
-    pub m_id: u32,
+    pub probe_id: u32,
 }
 
 /// Creates a DNS packet.
@@ -145,8 +145,8 @@ pub fn create_tcp(
 pub struct TraceDnsId<'a> {
     /// Sending worker id
     pub tx_id: u32,
-    /// Measurement ID
-    pub m_id: u32,
+    /// On-wire probe ID: 16-bit measurement ID + 16-bit session ID (traces always use session 0)
+    pub probe_id: u32,
     /// Full microsecond send time (for the destination-hop RTT)
     pub tx_micros: u64,
     /// Time-to-live / hop limit of the probe (recovered as hop_count)
