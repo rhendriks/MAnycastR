@@ -302,7 +302,6 @@ async fn stream_results_to_file(
         url: m_def.url.as_deref(),
         probe_interval: m_def.probe_interval,
         number_of_probes: m_def.number_of_probes,
-        is_any_protocol: m_def.is_any_protocol,
     };
 
     // Check if any configuration has an origin ID
