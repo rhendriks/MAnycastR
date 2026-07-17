@@ -224,10 +224,28 @@ pub const ALL_ORIGINS: u32 = 0;
 pub const ANY_ORIGIN: u32 = u32::MAX; // Try origins in order; stop on the first responsive one (live feed)
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
-/// Derive a 6-bit DNS identifier from a measurement ID for filtering.
+/// Get 6-bits from the measurement ID for the DNS identifier for filtering.
 #[inline]
 pub fn dns_identifier(m_id: u32) -> u8 {
     (m_id & 0x3F) as u8
+}
+
+/// Used for `--responsive` and `--sessions` enabled when using `-m feed`.
+#[inline]
+pub fn probe_id(m_id: u32, session_id: u32) -> u32 {
+    (m_id << 16) | (session_id & 0xFFFF)
+}
+
+/// Get the 16-bit measurement ID from a probe ID.
+#[inline]
+pub fn m_id_of(probe_id: u32) -> u32 {
+    probe_id >> 16
+}
+
+/// Get the 16-bit session ID from a probe ID.
+#[inline]
+pub fn session_id_of(probe_id: u32) -> u32 {
+    probe_id & 0xFFFF
 }
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
@@ -340,6 +358,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--stream "Stream to stdout").action(ArgAction::SetTrue))
                     .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
+                    .arg(arg!(--sessions "Enable feed sessions (-m feed only): NDJSON targets may carry a 'session' field (1-65535), reported per reply in the output's 'session' column").action(ArgAction::SetTrue))
                     .arg(arg!(--any "Try protocols in order (as specified by -p); stop per-target on first responsive protocol. Implies --responsive").action(ArgAction::SetTrue))
                     .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures (tracemap: confirmation window past a silent midpoint, default 3)")
                         .value_parser(value_parser!(u32))
