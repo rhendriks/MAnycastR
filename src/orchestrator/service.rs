@@ -257,7 +257,6 @@ impl Controller for ControllerService {
         }
 
         // The strategy determines task distribution, discovery usage, and pacing
-        let is_any_protocol = m_def.is_any_protocol;
         let is_tracemap = m_type == MeasurementType::Tracemap;
         let strategy = DistributionStrategy::select(&m_def);
 
@@ -270,24 +269,7 @@ impl Controller for ControllerService {
         // Skip missed ticks instead of bursting to catch up after a stalled (backpressured) send
         probing_rate_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // Build ordered list of (origin_id, is_v6) for '--any' probing
-        let origin_ids: Vec<(u32, bool)> = if is_any_protocol {
-            let mut seen = HashSet::new();
-            let mut ids = Vec::new();
-            for config in &m_def.configurations {
-                if let Some(origin) = &config.origin
-                    && seen.insert(origin.origin_id)
-                {
-                    ids.push((origin.origin_id, origin.is_v6()));
-                }
-            }
-            ids
-        } else {
-            vec![]
-        };
-        let first_origin_id = if is_any_protocol {
-            origin_ids[0].0
-        } else if is_tracemap {
+        let origin_id = if is_tracemap {
             // Tracemap tasks must use an origin TODO test traceroute/tracemap with multi-origins
             m_def
                 .configurations
@@ -303,9 +285,7 @@ impl Controller for ControllerService {
         let task_config = TaskDistributorConfig {
             m_id,
             hitlist: std::mem::take(&mut m_def.hitlist),
-            is_any: is_any_protocol,
-            origin_ids,
-            first_origin_id,
+            origin_id,
             measurement: self.measurement.clone(),
             workers: Arc::clone(&self.saved_workers),
             probing_rate,
@@ -718,27 +698,6 @@ impl Controller for ControllerService {
             }
         }
 
-        // --any: a measurement reply resolves the target, no further origins are tried
-        if !results_bucket.is_empty()
-            && self
-                .measurement
-                .read()
-                .unwrap()
-                .as_ref()
-                .is_some_and(|s| s.is_any)
-        {
-            let mut lock = self.measurement.write().unwrap();
-            if let Some(state) = lock.as_mut() {
-                for reply in &results_bucket {
-                    if let Some(ReplyData::Measurement(m)) = &reply.reply_data
-                        && let Some(src) = m.src
-                    {
-                        state.resolved_targets.insert(src);
-                    }
-                }
-            }
-        }
-
         if !results_bucket.is_empty() {
             // Forward results to the CLI
             let tx = self.cli_sender.lock().unwrap().clone();
@@ -925,7 +884,6 @@ impl ControllerService {
             is_finalizing: false,
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
-            is_any: m_def.is_any_protocol,
             nprobes: m_def.number_of_probes,
             worker_stacks: HashMap::new(),
             trace_config: None,
