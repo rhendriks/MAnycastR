@@ -22,7 +22,7 @@ const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 /// * `rx` - The receiver channel that receives the results.
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
-    let headers = get_parquet_header(config.m_type);
+    let headers = get_parquet_header(config.m_type, config.is_sessions);
     let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
@@ -64,9 +64,12 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                         &config.worker_map,
                         origin_id,
                     ),
-                    Some(ReplyData::Trace(trace_reply)) => {
-                        trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map, origin_id)
-                    }
+                    Some(ReplyData::Trace(trace_reply)) => trace_reply_to_parquet_row(
+                        trace_reply,
+                        rx_id,
+                        &config.worker_map,
+                        origin_id,
+                    ),
                     _ => panic!("Unexpected reply data"),
                 };
                 row_buffer.push(parquet_row);
@@ -216,6 +219,8 @@ pub struct ParquetDataRow {
     trace_dst: Option<[u8; 16]>,
     /// Traceroute: TTL value used to trigger this reply.
     hop_count: Option<u8>,
+    /// Feed: session of the probe that triggered this reply (0 = no session).
+    session: Option<u32>,
 }
 
 /// Converts a MeasurementReply into a ParquetDataRow for writing to a Parquet file.
@@ -252,6 +257,10 @@ fn measurement_reply_to_parquet_row(
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if row.chaos_data.is_none() {
                 row.rtt = Some(result.rtt);
+            }
+            // Feed replies are attributed to the session of the target that triggered them
+            if m_type == MeasurementType::Feed {
+                row.session = Some(result.session_id);
             }
         }
     }
@@ -290,7 +299,8 @@ fn trace_reply_to_parquet_row(
 }
 
 /// Returns the fixed superset of columns for a measurement type.
-pub fn get_parquet_header(m_type: MeasurementType) -> Vec<&'static str> {
+/// The `session` column is only included for feed measurements with sessions enabled.
+pub fn get_parquet_header(m_type: MeasurementType, is_sessions: bool) -> Vec<&'static str> {
     match m_type {
         MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             vec![
@@ -322,8 +332,15 @@ pub fn get_parquet_header(m_type: MeasurementType) -> Vec<&'static str> {
             vec!["rx", "addr", "ttl", "rtt", "chaos_data", "origin_id"]
         }
         MeasurementType::Catchment => vec!["rx", "addr", "ttl", "chaos_data", "origin_id"],
-        MeasurementType::Laces | MeasurementType::Feed => {
+        MeasurementType::Laces => {
             vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"]
+        }
+        MeasurementType::Feed => {
+            let mut header = vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"];
+            if is_sessions {
+                header.push("session");
+            }
+            header
         }
     }
 }
@@ -359,6 +376,11 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                     .build()
                     .unwrap()
             }
+            "session" => SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
+                .with_repetition(Repetition::OPTIONAL)
+                .with_logical_type(Some(LogicalType::integer(16, false)))
+                .build()
+                .unwrap(),
             "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::FLOAT)
                 .with_repetition(Repetition::OPTIONAL)
                 .build()
@@ -447,6 +469,25 @@ pub fn write_batch_to_parquet(
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
+                                values.push(val as i32);
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .collect();
+                    col_writer.typed::<Int32Type>().write_batch(
+                        &values,
+                        Some(&def_levels),
+                        None,
+                    )?;
+                }
+                "session" => {
+                    let mut values = Vec::with_capacity(batch.len());
+                    let def_levels: Vec<i16> = batch
+                        .iter()
+                        .map(|row| {
+                            if let Some(val) = row.session {
                                 values.push(val as i32);
                                 1
                             } else {
