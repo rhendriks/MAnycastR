@@ -10,7 +10,7 @@ use crate::orchestrator::{
     LIVE_DISCOVERY_TIMEOUT_SECS, MeasurementHandle, PendingTarget, WorkerRegistry, WorkerSel,
     wire_nprobes,
 };
-use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN};
+use crate::{ALL_ORIGINS, ALL_WORKERS};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -557,7 +557,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
 /// Live task distributor for feed-based measurements.
 ///
-/// Prioritizes follow-up tasks for workers (--responsive, or `origin:any`).
+/// Prioritizes follow-up tasks for workers (--responsive).
 /// Drains targets up to the probing rate (optinally enforced by the orchestrator).
 ///
 /// Measurement probes are optionally repeated by the worker (nprobes > 1).
@@ -717,23 +717,6 @@ pub fn distribute_live_tasks(
 
                     // Feed-trace: each target is a TTL-limited trace probe
                     if is_trace {
-                        // origin:any needs a discovery reply to resolve; use the first origin instead
-                        let origin_id = if target.origin_id == ANY_ORIGIN {
-                            let first = state
-                                .live
-                                .as_ref()
-                                .and_then(|l| l.origin_ids_for(dst.is_v6()).first().copied());
-                            let Some(first) = first else {
-                                warn!(
-                                    "[Orchestrator] Dropping target {dst}: no origin of its IP version is configured"
-                                );
-                                continue;
-                            };
-                            first
-                        } else {
-                            target.origin_id
-                        };
-
                         // Track the trace packet sent for filtering
                         if let Some(live) = state.live.as_mut() {
                             let window = probing_workers.len() as u64 * worker_interval
@@ -750,7 +733,7 @@ pub fn distribute_live_tasks(
                                 dst: Some(dst),
                                 ttl,
                             })),
-                            origin_id,
+                            origin_id: target.origin_id,
                             nprobes: wire_nprobes(target.nprobes),
                             session_id: 0,
                         };
@@ -772,20 +755,8 @@ pub fn distribute_live_tasks(
                         continue;
                     }
 
-                    // Ignore origin:any when there is only a single origin of the target's IP version
-                    if target.origin_id == ANY_ORIGIN
-                        && state
-                            .live
-                            .as_ref()
-                            .is_some_and(|l| l.origin_ids_for(dst.is_v6()).len() == 1)
-                    {
-                        target.origin_id = ALL_ORIGINS;
-                    }
-
-                    // Check whether discovery probes are needed (origin:any or --responsive)
-                    let is_origin_any = target.origin_id == ANY_ORIGIN;
-                    let needs_probe_gate = is_origin_any || (is_responsive && sel.is_multi());
-                    if needs_probe_gate {
+                    // --responsive gates multi-worker probing behind a single discovery probe
+                    if is_responsive && sel.is_multi() {
                         // The discovery probe is sent by a single worker (round-robin)
                         let probe_worker = match &sel {
                             WorkerSel::Any | WorkerSel::All => {
@@ -805,51 +776,22 @@ pub fn distribute_live_tasks(
                             continue;
                         };
 
-                        // origin:any starts with the first origin of the target's IP version
-                        let (origin_id, next_origin_idx) = if is_origin_any {
-                            let Some(&first) = live.origin_ids_for(dst.is_v6()).first() else {
-                                warn!(
-                                    "[Orchestrator] Dropping target {dst}: no origin of its IP version is configured"
-                                );
-                                continue;
-                            };
-                            (first, Some(1))
-                        } else {
-                            (target.origin_id, None)
-                        };
-
-                        // For a single-worker origin:any target send measurement probes iteratively
-                        let probe_is_measurement = is_origin_any && !sel.is_multi();
-
                         live.pending.insert(
                             (dst, target.session_id),
                             PendingTarget {
                                 worker_sel: sel,
                                 discovery_worker: probe_worker,
-                                next_origin_idx,
-                                probe_is_measurement,
                                 nprobes: target.nprobes,
                                 deadline: std::time::Instant::now()
                                     + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS),
                             },
                         );
 
-                        // A discovery probe is sent once, a measurement probe is repeated (nprobes)
-                        let count = if probe_is_measurement {
-                            target.nprobes
-                        } else {
-                            1
-                        };
+                        // The discovery probe is sent once; measurement probes follow on a reply
                         per_set
                             .entry(vec![probe_worker])
                             .or_default()
-                            .push(make_task(
-                                dst,
-                                !probe_is_measurement,
-                                origin_id,
-                                count,
-                                target.session_id,
-                            ));
+                            .push(make_task(dst, true, target.origin_id, 1, target.session_id));
                         continue;
                     }
 
