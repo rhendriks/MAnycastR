@@ -221,7 +221,6 @@ mod worker;
 
 pub const ALL_WORKERS: u32 = 0;
 pub const ALL_ORIGINS: u32 = 0;
-pub const ANY_ORIGIN: u32 = u32::MAX; // Try origins in order; stop on the first responsive one (live feed)
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
 /// Get 6-bits from the measurement ID for the DNS identifier for filtering.
