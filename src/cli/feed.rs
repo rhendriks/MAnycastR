@@ -1,7 +1,9 @@
 //! Live feed support: reading NDJSON targets from stdin for feed-based measurements.
 
 use crate::cli::config::resolve_workers;
-use crate::custom_module::manycastr::{Address, CliMessage, LiveTarget, TargetBatch, cli_message};
+use crate::custom_module::manycastr::{
+    Address, CliMessage, LiveTarget, ProtocolType, TargetBatch, cli_message,
+};
 use crate::{ALL_ORIGINS, ALL_WORKERS, ANY_ORIGIN};
 use bimap::BiHashMap;
 use futures_core::Stream;
@@ -14,6 +16,21 @@ use tokio::sync::mpsc;
 
 /// Size of the bounded stdin-to-gRPC feed channel (blocks stdin when full).
 pub const FEED_CHANNEL_SIZE: usize = 1024;
+
+/// Per-origin properties the feed parser needs to validate targets.
+pub struct FeedOrigin {
+    /// IP version of the origin's source address
+    pub is_v6: bool,
+    /// Protocol the origin probes with
+    pub p_type: ProtocolType,
+}
+
+impl FeedOrigin {
+    /// TCP and DNS CHAOS do not support session IDs.
+    fn supports_sessions(&self) -> bool {
+        matches!(self.p_type, ProtocolType::Icmp | ProtocolType::ADns)
+    }
+}
 
 /// Wraps the feed receiver as a `Stream` so it can be used as a gRPC streaming request.
 pub struct FeedStream {
@@ -41,13 +58,16 @@ impl Stream for FeedStream {
 /// The optional `nprobes` field sets how many measurement probes are sent to
 /// the target (default 1), spaced by the measurement's probe interval.
 /// The optional `ttl` field (feed-trace only) sets the probe TTL (default 255)
+/// The optional `session` field (`--sessions` only) tags the target with a
+/// session; replies carry it back for attribution (ICMP/DNS-A only).
 /// Blocks when the feed channel is full (rate-limiting set by Orchestrator).
 /// Runs on a dedicated thread; dropping the sender (at EOF) signals the end of the feed.
 pub fn read_stdin_feed(
     feed_tx: mpsc::Sender<CliMessage>,
     worker_map: BiHashMap<u32, String>,
-    origins: HashMap<u32, bool>, // origin ID -> is_v6
-    is_trace: bool,              // feed-trace measurement (enables the per-target `ttl` field)
+    origins: HashMap<u32, FeedOrigin>,
+    is_trace: bool,    // feed-trace measurement (enables the per-target `ttl` field)
+    is_sessions: bool, // feed sessions enabled (--sessions; enables the per-target `session` field)
 ) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -59,14 +79,15 @@ pub fn read_stdin_feed(
             continue;
         }
 
-        let Some(target) = parse_feed_line(line, &worker_map, &origins, is_trace) else {
+        let Some(target) = parse_feed_line(line, &worker_map, &origins, is_trace, is_sessions)
+        else {
             warn!("[CLI] Skipping invalid feed line: {line}");
             continue;
         };
 
         let addr = target.dst.expect("parsed target always has a dst");
         // Skip IPv4/IPv6 targets when no origin with the same IP version exists
-        if !origins.values().any(|&is_v6| is_v6 == addr.is_v6()) {
+        if !origins.values().any(|origin| origin.is_v6 == addr.is_v6()) {
             warn!(
                 "[CLI] Skipping target {addr}: no {} origin is configured",
                 if addr.is_v6() { "IPv6" } else { "IPv4" }
@@ -92,8 +113,9 @@ pub fn read_stdin_feed(
 fn parse_feed_line(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origins: &HashMap<u32, bool>,
+    origins: &HashMap<u32, FeedOrigin>,
     is_trace: bool,
+    is_sessions: bool,
 ) -> Option<LiveTarget> {
     // Parse a bare address (with default configs)
     if !line.starts_with('{') {
@@ -102,13 +124,14 @@ fn parse_feed_line(
             dst: Some(dst),
             worker_ids: Vec::new(), // any worker (round-robin)
             origin_id: ANY_ORIGIN,
-            nprobes: 1, // TODO use unset value of 0 (defaulting to 1)
-            ttl: 0, // unset (default 255 for feed-trace)
+            nprobes: 1,    // TODO use unset value of 0 (defaulting to 1)
+            ttl: 0,        // unset (default 255 for feed-trace)
+            session_id: 0, // no session
         });
     }
 
     // parse NDJSON format
-    parse_feed_object(line, worker_map, origins, is_trace)
+    parse_feed_object(line, worker_map, origins, is_trace, is_sessions)
 }
 
 /// Parse an NDJSON feed object into a live target carrying its worker selection.
@@ -116,8 +139,9 @@ fn parse_feed_line(
 fn parse_feed_object(
     line: &str,
     worker_map: &BiHashMap<u32, String>,
-    origins: &HashMap<u32, bool>,
+    origins: &HashMap<u32, FeedOrigin>,
     is_trace: bool,
+    is_sessions: bool,
 ) -> Option<LiveTarget> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let dst = value.get("dst")?.as_str()?.parse::<Address>().ok()?;
@@ -141,6 +165,14 @@ fn parse_feed_object(
         }
         Some(ttl) => parse_ttl(ttl)?,
     };
+    let session_id = match value.get("session") {
+        None => 0, // no session
+        Some(_) if !is_sessions => {
+            warn!("[CLI] Ignoring 'session': sessions are not enabled (start with --sessions).");
+            0
+        }
+        Some(session) => parse_session(session, origin_id, origins, dst.is_v6())?,
+    };
 
     Some(LiveTarget {
         dst: Some(dst),
@@ -148,7 +180,51 @@ fn parse_feed_object(
         origin_id,
         nprobes,
         ttl,
+        session_id,
     })
+}
+
+/// Parse `session`, a 16-bit session ID (0-65535) tagging this target; replies echo it
+/// back so they can be attributed to the submitting session.
+/// When set to 0, the target is not attributed to any session (replies are reported with session 0).
+///
+/// Warns when setting a session for TCP/CHAOS probes (does not support session encoding).
+fn parse_session(
+    session: &serde_json::Value,
+    origin_id: u32,
+    origins: &HashMap<u32, FeedOrigin>,
+    dst_is_v6: bool,
+) -> Option<u32> {
+    let n = match session {
+        // Session as JSON number (e.g., "session":7)
+        serde_json::Value::Number(n) => n.as_u64()?,
+        // Session as numeric string (e.g., "session":"7")
+        serde_json::Value::String(s) => s.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    if n > u16::MAX as u64 {
+        warn!("[CLI] '{n}' is not a valid session value (0-65535).");
+        return None;
+    }
+    if n == 0 {
+        return Some(0); // Explicit "no session"
+    }
+
+    // Warn when using CHAOS/TCP that cannot encode sessions in probes
+    let unattributable = match origin_id {
+        ANY_ORIGIN | ALL_ORIGINS => origins
+            .values()
+            .any(|origin| origin.is_v6 == dst_is_v6 && !origin.supports_sessions()),
+        id => origins.get(&id).is_some_and(|o| !o.supports_sessions()),
+    };
+    if unattributable {
+        warn!(
+            "[CLI] Session {n}: TCP/CHAOS replies cannot echo the session ID; their rows will report session 0."
+        );
+    }
+
+    Some(n as u32)
 }
 
 /// Parse `ttl`, the probe TTL used for this target (feed-trace only, 1-255).
@@ -193,7 +269,7 @@ fn parse_nprobes(nprobes: &serde_json::Value) -> Option<u32> {
 /// A specific origin must match the target's IP version.
 fn parse_origin(
     origin: &serde_json::Value,
-    origins: &HashMap<u32, bool>,
+    origins: &HashMap<u32, FeedOrigin>,
     dst_is_v6: bool,
 ) -> Option<u32> {
     let id = match origin {
@@ -214,11 +290,11 @@ fn parse_origin(
 
     // IP version of origin must match the target address
     match origins.get(&id) {
-        Some(&is_v6) if is_v6 == dst_is_v6 => Some(id),
-        Some(&is_v6) => {
+        Some(origin) if origin.is_v6 == dst_is_v6 => Some(id),
+        Some(origin) => {
             warn!(
                 "[CLI] Origin {id} is {} but the target is {}.",
-                if is_v6 { "IPv6" } else { "IPv4" },
+                if origin.is_v6 { "IPv6" } else { "IPv4" },
                 if dst_is_v6 { "IPv6" } else { "IPv4" }
             );
             None
