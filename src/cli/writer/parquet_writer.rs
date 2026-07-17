@@ -143,11 +143,6 @@ pub fn get_parquet_metadata(
         "number_of_probes".to_string(),
         args.number_of_probes.to_string(),
     ));
-    md.push((
-        "any_protocol_mode".to_string(),
-        args.is_any_protocol.to_string(),
-    ));
-
     if let Some(record) = args.record {
         md.push(("record".to_string(), record.to_string()));
     }
