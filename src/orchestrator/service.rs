@@ -3,7 +3,7 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::controller_server::Controller;
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Ack, Address, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
+    Ack, CliMessage, DiscoveryReply, Empty, Finished, Init, Instruction, LiveTarget,
     MeasurementType, Probe, Reply, ReplyBatch, ScheduleMeasurement, Start, Task, TraceOptions,
     TraceReply, Worker, WorkerStatus, cli_message, instruction, task,
 };
@@ -17,7 +17,7 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
-    ControllerService, LIVE_DISCOVERY_TIMEOUT_SECS, LiveState, MeasurementHandle, MeasurementState,
+    ControllerService, LiveState, MeasurementHandle, MeasurementState,
     Participant, TracerouteConfig, WorkerRegistry, WorkerSel, wire_nprobes,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, custom_module};
@@ -388,27 +388,9 @@ impl Controller for ControllerService {
         let m_id = self.next_m_id();
         self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
 
-        // Determine IPv4 and IPv6 origins
-        let (origin_ids_v4, origin_ids_v6) = {
-            let mut seen = HashSet::new();
-            let mut v4 = Vec::new();
-            let mut v6 = Vec::new();
-            for origin in m_def.configurations.iter().filter_map(|c| c.origin) {
-                if seen.insert(origin.origin_id) {
-                    if origin.is_v6() {
-                        v6.push(origin.origin_id);
-                    } else {
-                        v4.push(origin.origin_id);
-                    }
-                }
-            }
-            (v4, v6)
-        };
         if let Some(state) = self.measurement.write().unwrap().as_mut() {
             state.live = Some(LiveState {
                 pending: HashMap::new(),
-                origin_ids_v4,
-                origin_ids_v6,
                 set_stacks: HashMap::new(),
                 trace_targets: HashMap::new(),
             });
@@ -669,28 +651,6 @@ impl Controller for ControllerService {
             }
         }
 
-        // Live single-worker origin:any: the measurement probe's own reply is the result
-        if !results_bucket.is_empty()
-            && self
-                .measurement
-                .read()
-                .unwrap()
-                .as_ref()
-                .and_then(|s| s.live.as_ref())
-                .is_some_and(|l| !l.pending.is_empty())
-        {
-            let mut lock = self.measurement.write().unwrap();
-            if let Some(live) = lock.as_mut().and_then(|s| s.live.as_mut()) {
-                for reply in &results_bucket {
-                    if let Some(ReplyData::Measurement(m)) = &reply.reply_data
-                        && let Some(src) = m.src
-                    {
-                        live.remove_pending(src, m.session_id);
-                    }
-                }
-            }
-        }
-
         if !results_bucket.is_empty() {
             // Forward results to the CLI
             let tx = self.cli_sender.lock().unwrap().clone();
@@ -889,10 +849,8 @@ impl ControllerService {
 
     /// Spawn the discovery-timeout sweeper for a live measurement.
     ///
-    /// Every second, expired pending discovery targets are collected:
-    /// `origin:any` targets are re-discovered with their next origin (queued on the
-    /// discovery worker's stack), single-shot (--responsive) targets are dropped as
-    /// unresponsive. The sweeper exits when the measurement ends.
+    /// Every second, expired pending discovery targets are dropped as unresponsive.
+    /// The sweeper exits when the measurement ends.
     fn spawn_discovery_sweeper(&self) {
         let measurement = self.measurement.clone();
         tokio::spawn(async move {
@@ -909,44 +867,7 @@ impl ControllerService {
                 };
 
                 let now = Instant::now();
-                let expired: Vec<(Address, u32)> = live
-                    .pending
-                    .iter()
-                    .filter(|(_, pending)| pending.deadline <= now)
-                    .map(|(key, _)| *key)
-                    .collect();
-
-                for (addr, session_id) in expired {
-                    let Some(mut pending) = live.pending.remove(&(addr, session_id)) else {
-                        continue;
-                    };
-
-                    // Any -> iteratively try origin configurations in order (w/ matching IP version)
-                    if let Some(idx) = pending.next_origin_idx
-                        && let Some(&origin_id) = live.origin_ids_for(addr.is_v6()).get(idx)
-                    {
-                        pending.next_origin_idx = Some(idx + 1);
-                        pending.deadline = now + Duration::from_secs(LIVE_DISCOVERY_TIMEOUT_SECS);
-                        let probe = Probe { dst: Some(addr) };
-                        let (task_type, nprobes) = if pending.probe_is_measurement {
-                            (task::TaskType::Probe(probe), wire_nprobes(pending.nprobes)) // Worker repeats nprobes times
-                        } else {
-                            (task::TaskType::Discovery(probe), 0) // Discovery probes are sent once
-                        };
-                        state
-                            .worker_stacks
-                            .entry(pending.discovery_worker)
-                            .or_default()
-                            .push_back(Task {
-                                task_type: Some(task_type),
-                                origin_id,
-                                nprobes,
-                                session_id,
-                            });
-                        live.pending.insert((addr, session_id), pending);
-                    }
-                    // else: target is unresponsive on all attempted origins -> give up
-                }
+                live.pending.retain(|_, pending| pending.deadline > now);
             }
         });
     }
