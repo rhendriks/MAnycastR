@@ -76,14 +76,13 @@ const TRACEMAP_FIRST_TTL: u8 = 12;
 /// # Arguments
 /// * `targets` - Target addresses to map
 /// * `worker_id` - Worker that will probe these targets (with the anycast source)
-/// * `origin_id` - Origin to probe with
-/// * `config` - Traceroute parameters and session tracker
+/// * `config` - Traceroute parameters (including the seed origin) and session tracker
 pub fn seed_tracemap_sessions(
     targets: Vec<Address>,
     worker_id: u32,
-    origin_id: u32,
     config: &mut TracerouteConfig,
 ) -> Vec<Task> {
+    let origin_id = config.origin_id;
     let lo = config.initial_hop as u8;
     let hi = config.max_hops as u8;
     let mid = TRACEMAP_FIRST_TTL.clamp(lo, hi);

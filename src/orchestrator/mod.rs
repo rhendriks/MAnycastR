@@ -186,6 +186,9 @@ pub struct PendingTarget {
 pub struct TracerouteConfig {
     /// Session tracker for Trace Tasks
     pub session_tracker: SessionTracker,
+    /// Origin tracemap seed probes are sent from (anycast-traceroute sessions
+    /// instead use the origin that caught the discovery reply)
+    pub origin_id: u32,
     /// Timeout value for traceroute measurements (default 3s)
     pub timeout: u64,
     /// Max hop count for traceroute measurements (default 25)
