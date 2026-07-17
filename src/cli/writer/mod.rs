@@ -77,8 +77,6 @@ pub struct MetadataArgs<'a> {
     pub probe_interval: u32,
     /// Number of probes sent per origin,dst pair.
     pub number_of_probes: u32,
-    /// Whether protocols are tried in order until the target responds.
-    pub is_any_protocol: bool,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
