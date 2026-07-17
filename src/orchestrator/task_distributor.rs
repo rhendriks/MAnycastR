@@ -44,8 +44,7 @@ pub enum DistributionStrategy {
 impl DistributionStrategy {
     /// Select the distribution strategy for a measurement definition.
     ///
-    /// * **catchment** → RoundRobin: one probe per target, which is itself the
-    ///   responsiveness check (--any retries unresolved targets origin by origin)
+    /// * **catchment** → RoundRobin: one probe per target
     /// * **tracemap** → Tracemap
     /// * **anycast-traceroute** → Discovery: find the catching worker first
     /// * **latency** with an anycast origin → Discovery: measure from the catching worker
@@ -83,12 +82,6 @@ pub struct TaskDistributorConfig {
     pub m_id: u32,
     /// Target addresses to probe
     pub hitlist: Vec<Address>,
-    /// --any protocol fallback mode: unresolved targets are retried origin by origin
-    pub is_any: bool,
-    /// Ordered origin IDs for IPv4 and IPv6 for --any fallback (empty when not --any);
-    pub origin_ids: Vec<(u32, bool)>,
-    /// Origin ID for the first (or only) probing round
-    pub first_origin_id: u32,
     /// All per-measurement state. `None` when idle.
     pub measurement: MeasurementHandle,
     /// Shared list of worker senders, updated on reconnect.
@@ -303,8 +296,6 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     let is_discovery = matches!(&strategy, DistributionStrategy::Discovery { .. });
     // Tracemap interleaves follow-up trace probes with session seeding, like discovery modes
     let has_follow_ups = is_discovery || is_tracemap;
-    let is_any_protocol = config.is_any;
-    let origin_ids = config.origin_ids;
     let is_responsive = matches!(
         strategy,
         DistributionStrategy::Discovery {
@@ -323,29 +314,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
     let mut probing_rate_interval = config.probing_rate_interval;
 
-    let (all_addresses, initial_addresses) = if is_any_protocol {
-        // Keep track of all hitlist targets, and targets discovered for --any
-        let addrs = config.hitlist;
-        let first_is_v6 = origin_ids[0].1;
-        let initial: Vec<Address> = addrs
-            .iter()
-            .filter(|addr| addr.is_v6() == first_is_v6)
-            .cloned()
-            .collect();
-        (addrs, initial)
-    } else {
-        // Keep only the original vec (which gets consumed directly)
-        (Vec::new(), config.hitlist)
-    };
-    let mut round = RoundState {
-        origin_index: 0,
-        current_origin_id: config.first_origin_id,
-        hitlist_iter: initial_addresses.into_iter(),
-        hitlist_exhausted: false,
-        hitlist_exhausted_at: None,
-        cooldown_timer: None,
-        cooldown_announced: false,
-    };
+    let mut hitlist_iter = config.hitlist.into_iter();
+    let mut hitlist_exhausted = false;
+    // When the hitlist was first exhausted (used for the reply grace period)
+    let mut hitlist_exhausted_at: Option<Instant> = None;
+    let mut cooldown_timer: Option<Instant> = None;
+    // Whether the idle cooldown has been announced
+    let mut cooldown_announced = false;
 
     // nprobes: measurement probes are repeated (by the worker), discovery probes are not
     let task_nprobes = if has_follow_ups { 1 } else { config.nprobes };
@@ -464,23 +439,20 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             };
             let remainder = (config.probing_rate as usize).saturating_sub(follow_up_cost);
 
-            if remainder > 0 && !round.hitlist_exhausted && !discovery_paused {
+            if remainder > 0 && !hitlist_exhausted && !discovery_paused {
                 // Wrap target addresses into tasks
                 let tasks: Vec<Task> = if is_tracemap {
                     // Register a binary-search session per target, assigned to this round's worker
-                    let addrs: Vec<Address> = round.hitlist_iter.by_ref().take(remainder).collect();
+                    let addrs: Vec<Address> = hitlist_iter.by_ref().take(remainder).collect();
                     let mut lock = config.measurement.write().unwrap();
                     match lock
                         .as_mut()
                         .filter(|state| state.m_id == config.m_id)
                         .and_then(|state| state.trace_config.as_mut())
                     {
-                        Some(trace_config) => seed_tracemap_sessions(
-                            addrs,
-                            worker_id,
-                            round.current_origin_id,
-                            trace_config,
-                        ),
+                        Some(trace_config) => {
+                            seed_tracemap_sessions(addrs, worker_id, trace_config)
+                        }
                         None => {
                             warn!(
                                 "[Orchestrator] No traceroute configuration for tracemap, ending measurement."
@@ -489,19 +461,16 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                         }
                     }
                 } else {
-                    round
-                        .hitlist_iter
+                    hitlist_iter
                         .by_ref()
                         .take(remainder)
-                        .map(|addr| {
-                            make_task(addr, is_discovery, round.current_origin_id, task_nprobes, 0)
-                        })
+                        .map(|addr| make_task(addr, is_discovery, ALL_ORIGINS, task_nprobes, 0))
                         .collect()
                 };
 
                 if tasks.len() < remainder {
-                    round.hitlist_exhausted = true;
-                    round.hitlist_exhausted_at = Some(Instant::now());
+                    hitlist_exhausted = true;
+                    hitlist_exhausted_at = Some(Instant::now());
                     if has_follow_ups {
                         info!(
                             "[Orchestrator] All discovery probes sent, awaiting follow-up probes."
@@ -525,8 +494,8 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             }
 
             // Check if the measurement is finished
-            if round.hitlist_exhausted {
-                if has_follow_ups || is_any_protocol {
+            if hitlist_exhausted {
+                if has_follow_ups {
                     // Discovery: wait for stacks + trace sessions to drain before cooldown
                     let (stacks_empty, traces_active) = {
                         let lock = config.measurement.read().unwrap();
@@ -543,28 +512,15 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                     };
 
                     if stacks_empty && !traces_active {
-                        if let Some(start_time) = round.cooldown_timer {
+                        if let Some(start_time) = cooldown_timer {
                             if start_time.elapsed() >= Duration::from_secs(cooldown_secs) {
-                                // --any: try next protocol for unresolved targets
-                                if is_any_protocol
-                                    && try_next_any_protocol(
-                                        &config.measurement,
-                                        config.m_id,
-                                        &all_addresses,
-                                        &origin_ids,
-                                        &mut round,
-                                    )
-                                {
-                                    continue; // Restart loop with next protocol
-                                }
-                                break; // All protocols exhausted or not --any
+                                break;
                             }
-                        } else if round
-                            .hitlist_exhausted_at
+                        } else if hitlist_exhausted_at
                             .is_some_and(|t| t.elapsed() >= Duration::from_secs(REPLY_GRACE_SECS))
                         {
                             // Grace period elapsed — start the idle cooldown
-                            if round.cooldown_announced {
+                            if cooldown_announced {
                                 debug!(
                                     "[Orchestrator] Idle again after late follow-ups. Restarting the {cooldown_secs}-second cooldown."
                                 );
@@ -572,13 +528,13 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                                 info!(
                                     "[Orchestrator] No more tasks. Awaiting a {cooldown_secs}-second cooldown."
                                 );
-                                round.cooldown_announced = true;
+                                cooldown_announced = true;
                             }
-                            round.cooldown_timer = Some(Instant::now());
+                            cooldown_timer = Some(Instant::now());
                         }
                     } else {
                         // Activity resumed -> cancel any pending cooldown.
-                        round.cooldown_timer = None;
+                        cooldown_timer = None;
                     }
                 } else {
                     // Broadcast/RoundRobin: hitlist exhausted → cooldown and done
@@ -589,8 +545,8 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
             probing_rate_interval.tick().await;
         }
 
-        // Discovery and --any handle the cooldown inside the loop; other modes sleep here
-        if !has_follow_ups && !is_any_protocol {
+        // Discovery handles the cooldown inside the loop; other modes sleep here
+        if !has_follow_ups {
             info!("[Orchestrator] All tasks sent. Awaiting a {cooldown_secs}-second cooldown.");
             tokio::time::sleep(Duration::from_secs(cooldown_secs)).await;
         }
@@ -601,7 +557,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
 
 /// Live task distributor for feed-based measurements.
 ///
-/// Prioritizes follow-up tasks for workers (--discovery, or --any).
+/// Prioritizes follow-up tasks for workers (--responsive, or `origin:any`).
 /// Drains targets up to the probing rate (optinally enforced by the orchestrator).
 ///
 /// Measurement probes are optionally repeated by the worker (nprobes > 1).
@@ -826,7 +782,7 @@ pub fn distribute_live_tasks(
                         target.origin_id = ALL_ORIGINS;
                     }
 
-                    // Check whether discovery probes are needed (--any or --responsive)
+                    // Check whether discovery probes are needed (origin:any or --responsive)
                     let is_origin_any = target.origin_id == ANY_ORIGIN;
                     let needs_probe_gate = is_origin_any || (is_responsive && sel.is_multi());
                     if needs_probe_gate {
@@ -963,75 +919,3 @@ pub fn distribute_live_tasks(
     });
 }
 
-/// Mutable iteration state for the distributor loop, shared with `try_next_any_protocol`.
-struct RoundState {
-    origin_index: usize,
-    current_origin_id: u32,
-    hitlist_iter: std::vec::IntoIter<Address>,
-    hitlist_exhausted: bool,
-    /// When the hitlist was first exhausted (used for the reply grace period).
-    hitlist_exhausted_at: Option<Instant>,
-    cooldown_timer: Option<Instant>,
-    /// Whether the idle cooldown has been announced for this round
-    cooldown_announced: bool,
-}
-
-/// Iteratively go over the origins (depending on IP version).
-/// At each iteration get the currently unresolved targets, which are probed.
-/// Returns `true` if a new round was started (caller should `continue` the loop),
-/// `false` if all protocols are exhausted or all targets are resolved.
-fn try_next_any_protocol(
-    measurement: &MeasurementHandle,
-    m_id: u32,
-    all_addresses: &[Address],
-    origin_ids: &[(u32, bool)],
-    round: &mut RoundState,
-) -> bool {
-    while round.origin_index + 1 < origin_ids.len() {
-        round.origin_index += 1;
-        let (next_origin_id, next_is_v6) = origin_ids[round.origin_index];
-
-        let lock = measurement.read().unwrap();
-        let Some(state) = lock.as_ref().filter(|s| s.m_id == m_id) else {
-            return false; // Measurement no longer active
-        };
-        let resolved_count = state.resolved_targets.len();
-
-        // Collect same-version addresses that have not responded yet
-        let unresolved: Vec<Address> = all_addresses
-            .iter()
-            .filter(|addr| addr.is_v6() == next_is_v6 && !state.resolved_targets.contains(addr))
-            .cloned()
-            .collect();
-        let unresolved_count = unresolved.len();
-        drop(lock);
-
-        if unresolved_count == 0 {
-            continue; // No unresolved targets for this origin's IP version
-        }
-
-        info!(
-            "[Orchestrator] --any: {resolved_count} targets resolved, {unresolved_count} remaining. Trying next protocol (origin {next_origin_id})."
-        );
-        round.hitlist_iter = unresolved.into_iter();
-        round.hitlist_exhausted = false;
-        round.hitlist_exhausted_at = None;
-        round.cooldown_timer = None;
-        round.cooldown_announced = false;
-        round.current_origin_id = next_origin_id;
-        return true; // Caller should continue the loop
-    }
-
-    let lock = measurement.read().unwrap();
-    let resolved_count = lock
-        .as_ref()
-        .filter(|s| s.m_id == m_id)
-        .map(|s| s.resolved_targets.len())
-        .unwrap_or(0);
-    let total = all_addresses.len();
-    info!(
-        "[Orchestrator] --any: all protocols exhausted. {resolved_count}/{total} targets resolved."
-    );
-
-    false // No more protocols to try
-}
