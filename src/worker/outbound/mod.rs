@@ -27,7 +27,7 @@ pub struct OutboundConfig {
     pub worker_id: u16,
     /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
     pub abort_outbound: Arc<AtomicBool>,
-    /// The unique ID of the measurement.
+    /// The 16-bit measurement ID
     pub m_id: u32,
     /// Protocol type used
     pub p_type: ProtocolType,
@@ -106,10 +106,11 @@ pub fn outbound(
                                 continue;
                             }
                             match &task.task_type {
-                                Some(TaskType::Probe(task)) => {
+                                Some(TaskType::Probe(probe)) => {
                                     let (s, f) = send_probe(
                                         &config,
-                                        &task.dst.unwrap(),
+                                        &probe.dst.unwrap(),
+                                        task.session_id,
                                         &socket,
                                         &mut limiter,
                                         false,
@@ -118,10 +119,11 @@ pub fn outbound(
                                     sent += s;
                                     failed += f;
                                 }
-                                Some(TaskType::Discovery(task)) => {
+                                Some(TaskType::Discovery(probe)) => {
                                     let (s, f) = send_probe(
                                         &config,
-                                        &task.dst.unwrap(),
+                                        &probe.dst.unwrap(),
+                                        task.session_id,
                                         &socket,
                                         &mut limiter,
                                         true,
