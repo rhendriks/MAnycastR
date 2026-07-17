@@ -77,8 +77,8 @@ pub struct MeasurementState {
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
     pub trace_config: Option<TracerouteConfig>,
-    /// Resolved --responsive targets (address, session ID)
-    pub resolved_targets: HashSet<(Address, u32)>,
+    /// Resolved --responsive targets
+    pub resolved_targets: HashSet<Address>,
     /// Live feed state (None for hitlist-based measurements)
     pub live: Option<LiveState>,
 }
