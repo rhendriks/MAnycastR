@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 /// # Arguments
 /// * `config` - The outbound configuration containing worker details and settings.
 /// * `dst` - The destination address to which the probes will be sent.
+/// * `session_id` - 16-bit session ID encoded in the probe (ICMP/DNS-A only)
 /// * `socket` - Raw socket to send packets.
 /// * `limiter` - A rate limit bucket to control the sending rate of packets.
 /// * `is_discovery` - A boolean indicating whether the probes are for discovery purposes.
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 pub fn send_probe(
     config: &OutboundConfig,
     dst: &Address,
+    session_id: u32,
     socket: &Socket,
     limiter: &mut DirectRateLimiter<LeakyBucket>,
     is_discovery: bool,
@@ -37,9 +39,10 @@ pub fn send_probe(
     let mut sent = 0;
     let mut failed = 0;
 
+    let probe_id = crate::probe_id(config.m_id, session_id);
     let icmp_payload = ProbePayload {
         worker_id,
-        m_id: config.m_id,
+        probe_id,
         trace_ttl: None,
         info_url: config.info_url.as_deref(),
     };
@@ -69,7 +72,7 @@ pub fn send_probe(
         ProtocolType::ADns | ProtocolType::ChaosDns => {
             let dns_id = DnsProbeId {
                 worker_id,
-                m_id: config.m_id,
+                probe_id,
             };
             packet_buffer.extend_from_slice(&create_dns(
                 &config.src,
