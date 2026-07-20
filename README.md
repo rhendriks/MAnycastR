@@ -52,7 +52,7 @@ When creating a measurement you can specify (for more information run --help):
 ### Variables
 * **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
-* **Protocol** - ICMP, DNS, TCP, or CHAOS (multiple allowed)
+* **Protocol** - ICMP, DNS, TCP, or CHAOS. Multiple protocols may be given (e.g. `-p icmp,tcp`): each becomes its own origin and every target is probed with all of them, measuring routing differences between protocol types (see [Multi-protocol probing](#multi-protocol-probing))
 * **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, or `feed-trace` (the feed types read NDJSON targets from stdin instead of a hitlist, see [Live (feed) measurements](#live-feed-measurements))
 * **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
 * **Selective** (`-x`) - specify which workers have to send out probes (all connected workers will listen for packets). Accepts a comma-separated list of worker IDs, hostnames, or hostname globs with `*` (e.g. `-x 'us-*'` selects all workers whose hostname starts with `us-`, `-x '*-eqx'` all ending in `-eqx`)
@@ -236,6 +236,16 @@ Each hitlist target receives a single probe from any worker.
 Catchment is inferred based on where the ping reply ends up.
 
 Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
+
+#### Multi-protocol probing
+
+```
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp,tcp,dns -a 10.0.0.0
+```
+
+Multiple protocols can be used simultaneously. Each target receives a probe for each protocol specified.
+In this example, we perform a catchment mapping for each target in hitlist.txt using ICMP, TCP SYNACK, and DNS probing.
+This allows for measuring whether targets route to a different PoP based on the protocol used.
 
 ### Live (feed) measurements
 
