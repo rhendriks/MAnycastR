@@ -134,6 +134,23 @@ impl Origin {
     }
 }
 
+/// Parse an origin source address token: an anycast IP address, or one of the
+/// unicast keywords `unicastv4`/`unicastv6`.
+///
+/// # Panics
+/// * If the token is not a valid address or unicast keyword.
+pub fn parse_src_address(token: &str) -> Address {
+    if token.eq_ignore_ascii_case("unicastv4") {
+        Address::unicast_v4()
+    } else if token.eq_ignore_ascii_case("unicastv6") {
+        Address::unicast_v6()
+    } else if token.eq_ignore_ascii_case("unicast") {
+        panic!("'unicast' must specify an IP version: use 'unicastv4' or 'unicastv6'");
+    } else {
+        Address::from(token)
+    }
+}
+
 /// Whether any configuration probes from an anycast source address
 pub fn has_anycast_origin(configurations: &[Configuration]) -> bool {
     configurations

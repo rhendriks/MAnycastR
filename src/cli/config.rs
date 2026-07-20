@@ -2,6 +2,7 @@ use crate::ALL_WORKERS;
 use crate::custom_module::manycastr::{
     Address, Configuration, MeasurementType, Origin, ProtocolType,
 };
+use crate::custom_module::parse_src_address;
 use bimap::BiHashMap;
 use flate2::read::GzDecoder;
 use log::info;
@@ -129,23 +130,6 @@ pub fn validate_ip_versions(
     }
 
     Ok(versions)
-}
-
-/// Parse an origin source address token: an anycast IP address, or one of the
-/// unicast keywords `unicastv4`/`unicastv6`.
-///
-/// # Panics
-/// * If the token is not a valid address or unicast keyword.
-pub fn parse_src_address(token: &str) -> Address {
-    if token.eq_ignore_ascii_case("unicastv4") {
-        Address::unicast_v4()
-    } else if token.eq_ignore_ascii_case("unicastv6") {
-        Address::unicast_v6()
-    } else if token.eq_ignore_ascii_case("unicast") {
-        panic!("'unicast' must specify an IP version: use 'unicastv4' or 'unicastv6'");
-    } else {
-        Address::from(token)
-    }
 }
 
 /// Match `text` against a `*`-wildcard `pattern`
