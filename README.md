@@ -83,7 +83,7 @@ manycastr orchestrator -p [PORT NUMBER]
 
 To enable shared access to measurement infrastructure, the Orchestrator can enforce the maximum probing rate and available origins.
 This ensures that any CLI requesting a measurement must adhere to these settings.
-First, we enable `--max_rate` (probes per second, per worker; default: 1000).
+First, we enable `--max_rate` (probes per second, per worker; optional).
 Second, we allow for `--origins [FILE]`.
 Each line of the file allows one origin: `src_addr, protocol[, protocol...]`, where `src_addr` is an anycast address or `unicastv4`/`unicastv6`, and the protocol list may be `all` to allow all protocols (see `example.origins`).
 A measurement is refused unless every origin it uses matches a rule.

@@ -200,8 +200,8 @@ pub struct ControllerService {
     unique_id: Arc<Mutex<u32>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
-    /// Maximum probing rate (probes per second, per worker) allowed for measurements
-    max_rate: u32,
+    /// Maximum probing rate (probes per second, per worker) allowed for measurements (None = unlimited)
+    max_rate: Option<u32>,
     /// Optional allow-list of origins CLIs may use (None = all origins allowed)
     allowed_origins: Option<Vec<AllowedOrigin>>,
 }
@@ -283,7 +283,7 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         measurement: Arc::new(RwLock::new(None)),
         unique_id: current_worker_id,
         worker_config,
-        max_rate: *args.get_one::<u32>("max_rate").unwrap(),
+        max_rate: args.get_one::<u32>("max_rate").copied(),
         allowed_origins: args.get_one::<String>("origins").map(load_allowed_origins),
     };
 

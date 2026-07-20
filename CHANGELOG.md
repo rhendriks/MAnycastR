@@ -2,12 +2,13 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [2.0.0] - 2026-07-10
+## [2.0.0] - 2026-07-20
 Adds live (feed-based) measurements: enabling reactive measurements
 (e.g., mapping the catchment when receiving potentially spoofed packets or
 observing a routing change in passive BGP data), and live traceroute
 (user-driven, TTL-limited probes over the feed).
-For third party measurement support the orchestrator may enforce a probing rate limit on the live feed.
+To enable shared measurement infrastructure, the orchestrator can now enforce
+a maximum probing rate and an origin allow-list on all measurements.
 Workers can now reconnect during measurements, and disconnects no longer hang the measurement to improve robustness.
 Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack anycast.
 
@@ -22,9 +23,16 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
 - **Live traceroute measurements** (`-m feed-trace`) — live measurements with
   TTL-limited probes.
-- **Orchestrator live rate limit** (`orchestrator --live_rate`, default 1000) —
-  To support live measurements from third parties, the orchestrator can now enforce
-  a probing rate limit on the live feed.
+- **Orchestrator rate enforcement** (`orchestrator --max_rate`) —
+  the orchestrator refuses measurements that request a probing rate above the
+  configured maximum (probes per second, per worker), for all measurement types.
+  Without `--max_rate`, any probing rate is allowed.
+- **Orchestrator origin allow-list** (`orchestrator --origins [FILE]`) —
+  restricts the origins CLIs may use. Each line of the file allows one origin:
+  a source address (anycast IP or `unicastv4`/`unicastv6`) with the protocols
+  permitted for it (`all` allows every protocol), see `example.origins`.
+  Measurements using any other origin are refused, with the error listing the
+  available origins. Without `--origins`, all origins are allowed.
 - **Mixed IPv4/IPv6 measurements** — measurements can now probe both IPv4 and IPv6 targets in a single run.
   This requires multi-origins, e.g., a configuration file declaring both an IPv4 and IPv6 origin.
   Targets are only probed origins that match their IP version.
@@ -50,6 +58,7 @@ Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack any
   Similarly, `SINGLE_ORIGIN` is now 0 instead of 1.
   For the same reason, for live (feed) measurements, the worker vector is empty for `worker:any`.
 - `-a`/`--address` is now required unless `--configuration` is given.
+- Updated dependencies.
 
 ### Fixed
 - **Multi-origin traceroute output no longer panics the CSV writer**.
@@ -388,6 +397,8 @@ traceroute, and improves LACeS and traceroute output.
 
 - Initial release.
 
+[2.0.0]: https://github.com/rhendriks/MAnycastR/compare/v1.10.0...v2.0.0
+[1.10.0]: https://github.com/rhendriks/MAnycastR/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/rhendriks/MAnycastR/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/rhendriks/MAnycastR/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rhendriks/MAnycastR/compare/v1.6.0...v1.7.0
