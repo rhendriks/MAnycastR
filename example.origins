@@ -1,0 +1,10 @@
+# This file provides an example origin allow-list for the orchestrator (--origins)
+# Using this file, the orchestrator can enforce the available addresses/protocols a CLI may use in measurements
+# A measurement is refused unless every origin it uses matches a rule below
+# src_addr is an anycast IP address, or 'unicastv4'/'unicastv6' (each worker's local unicast address)
+# The protocol list may be 'all' to allow all protocols (icmp, dns, tcp, chaos)
+# src_addr, protocol[, protocol...]
+10.0.0.1, all
+2001:db8::1, icmp, tcp
+unicastv4, icmp
+unicastv6, icmp
