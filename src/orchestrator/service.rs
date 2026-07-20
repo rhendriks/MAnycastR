@@ -679,14 +679,15 @@ impl ControllerService {
     /// # Errors
     /// Returns an error naming the requested and maximum rate.
     fn validate_rate(&self, probing_rate: u32) -> Result<(), Status> {
-        if probing_rate > self.max_rate {
+        let Some(max_rate) = self.max_rate else {
+            return Ok(()); // No rate limit configured
+        };
+        if probing_rate > max_rate {
             warn!(
-                "[Orchestrator] Refusing measurement: probing rate {probing_rate} exceeds the configured maximum of {}",
-                self.max_rate
+                "[Orchestrator] Refusing measurement: probing rate {probing_rate} exceeds the configured maximum of {max_rate}"
             );
             return Err(Status::invalid_argument(format!(
-                "Probing rate {probing_rate} exceeds this orchestrator's maximum rate of {} (probes per second, per worker)",
-                self.max_rate
+                "Probing rate {probing_rate} exceeds this orchestrator's maximum rate of {max_rate} (probes per second, per worker)"
             )));
         }
         Ok(())
