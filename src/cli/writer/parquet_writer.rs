@@ -400,7 +400,7 @@ pub fn write_batch_to_parquet(
     batch: &mut [ParquetDataRow],
     headers: &[&str],
 ) -> Result<(), parquet::errors::ParquetError> {
-    batch.sort_unstable_by(|a, b| a.addr.cmp(&b.addr));
+    batch.sort_unstable_by_key(|row| row.addr);
 
     let mut row_group_writer = writer.next_row_group()?;
 
