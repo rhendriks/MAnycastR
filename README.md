@@ -80,7 +80,14 @@ First, run the central orchestrator.
 ```
 manycastr orchestrator -p [PORT NUMBER]
 ```
-The orchestrator enforces a maximum probing rate for live (feed-based) measurements, configurable with `--live_rate` (probes per second, per worker; default: 1000).
+
+To enable shared access to measurement infrastructure, the Orchestrator can enforce the maximum probing rate and available origins.
+This ensures that any CLI requesting a measurement must adhere to these settings.
+First, we enable `--max_rate` (probes per second, per worker; default: 1000).
+Second, we allow for `--origins [FILE]`.
+Each line of the file allows one origin: `src_addr, protocol[, protocol...]`, where `src_addr` is an anycast address or `unicastv4`/`unicastv6`, and the protocol list may be `all` to allow all protocols (see `example.origins`).
+A measurement is refused unless every origin it uses matches a rule.
+Without `--origins`, all origins are allowed.
 
 Next, run one or more workers.
 
@@ -311,7 +318,7 @@ Notes:
 * Targets are probed as they arrive.
 * Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`), plus a `session` column with `--sessions`.
 * The measurement runs until stdin reaches EOF or Ctrl+C is pressed. Ctrl+C exits immediately and stops the live measurement.
-* The orchestrator caps the probing rate of live measurements (`--live_rate`, per worker).
+* The orchestrator refuses measurements that request a probing rate above `--max_rate` (per worker).
 * Workers that connect while a live measurement is running do not participate until the next measurement.
 
 #### Live traceroute (feed-trace)
