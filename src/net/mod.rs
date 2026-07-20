@@ -438,8 +438,8 @@ pub fn calculate_checksum(buffer: &[u8], pseudo_header: &PseudoHeader) -> u16 {
 
     // Sum the packet buffer
     let packet_len = packet.len();
-    for chunk in packet.chunks_exact(2) {
-        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
+    for chunk in packet.as_chunks::<2>().0 {
+        let word = u16::from_be_bytes(*chunk);
         sum += u32::from(word);
     }
 
