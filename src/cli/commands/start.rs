@@ -1,13 +1,12 @@
 use crate::cli::client::CliClient;
 use crate::cli::config::{
-    get_hitlist, get_targets, parse_configurations, parse_src_address, resolve_workers,
-    validate_ip_versions,
+    get_hitlist, get_targets, parse_configurations, resolve_workers, validate_ip_versions,
 };
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::{
     Configuration, MeasurementType, Origin, ProtocolType, ScheduleMeasurement, TraceOptions,
 };
-use crate::custom_module::{Separated, has_anycast_origin};
+use crate::custom_module::{Separated, has_anycast_origin, parse_src_address};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use clap::ArgMatches;
@@ -230,7 +229,7 @@ pub async fn handle(
 
     if is_feed {
         info!(
-            "[CLI] Performing live {m_type} {ip_version} measurement using targets fed over stdin, with a rate of {} (capped by the orchestrator's --live_rate)",
+            "[CLI] Performing live {m_type} {ip_version} measurement using targets fed over stdin, with a rate of {}",
             probing_rate.with_separator(),
         );
     } else {
