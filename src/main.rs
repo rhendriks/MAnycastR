@@ -308,10 +308,11 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
                 .arg(arg!(--tls "Use TLS (requires certs in ./tls/)").action(ArgAction::SetTrue))
                 .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
-                .arg(arg!(--live_rate <RATE> "Maximum probing rate (probes per second, per worker) enforced for live (feed-based) measurements")
+                .arg(arg!(--max_rate <RATE> "Maximum probing rate allowed for measurements (probes per second, per worker)")
                     .value_parser(value_parser!(u32))
                     .default_value("1000"))
-                //TODO optionally enforce addresses available for measurements at the Orc
+                .arg(arg!(--origins <FILE> "Origin allow-list restricting the origins CLIs may use ('src_addr, protocol[, protocol...]' per line; 'all' allows all protocols)")
+                    .value_parser(value_parser!(String)))
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
