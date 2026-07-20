@@ -9,6 +9,8 @@ service Controller {
   rpc WorkerConnect(Worker) returns (stream Instruction) {}
   // CLI instructs Orc to perform a hitlist-based measurement and establishes a stream for the Orc to send back replies
   rpc DoMeasurement(ScheduleMeasurement) returns (stream ReplyBatch) {}
+  // CLI opens a live measurement, replies are streamed back
+  rpc LiveMeasurement(stream CliMessage) returns (stream ReplyBatch) {}
   // CLI asks Orc its current status (list of connected workers and measurements)
   rpc ListWorkers(Empty) returns (Status) {}
   // Worker sends measurement replies to the Orc
@@ -33,10 +35,11 @@ message Finished {
 enum MeasurementType {
   LACES = 0;
   CATCHMENT = 1;
-  ANYCAST_LATENCY = 2;
-  UNICAST_LATENCY = 3;
-  ANYCAST_TRACEROUTE = 4;
-  TRACEMAP = 5;
+  ANYCAST_LATENCY = 2; // TODO rename to 'LATENCY'
+  ANYCAST_TRACEROUTE = 3; // TODO rename to 'TRACEROUTE'
+  TRACEMAP = 4;
+  FEED = 5;
+  FEED_TRACE = 6;
 }
 
 enum ProtocolType {
@@ -65,11 +68,31 @@ message ScheduleMeasurement {
   optional string url = 7; // URL to encode in probes (e.g., opt-out link)
   uint32 probe_interval = 8; // interval between probes from/to the same origin,dst pair
   uint32 number_of_probes = 9; // number of probes to send per origin,dst pair
-  bool is_ipv6 = 10; // whether the measurement is for IPv6
-  bool is_record = 11; // whether to send IPv4 probes with the Record Route options
-  optional TraceOptions trace_options = 12; // Optional traceroute options
-  bool is_responsive = 13; // Whether to probe a target once for responsiveness before sending measurement probes
-  bool is_any_protocol = 14; // Try protocols in order; stop per-target on first responsive protocol
+  optional TraceOptions trace_options = 10; // Optional traceroute options
+  bool is_responsive = 11; // Whether to probe a target once for responsiveness before sending measurement probes
+}
+
+// A message sent by the CLI on a live measurement stream
+message CliMessage {
+  oneof message {
+    ScheduleMeasurement start = 1; // measurement definition (must be the first message; hitlist is ignored)
+    TargetBatch targets = 2; // targets to probe using the measurement defaults
+  }
+}
+
+// A batch of live-feed targets
+message TargetBatch {
+  repeated LiveTarget targets = 1;
+}
+
+// A live-feed target with an optional worker and origin assignment
+message LiveTarget {
+  Address dst = 1; // target address to probe
+  repeated uint32 worker_ids = 2; // probing workers: empty = any worker (round-robin), [0] = all workers, else specific worker IDs
+  uint32 origin_id = 3; // origin to use for this target
+  uint32 nprobes = 4; // number of measurement probes to send
+  uint32 ttl = 5; // probe TTL (FEED_TRACE only): 0 = unset (default 255)
+  uint32 session_id = 6; // 16-bit session this target belongs to (0 = no session); echoed in replies for ICMP/DNS-A probes
 }
 
 // A list of workers
@@ -91,7 +114,8 @@ message Address {
   oneof value {
     fixed32 v4 = 1;
     IPv6 v6 = 2;
-    Empty unicast = 3; // use unicast origin
+    Empty unicast_v4 = 3; // use the worker's local IPv4 unicast address
+    Empty unicast_v6 = 4; // use the worker's local IPv6 unicast address
   }
 }
 
@@ -125,6 +149,8 @@ message Task {
     Probe discovery = 3; // A discovery task (e.g., to check for responsiveness or catching PoP)
   }
   uint32 origin_id = 4; // Origin from which to send this probe
+  uint32 nprobes = 5; // number of times the worker sends this probe, spaced by the Start probe_interval
+  uint32 session_id = 6; // 16-bit session ID encoded in the probe; ICMP/DNS-A only
 }
 
 // Initial message to worker, contains the worker ID assigned by the orchestrator
@@ -135,14 +161,13 @@ message Init {
 // A start control instruction, forwards the configuration to the worker
 message Start {
   uint32 rate = 1;
-  uint32 m_id = 2;
+  uint32 m_id = 2; // Measurement ID (for filtering replies)
   repeated Origin tx_origins = 3; // origins to send with
   repeated Origin rx_origins = 4; // origins to listen for
   optional string record = 5; // domain to use for DNS queries (TXT/A/AAAA)
   optional string url = 6; // URL encoded in probes
-  bool is_ipv6 = 7; // whether the measurement is for IPv6
-  bool is_record = 8; // send IPv4 probes with the Record Route option
-  MeasurementType m_type = 9; // Measurement type
+  MeasurementType m_type = 7; // Measurement type
+  uint32 probe_interval = 8; // seconds between repeated sends of a task with nprobes > 1
 }
 
 message TraceOptions {
@@ -203,6 +228,7 @@ message Reply {
 // Contains discovery reply data (used for follow-up tasks)
 message DiscoveryReply {
   Address src = 1;
+  uint32 session_id = 2; // session ID recovered from the reply (0 for TCP/CHAOS, which cannot echo it)
 }
 
 // Contains measured reply data (forwarded to the CLI and written to file)
@@ -212,7 +238,7 @@ message MeasurementReply {
   float rtt = 3; // Round-trip time in milliseconds
   uint32 tx_id = 4;
   optional string chaos = 5;
-  optional RecordedHops recorded_hops = 6;
+  uint32 session_id = 6; // session ID recovered from the reply (0 for TCP/CHAOS, which cannot echo it)
 }
 
 // Traceroute reply
@@ -223,9 +249,4 @@ message TraceReply {
   uint32 tx_id = 4;
   Address trace_dst = 5;
   uint32 hop_count = 6; // TTL used to trigger this reply
-}
-
-// Record Route hops found
-message RecordedHops {
-  repeated Address hops = 1;
 }

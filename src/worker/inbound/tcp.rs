@@ -49,7 +49,10 @@ pub fn parse_tcp(
     if is_discovery {
         // Discovery probe (regular layout sets bit 31); identifies the catching worker.
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
+                src: Some(src),
+                session_id: 0, // Does not fit in TCP probes
+            })),
         })
     } else if is_traceroute {
         // Trace probe
@@ -74,7 +77,7 @@ pub fn parse_tcp(
                 rtt: super::rtt_ms(rx_time, tx_time_21b as u64, super::TxEncoding::Tcp21),
                 tx_id,
                 chaos: None,
-                recorded_hops: None,
+                session_id: 0, // Does not fit in TCP probes
             })),
         })
     }

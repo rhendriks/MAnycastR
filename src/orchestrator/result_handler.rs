@@ -1,8 +1,8 @@
 use crate::custom_module::manycastr::{DiscoveryReply, Probe, Task, Trace, TraceReply, task};
-use crate::orchestrator::TracerouteConfig;
 pub(crate) use crate::orchestrator::trace::{
     SessionTracker, TraceIdentifier, TraceProgress, TraceSession, ttl_midpoint,
 };
+use crate::orchestrator::{TracerouteConfig, wire_nprobes};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -13,18 +13,22 @@ use std::time::{Duration, Instant};
 /// * `worker_id` - worker that will perform the follow-up tasks
 /// * `worker_stacks` - shared stack to put worker tasks in
 /// * `origin_id` - Origin for which these replies are received
+/// * `nprobes` - number of times the worker sends each follow-up probe
 pub fn discovery_handler(
     discovery_results: Vec<DiscoveryReply>,
     worker_id: u32,
     worker_stacks: &mut HashMap<u32, VecDeque<Task>>,
     origin_id: u32,
+    nprobes: u32,
 ) {
-    // Get the target addresses from the results
+    // Get the discovery results as a vector of tasks
     let responsive_targets: Vec<Task> = discovery_results
         .iter()
         .map(|result| Task {
             task_type: Some(task::TaskType::Probe(Probe { dst: result.src })),
             origin_id,
+            nprobes: wire_nprobes(nprobes),
+            session_id: 0, // sessions are feed only (not hitlist-based)
         })
         .collect();
 
@@ -95,6 +99,8 @@ pub fn trace_discovery_handler(
                 ttl: traceroute_config.initial_hop,
             })),
             origin_id,
+            nprobes: 0,    // single send
+            session_id: 0, // trace probes carry no session
         });
     }
 }
@@ -204,6 +210,8 @@ pub fn trace_replies_handler(
                         ttl: next_ttl as u32,
                     })),
                     origin_id,
+                    nprobes: 0,    // single send
+                    session_id: 0, // trace probes carry no session
                 });
         } else {
             session_tracker.sessions.remove(&identifier);

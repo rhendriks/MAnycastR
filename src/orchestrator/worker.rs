@@ -2,7 +2,7 @@ use crate::custom_module::manycastr::WorkerStatus::{Disconnected, Idle, Listenin
 use crate::custom_module::manycastr::{Address, ReplyBatch, WorkerStatus};
 use crate::orchestrator::{CliHandle, MeasurementHandle};
 use futures_core::Stream;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -52,47 +52,44 @@ impl<T> Drop for WorkerReceiver<T> {
         let worker_id = self.worker_id;
 
         {
-            let status = *self.status.lock().unwrap();
-            let is_participating = status == Probing || status == Listening;
+            let mut measurement_lock = self.measurement.write().unwrap();
 
-            // If this worker is participating, update the active_workers counter
-            if is_participating {
-                let mut measurement_lock = self.measurement.write().unwrap();
+            // Do not wait for this disconnected worker for measurement finish
+            if let Some(ref mut state) = *measurement_lock
+                && let Some(participant) = state.participants.get_mut(&worker_id)
+                && participant.is_counted
+            {
+                participant.is_counted = false;
 
-                if let Some(ref mut state) = *measurement_lock {
-                    // Remove from probing list if they were a prober
-                    state.probing_workers.retain(|&id| id != worker_id);
+                // Remove from probing list if they were a prober
+                state.probing_workers.retain(|&id| id != worker_id);
 
-                    // Discard state owned by this worker so the measurement can still terminate
-                    // TODO its queued follow-up tasks and ongoing trace sessions can no longer be performed (needs changing when implementing reconnect)
-                    if let Some(stack) = state.worker_stacks.remove(&worker_id)
-                        && !stack.is_empty()
-                    {
-                        warn!(
-                            "[Orchestrator] Discarding {} queued follow-up tasks for dropped worker {}",
-                            stack.len(),
-                            self.hostname
-                        );
-                    }
-                    if let Some(ref mut config) = state.trace_config {
-                        config
-                            .session_tracker
-                            .sessions
-                            .retain(|id, _| id.worker_id != worker_id);
-                    }
+                // Discard state owned by this worker so the measurement can still terminate
+                // TODO consider keeping follow-up tasks and trace sessions for reconnects
+                if let Some(stack) = state.worker_stacks.remove(&worker_id)
+                    && !stack.is_empty()
+                {
+                    warn!(
+                        "[Orchestrator] Discarding {} queued follow-up tasks for dropped worker {}",
+                        stack.len(),
+                        self.hostname
+                    );
+                }
+                if let Some(ref mut config) = state.trace_config {
+                    config
+                        .session_tracker
+                        .sessions
+                        .retain(|id, _| id.worker_id != worker_id);
+                }
 
-                    // Decrement the participating workers counter
-                    if state.workers_count <= 1 {
-                        // This was the last worker
-                        info!(
-                            "[Orchestrator] Last active worker ({}) dropped. Measurement is over.",
-                            self.hostname
-                        );
-                        *measurement_lock = None; // Reset the state
-                        should_notify_cli = true;
-                    } else {
-                        state.workers_count -= 1;
-                    }
+                if state.active_workers() == 0 {
+                    // This was the last worker still holding a completion claim
+                    info!(
+                        "[Orchestrator] Last active worker ({}) dropped. Measurement finished.",
+                        self.hostname
+                    );
+                    *measurement_lock = None; // Reset the state
+                    should_notify_cli = true;
                 }
             }
         }
@@ -136,19 +133,31 @@ impl<T> WorkerSender<T> {
     }
 
     /// Sends an instruction to the worker.
-    /// On failure, logs a warning and marks the worker as disconnected.
+    /// On failure, logs a warning (once) and marks the worker as disconnected.
     pub async fn send(&self, task: T) -> Result<(), mpsc::error::SendError<T>> {
         match self.inner.send(task).await {
             Ok(_) => Ok(()),
             Err(e) => {
-                warn!(
-                    "[Orchestrator] Failed to send to worker {}: {e}",
-                    self.hostname
-                );
-                self.cleanup();
+                if self.get_status() == Disconnected {
+                    debug!(
+                        "[Orchestrator] Dropping send to disconnected worker {}",
+                        self.hostname
+                    );
+                } else {
+                    warn!(
+                        "[Orchestrator] Failed to send to worker {}: {e}",
+                        self.hostname
+                    );
+                    self.cleanup();
+                }
                 Err(e)
             }
         }
+    }
+
+    /// Sends an instruction to the worker without blocking
+    pub fn try_send(&self, task: T) -> Result<(), mpsc::error::TrySendError<T>> {
+        self.inner.try_send(task)
     }
 
     /// Marks the worker as disconnected

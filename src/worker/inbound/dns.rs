@@ -68,7 +68,7 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
         return None;
     }
 
-    let (tx_time, tx_id, chaos, is_discovery, hop_ttl) = if !is_chaos {
+    let (tx_time, tx_id, chaos, is_discovery, hop_ttl, session_id) = if !is_chaos {
         let dns_result = parse_dns_a_record(dns_msg, src.is_v6(), m_id)?;
 
         if (dns_result.probe_sport != reply_dport) | (dns_result.probe_dst != src) {
@@ -81,16 +81,21 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
             None,
             dns_result.is_discovery,
             dns_result.hop_ttl,
+            dns_result.session_id,
         )
     } else {
+        // CHAOS replies only echo the 6-bit measurement identifier, no session ID
         let (tx_time, tx_worker_id, chaos) = parse_chaos(dns_msg)?;
-        (tx_time, tx_worker_id, Some(chaos), false, None)
+        (tx_time, tx_worker_id, Some(chaos), false, None, 0)
     };
 
     if is_discovery {
         // Discovery reply: identifies the catching worker (starts the trace, or --responsive).
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
+                src: Some(src),
+                session_id,
+            })),
         })
     } else if traceroute {
         // DNS trace reply from destination (DNS answer)
@@ -118,7 +123,7 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
                 rtt,
                 tx_id,
                 chaos,
-                recorded_hops: None,
+                session_id,
             })),
         })
     }
@@ -132,6 +137,8 @@ struct DnsResult {
     is_discovery: bool,
     /// Probe TTL encoded in the QNAME (UDP/DNS traceroute probes only; `None` otherwise).
     hop_ttl: Option<u8>,
+    /// Session ID recovered from the QNAME-encoded probe ID.
+    session_id: u32,
 }
 
 /// Attempts to parse the DNS A record from a DNS payload body.
@@ -151,7 +158,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool, m_id: u32) -> Option<D
     let record = DNSRecord::from(packet_bytes);
     let domain = record.domain; // example: '1679305276037913215.3226971181.16843009.0.4000.123456.google.com'
     let parts: Vec<&str> = domain.split('.').collect();
-    // Our domains have at least 6 parts (tx_time, src, dst, tx_id, sport, m_id, domain...)
+    // Our domains have at least 6 parts (tx_time, src, dst, tx_id, sport, probe_id, domain...)
     if parts.len() < 6 {
         return None;
     }
@@ -164,12 +171,13 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool, m_id: u32) -> Option<D
     };
     let mut tx_id = parts[3].parse::<u32>().ok()?;
     let probe_sport = parts[4].parse::<u16>().ok()?;
-    let pkt_m_id = parts[5].parse::<u32>().ok()?;
+    let pkt_probe_id = parts[5].parse::<u32>().ok()?;
 
-    // Verify measurement ID matches
-    if pkt_m_id != m_id {
+    // Verify measurement ID (upper half of the probe ID) matches
+    if crate::m_id_of(pkt_probe_id) != m_id {
         return None;
     }
+    let session_id = crate::session_id_of(pkt_probe_id);
 
     let is_discovery = if tx_id > u16::MAX as u32 {
         tx_id -= u16::MAX as u32;
@@ -188,6 +196,7 @@ fn parse_dns_a_record(packet_bytes: &[u8], is_ipv6: bool, m_id: u32) -> Option<D
         probe_sport,
         probe_dst,
         is_discovery,
+        session_id,
     })
 }
 

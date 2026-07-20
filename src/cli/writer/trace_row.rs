@@ -1,13 +1,15 @@
+use crate::SINGLE_ORIGIN;
 use crate::cli::writer::format_rtt;
 use crate::custom_module::manycastr::TraceReply;
 use bimap::BiHashMap;
 
 /// Get traceroute row
-/// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt
+/// format: rx, hop_addr, ttl, tx, trace_dst, trace_ttl, rtt [, origin_id]
 pub fn get_trace_row(
     reply: TraceReply,
     rx_id: &u32,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
 ) -> Vec<String> {
     // convert the worker ID to hostname (no hop reply → no worker received it → '*')
     let rx_hostname = if reply.hop_addr.is_some() {
@@ -36,7 +38,7 @@ pub fn get_trace_row(
     } else {
         "*".to_string()
     };
-    vec![
+    let mut row = vec![
         rx_hostname,
         hop_addr,
         reply.ttl.to_string(),
@@ -44,5 +46,11 @@ pub fn get_trace_row(
         reply.trace_dst.unwrap().to_string(),
         reply.hop_count.to_string(),
         rtt,
-    ]
+    ];
+
+    if origin_id != SINGLE_ORIGIN {
+        row.push(origin_id.to_string());
+    }
+
+    row
 }

@@ -14,7 +14,7 @@ use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 impl Worker {
     /// Initialize a new measurement by creating outbound and inbound threads, and ensures task results are sent back to the orchestrator.
@@ -34,25 +34,29 @@ impl Worker {
         abort_outbound: Arc<AtomicBool>,
     ) -> Result<(), Box<dyn Error>> {
         let m_id = start.m_id;
-        let is_ipv6 = start.is_ipv6;
         let m_type = start.m_type();
 
         // Channel for sending from inbound to the orchestrator forwarder thread
         let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // Replace unspecified unicast addresses in rx_origins, tx_origins with local addresses
-        let rx_origins = set_unicast_origins(start.rx_origins, is_ipv6);
-        let tx_origins = set_unicast_origins(start.tx_origins, is_ipv6);
+        // Replace unicast placeholder addresses in rx_origins, tx_origins with local addresses
+        let rx_origins = set_unicast_origins(start.rx_origins);
+        let tx_origins = set_unicast_origins(start.tx_origins);
         let tx_origin_ids: std::collections::HashSet<_> =
             tx_origins.iter().map(|o| o.origin_id).collect();
 
+        // Traceroute mode: raw-only sockets, ICMP Time Exceeded BPF filter, trace reply parsing
         let is_traceroute = matches!(
             m_type,
-            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap
+            MeasurementType::AnycastTraceroute
+                | MeasurementType::Tracemap
+                | MeasurementType::FeedTrace
         );
 
         // Start inbound/outbound threads for each origin
         for rx_origin in rx_origins {
+            // The IP version is a per-origin property (mixed-version measurements)
+            let is_ipv6 = rx_origin.src.expect("no src").is_v6();
             let is_transport_traceroute =
                 is_traceroute && !matches!(rx_origin.p_type(), ProtocolType::Icmp);
 
@@ -63,7 +67,6 @@ impl Worker {
                     ProtocolType::Icmp,
                     rx_origin,
                     true, // Attaches Time Exceeded + Dest Unreachable BPF filter
-                    false,
                     m_id,
                 );
                 let (tx, _) = Self::get_socket(
@@ -71,19 +74,12 @@ impl Worker {
                     rx_origin.p_type(),
                     rx_origin,
                     true, // forces a raw socket (TTL + checksum control)
-                    false,
                     m_id,
                 );
                 (rx, tx, false)
             } else {
-                let (socket, is_dgram) = Self::get_socket(
-                    is_ipv6,
-                    rx_origin.p_type(),
-                    rx_origin,
-                    is_traceroute,
-                    start.is_record,
-                    m_id,
-                );
+                let (socket, is_dgram) =
+                    Self::get_socket(is_ipv6, rx_origin.p_type(), rx_origin, is_traceroute, m_id);
                 (socket.clone(), socket, is_dgram)
             };
 
@@ -93,7 +89,6 @@ impl Worker {
                 p_type: rx_origin.p_type(),
                 abort_s: self.abort_inbound.clone(),
                 is_traceroute,
-                is_record: start.is_record,
                 is_dgram,
                 origin_id: rx_origin.origin_id,
                 sport: rx_origin.sport as u16,
@@ -106,8 +101,7 @@ impl Worker {
                 inbound(
                     InboundConfig {
                         is_traceroute: false, // parse as normal DNS/TCP discovery replies
-                        is_record: false,
-                        is_dgram: false, // raw transport socket
+                        is_dgram: false,      // raw transport socket
                         is_transport_trace: true,
                         ..inbound_config.clone()
                     },
@@ -136,7 +130,6 @@ impl Worker {
                         qname: start.record.clone(),
                         info_url: start.url.clone(),
                         probing_rate: start.rate / tx_origins.len() as u32, // Adjust probing rate for multiple origins
-                        is_record: start.is_record,
                         is_dgram,
                         src: rx_origin.src.unwrap(),
                         sport: rx_origin.sport as u16,
@@ -151,15 +144,13 @@ impl Worker {
         }
 
         // Spawn thread to forward reply batches to the CLI
-        let m_id_handle = self.current_m_id.clone();
+        let is_busy = self.is_busy.clone();
         let mut grpc_client_clone = self.grpc_client.clone();
         tokio::spawn(async move {
             while let Some(batch) = inbound_rx.recv().await {
                 if batch == ReplyBatch::default() {
-                    // Set the current measurement ID to None (no active measurement)
-                    if let Ok(mut guard) = m_id_handle.lock() {
-                        *guard = None;
-                    }
+                    // Mark the worker as idle (no active measurement)
+                    is_busy.store(false, Ordering::SeqCst);
                     info!(
                         "[Worker] Letting the orchestrator know that this worker finished the measurement"
                     );
@@ -172,6 +163,7 @@ impl Worker {
                     break;
                 }
 
+                // TODO retry with backoff instead of breaking
                 if let Err(e) = grpc_client_clone.send_result(batch).await {
                     error!("[Worker] Failed to forward batch: {e}");
                     break;
@@ -221,16 +213,14 @@ impl Worker {
     /// * `p_type` - Protocol type used (ICMP, UDP, or TCP)
     /// * `origin` - Origin used in this measurement (anycast or local unicast address)
     /// * `is_traceroute` - Whether this is a traceroute measurement (raw-only)
-    /// * `is_record` - Whether this is a Record Route measurement (raw-only)
     ///
     /// # Returns
-    /// (Arc<Socket>, bool) containing a Socket and whether it is a DGRAM socket
+    /// (`Arc<Socket>`, bool) containing a Socket and whether it is a DGRAM socket
     fn get_socket(
         is_ipv6: bool,
         p_type: ProtocolType,
         origin: Origin,
         is_traceroute: bool,
-        is_record: bool,
         m_id: u32,
     ) -> (Arc<Socket>, bool) {
         let domain = if is_ipv6 { Domain::IPV6 } else { Domain::IPV4 };
@@ -248,7 +238,7 @@ impl Worker {
         };
 
         let addr: IpAddr = (origin.src.as_ref().expect("no src")).into();
-        let is_ping = p_type == ProtocolType::Icmp && !is_traceroute && !is_record;
+        let is_ping = p_type == ProtocolType::Icmp && !is_traceroute;
         let is_dns = matches!(p_type, ProtocolType::ADns | ProtocolType::ChaosDns);
 
         // Prefer SOCK_DGRAM for DNS (avoid ICMP port unreachable replies), except for traceroute
@@ -311,7 +301,7 @@ impl Worker {
                     "ICMP traceroute".to_string(),
                 ),
                 ProtocolType::Icmp => (
-                    // Plain echo and Record Route: both are echo replies with id == dport
+                    // Echo replies with id == dport
                     attach_icmp_filter(&socket, origin.dport as u16, is_ipv6),
                     format!("ICMP (id {})", origin.dport),
                 ),

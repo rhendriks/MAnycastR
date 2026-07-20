@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
@@ -22,6 +23,13 @@ impl Worker {
     /// # Arguments
     /// * `address` - the address of the orchestrator in string format, containing both the IPv4 address and port number
     /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
+    ///
+    /// # Returns
+    /// A gRPC client that is connected to the orchestrator
+    ///
+    /// # Remarks
+    /// When `fqdn` is set, the connection is made over TLS and the orchestrator is
+    /// authenticated against the CA certificate at `./tls/orchestrator.crt`
     pub(crate) async fn connect(
         address: String,
         fqdn: Option<&str>,
@@ -85,6 +93,7 @@ impl Worker {
         info!("[Worker] Connected to Orchestrator with assigned worker ID: {worker_id}");
 
         // Await instructions
+        let mut probe_interval: u64 = 1;
         while let Some(instruction) = stream.message().await? {
             let instr_type = match instruction.instruction_type {
                 Some(it) => it,
@@ -95,67 +104,66 @@ impl Worker {
             };
 
             // Check if we are currently busy with a measurement
-            let active_m_id = *self
-                .current_m_id
-                .lock()
-                .map_err(|_| "Unable to obtain m_id mutex")?;
+            let is_busy = self.is_busy.load(Ordering::SeqCst);
 
-            match (active_m_id, instr_type) {
+            match (is_busy, instr_type) {
                 // Starting a measurement (whilst idle)
-                (None, InstructionType::Start(start)) => {
+                (false, InstructionType::Start(start)) => {
                     abort_outbound = Arc::new(AtomicBool::new(false));
+                    probe_interval = start.probe_interval as u64;
                     self.handle_start_instruction(start, worker_id, abort_outbound.clone())?;
                 }
 
                 // Ending a measurement (whilst busy)
-                (Some(_), InstructionType::End(data)) => {
+                (true, InstructionType::End(data)) => {
                     self.handle_end_instruction(data, abort_outbound.clone())
                         .await?;
                 }
 
                 // Receiving a new measurement (whilst busy) [INVALID]
-                (Some(_), InstructionType::Start(_)) => {
+                (true, InstructionType::Start(_)) => {
                     warn!("[Worker] Received new measurement while busy; ignoring.");
                 }
 
                 // Receiving a task batch (whilst busy): route tasks to the sender(s) of their origin
-                (Some(_), InstructionType::Tasks(task_batch)) => {
-                    if let [(_, tx)] = self.outbound_txs.as_slice() {
-                        // Single origin: forward the batch as-is (the outbound thread skips non-matching tasks)
-                        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
-                    } else {
-                        for (origin_id, tx) in &self.outbound_txs {
-                            let tasks: Vec<Task> = task_batch
-                                .tasks
-                                .iter()
-                                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
-                                .cloned()
-                                .collect();
-                            if !tasks.is_empty() {
-                                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
-                            }
-                        }
+                (true, InstructionType::Tasks(task_batch)) => {
+                    // Tasks with nprobes > 1 are re-sent every probe_interval seconds
+                    let mut repeats: Vec<Task> = task_batch
+                        .tasks
+                        .iter()
+                        .filter(|task| task.nprobes > 1)
+                        .copied()
+                        .collect();
+
+                    // Send the tasks to the appropriate origins
+                    route_tasks(&self.outbound_txs, task_batch).await;
+
+                    if !repeats.is_empty() {
+                        // Schedule the remaining sends for multi-probe tasks
+                        repeats.sort_unstable_by_key(|task| task.nprobes);
+                        schedule_repeats(self.outbound_txs.clone(), repeats, probe_interval);
                     }
                 }
 
                 // Receiving any other instruction (whilst busy) [INVALID]
-                (Some(_), _) => {
+                (true, _) => {
                     warn!("[Worker] Received unexpected instruction while busy; ignoring.");
                 }
 
                 // Receiving anything but a new measurement (whilst idle) [INVALID]
-                (None, _) => {
+                (false, _) => {
                     warn!("[Worker] Received task data while idle; ignoring.");
                 }
             }
         }
         info!("[Worker] Stream closed by Orchestrator");
+        // TODO in-process reconnect
 
         Ok(())
     }
 
     /// Start a new measurement.
-    /// Sets the Orchestrator assigned measurement ID,
+    /// Marks the worker as busy,
     /// Initializes the abort signals to False (for outbound and inbound threads)
     /// Calls the function to initialize the measurement
     ///
@@ -171,8 +179,8 @@ impl Worker {
     ) -> Result<(), Box<dyn Error>> {
         info!("[Worker] Starting measurement {}", start.m_id);
 
-        // Set the measurement ID and abort signal
-        *self.current_m_id.lock().unwrap() = Some(start.m_id);
+        // Mark busy and reset the abort signal
+        self.is_busy.store(true, Ordering::SeqCst);
         self.abort_inbound.store(false, Ordering::SeqCst);
 
         // Initialize the measurement threads
@@ -231,4 +239,47 @@ impl Worker {
 
         Ok(())
     }
+}
+
+/// Route a task batch to the outbound sender(s) of each task's origin.
+async fn route_tasks(outbound_txs: &[(u32, Sender<InstructionType>)], task_batch: Tasks) {
+    if let [(_, tx)] = outbound_txs {
+        // Simple forward when there is only a single origin
+        let _ = tx.send(InstructionType::Tasks(task_batch)).await;
+    } else {
+        // Forward when there is a matching origin_id attached, or ALL_ORIGINS is specified
+        for (origin_id, tx) in outbound_txs {
+            let tasks: Vec<Task> = task_batch
+                .tasks
+                .iter()
+                .filter(|t| t.origin_id == *origin_id || t.origin_id == ALL_ORIGINS)
+                .cloned()
+                .collect();
+            if !tasks.is_empty() {
+                let _ = tx.send(InstructionType::Tasks(Tasks { tasks })).await;
+            }
+        }
+    }
+}
+
+/// Re-send `repeats` every `probe_interval` seconds until every task has been
+/// sent `nprobes` times, spacing out the repeated probes.
+/// Stops early when the measurement ends (all outbound channels closed).
+fn schedule_repeats(
+    outbound_txs: Vec<(u32, Sender<InstructionType>)>,
+    mut repeats: Vec<Task>,
+    probe_interval: u64,
+) {
+    tokio::spawn(async move {
+        for round in 1u32.. {
+            tokio::time::sleep(Duration::from_secs(probe_interval)).await;
+            // Remove all finished multi-probe tasks (assumes a list sorted by nprobes)
+            repeats.drain(..repeats.partition_point(|task| task.nprobes <= round));
+            if repeats.is_empty() || outbound_txs.iter().all(|(_, tx)| tx.is_closed()) {
+                break; // All sends done, or the measurement ended
+            }
+            let tasks = repeats.clone();
+            route_tasks(&outbound_txs, Tasks { tasks }).await;
+        }
+    });
 }

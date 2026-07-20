@@ -1,4 +1,4 @@
-use crate::cli::writer::{MetadataArgs, WriteConfig, get_header};
+use crate::cli::writer::{MetadataArgs, WriteConfig};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -12,9 +12,8 @@ use std::fs::File;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-const ROW_BUFFER_CAPACITY: usize = 50_000; // Number of rows to buffer before writing (impacts RAM usage)
+const ROW_BUFFER_CAPACITY: usize = 1_000_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
-// TODO should we order each buffer by IP for better compression?
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -23,12 +22,7 @@ const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 /// * `rx` - The receiver channel that receives the results.
 /// * `config` - The configuration for writing results, including file handle, metadata, and measurement type.
 pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteConfig) {
-    let headers = get_header(
-        config.is_chaos,
-        config.is_multi_origin,
-        config.is_record,
-        config.m_type,
-    );
+    let headers = get_parquet_header(config.m_type, config.is_sessions);
     let schema = build_parquet_schema(headers.clone());
 
     // Get metadata key-value pairs for the Parquet file
@@ -70,9 +64,12 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
                         &config.worker_map,
                         origin_id,
                     ),
-                    Some(ReplyData::Trace(trace_reply)) => {
-                        trace_reply_to_parquet_row(trace_reply, rx_id, &config.worker_map)
-                    }
+                    Some(ReplyData::Trace(trace_reply)) => trace_reply_to_parquet_row(
+                        trace_reply,
+                        rx_id,
+                        &config.worker_map,
+                        origin_id,
+                    ),
                     _ => panic!("Unexpected reply data"),
                 };
                 row_buffer.push(parquet_row);
@@ -80,7 +77,7 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
             // If the buffer is full, write the batch to the file
             if row_buffer.len() >= ROW_BUFFER_CAPACITY {
-                write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+                write_batch_to_parquet(&mut writer, &mut row_buffer, &headers)
                     .expect("Failed to write batch to Parquet file");
                 row_buffer.clear();
             }
@@ -88,10 +85,15 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
         // Write any remaining rows in the buffer
         if !row_buffer.is_empty() {
-            write_batch_to_parquet(&mut writer, &row_buffer, &headers)
+            write_batch_to_parquet(&mut writer, &mut row_buffer, &headers)
                 .expect("Failed to write final batch to Parquet file");
         }
 
+        // Add end_time on close
+        writer.append_key_value_metadata(parquet::file::metadata::KeyValue::new(
+            "end_time".to_string(),
+            chrono::Utc::now().to_rfc3339(),
+        ));
         writer.close().expect("Failed to close Parquet writer");
         rx.close();
     });
@@ -104,19 +106,49 @@ pub fn get_parquet_metadata(
 ) -> Vec<(String, String)> {
     let mut md = Vec::new();
 
+    // Version of the Parquet output format (bump when making incompatible changes)
+    md.push(("format_version".to_string(), "1".to_string()));
+    md.push((
+        "tool_version".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    ));
+
     md.push((
         "measurement_type".to_string(),
         args.m_type.as_str().to_string(),
     ));
+
+    let start_time = chrono::DateTime::from_timestamp(args.start_time as i64, 0)
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_default();
+    md.push(("start_time".to_string(), start_time));
 
     if args.is_responsive {
         md.push(("responsive_mode".to_string(), "true".to_string()));
     }
 
     md.push(("hitlist_path".to_string(), args.hitlist.to_string()));
+    md.push((
+        "hitlist_length".to_string(),
+        args.hitlist_length.to_string(),
+    ));
     md.push(("hitlist_shuffled".to_string(), args.is_shuffle.to_string()));
     md.push(("probing_rate".to_string(), args.probing_rate.to_string()));
     md.push(("worker_interval_ms".to_string(), args.interval.to_string()));
+    md.push((
+        "probe_interval_s".to_string(),
+        args.probe_interval.to_string(),
+    ));
+    md.push((
+        "number_of_probes".to_string(),
+        args.number_of_probes.to_string(),
+    ));
+    if let Some(record) = args.record {
+        md.push(("record".to_string(), record.to_string()));
+    }
+    if let Some(url) = args.url {
+        md.push(("url".to_string(), url.to_string()));
+    }
 
     let worker_hostnames: Vec<&String> = args.all_workers.right_values().collect();
     md.push((
@@ -128,37 +160,33 @@ pub fn get_parquet_metadata(
         args.all_workers.len().to_string(),
     ));
 
-    let config_str = args
+    // Structured origin definitions; this mapping is required to interpret the origin_id column
+    let configurations = args
         .configurations
         .iter()
         .map(|c| {
-            format!(
-                "Worker: {}, Origin ID: {}, src IP: {}, src port: {}, dst port: {}, protocol: {}",
-                if c.worker_id == ALL_WORKERS {
-                    "ALL".to_string()
-                } else {
-                    worker_map
-                        .get_by_left(&c.worker_id)
-                        .unwrap_or(&String::from("Unknown"))
-                        .to_string()
-                },
-                c.origin.as_ref().map_or(0, |o| o.origin_id),
-                c.origin
-                    .as_ref()
-                    .and_then(|o| o.src)
-                    .map_or("N/A".to_string(), |s| s.to_string()),
-                c.origin.as_ref().map_or(0, |o| o.sport),
-                c.origin.as_ref().map_or(0, |o| o.dport),
-                c.origin
-                    .as_ref()
-                    .map_or("N/A".to_string(), |o| o.p_type().to_string())
-            )
+            let worker = if c.worker_id == ALL_WORKERS {
+                "ALL".to_string()
+            } else {
+                worker_map
+                    .get_by_left(&c.worker_id)
+                    .unwrap_or(&String::from("Unknown"))
+                    .to_string()
+            };
+            serde_json::json!({
+                "worker": worker,
+                "origin_id": c.origin.as_ref().map_or(0, |o| o.origin_id),
+                "src": c.origin.as_ref().and_then(|o| o.src).map(|s| s.to_string()),
+                "sport": c.origin.as_ref().map_or(0, |o| o.sport),
+                "dport": c.origin.as_ref().map_or(0, |o| o.dport),
+                "protocol": c.origin.as_ref().map(|o| o.p_type().to_string()),
+            })
         })
         .collect::<Vec<_>>();
 
     md.push((
         "configurations".to_string(),
-        serde_json::to_string(&config_str).unwrap_or_default(),
+        serde_json::to_string(&configurations).unwrap_or_default(),
     ));
 
     md
@@ -186,6 +214,8 @@ pub struct ParquetDataRow {
     trace_dst: Option<[u8; 16]>,
     /// Traceroute: TTL value used to trigger this reply.
     hop_count: Option<u8>,
+    /// Feed: session of the probe that triggered this reply (0 = no session).
+    session: Option<u32>,
 }
 
 /// Converts a MeasurementReply into a ParquetDataRow for writing to a Parquet file.
@@ -206,18 +236,27 @@ fn measurement_reply_to_parquet_row(
     };
 
     match m_type {
-        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+        MeasurementType::AnycastLatency => {
             row.rtt = Some(result.rtt);
         }
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
         }
-        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+        MeasurementType::AnycastTraceroute
+        | MeasurementType::Tracemap
+        | MeasurementType::FeedTrace => {
             panic!("Received MeasurementReply during a traceroute measurement")
         }
-        MeasurementType::Laces => {
+        MeasurementType::Laces | MeasurementType::Feed => {
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
-            row.rtt = Some(result.rtt);
+            // CHAOS replies carry no transmit timestamp, so there is no RTT to report
+            if row.chaos_data.is_none() {
+                row.rtt = Some(result.rtt);
+            }
+            // Feed replies are attributed to the session of the target that triggered them
+            if m_type == MeasurementType::Feed {
+                row.session = Some(result.session_id);
+            }
         }
     }
 
@@ -229,6 +268,7 @@ fn trace_reply_to_parquet_row(
     reply: TraceReply,
     rx_worker_id: u32,
     worker_map: &BiHashMap<u32, String>,
+    origin_id: u32,
 ) -> ParquetDataRow {
     // Unresponsive hops have no calculated RTT, and no worker received a reply
     let (rx, rtt) = if reply.hop_addr.is_some() {
@@ -248,7 +288,55 @@ fn trace_reply_to_parquet_row(
         rtt,
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
         hop_count: Some(reply.hop_count as u8),
+        origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
         ..Default::default()
+    }
+}
+
+/// Returns the fixed superset of columns for a measurement type.
+/// The `session` column is only included for feed measurements with sessions enabled.
+pub fn get_parquet_header(m_type: MeasurementType, is_sessions: bool) -> Vec<&'static str> {
+    match m_type {
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+            vec![
+                "rx",
+                "addr",
+                "ttl",
+                "tx",
+                "trace_dst",
+                "hop_count",
+                "rtt",
+                "chaos_data",
+                "origin_id",
+            ]
+        }
+        MeasurementType::FeedTrace => {
+            vec![
+                "rx",
+                "addr",
+                "ttl",
+                "tx",
+                "trace_dst",
+                "probe_ttl",
+                "rtt",
+                "chaos_data",
+                "origin_id",
+            ]
+        }
+        MeasurementType::AnycastLatency => {
+            vec!["rx", "addr", "ttl", "rtt", "chaos_data", "origin_id"]
+        }
+        MeasurementType::Catchment => vec!["rx", "addr", "ttl", "chaos_data", "origin_id"],
+        MeasurementType::Laces => {
+            vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"]
+        }
+        MeasurementType::Feed => {
+            let mut header = vec!["rx", "addr", "ttl", "tx", "rtt", "chaos_data", "origin_id"];
+            if is_sessions {
+                header.push("session");
+            }
+            header
+        }
     }
 }
 
@@ -261,14 +349,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 
     for &header in &headers {
         let field = match header {
-            "rx" | "tx" => {
-                SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
-                    .with_repetition(Repetition::OPTIONAL)
-                    .with_logical_type(Some(LogicalType::Enum))
-                    .build()
-                    .unwrap()
-            }
-            "chaos_data" => {
+            "rx" | "tx" | "chaos_data" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::BYTE_ARRAY)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::String))
@@ -283,13 +364,18 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "ttl" | "origin_id" | "hop_count" => {
+            "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::integer(8, false)))
                     .build()
                     .unwrap()
             }
+            "session" => SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
+                .with_repetition(Repetition::OPTIONAL)
+                .with_logical_type(Some(LogicalType::integer(16, false)))
+                .build()
+                .unwrap(),
             "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::FLOAT)
                 .with_repetition(Repetition::OPTIONAL)
                 .build()
@@ -308,11 +394,14 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
 }
 
 /// Writes a batch of ParquetDataRow to the Parquet file using the provided writer.
+/// The batch is sorted by reply source address for better compression.
 pub fn write_batch_to_parquet(
     writer: &mut SerializedFileWriter<File>,
-    batch: &[ParquetDataRow],
+    batch: &mut [ParquetDataRow],
     headers: &[&str],
 ) -> Result<(), parquet::errors::ParquetError> {
+    batch.sort_unstable_by_key(|row| row.addr);
+
     let mut row_group_writer = writer.next_row_group()?;
 
     for &header in headers {
@@ -363,7 +452,7 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "ttl" | "origin_id" | "hop_count" => {
+                "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
@@ -371,10 +460,29 @@ pub fn write_batch_to_parquet(
                             let opt_val: Option<u8> = match header {
                                 "ttl" => row.ttl,
                                 "origin_id" => row.origin_id,
-                                "hop_count" => row.hop_count,
+                                "hop_count" | "probe_ttl" => row.hop_count, // TODO use single name for consistency
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
+                                values.push(val as i32);
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .collect();
+                    col_writer.typed::<Int32Type>().write_batch(
+                        &values,
+                        Some(&def_levels),
+                        None,
+                    )?;
+                }
+                "session" => {
+                    let mut values = Vec::with_capacity(batch.len());
+                    let def_levels: Vec<i16> = batch
+                        .iter()
+                        .map(|row| {
+                            if let Some(val) = row.session {
                                 values.push(val as i32);
                                 1
                             } else {

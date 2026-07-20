@@ -1,5 +1,4 @@
 mod probe;
-mod record_route;
 mod trace;
 
 use log::{info, warn};
@@ -16,7 +15,6 @@ use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::task::TaskType;
 use crate::custom_module::manycastr::{Address, ProtocolType};
 use crate::worker::outbound::probe::send_probe;
-use crate::worker::outbound::record_route::send_record_route_probe;
 use crate::worker::outbound::trace::send_trace;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket};
 use socket2::{SockAddr, Socket};
@@ -29,7 +27,7 @@ pub struct OutboundConfig {
     pub worker_id: u16,
     /// Shared signal to forcefully shut down the worker (e.g., when the CLI disconnects).
     pub abort_outbound: Arc<AtomicBool>,
-    /// The unique ID of the measurement.
+    /// The 16-bit measurement ID
     pub m_id: u32,
     /// Protocol type used
     pub p_type: ProtocolType,
@@ -39,8 +37,6 @@ pub struct OutboundConfig {
     pub info_url: Option<String>,
     /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
-    /// Whether to add the Record Route option to IPv4 probes
-    pub is_record: bool,
     /// Whether the socket is DGRAM (unprivileged ICMP, kernel writes IP headers)
     pub is_dgram: bool,
     /// Source address to use
@@ -100,33 +96,34 @@ pub fn outbound(
                             if task.origin_id != config.origin_id && task.origin_id != ALL_ORIGINS {
                                 continue; // Not for us
                             }
+                            // Skip targets of the other IP version (mixed-version measurements)
+                            let dst = match &task.task_type {
+                                Some(TaskType::Probe(p)) | Some(TaskType::Discovery(p)) => p.dst,
+                                Some(TaskType::Trace(t)) => t.dst,
+                                None => None,
+                            };
+                            if dst.is_some_and(|dst| dst.is_v6() != config.src.is_v6()) {
+                                continue;
+                            }
                             match &task.task_type {
-                                Some(TaskType::Probe(task)) => {
-                                    let (s, f) = if !config.is_record {
-                                        send_probe(
-                                            &config,
-                                            &task.dst.unwrap(),
-                                            &socket,
-                                            &mut limiter,
-                                            false,
-                                            &mut packet_buffer,
-                                        )
-                                    } else {
-                                        send_record_route_probe(
-                                            &config,
-                                            &task.dst.unwrap(),
-                                            &socket,
-                                            &mut limiter,
-                                            &mut packet_buffer,
-                                        )
-                                    };
+                                Some(TaskType::Probe(probe)) => {
+                                    let (s, f) = send_probe(
+                                        &config,
+                                        &probe.dst.unwrap(),
+                                        task.session_id,
+                                        &socket,
+                                        &mut limiter,
+                                        false,
+                                        &mut packet_buffer,
+                                    );
                                     sent += s;
                                     failed += f;
                                 }
-                                Some(TaskType::Discovery(task)) => {
+                                Some(TaskType::Discovery(probe)) => {
                                     let (s, f) = send_probe(
                                         &config,
-                                        &task.dst.unwrap(),
+                                        &probe.dst.unwrap(),
+                                        task.session_id,
                                         &socket,
                                         &mut limiter,
                                         true,
@@ -159,7 +156,7 @@ pub fn outbound(
 }
 
 /// Send a packet (vector of bytes) to a destination using the socket
-/// IPv4: Send IPv4 header (optional Record Route option) and IP payload
+/// IPv4: Send IPv4 header and IP payload
 /// IPv6: Send only payload (kernel writes IPv6 header)
 ///
 /// # Arguments

@@ -1,6 +1,7 @@
-use crate::custom_module::manycastr::{MeasurementType, ProtocolType};
+use crate::custom_module::manycastr::{Configuration, MeasurementType, Origin, ProtocolType};
 use manycastr::{
-    Ack, Address, IPv6, address::Value::Unicast, address::Value::V4, address::Value::V6,
+    Ack, Address, Empty, IPv6, address::Value::UnicastV4, address::Value::UnicastV6,
+    address::Value::V4, address::Value::V6,
 };
 use std::fmt;
 use std::fmt::Display;
@@ -32,13 +33,30 @@ impl Display for Address {
                 let val: u128 = self.into();
                 write!(f, "{}", Ipv6Addr::from(val))
             }
-            Some(Unicast(_)) => write!(f, "UNICAST"),
+            Some(UnicastV4(_)) => write!(f, "unicastv4"),
+            Some(UnicastV6(_)) => write!(f, "unicastv6"),
             None => write!(f, "None"),
         }
     }
 }
 
 impl Address {
+    /// A unicast origin source address that each worker replaces
+    /// with its own local IPv4 unicast address at measurement start.
+    pub fn unicast_v4() -> Self {
+        Address {
+            value: Some(UnicastV4(Empty {})),
+        }
+    }
+
+    /// A unicast origin source address that each worker replaces
+    /// with its own local IPv6 unicast address at measurement start.
+    pub fn unicast_v6() -> Self {
+        Address {
+            value: Some(UnicastV6(Empty {})),
+        }
+    }
+
     /// Returns the integer representation of the IP address as u128.
     pub fn as_numeric(&self) -> u128 {
         match &self.value {
@@ -48,12 +66,14 @@ impl Address {
         }
     }
 
+    /// Whether this address is IPv6.
     pub fn is_v6(&self) -> bool {
-        matches!(self.value, Some(V6(_)))
+        matches!(self.value, Some(V6(_)) | Some(UnicastV6(_)))
     }
 
+    /// Whether this address is unicast.
     pub fn is_unicast(&self) -> bool {
-        matches!(self.value, Some(Unicast(_)))
+        matches!(self.value, Some(UnicastV4(_)) | Some(UnicastV6(_)))
     }
 
     /// Get the prefix of the address (/24 for IPv4 and /48 for IPv6)
@@ -100,6 +120,43 @@ impl Address {
             _ => [0u8; 16],
         }
     }
+}
+
+impl Origin {
+    /// Whether this origin probes from workers' local unicast addresses
+    pub fn is_unicast(&self) -> bool {
+        self.src.is_some_and(|s| s.is_unicast())
+    }
+
+    /// Whether this origin's source address is IPv6
+    pub fn is_v6(&self) -> bool {
+        self.src.is_some_and(|s| s.is_v6())
+    }
+}
+
+/// Parse an origin source address token: an anycast IP address, or one of the
+/// unicast keywords `unicastv4`/`unicastv6`.
+///
+/// # Panics
+/// * If the token is not a valid address or unicast keyword.
+pub fn parse_src_address(token: &str) -> Address {
+    if token.eq_ignore_ascii_case("unicastv4") {
+        Address::unicast_v4()
+    } else if token.eq_ignore_ascii_case("unicastv6") {
+        Address::unicast_v6()
+    } else if token.eq_ignore_ascii_case("unicast") {
+        panic!("'unicast' must specify an IP version: use 'unicastv4' or 'unicastv6'");
+    } else {
+        Address::from(token)
+    }
+}
+
+/// Whether any configuration probes from an anycast source address
+pub fn has_anycast_origin(configurations: &[Configuration]) -> bool {
+    configurations
+        .iter()
+        .filter_map(|c| c.origin.as_ref().and_then(|o| o.src.as_ref()))
+        .any(|src| !src.is_unicast())
 }
 
 /// Address -> u32 (panic if not V4)
@@ -299,10 +356,11 @@ impl Display for MeasurementType {
         let s = match self {
             Self::Laces => "LACeS",
             Self::Catchment => "Catchment Mapping",
-            Self::AnycastLatency => "Anycast Latency",
-            Self::UnicastLatency => "Unicast Latency",
+            Self::AnycastLatency => "Latency",
             Self::AnycastTraceroute => "Anycast Traceroute",
             Self::Tracemap => "Tracemap",
+            Self::Feed => "Live Feed",
+            Self::FeedTrace => "Live Feed Traceroute",
         };
         write!(f, "{}", s)
     }
@@ -314,9 +372,10 @@ impl MeasurementType {
             Self::Laces => "laces",
             Self::Catchment => "catchment",
             Self::AnycastLatency => "latency",
-            Self::UnicastLatency => "unicast",
             Self::AnycastTraceroute => "anycast-traceroute",
             Self::Tracemap => "tracemap",
+            Self::Feed => "feed",
+            Self::FeedTrace => "feed-trace",
         }
     }
 
@@ -325,11 +384,17 @@ impl MeasurementType {
             "laces" => Some(Self::Laces),
             "catchment" => Some(Self::Catchment),
             "latency" => Some(Self::AnycastLatency),
-            "unicast" => Some(Self::UnicastLatency),
             "anycast-traceroute" => Some(Self::AnycastTraceroute),
             "tracemap" => Some(Self::Tracemap),
+            "feed" => Some(Self::Feed),
+            "feed-trace" => Some(Self::FeedTrace),
             _ => None,
         }
+    }
+
+    /// Whether this is a live (feed-based) measurement type (targets streamed over stdin).
+    pub fn is_feed(&self) -> bool {
+        matches!(self, Self::Feed | Self::FeedTrace)
     }
 }
 

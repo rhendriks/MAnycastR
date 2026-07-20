@@ -10,11 +10,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::ops::AddAssign;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::custom_module;
-use crate::custom_module::manycastr::{Address, MeasurementType};
-use crate::orchestrator::config::{load_tls, load_worker_config};
+use crate::custom_module::manycastr::{Address, MeasurementType, Start, WorkerStatus};
+use crate::orchestrator::config::{
+    AllowedOrigin, load_allowed_origins, load_tls, load_worker_config,
+};
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
@@ -34,24 +36,134 @@ pub(crate) type CliHandle = Arc<Mutex<Option<CliSender>>>;
 
 type TaskMessage = Result<Instruction, Status>;
 
+/// Shared registry of connected worker senders. Updated when a worker reconnects.
+pub(crate) type WorkerRegistry = Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>;
+
 /// Shared handle to the active measurement state. `None` when no measurement is running.
 pub type MeasurementHandle = Arc<RwLock<Option<MeasurementState>>>;
+
+/// A worker participating in the active measurement.
+/// Participants can re-join after disconnect.
+///
+/// The entry is removed when the worker finishes.
+#[derive(Debug)]
+pub struct Participant {
+    /// The worker's role in the measurement (Probing or Listening)
+    pub role: WorkerStatus,
+    /// When true, the Orchestrator waits for this participant before measurement finish.
+    pub is_counted: bool,
+}
 
 /// All state associated with a single active measurement.
 #[derive(Debug)]
 pub struct MeasurementState {
-    /// Number of Workers still participating (decremented when a Worker finishes)
-    pub workers_count: u32,
+    /// 16-bit measurement ID (filtering replies) + 16-bit session ID (reply attribution).
+    pub m_id: u32,
     /// Worker IDs of connected Workers that are actively probing
     pub probing_workers: Vec<u32>,
+    /// Participating workers (removed when a worker finishes; kept on disconnect for rejoin)
+    pub participants: HashMap<u32, Participant>,
+    /// Per-worker Start instructions (re-sent when a worker rejoins mid-measurement)
+    pub start_instructions: HashMap<u32, Start>,
+    /// Whether the current measurement is being finalized (no new tasks being sent)
+    pub is_finalizing: bool,
     /// The measurement type (LACeS, catchment, latency, …)
     pub m_type: MeasurementType,
+    /// Whether targets are checked for responsiveness before measurement probes (--responsive)
+    pub is_responsive: bool,
+    /// Number of times each measurement probe is sent (always >= 1)
+    pub nprobes: u32,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
     pub worker_stacks: HashMap<u32, VecDeque<Task>>,
     /// Traceroute configuration and session tracker (None for non-traceroute measurements)
     pub trace_config: Option<TracerouteConfig>,
-    /// Targets that responded to discovery (deduplicates follow-up tasks; --any uses it to skip resolved targets)
+    /// Resolved --responsive targets
     pub resolved_targets: HashSet<Address>,
+    /// Live feed state (None for hitlist-based measurements)
+    pub live: Option<LiveState>,
+}
+
+impl MeasurementState {
+    /// Number of connected workers participating in a measurement.
+    /// The measurement is complete when this reaches zero.
+    pub fn active_workers(&self) -> usize {
+        self.participants.values().filter(|p| p.is_counted).count()
+    }
+}
+
+/// Encode nprobes 1 as 0 for gRPC compression
+#[inline]
+pub fn wire_nprobes(nprobes: u32) -> u32 {
+    if nprobes > 1 { nprobes } else { 0 }
+}
+
+/// Timeout for live-feed discovery probes
+pub const LIVE_DISCOVERY_TIMEOUT_SECS: u64 = 3;
+
+/// Worker selection of a live-feed target (parsed from `LiveTarget.worker_ids`).
+#[derive(Debug)]
+pub enum WorkerSel {
+    /// Any single worker (round-robin over probing workers)
+    Any,
+    /// All probing workers (staggered broadcast)
+    All,
+    /// An explicit set of workers, staggered like a broadcast (sorted and deduplicated)
+    Set(Vec<u32>),
+}
+
+impl WorkerSel {
+    /// Whether the selection targets more than one worker.
+    pub fn is_multi(&self) -> bool {
+        match self {
+            WorkerSel::Any => false,
+            WorkerSel::All => true,
+            WorkerSel::Set(ids) => ids.len() > 1,
+        }
+    }
+}
+
+/// State for a live (feed-based) measurement.
+#[derive(Debug)]
+pub struct LiveState {
+    /// Pending discovery probes awaiting a response tracked by address and session ID.
+    pub pending: HashMap<(Address, u32), PendingTarget>,
+    /// Follow-up task stacks for explicit worker sets (sent staggered like a broadcast).
+    pub set_stacks: HashMap<Vec<u32>, VecDeque<Task>>,
+    /// Recently dispatched trace targets and their reply deadline (feed-trace only).
+    pub trace_targets: HashMap<Address, Instant>,
+}
+
+impl LiveState {
+    /// When receiving a --discovery probe reply, remove the associated pending target.
+    /// Makes use of session_id when used in discovery probes (ICMP/DNS-A only).
+    pub fn remove_pending(
+        &mut self,
+        addr: Address,
+        session_id: u32,
+    ) -> Option<(u32, PendingTarget)> {
+        if let Some(pending) = self.pending.remove(&(addr, session_id)) {
+            return Some((session_id, pending));
+        }
+        if session_id == 0 {
+            let key = self.pending.keys().find(|(a, _)| *a == addr).copied()?;
+            let pending = self.pending.remove(&key)?;
+            return Some((key.1, pending));
+        }
+        None
+    }
+}
+
+/// A live target awaiting a discovery reply before it is probed (or given up on timeout).
+#[derive(Debug)]
+pub struct PendingTarget {
+    /// Worker selection for the follow-up measurement probes
+    pub worker_sel: WorkerSel,
+    /// Worker performing the discovery probe
+    pub discovery_worker: u32,
+    /// Number of measurement probes to send (per worker) once the target resolves (always >= 1)
+    pub nprobes: u32,
+    /// When the discovery attempt expires
+    pub deadline: Instant,
 }
 
 /// Traceroute configuration
@@ -59,6 +171,9 @@ pub struct MeasurementState {
 pub struct TracerouteConfig {
     /// Session tracker for Trace Tasks
     pub session_tracker: SessionTracker,
+    /// Origin tracemap seed probes are sent from (anycast-traceroute sessions
+    /// instead use the origin that caught the discovery reply)
+    pub origin_id: u32,
     /// Timeout value for traceroute measurements (default 3s)
     pub timeout: u64,
     /// Max hop count for traceroute measurements (default 25)
@@ -76,7 +191,7 @@ pub struct TracerouteConfig {
 #[derive(Debug)]
 pub struct ControllerService {
     /// List of connected workers
-    saved_workers: Arc<Mutex<Vec<WorkerSender<TaskMessage>>>>,
+    saved_workers: WorkerRegistry,
     /// Sender to the CLI for streaming results
     cli_sender: CliHandle,
     /// All per-measurement state. `None` when idle.
@@ -85,6 +200,10 @@ pub struct ControllerService {
     unique_id: Arc<Mutex<u32>>,
     /// Optional static mapping of hostnames to worker IDs
     worker_config: Option<HashMap<String, u32>>,
+    /// Maximum probing rate (probes per second, per worker) allowed for measurements (None = unlimited)
+    max_rate: Option<u32>,
+    /// Optional allow-list of origins CLIs may use (None = all origins allowed)
+    allowed_origins: Option<Vec<AllowedOrigin>>,
 }
 
 impl ControllerService {
@@ -137,6 +256,11 @@ impl ControllerService {
         let new_id = self.get_unique_id();
         Ok((new_id, false))
     }
+
+    /// Get a random measurement ID (u16)
+    fn next_m_id(&self) -> u32 {
+        rand::random::<u16>() as u32
+    }
 }
 
 /// Starts the orchestrator on the specified port.
@@ -159,6 +283,8 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         measurement: Arc::new(RwLock::new(None)),
         unique_id: current_worker_id,
         worker_config,
+        max_rate: args.get_one::<u32>("max_rate").copied(),
+        allowed_origins: args.get_one::<String>("origins").map(load_allowed_origins),
     };
 
     let svc = ControllerServer::new(controller)

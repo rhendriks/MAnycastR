@@ -41,16 +41,18 @@ pub struct WriteConfig<'a> {
     pub is_multi_origin: bool,
     /// A bidirectional map used to convert worker IDs (u16) to their corresponding hostnames (String).
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicate whether Record Route is used
-    pub is_record: bool,
     /// Indicate whether any Origin is for CHAOS
     pub is_chaos: bool,
+    /// Whether feed sessions are enabled (--sessions; adds a 'session' column to feed output)
+    pub is_sessions: bool,
 }
 
 /// Holds all the arguments required to metadata for the output file.
 pub struct MetadataArgs<'a> {
     /// Path to the hitlist used.
     pub hitlist: &'a str,
+    /// Number of targets in the hitlist.
+    pub hitlist_length: usize,
     /// Whether the hitlist was shuffled.
     pub is_shuffle: bool,
     /// The probing rate used.
@@ -65,6 +67,16 @@ pub struct MetadataArgs<'a> {
     pub is_responsive: bool,
     /// Measurement type
     pub m_type: MeasurementType,
+    /// Measurement start time (Unix epoch seconds).
+    pub start_time: u64,
+    /// Record to send CHAOS (TXT) or A/AAAA requests for.
+    pub record: Option<&'a str>,
+    /// URL encoded in probes (e.g., opt-out link).
+    pub url: Option<&'a str>,
+    /// Interval between probes from/to the same origin,dst pair (seconds).
+    pub probe_interval: u32,
+    /// Number of probes sent per origin,dst pair.
+    pub number_of_probes: u32,
 }
 
 struct DualWriter<W1: Write, W2: Write> {
@@ -119,16 +131,17 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             .then(|| Writer::from_writer(io::stdout())),
     };
 
-    // Write header
+    // Write header and flush it immediately
     let header = get_header(
         config.is_chaos,
         config.is_multi_origin,
-        config.is_record,
         config.m_type,
+        config.is_sessions,
     );
     dual_wtr
         .write_record(header)
         .expect("Failed to write header to file");
+    dual_wtr.flush().expect("Failed to flush header");
 
     tokio::spawn(async move {
         // Receive task results from the outbound channel
@@ -144,7 +157,7 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                 let row = match result.reply_data {
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
-                            MeasurementType::UnicastLatency | MeasurementType::AnycastLatency => {
+                            MeasurementType::AnycastLatency => {
                                 get_latency_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
                             MeasurementType::Catchment => {
@@ -153,11 +166,25 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
                             MeasurementType::Laces => {
                                 get_laces_row(reply, &rx_id, &config.worker_map, origin_id)
                             }
-                            MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
+                            MeasurementType::Feed => {
+                                // Write session IDs for attribution if enabled (0 = no session)
+                                let session_id = reply.session_id;
+                                let mut row =
+                                    get_laces_row(reply, &rx_id, &config.worker_map, origin_id);
+                                if config.is_sessions {
+                                    row.push(session_id.to_string());
+                                }
+                                row
+                            }
+                            MeasurementType::AnycastTraceroute
+                            | MeasurementType::Tracemap
+                            | MeasurementType::FeedTrace => {
                                 panic!("Received regular reply during a traceroute measurement")
                             }
                         },
-                        ReplyData::Trace(reply) => get_trace_row(reply, &rx_id, &config.worker_map),
+                        ReplyData::Trace(reply) => {
+                            get_trace_row(reply, &rx_id, &config.worker_map, origin_id)
+                        }
                         ReplyData::Discovery(_) => panic!("Discovery result forwarded to CLI"),
                     },
                     None => {
@@ -181,26 +208,29 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
 /// # Arguments
 /// * `is_chaos` - Whether CHAOS queries are sent
 /// * `is_multi_origin` - A boolean that determines whether multiple origins are used
-/// * `is_record` - Whether Record Route is used
 /// * `m_type` - Measurement type performed
+/// * `is_sessions` - Whether feed sessions are enabled (--sessions)
 pub fn get_header(
     is_chaos: bool,
     is_multi_origin: bool,
-    is_record: bool,
     m_type: MeasurementType,
+    is_sessions: bool,
 ) -> Vec<&'static str> {
     // Determine headers based on measurement type
     let mut header = match m_type {
         MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
             vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
         }
-        MeasurementType::AnycastLatency | MeasurementType::UnicastLatency => {
+        MeasurementType::FeedTrace => {
+            vec!["rx", "addr", "ttl", "tx", "trace_dst", "probe_ttl", "rtt"]
+        }
+        MeasurementType::AnycastLatency => {
             vec!["rx", "addr", "ttl", "rtt"]
         }
         MeasurementType::Catchment => {
             vec!["rx", "addr", "ttl"]
         }
-        MeasurementType::Laces => {
+        MeasurementType::Laces | MeasurementType::Feed => {
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if is_chaos {
                 vec!["rx", "addr", "ttl", "tx"]
@@ -210,15 +240,20 @@ pub fn get_header(
         }
     };
 
-    // Optional fields
-    if is_chaos {
+    // Optional fields (trace replies carry no CHAOS data; trace DNS probes are always A queries)
+    let is_trace = matches!(
+        m_type,
+        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap | MeasurementType::FeedTrace
+    );
+    if is_chaos && !is_trace {
         header.push("chaos_data");
     }
     if is_multi_origin {
         header.push("origin_id");
     }
-    if is_record {
-        header.push("record_route");
+    // With --sessions, feed replies are attributed to the session of their target
+    if m_type == MeasurementType::Feed && is_sessions {
+        header.push("session");
     }
 
     header

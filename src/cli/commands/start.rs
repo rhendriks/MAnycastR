@@ -1,12 +1,12 @@
 use crate::cli::client::CliClient;
-use crate::cli::config::{get_hitlist, get_targets, parse_configurations};
-use crate::cli::utils::validate_path_perms;
-use crate::custom_module::Separated;
-use crate::custom_module::manycastr::address::Value::Unicast;
-use crate::custom_module::manycastr::{
-    Address, Configuration, Empty, MeasurementType, Origin, ProtocolType, ScheduleMeasurement,
-    TraceOptions,
+use crate::cli::config::{
+    get_hitlist, get_targets, parse_configurations, resolve_workers, validate_ip_versions,
 };
+use crate::cli::utils::validate_path_perms;
+use crate::custom_module::manycastr::{
+    Configuration, MeasurementType, Origin, ProtocolType, ScheduleMeasurement, TraceOptions,
+};
+use crate::custom_module::{Separated, has_anycast_origin, parse_src_address};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
 use clap::ArgMatches;
@@ -29,8 +29,8 @@ pub struct MeasurementExecutionArgs<'a> {
     pub out_path: String,
     /// A bidirectional map used to resolve worker IDs to their corresponding hostnames.
     pub worker_map: BiHashMap<u32, String>,
-    /// Indicates a Record Route measurement
-    pub is_record: bool,
+    /// If true, tags probes with session IDs for attribution (--sessions for -m feed).
+    pub is_sessions: bool,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -47,16 +47,59 @@ pub async fn handle(
     grpc_client: &mut CliClient,
     worker_map: BiHashMap<u32, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let is_any_protocol = matches.get_flag("any");
-    let is_responsive = matches.get_flag("responsive") || is_any_protocol;
-    let is_record = matches.get_flag("record");
-    let url = matches.get_one::<String>("URL");
+    let is_responsive = matches.get_flag("responsive");
+    let is_sessions = matches.get_flag("sessions");
+    let url = matches.get_one::<String>("url");
     let m_type = MeasurementType::from_str(matches.get_one::<String>("m_type").unwrap())
         .expect("Invalid measurement type");
+    let is_feed = m_type.is_feed();
 
-    // Tracemap targets unresponsive prefixes; there is nothing to discover first
+    // Sessions only exist for live feed measurements (traceroute probes cannot carry one)
+    if is_sessions && m_type != MeasurementType::Feed {
+        // TODO enforce this in arg parsing?
+        let msg = "[CLI] --sessions requires a live feed measurement (-m feed).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // Feed measurements read targets from stdin; hitlist-based options do not apply
+    if is_feed {
+        let invalid = [
+            (matches.contains_id("hitlist"), "--hitlist"),
+            (matches.contains_id("target"), "--target"),
+            (matches.get_flag("shuffle"), "--shuffle"),
+        ];
+        if let Some((_, flag)) = invalid.iter().find(|(is_set, _)| *is_set) {
+            let msg = format!(
+                "[CLI] {flag} cannot be combined with a feed measurement (-m {}).",
+                m_type.as_str()
+            );
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    } else if !matches.contains_id("hitlist") && !matches.contains_id("target") {
+        let msg = "[CLI] --hitlist or --target is required for hitlist-based measurements.";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // --responsive cannot be combined with trace mode (unresponsive hops) TODO enforce in arg parse
+    if m_type == MeasurementType::FeedTrace && is_responsive {
+        let msg = "[CLI] --responsive cannot be combined with feed-trace (TTL-limited probes may never reach the target).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // Tracemap targets unresponsive prefixes; there is nothing to discover first TODO enforce in arg parse
     if m_type == MeasurementType::Tracemap && is_responsive {
-        let msg = "[CLI] --responsive/--any cannot be combined with tracemap (targets are assumed unresponsive).";
+        let msg = "[CLI] --responsive cannot be combined with tracemap (targets are assumed unresponsive).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // Disallow --responsive for catchment mappings TODO enforce in arg parse
+    if m_type == MeasurementType::Catchment && is_responsive {
+        let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness).";
         error!("{}", msg);
         return Err(msg.into());
     }
@@ -66,51 +109,37 @@ pub async fn handle(
         parse_configurations(conf_path, &worker_map)
     } else {
         // Create our own configuration from the arguments
-        let src = if m_type == MeasurementType::UnicastLatency {
-            Address {
-                value: Some(Unicast(Empty {})),
-            }
-        } else if let Some(anycast_address) = matches.get_one::<String>("address") {
-            Address::from(anycast_address)
-        } else {
-            let msg = "[CLI] You must provide --address or --configuration unless --m_type is set to 'unicast'.";
-            error!("{}", msg);
-            return Err(msg.into());
-        };
+        let address = matches
+            .get_one::<String>("address")
+            .expect("--address is required unless --configuration is provided");
+        // 'unicastv4'/'unicastv6' means each worker uses its local unicast address
+        let src = parse_src_address(address);
         let sport: u32 = *matches.get_one::<u16>("sport").unwrap() as u32;
         let dport = *matches.get_one::<u16>("dport").unwrap() as u32;
 
-        // Get the workers that have to send out probes
+        // Get the workers that have to send out probes (worker ID, hostname, or glob like `us-*`)
         let sender_ids: Vec<u32> = matches.get_one::<String>("selective").map_or_else(
             || vec![ALL_WORKERS], // Default: all workers
             |worker_entries_str| {
-                worker_entries_str
+                let mut ids: Vec<u32> = Vec::new();
+                for token in worker_entries_str
                     .trim_matches(|c| c == '[' || c == ']')
                     .split(',')
-                    .filter_map(|entry_str_untrimmed| {
-                        let entry_str = entry_str_untrimmed.trim();
-                        if entry_str.is_empty() {
-                            return None; // Skip trailing commas
-                        }
-                        // Try to parse as worker ID
-                        if let Ok(id_val) = entry_str.parse::<u32>() {
-                            if worker_map.contains_left(&id_val) {
-                                Some(id_val)
-                            } else {
-                                warn!("Worker ID '{entry_str}' is not a known worker.");
-                                None
-                            }
-                        } else if let Some(&found_id) = worker_map.get_by_right(entry_str) {
-                            Some(found_id)
-                        } else {
-                            warn!("'{entry_str}' is not a valid worker ID or known hostname.");
-                            None
-                        }
-                    })
-                    .collect()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                {
+                    let matched = resolve_workers(token, &worker_map);
+                    if matched.is_empty() {
+                        warn!("'{token}' did not match any known worker ID or hostname.");
+                    }
+                    ids.extend(matched);
+                }
+                ids.sort_unstable();
+                ids.dedup(); // overlapping globs may match the same worker
+                ids
             },
         );
-        // Get protocol to use (preserving user-specified order for --any fallback)
+        // Get the protocols to use (deduplicated, preserving user-specified order)
         let p_types: Vec<ProtocolType> = {
             let mut seen = HashSet::new();
             matches
@@ -153,18 +182,39 @@ pub async fn handle(
         configs
     };
 
-    // Get the target IP addresses (either --hitlist or --target)
+    // Anycast latency discovery already skips unresponsive targets TODO enforce in arg parse
+    if m_type == MeasurementType::AnycastLatency
+        && is_responsive
+        && has_anycast_origin(&configurations)
+    {
+        let msg = "[CLI] --responsive cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
+
+    // Get the target IP addresses (--hitlist, --target, or streamed in live mode)
     let is_shuffle = matches.get_flag("shuffle");
-    let (hitlist_path, (targets, is_ipv6)) =
-        if let Some(target_str) = matches.get_one::<String>("target") {
-            (
-                target_str.as_str(),
-                get_targets(target_str, &configurations, is_shuffle),
-            )
-        } else {
-            let path = matches.get_one::<String>("hitlist").unwrap().as_str();
-            (path, get_hitlist(path, &configurations, is_shuffle))
-        };
+    let (hitlist_path, targets, hitlist_versions) = if is_feed {
+        ("live-feed", Vec::new(), None)
+    } else if let Some(target_str) = matches.get_one::<String>("target") {
+        let (targets, versions) = get_targets(target_str, is_shuffle);
+        (target_str.as_str(), targets, Some(versions))
+    } else {
+        let path = matches.get_one::<String>("hitlist").unwrap().as_str();
+        let (targets, versions) = get_hitlist(path, is_shuffle);
+        (path, targets, Some(versions))
+    };
+
+    // Validate the IP-version rules and get the measured versions
+    let versions = match validate_ip_versions(&configurations, hitlist_versions, m_type) {
+        Ok(versions) => versions,
+        Err(e) => {
+            let msg = format!("[CLI] {e}");
+            error!("{}", msg);
+            return Err(msg.into());
+        }
+    };
+
     let dns_record = matches.get_one::<String>("query");
     let is_cli = matches.get_flag("stream");
     let is_parquet = matches.get_flag("parquet");
@@ -175,20 +225,27 @@ pub async fn handle(
     let hitlist_length = targets.len();
 
     // Get protocol and IP version
-    let ip_version = if is_ipv6 { "(IPv6)" } else { "(IPv4)" };
+    let ip_version = format!("({})", versions.label());
 
-    info!(
-        "[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
-        hitlist_length.with_separator(),
-        probing_rate.with_separator(),
-    );
+    if is_feed {
+        info!(
+            "[CLI] Performing live {m_type} {ip_version} measurement using targets fed over stdin, with a rate of {}",
+            probing_rate.with_separator(),
+        );
+    } else {
+        info!(
+            "[CLI] Performing {m_type} {ip_version} measurement using targeting {} addresses, with a rate of {}, and a worker-interval of {worker_interval} seconds",
+            hitlist_length.with_separator(),
+            probing_rate.with_separator(),
+        );
+    }
 
     // Print the origins used
     info!("[CLI] Workers send probes using the following configurations:");
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
     table.set_titles(
-        row![b->"Hostname", b->"Worker ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"],
+        row![b->"Hostname", b->"Worker ID", b->"Origin ID", b->"src IP", b->"src Port", b->"Dst Port", b->"Protocol"],
     );
 
     for config in &configurations {
@@ -205,11 +262,19 @@ pub async fn handle(
                 )
             };
 
+            // ICMP probes carry no source port (dport used as the ICMP identifier)
+            let sport = if origin.p_type() == ProtocolType::Icmp {
+                "n/a".to_string()
+            } else {
+                origin.sport.to_string()
+            };
+
             table.add_row(row![
                 worker_name,
                 worker_id_str,
+                origin.origin_id,
                 origin.src.unwrap().to_string(),
-                origin.sport,
+                sport,
                 origin.dport,
                 origin.p_type()
             ]);
@@ -236,18 +301,6 @@ pub async fn handle(
         None
     };
 
-    if is_any_protocol {
-        let unique_origins: HashSet<_> = configurations
-            .iter()
-            .filter_map(|c| c.origin.as_ref().map(|o| o.origin_id))
-            .collect();
-        if unique_origins.len() < 2 {
-            let msg = "[CLI] --any requires at least two protocols (e.g., -p icmp,tcp)";
-            error!("{}", msg);
-            return Err(msg.into());
-        }
-    }
-
     // Create the measurement definition and send it to the orchestrator
     let m_definition = ScheduleMeasurement {
         probing_rate,
@@ -260,10 +313,7 @@ pub async fn handle(
         url: url.cloned(),
         probe_interval,
         number_of_probes,
-        is_ipv6,
-        is_record,
         trace_options,
-        is_any_protocol,
     };
 
     let args = MeasurementExecutionArgs {
@@ -274,10 +324,16 @@ pub async fn handle(
         hitlist_length,
         out_path: path,
         worker_map,
-        is_record,
+        is_sessions,
     };
 
-    grpc_client
-        .do_measurement_to_server(m_definition, args, m_type)
-        .await
+    if is_feed {
+        grpc_client
+            .do_live_measurement_to_server(m_definition, args)
+            .await
+    } else {
+        grpc_client
+            .do_measurement_to_server(m_definition, args)
+            .await
+    }
 }

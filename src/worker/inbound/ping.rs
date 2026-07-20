@@ -1,6 +1,6 @@
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{
-    Address, DiscoveryReply, MeasurementReply, RecordedHops, Reply, TraceReply,
+    Address, DiscoveryReply, MeasurementReply, Reply, TraceReply,
 };
 use crate::net::ICMPPacket;
 use crate::worker::inbound::ReplyMeta;
@@ -33,21 +33,21 @@ pub fn parse_icmp(
             return None;
         }
         let icmp_packet = ICMPPacket::from(packet_bytes);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     } else if is_dgram {
         // DGRAM: kernel strips IPv4 header, ICMP data starts at offset 0
         if packet_bytes.len() < 32 || packet_bytes[0] != 0 {
             return None;
         }
         let icmp_packet = ICMPPacket::from(packet_bytes);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     } else {
         // RAW: IPv4 header included, ICMP starts at offset 20
         if packet_bytes.len() < 52 || packet_bytes[20] != 0 {
             return None;
         }
         let icmp_packet = ICMPPacket::from(&packet_bytes[20..]);
-        parse_icmp_inner(&icmp_packet, m_id, None, is_traceroute, meta)
+        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     }
 }
 
@@ -56,25 +56,24 @@ pub fn parse_icmp(
 /// # Arguments
 /// * `icmp_packet` - Unparsed ICMP packet
 /// * `m_id` - the ID of the current measurement
-/// * `recorded_hops` - optional recorded hops from the IP header when Record Route (RR) is used
 /// * `is_traceroute` - whether this is a traceroute target ping reply
 /// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received ping reply, None if invalid
-pub fn parse_icmp_inner(
+fn parse_icmp_inner(
     icmp_packet: &ICMPPacket,
     m_id: u32,
-    recorded_hops: Option<RecordedHops>,
     is_traceroute: bool,
     meta: ReplyMeta,
 ) -> Option<Reply> {
     let ReplyMeta { src, ttl, rx_time } = meta;
-    // Make sure that this packet belongs to this measurement
-    let pkt_measurement_id: [u8; 4] = icmp_packet.payload[0..4].try_into().ok()?;
-    if u32::from_be_bytes(pkt_measurement_id) != m_id {
+    // Verify this packet belongs to the current measurement (based on 16-bit m_id)
+    let pkt_probe_id = u32::from_be_bytes(icmp_packet.payload[0..4].try_into().ok()?);
+    if crate::m_id_of(pkt_probe_id) != m_id {
         return None;
     }
+    let session_id = crate::session_id_of(pkt_probe_id);
 
     let is_ipv6 = src.is_v6();
 
@@ -104,7 +103,10 @@ pub fn parse_icmp_inner(
     if is_discovery {
         // Discovery reply
         Some(Reply {
-            reply_data: Some(ReplyData::Discovery(DiscoveryReply { src: Some(src) })),
+            reply_data: Some(ReplyData::Discovery(DiscoveryReply {
+                src: Some(src),
+                session_id,
+            })),
         })
     } else if is_traceroute {
         // Trace reply
@@ -133,7 +135,7 @@ pub fn parse_icmp_inner(
                 rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 chaos: None,
-                recorded_hops,
+                session_id,
             })),
         })
     }

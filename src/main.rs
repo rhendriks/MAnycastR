@@ -18,6 +18,7 @@
 //! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
 //!
 //! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
+//! Mixed measurements are supported, e.g., to measure/compare IPv4 and IPv6 for dual-stack deployments.
 //!
 //! # The components
 //!
@@ -56,10 +57,11 @@
 //! ## Measurement Types
 //! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
 //! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
-//! * **latency** - measuring anycast latencies (RTT between target and anycast infrastructure)
-//! * **unicast** - measuring unicast latencies from all PoPs to the target(lowest RTT indicates 'optimal' PoP)
+//! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or unicast RTTs from all PoPs)
 //! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
 //! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
+//! * **feed** - live measurement: NDJSON targets are streamed over stdin and probed as they arrive, until EOF/Ctrl+C
+//! * **feed-trace** - live measurement with TTL-limited probes supported (per-target `ttl` field, default 255)
 //!
 //! # Usage
 //!
@@ -112,9 +114,10 @@
 //! ### Unicast latency measurement using ICMPv6
 //!
 //! ```
-//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m unicast
+//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicastv6
 //! ```
 //!
+//! With `-a unicastv6` (or `-a unicastv4`) each worker probes from its own local unicast address of that IP version.
 //! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
 //! Each hitlist target receives a single probe from every worker.
 //! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
@@ -186,9 +189,8 @@
 //!
 //! Next, distribute the binary to the workers.
 //!
-//! For ICMP-only measurements (no traceroute or record route), workers can run without sudo.
-//!
-//! For TCP, DNS, traceroute, or record route measurements, workers need sudo or CAP_NET_RAW:
+//! For ICMP, DNS measurements (no traceroute), workers can run without sudo.
+//! For TCP, or traceroute measurements, workers need sudo or CAP_NET_RAW:
 //! ```bash
 //! sudo setcap cap_net_raw,cap_net_admin=eip manycast
 //! ```
@@ -205,14 +207,6 @@
 //! ```bash
 //! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
 //! ```
-//!
-//! # Future
-//!
-//! * Unicast traceroute
-//! * Allow feed of targets (instead of a pre-defined hitlist)
-//! * Allow for simultaneous/mixed unicast and anycast measurements
-//! * Support any/all protocol types to measure targets with multiple protocols
-
 use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
@@ -225,14 +219,32 @@ mod net;
 mod orchestrator;
 mod worker;
 
-pub const ALL_WORKERS: u32 = u32::MAX; // All workers
-pub const ALL_ORIGINS: u32 = u32::MAX; // Instruction to send from all Origins
+pub const ALL_WORKERS: u32 = 0;
+pub const ALL_ORIGINS: u32 = 0;
 pub const SINGLE_ORIGIN: u32 = 0; // Used for single Origin measurements
 
-/// Derive a 6-bit DNS identifier from a measurement ID for filtering.
+/// Get 6-bits from the measurement ID for the DNS identifier for filtering.
 #[inline]
 pub fn dns_identifier(m_id: u32) -> u8 {
     (m_id & 0x3F) as u8
+}
+
+/// Used for `--responsive` and `--sessions` enabled when using `-m feed`.
+#[inline]
+pub fn probe_id(m_id: u32, session_id: u32) -> u32 {
+    (m_id << 16) | (session_id & 0xFFFF)
+}
+
+/// Get the 16-bit measurement ID from a probe ID.
+#[inline]
+pub fn m_id_of(probe_id: u32) -> u32 {
+    probe_id >> 16
+}
+
+/// Get the 16-bit session ID from a probe ID.
+#[inline]
+pub fn session_id_of(probe_id: u32) -> u32 {
+    probe_id & 0xFFFF
 }
 
 /// Parse command line input and start MAnycastR orchestrator, worker, or CLI
@@ -296,6 +308,10 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
                 .arg(arg!(--tls "Use TLS (requires certs in ./tls/)").action(ArgAction::SetTrue))
                 .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
+                .arg(arg!(--max_rate <RATE> "Maximum probing rate allowed for measurements (probes per second, per worker; optional)")
+                    .value_parser(value_parser!(u32)))
+                .arg(arg!(--origins <FILE> "Origin allow-list restricting the origins CLIs may use ('src_addr, protocol[, protocol...]' per line; 'all' allows all protocols)")
+                    .value_parser(value_parser!(String)))
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
@@ -313,22 +329,20 @@ fn parse_cmd() -> ArgMatches {
                         .value_parser(value_parser!(String))
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
-                        .value_parser(value_parser!(String))
-                        .required_unless_present("hitlist"))
+                        .value_parser(value_parser!(String)))
                     .arg(arg!(-p --p_type <TYPE> "Protocols to use")
                         .value_parser(PossibleValuesParser::new(["icmp", "dns", "tcp", "chaos"]))
                         .value_delimiter(',')// Allow for multiple protocols
                         .action(ArgAction::Append)
                         .default_value("icmp")
                         .ignore_case(true))
-                    .arg(arg!(-m --m_type <MODE> "Measurement type to perform [traceroute ICMP only]")
-                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "unicast", "anycast-traceroute", "tracemap"]))
+                    .arg(arg!(-m --m_type <MODE> "Measurement type to perform")
+                        .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap", "feed", "feed-trace"]))
                         .default_value("laces")
                         .ignore_case(true))
-                    .arg(arg!(--record "Send IPv4 packets with Record Route option [ICMP only]")
-                        .action(ArgAction::SetTrue)
-                        .requires_if("icmp", "p_type"))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address").conflicts_with("configuration"))
+                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
+                        .conflicts_with("configuration")
+                        .required_unless_present("configuration"))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
                     .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
                         .value_parser(value_parser!(u32))
@@ -343,7 +357,7 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(--stream "Stream to stdout").action(ArgAction::SetTrue))
                     .arg(arg!(--shuffle "Shuffle hitlist").action(ArgAction::SetTrue))
                     .arg(arg!(--responsive "Check responsiveness from a single worker, before probing from all workers").action(ArgAction::SetTrue))
-                    .arg(arg!(--any "Try protocols in order (as specified by -p); stop per-target on first responsive protocol. Implies --responsive").action(ArgAction::SetTrue))
+                    .arg(arg!(--sessions "Enable feed sessions (-m feed only): NDJSON targets may carry a 'session' field (1-65535), reported per reply in the output's 'session' column").action(ArgAction::SetTrue))
                     .arg(arg!(--trace_max_failures <N> "Maximum number of consecutive failures (tracemap: confirmation window past a silent midpoint, default 3)")
                         .value_parser(value_parser!(u32))
                         .default_value_if("m_type", ArgPredicate::Equals("tracemap".into()), Some("3"))

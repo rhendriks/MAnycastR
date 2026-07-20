@@ -2,8 +2,9 @@ use crate::custom_module::manycastr::controller_client::ControllerClient;
 use crate::custom_module::manycastr::instruction::InstructionType;
 use crate::custom_module::manycastr::{Address, Origin};
 use local_ip_address::{local_ip, local_ipv6};
+use log::warn;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
 use tonic::transport::Channel;
 
 /// The worker that is run at the anycast PoPs and performs measurements as instructed by the orchestrator.
@@ -13,8 +14,8 @@ pub struct Worker {
     pub(crate) grpc_client: ControllerClient<Channel>,
     /// Hostname of the worker
     pub(crate) hostname: String,
-    /// ID of the current measurement (None indicates no active measurement ongoing)
-    pub(crate) current_m_id: Arc<Mutex<Option<u32>>>,
+    /// Whether a measurement is currently active on this worker
+    pub(crate) is_busy: Arc<AtomicBool>,
     /// Instructions senders to the outbound probing threads, paired with their origin ID
     pub(crate) outbound_txs: Vec<(u32, tokio::sync::mpsc::Sender<InstructionType>)>,
     /// Join handles of the outbound probing threads, awaited on graceful end before closing inbound
@@ -23,29 +24,44 @@ pub struct Worker {
     pub(crate) abort_inbound: Arc<AtomicBool>,
 }
 
-/// Takes a list of origins, replaces any unspecified unicast addresses with the local addresses,
-/// and returns the modified list of origins.
+/// Takes a list of origins, replaces any unicast placeholder addresses with the local
+/// address of the placeholder's IP version, and returns the modified list of origins.
+///
+/// Drops unicast origins when no local unicast address of that version can be found.
 ///
 /// # Arguments
 /// * `origins` - A vector of Origin structs to be modified.
-/// * `is_ipv6` - A boolean indicating whether to use the local IPv6 address (true) or IPv4 address (false).
 ///
 /// # Returns
-/// * A vector of Origin structs with unspecified unicast addresses replaced by local addresses.
-pub fn set_unicast_origins(origins: Vec<Origin>, is_ipv6: bool) -> Vec<Origin> {
-    let src_addr = if is_ipv6 {
-        local_ipv6().ok().map(Address::from)
-    } else {
-        local_ip().ok().map(Address::from)
-    };
+/// * A vector of Origin structs with unicast placeholders replaced by local addresses.
+pub fn set_unicast_origins(origins: Vec<Origin>) -> Vec<Origin> {
+    // Resolve the local addresses once (a version is looked up only when an origin needs it)
+    let mut local_v4: Option<Option<Address>> = None;
+    let mut local_v6: Option<Option<Address>> = None;
 
     origins
         .into_iter()
-        .map(|mut o| {
-            if o.src.is_some_and(|s| s.is_unicast()) {
-                o.src = src_addr;
+        .filter_map(|mut o| {
+            if o.is_unicast() {
+                let is_ipv6 = o.src.expect("no src").is_v6();
+                let src_addr = if is_ipv6 {
+                    *local_v6.get_or_insert_with(|| local_ipv6().ok().map(Address::from))
+                } else {
+                    *local_v4.get_or_insert_with(|| local_ip().ok().map(Address::from))
+                };
+                match src_addr {
+                    Some(addr) => o.src = Some(addr),
+                    None => {
+                        warn!(
+                            "[Worker] No local {} address available; skipping unicast origin {}",
+                            if is_ipv6 { "IPv6" } else { "IPv4" },
+                            o.origin_id
+                        );
+                        return None;
+                    }
+                }
             }
-            o
+            Some(o)
         })
         .collect()
 }

@@ -2,6 +2,79 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.0.0] - 2026-07-20
+Adds live (feed-based) measurements: enabling reactive measurements
+(e.g., mapping the catchment when receiving potentially spoofed packets or
+observing a routing change in passive BGP data), and live traceroute
+(user-driven, TTL-limited probes over the feed).
+To enable shared measurement infrastructure, the orchestrator can now enforce
+a maximum probing rate and an origin allow-list on all measurements.
+Workers can now reconnect during measurements, and disconnects no longer hang the measurement to improve robustness.
+Finally, mixed IPv4/IPv6 measurements are supported for measuring dual-stack anycast.
+
+
+### Added
+- **Live measurements** (`-m feed`) - the CLI reads
+  NDJSON targets (`{"dst":"192.0.2.1"}`, or bare addresses as shorthand) from
+  stdin and forwards them to the orchestrator over a new bidirectional
+  `LiveMeasurement` gRPC stream; replies stream back as usual.
+  Supported fields are `dst` (target), `nprobes` (number of probes),
+  `worker` (worker ID/hostname/`"all"`/`"any"`), and `origin` (origin ID/`"all"`).
+  Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`).
+- **Live traceroute measurements** (`-m feed-trace`) — live measurements with
+  TTL-limited probes.
+- **Orchestrator rate enforcement** (`orchestrator --max_rate`) —
+  the orchestrator refuses measurements that request a probing rate above the
+  configured maximum (probes per second, per worker), for all measurement types.
+  Without `--max_rate`, any probing rate is allowed.
+- **Orchestrator origin allow-list** (`orchestrator --origins [FILE]`) —
+  restricts the origins CLIs may use. Each line of the file allows one origin:
+  a source address (anycast IP or `unicastv4`/`unicastv6`) with the protocols
+  permitted for it (`all` allows every protocol), see `example.origins`.
+  Measurements using any other origin are refused, with the error listing the
+  available origins. Without `--origins`, all origins are allowed.
+- **Mixed IPv4/IPv6 measurements** — measurements can now probe both IPv4 and IPv6 targets in a single run.
+  This requires multi-origins, e.g., a configuration file declaring both an IPv4 and IPv6 origin.
+  Targets are only probed origins that match their IP version.
+  Unicast origins are now declared using `unicastv4`/`unicastv6` to support this change.
+- **Unicast measurements** - `-m unicast` is now deprecated in favor of `-m latency -a unicastv4` or `unicastv6`.
+  Unicast latency measurements automatically probe from all workers, whereas anycast latency measurements probe from the catching worker (found using a discovery probe).
+- **Reconnecting workers** — during measurements workers that disconnect can now rejoin.
+  However, queued follow-up tasks are discarded and probe replies may be missed.
+- **Per-target `nprobes` in the live feed** — live (`-m feed`/`feed-trace`) NDJSON targets
+  accept an optional `nprobes` field setting how many measurement probes are sent.
+- **Feed sessions** (`--sessions`) - optional flag for `-m feed` measurements to attribute probe replies to a particular session.
+  This enables multiple sessions to share a single live feed (e.g., a web dashboard with multiple users).
+
+### Changed
+- **Parquet output overhaul** — fixed schema per measurement type and extended metadata.
+- **Glob hostname support** — when selecting workers by hostname, globs (`*`) may be used.
+  This works with inter-worker intervals and `--responsive` discovery probing.
+- **nprobes encoded in tasks** — Multi-probe tasks are now encoded in the task
+  instead of the orchestrator re-sending the same task multiple times.
+  The worker re-sends the task's probe at the specified interval until the count is exhausted.
+- **Reducing gRPC formats** — `ALL_ORIGINS` is now 0 instead of `u32::MAX`
+  as such values are not encoded on the wire.
+  Similarly, `SINGLE_ORIGIN` is now 0 instead of 1.
+  For the same reason, for live (feed) measurements, the worker vector is empty for `worker:any`.
+- `-a`/`--address` is now required unless `--configuration` is given.
+- Updated dependencies.
+
+### Fixed
+- **Multi-origin traceroute output no longer panics the CSV writer**.
+- **Robust measurement finishing** — completion is now tracked per-participant.
+  This fixes a hang when a worker disconnects between receiving End and reporting Finished.
+- **Hitlist catchment with `--responsive`** — would yield no results.
+  Now this flag is rejected as it makes no sense.
+
+### Removed
+- **`--record` (IPv4 Record Route) measurements** — the measurement type
+  proved not useful and overshadowed by traceroute.
+- **`-m unicast` measurement type** — replaced by `-m latency -a unicastv4`.
+- **`--any` protocol fallback** (added in 1.7.0) — hitlists are built for a specific
+  protocol, so falling back to other protocols per target made little sense and
+  complicated task distribution.
+
 ## [1.10.0] - 2026-06-12
 
 Adds tracemap, a binary-searching anycast traceroute that maps catchments of
@@ -324,6 +397,8 @@ traceroute, and improves LACeS and traceroute output.
 
 - Initial release.
 
+[2.0.0]: https://github.com/rhendriks/MAnycastR/compare/v1.10.0...v2.0.0
+[1.10.0]: https://github.com/rhendriks/MAnycastR/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/rhendriks/MAnycastR/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/rhendriks/MAnycastR/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rhendriks/MAnycastR/compare/v1.6.0...v1.7.0
