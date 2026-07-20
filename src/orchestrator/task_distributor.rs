@@ -860,4 +860,3 @@ pub fn distribute_live_tasks(
         finalize_measurement(&workers, &measurement, m_id).await;
     });
 }
-
