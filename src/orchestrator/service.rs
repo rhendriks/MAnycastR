@@ -17,8 +17,8 @@ use crate::orchestrator::task_distributor::{
 use crate::orchestrator::trace::check_trace_timeouts;
 use crate::orchestrator::worker::{WorkerReceiver, WorkerSender};
 use crate::orchestrator::{
-    ControllerService, LiveState, MeasurementHandle, MeasurementState,
-    Participant, TracerouteConfig, WorkerRegistry, WorkerSel, wire_nprobes,
+    ControllerService, LiveState, MeasurementHandle, MeasurementState, Participant,
+    TracerouteConfig, WorkerRegistry, WorkerSel, wire_nprobes,
 };
 use crate::{ALL_ORIGINS, ALL_WORKERS, custom_module};
 use log::{error, info, warn};
@@ -30,7 +30,7 @@ use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tonic::{Request, Response, Status};
 
-/// Live feed buffer size, expressed in seconds of probing at the live rate.
+/// Live feed buffer size, expressed in seconds of probing at the probing rate.
 /// When the buffer is full the CLI stream is no longer read (blocking the feed).
 const FEED_BUFFER_SECS: usize = 5;
 
@@ -208,13 +208,19 @@ impl Controller for ControllerService {
     ///
     /// # Errors
     /// Returns an error if there is already an active measurement, if there are no
-    /// connected workers, or if the configuration references unknown worker IDs.
+    /// connected workers, if the configuration references unknown worker IDs, if the
+    /// probing rate exceeds the configured `--max_rate`, or if an origin is not
+    /// allowed by this orchestrator (`--configs`).
     async fn do_measurement(
         &self,
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
         info!("[Orchestrator] Received CLI measurement request for measurement");
         let mut m_def = request.into_inner();
+
+        // Refuse start messages exceeding the rate limit or using disallowed origins
+        self.validate_rate(m_def.probing_rate)?;
+        self.validate_origins(&m_def)?;
         let worker_interval = m_def.worker_interval as u64;
         let probe_interval = m_def.probe_interval as u64;
         let nprobes = m_def.number_of_probes;
@@ -306,13 +312,11 @@ impl Controller for ControllerService {
     ///
     /// The first message on the stream must be the measurement definition;
     /// subsequent messages carry targets to probe.
-    /// The orchestrator enforces its configured `--live_rate` as an upper bound on
-    /// the probing rate.
-    ///
     /// # Errors
     /// Returns an error if the first message is not a measurement definition, if the
-    /// measurement type is not catchment, if there is already an active measurement,
-    /// or if no workers can participate.
+    /// measurement type is not catchment, if the probing rate exceeds the configured
+    /// `--max_rate`, if an origin is not allowed by this orchestrator, if there is
+    /// already an active measurement, or if no workers can participate.
     async fn live_measurement(
         &self,
         request: Request<tonic::Streaming<CliMessage>>,
@@ -320,7 +324,7 @@ impl Controller for ControllerService {
         let mut inbound = request.into_inner();
 
         // The first message on the stream must be the measurement definition
-        let mut m_def = match inbound.message().await? {
+        let m_def = match inbound.message().await? {
             Some(CliMessage {
                 message: Some(cli_message::Message::Start(m_def)),
             }) => m_def,
@@ -357,14 +361,9 @@ impl Controller for ControllerService {
             }
         }
 
-        // Enforce the orchestrator-configured rate limit for live measurements
-        if m_def.probing_rate > self.live_rate {
-            warn!(
-                "[Orchestrator] Capping live probing rate {} to the configured maximum of {}",
-                m_def.probing_rate, self.live_rate
-            );
-            m_def.probing_rate = self.live_rate;
-        }
+        // Refuse start messages exceeding the rate limit or using disallowed origins
+        self.validate_rate(m_def.probing_rate)?;
+        self.validate_origins(&m_def)?;
         let probing_rate = m_def.probing_rate;
 
         info!(
@@ -674,6 +673,76 @@ impl Controller for ControllerService {
 }
 
 impl ControllerService {
+    /// Validate a requested probing rate against the orchestrator's configured
+    /// maximum (`--max_rate`).
+    ///
+    /// # Errors
+    /// Returns an error naming the requested and maximum rate.
+    fn validate_rate(&self, probing_rate: u32) -> Result<(), Status> {
+        if probing_rate > self.max_rate {
+            warn!(
+                "[Orchestrator] Refusing measurement: probing rate {probing_rate} exceeds the configured maximum of {}",
+                self.max_rate
+            );
+            return Err(Status::invalid_argument(format!(
+                "Probing rate {probing_rate} exceeds this orchestrator's maximum rate of {} (probes per second, per worker)",
+                self.max_rate
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate the origins of a measurement definition against the orchestrator's
+    /// origin allow-list (`--origins`). Without an allow-list, every origin is allowed.
+    ///
+    /// An origin is allowed when a rule matches its source address and permits its protocol.
+    ///
+    /// # Errors
+    /// Returns an error naming the refused origin and listing the available origins.
+    fn validate_origins(&self, m_def: &ScheduleMeasurement) -> Result<(), Status> {
+        let Some(allowed_origins) = &self.allowed_origins else {
+            return Ok(()); // No allow-list configured
+        };
+
+        for origin in m_def
+            .configurations
+            .iter()
+            .filter_map(|c| c.origin.as_ref())
+        {
+            let Some(src) = &origin.src else { continue };
+            let p_type = origin.p_type();
+
+            if allowed_origins
+                .iter()
+                .any(|rule| rule.src == *src && rule.allows(p_type))
+            {
+                continue;
+            }
+
+            // Distinguish an unavailable address from a disallowed protocol
+            let reason = if allowed_origins.iter().any(|rule| rule.src == *src) {
+                format!(
+                    "protocol {} is not allowed for source address {src}",
+                    p_type.as_str()
+                )
+            } else {
+                format!("source address {src} is not available")
+            };
+            warn!("[Orchestrator] Refusing measurement: {reason}");
+
+            let available: Vec<String> = allowed_origins
+                .iter()
+                .map(|rule| rule.to_string())
+                .collect();
+            return Err(Status::permission_denied(format!(
+                "Origin not allowed by this orchestrator: {reason}. Available origins: {}",
+                available.join(", ")
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Classify connected workers as probing, listening, or idle based on the measurement
     /// configuration. Validates that at least one worker can participate and that all
     /// configured worker IDs correspond to connected workers.
