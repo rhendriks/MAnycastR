@@ -71,7 +71,11 @@ impl FeedOrigins {
     /// The default origin for a target of the given IP version.
     /// Returns `None` if no origin of that version is configured.
     fn default_for(&self, is_v6: bool) -> Option<u32> {
-        let default = if is_v6 { self.default_v6 } else { self.default_v4 };
+        let default = if is_v6 {
+            self.default_v6
+        } else {
+            self.default_v4
+        };
         if default.is_none() {
             warn!(
                 "[CLI] No {} origin is configured.",
@@ -326,11 +330,7 @@ fn parse_nprobes(nprobes: &serde_json::Value) -> Option<u32> {
 /// Resolve a feed line's `origin` value to an origin ID:
 /// an origin ID (number or numeric string) of a configured origin, or `"all"`.
 /// A specific origin must match the target's IP version.
-fn parse_origin(
-    origin: &serde_json::Value,
-    origins: &FeedOrigins,
-    dst_is_v6: bool,
-) -> Option<u32> {
+fn parse_origin(origin: &serde_json::Value, origins: &FeedOrigins, dst_is_v6: bool) -> Option<u32> {
     let id = match origin {
         // Origin ID as JSON number (e.g., "origin":2)
         serde_json::Value::Number(n) => u32::try_from(n.as_u64()?).ok()?,
