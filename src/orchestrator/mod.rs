@@ -294,7 +294,10 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     // if TLS is enabled create the orchestrator using a TLS configuration
     if let Some(cert_path) = args.get_one::<String>("tls") {
         info!("[Orchestrator] Starting orchestrator with TLS enabled");
-        let identity = server_identity(cert_path, args.get_one::<String>("tls_key").map(String::as_str));
+        let identity = server_identity(
+            cert_path,
+            args.get_one::<String>("tls_key").map(String::as_str),
+        );
         Server::builder()
             .tls_config(ServerTlsConfig::new().identity(identity))
             .expect("Failed to load TLS certificate")

@@ -8,12 +8,12 @@ use crate::custom_module::manycastr::{
     CliMessage, MeasurementType, ReplyBatch, ScheduleMeasurement, cli_message,
 };
 use crate::custom_module::{Separated, has_anycast_origin};
+use crate::tls::client_config;
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
 use std::collections::HashSet;
-use crate::tls::client_config;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;

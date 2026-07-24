@@ -49,7 +49,14 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
                 info_url,
             };
 
-            create_icmp(src, target, identifier, sequence_number, &payload_fields, ttl)
+            create_icmp(
+                src,
+                target,
+                identifier,
+                sequence_number,
+                &payload_fields,
+                ttl,
+            )
         }
 
         ProtocolType::ADns | ProtocolType::ChaosDns => {
@@ -94,8 +101,11 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
         );
     }
 
-    let result = match send_packet(socket, &packet, &trace_task.dst.expect("invalid destination"))
-    {
+    let result = match send_packet(
+        socket,
+        &packet,
+        &trace_task.dst.expect("invalid destination"),
+    ) {
         Ok(()) => (1, 0),
         Err(e) => {
             warn!("[Worker outbound] Failed to send {p_type} traceroute packet: {e}");
