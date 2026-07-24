@@ -66,7 +66,6 @@ pub fn send_probe(
                 2,            // ICMP seq
                 &icmp_payload,
                 255,
-                config.is_dgram,
             ));
         }
         ProtocolType::ADns | ProtocolType::ChaosDns => {
@@ -81,7 +80,6 @@ pub fn send_probe(
                 &dns_id,
                 config.p_type == ProtocolType::ChaosDns,
                 config.qname.as_deref().expect("qname missing"),
-                config.is_dgram,
             ));
         }
         ProtocolType::Tcp => {
@@ -97,16 +95,7 @@ pub fn send_probe(
         }
     }
 
-    // dport must be 0 for IPv6 SOCK_RAW
-    let dest_port = if config.is_dgram
-        && matches!(config.p_type, ProtocolType::ADns | ProtocolType::ChaosDns)
-    {
-        config.dport
-    } else {
-        0
-    };
-
-    match send_packet(socket, packet_buffer, dst, dest_port) {
+    match send_packet(socket, packet_buffer, dst) {
         Ok(()) => sent += 1,
         Err(e) => {
             warn!(
