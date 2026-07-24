@@ -12,7 +12,6 @@ use crate::worker::inbound::ReplyMeta;
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `m_id` - the ID of the current measurement
 /// * `is_traceroute` - handle echo reply as traceroute target reply
-/// * `is_dgram` - whether the socket is DGRAM (if true, the kernel strips the IPv4 header)
 /// * `meta` - received packet metadata (source address, TTL, kernel receive time)
 ///
 /// # Returns
@@ -24,25 +23,17 @@ pub fn parse_icmp(
     packet_bytes: &[u8],
     m_id: u32,
     is_traceroute: bool,
-    is_dgram: bool,
     meta: ReplyMeta,
 ) -> Option<Reply> {
     if meta.src.is_v6() {
-        // ICMPv6: no IP header in received data (both RAW and DGRAM)
+        // ICMPv6: no IP header in received data
         if packet_bytes.len() < 56 || packet_bytes[0] != 129 {
             return None;
         }
         let icmp_packet = ICMPPacket::from(packet_bytes);
         parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
-    } else if is_dgram {
-        // DGRAM: kernel strips IPv4 header, ICMP data starts at offset 0
-        if packet_bytes.len() < 32 || packet_bytes[0] != 0 {
-            return None;
-        }
-        let icmp_packet = ICMPPacket::from(packet_bytes);
-        parse_icmp_inner(&icmp_packet, m_id, is_traceroute, meta)
     } else {
-        // RAW: IPv4 header included, ICMP starts at offset 20
+        // Raw IPv4: IP header included, ICMP starts at offset 20
         if packet_bytes.len() < 52 || packet_bytes[20] != 0 {
             return None;
         }
