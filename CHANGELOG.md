@@ -2,6 +2,12 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **TLS is now configured with certificate file paths** instead of a fixed
+  `./tls/` directory with `orchestrator.crt`/`orchestrator.key` files.
+
 ## [2.0.0] - 2026-07-20
 Adds live (feed-based) measurements: enabling reactive measurements
 (e.g., mapping the catchment when receiving potentially spoofed packets or
