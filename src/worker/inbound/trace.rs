@@ -38,7 +38,7 @@ pub fn parse_trace(packet_bytes: &[u8], m_id: u32, meta: ReplyMeta) -> Option<Re
     // Only Time Exceeded / Destination Unreachable quote the original probe
     match packet_bytes.get(icmp_start) {
         Some(&t) if t == time_exceeded || t == dest_unreachable => {}
-        _ => return parse_icmp(packet_bytes, m_id, true, false, meta),
+        _ => return parse_icmp(packet_bytes, m_id, true, meta),
     }
 
     // Hop address + TTL of the outer error packet.
@@ -51,7 +51,7 @@ pub fn parse_trace(packet_bytes: &[u8], m_id: u32, meta: ReplyMeta) -> Option<Re
 
     // Need the full 8-byte ICMP header before parsing it (the parser unwraps those bytes).
     if packet_bytes.len() < icmp_start + 8 {
-        return parse_icmp(packet_bytes, m_id, true, false, meta);
+        return parse_icmp(packet_bytes, m_id, true, meta);
     }
 
     // The ICMP payload is the quoted original probe (its IP header + first 8 transport bytes).
