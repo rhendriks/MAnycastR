@@ -217,6 +217,7 @@ mod cli;
 mod custom_module;
 mod net;
 mod orchestrator;
+mod tls;
 mod worker;
 
 pub const ALL_WORKERS: u32 = 0;
@@ -306,7 +307,9 @@ fn parse_cmd() -> ArgMatches {
         .subcommand(
             Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
-                .arg(arg!(--tls "Use TLS (requires certs in ./tls/)").action(ArgAction::SetTrue))
+                .arg(arg!(--tls <CERT> "Enable TLS with the certificate at the given path (e.g., ./tls/orchestrator.crt)"))
+                .arg(arg!(--tls_key <KEY> "Path to the TLS private key (default: the --tls path with a .key extension)")
+                    .requires("tls"))
                 .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
                 .arg(arg!(--max_rate <RATE> "Maximum probing rate allowed for measurements (probes per second, per worker; optional)")
                     .value_parser(value_parser!(u32)))
@@ -317,12 +320,12 @@ fn parse_cmd() -> ArgMatches {
             Command::new("worker").about("Launches the MAnycastR worker")
                 .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
                 .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
-                .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
                 .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
-                .arg(arg!(--tls <FQDN> "Enable TLS with provided FQDN (requires orchestrator.crt in ./tls/)"))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
