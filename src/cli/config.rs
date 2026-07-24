@@ -87,6 +87,15 @@ impl IpVersions {
             _ => "IPv4",
         }
     }
+
+    /// Compact token for output filenames: "v4", "v6", or "mixed".
+    pub fn file_token(&self) -> &'static str {
+        match (self.has_v4, self.has_v6) {
+            (true, true) => "mixed",
+            (false, true) => "v6",
+            _ => "v4",
+        }
+    }
 }
 
 /// Validate the IP-version rules of a measurement and return the measured version(s).
