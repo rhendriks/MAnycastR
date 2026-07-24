@@ -27,8 +27,8 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
 
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
-        let fqdn = args.get_one::<String>("tls").map(String::as_str);
-        let grpc_client = Self::connect(orc_addr.parse()?, fqdn).await?;
+        let cert_path = args.get_one::<String>("tls").map(String::as_str);
+        let grpc_client = Self::connect(orc_addr.parse()?, cert_path).await?;
 
         // Initialize a worker instance
         let mut worker = Self {
