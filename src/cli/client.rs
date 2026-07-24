@@ -13,15 +13,15 @@ use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info, warn};
 use std::collections::HashSet;
+use crate::tls::client_config;
 use std::error::Error;
-use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{channel, unbounded_channel};
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::transport::Channel;
 use tonic::{Request, Streaming};
 
 /// A CLI client that creates a connection with the 'orchestrator' and sends the desired commands based on the command-line input.
@@ -372,33 +372,24 @@ impl CliClient {
     ///
     /// # Arguments
     /// * `address` - the address of the orchestrator (e.g., 10.10.10.10:50051)
-    /// * `fqdn` - an optional string that contains the FQDN of the orchestrator certificate (if TLS is enabled)
+    /// * `cert_path` - an optional path to the orchestrator's certificate (if TLS is enabled)
     ///
     /// # Returns
     /// A gRPC client that is connected to the orchestrator
     ///
     /// # Remarks
-    /// When `fqdn` is set, the connection is made over TLS and the orchestrator is
-    /// authenticated against the CA certificate at `./tls/orchestrator.crt`.
-    /// The `fqdn` must match a Subject Alternative Name (SAN) entry of that certificate.
+    /// When `cert_path` is set, the connection is secured using TLS.
     pub(crate) async fn connect(
         address: &str,
-        fqdn: Option<&String>,
+        cert_path: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if let Some(fqdn) = fqdn {
+        let channel = if let Some(cert_path) = cert_path {
             // Secure connection
             let addr = format!("https://{address}");
 
-            // Load the CA certificate used to authenticate the orchestrator
-            let pem = fs::read_to_string("tls/orchestrator.crt")
-                .expect("Unable to read CA certificate at ./tls/orchestrator.crt");
-            let ca = Certificate::from_pem(pem);
-
-            let tls = ClientTlsConfig::new().ca_certificate(ca).domain_name(fqdn);
-
             let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
             builder
-                .tls_config(tls)
+                .tls_config(client_config(cert_path)?)
                 .expect("Unable to set TLS configuration")
                 .connect()
                 .await
