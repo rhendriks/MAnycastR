@@ -2,6 +2,11 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.1.1] - 2026-07-24
+
+### Changed
+- **Default output filenames now encode the IP version and distinguish latency types.**
+
 ## [2.1.0] - 2026-07-24
 
 ### Changed

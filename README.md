@@ -64,7 +64,11 @@ When creating a measurement you can specify (for more information run --help):
 * **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
 * **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
 * **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)
-* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported)
+* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported).
+  When a directory is given, the filename is generated as `<type>-<protocol>-<version>-<timestamp>.<ext>`,
+  where `<version>` is `v4`, `v6`, or `mixed` (for combined IPv4/IPv6 measurements),
+  and latency measurements are distinguished as `anycast-latency` or `unicast-latency`
+  depending on the source address used (e.g. `anycast-latency-icmp-v4-1753363200.csv.gz`).
 * **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
 
 ### Flags
