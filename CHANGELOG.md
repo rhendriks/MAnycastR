@@ -2,7 +2,7 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [Unreleased]
+## [2.1.0] - 2026-07-24
 
 ### Changed
 - **TLS is now configured with certificate file paths** instead of a fixed
