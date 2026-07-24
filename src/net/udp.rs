@@ -237,15 +237,9 @@ impl UDPPacket {
         domain_name: &str,
         tx_time: u64,
         id: &DnsProbeId,
-        is_dgram: bool,
     ) -> Vec<u8> {
         let ttl: u8 = 255;
         let dns_packet = Self::create_a_record_request(domain_name, tx_time, src, dst, id, sport);
-
-        // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
-        if is_dgram {
-            return dns_packet;
-        }
 
         let udp_length = (8 + dns_packet.len()) as u16;
 
@@ -323,14 +317,8 @@ impl UDPPacket {
         sport: u16,
         id: &DnsProbeId,
         chaos: &str,
-        is_dgram: bool,
     ) -> Vec<u8> {
         let dns_body = Self::create_chaos_request(id, chaos);
-
-        // SOCK_DGRAM UDP socket: the kernel writes the IP and UDP headers, only send the DNS body
-        if is_dgram {
-            return dns_body;
-        }
 
         let udp_length = 8 + dns_body.len() as u32;
 
