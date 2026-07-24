@@ -59,7 +59,6 @@ impl ICMPPacket {
     /// * `src` - the source address of the packet
     /// * `dst` - the destination address of the packet
     /// * `ttl` - the time to live of the packet
-    /// * `is_dgram` - Datagram socket if true (sudoless version)
     pub fn echo_request(
         icmp_identifier: u16,
         sequence_number: u16,
@@ -67,7 +66,6 @@ impl ICMPPacket {
         src: &Address,
         dst: &Address,
         ttl: u8,
-        is_dgram: bool,
     ) -> Vec<u8> {
         let body_len = body.len() as u16;
 
@@ -85,20 +83,15 @@ impl ICMPPacket {
                 let icmp_bytes: Vec<u8> = (&packet).into();
                 packet.checksum = ICMPPacket::calc_checksum(&icmp_bytes);
 
-                if is_dgram {
-                    // dgram socket: Kernel adds IP header
-                    (&packet).into()
-                } else {
-                    let v4_packet = IPv4Packet {
-                        length: 20 + 8 + body_len,
-                        identifier: 15037,
-                        ttl,
-                        src,
-                        dst,
-                        payload: PacketPayload::Icmp { value: packet },
-                    };
-                    (&v4_packet).into()
-                }
+                let v4_packet = IPv4Packet {
+                    length: 20 + 8 + body_len,
+                    identifier: 15037,
+                    ttl,
+                    src,
+                    dst,
+                    payload: PacketPayload::Icmp { value: packet },
+                };
+                (&v4_packet).into()
             }
 
             (Some(address::Value::V6(src)), Some(address::Value::V6(dst))) => {
