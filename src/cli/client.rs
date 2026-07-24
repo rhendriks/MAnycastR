@@ -256,12 +256,25 @@ async fn stream_results_to_file(
 
     let extension = if is_parquet { ".parquet" } else { ".csv.gz" };
 
+    // Get the measurement type prefix
+    let type_token = match m_def.m_type() {
+        MeasurementType::AnycastLatency => {
+            if has_anycast_origin(&m_def.configurations) {
+                "anycast-latency"
+            } else {
+                "unicast-latency"
+            }
+        }
+        other => other.as_str(),
+    };
+
+    let version_token = args.versions.file_token();
+
     let path = Path::new(&args.out_path);
     let file_path = if args.out_path.ends_with('/') || path.is_dir() {
         // Create filename using default convention
         path.join(format!(
-            "{}-{proto_str}-{timestamp_start_str}{extension}",
-            m_def.m_type().as_str()
+            "{type_token}-{proto_str}-{version_token}-{timestamp_start_str}{extension}"
         ))
     } else {
         if args.out_path.ends_with(".parquet") {

@@ -1,6 +1,7 @@
 use crate::cli::client::CliClient;
 use crate::cli::config::{
-    get_hitlist, get_targets, parse_configurations, resolve_workers, validate_ip_versions,
+    IpVersions, get_hitlist, get_targets, parse_configurations, resolve_workers,
+    validate_ip_versions,
 };
 use crate::cli::utils::validate_path_perms;
 use crate::custom_module::manycastr::{
@@ -31,6 +32,8 @@ pub struct MeasurementExecutionArgs<'a> {
     pub worker_map: BiHashMap<u32, String>,
     /// If true, tags probes with session IDs for attribution (--sessions for -m feed).
     pub is_sessions: bool,
+    /// IP versions measured, used to tag the output filename (v4/v6/mixed).
+    pub versions: IpVersions,
 }
 
 /// Handle the start command by parsing arguments and sending a measurement request to the orchestrator.
@@ -325,6 +328,7 @@ pub async fn handle(
         out_path: path,
         worker_map,
         is_sessions,
+        versions,
     };
 
     if is_feed {

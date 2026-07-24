@@ -2,14 +2,17 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.1.1] - 2026-07-24
+
+### Changed
+- **Default output filenames now encode the IP version and distinguish latency types.**
+
 ## [2.1.0] - 2026-07-24
 
 ### Changed
 - **TLS is now configured with certificate file paths** instead of a fixed
   `./tls/` directory with `orchestrator.crt`/`orchestrator.key` files.
-- **All measurements now use raw sockets** (`CAP_NET_RAW`) for every protocol
-  (ICMP, DNS/CHAOS, TCP) and measurement type. DNS/CHAOS reception reverts to a
-  raw socket (as it was before 1.6.0).
+- **All measurements now use raw sockets** (`CAP_NET_RAW`).
 
 ### Removed
 - **Unprivileged `SOCK_DGRAM` socket mode** — the datagram-socket support has been removed.
