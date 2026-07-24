@@ -136,14 +136,16 @@ We support optional TLS for the inter-component gRPC connections.
 In this case, the orchestrator holds a certificate and private key to authenticate gainst.
 Workers and the CLI hold a copy of the certificate to verify the orchestrator's identity.
 
+All components take the certificate (and, for the orchestrator, the private key) as
+plain file paths, so a single host can run several independent set-ups side by side.
+
 ### 1. Generate a certificate (on the orchestrator host)
 
-Create a `tls/` directory in the working directory you will start the orchestrator from, and generate a self-signed certificate and private key:
+Generate a self-signed certificate and private key:
 
 ```bash
-mkdir tls
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout tls/orchestrator.key -out tls/orchestrator.crt \
+  -keyout orchestrator.key -out orchestrator.crt \
   -subj "/CN=orchestrator.example.com" \
   -addext "subjectAltName=DNS:orchestrator.example.com" \
   -addext "basicConstraints=critical,CA:FALSE" \
@@ -151,8 +153,8 @@ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -addext "extendedKeyUsage=serverAuth"
 ```
 
-Replace `orchestrator.example.com` with the FQDN of your orchestrator.
-An SAN is required, the name does not need to be resolvable in DNS.
+Replace `orchestrator.example.com` with the FQDN of your orchestrator. A Subject
+Alternative Name (SAN) is required — the name does not need to be resolvable in DNS.
 
 The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
 marks the certificate as a CA by default, and clients will reject it with
@@ -162,24 +164,21 @@ presented as a server certificate.
 ### 2. Start the orchestrator with TLS
 
 ```bash
-manycastr orchestrator -p 50001 --tls
+manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt
+# or, with a key in a separate location:
+manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt --tls_key /path/to/orchestrator.key
 ```
-
-The orchestrator loads `./tls/orchestrator.crt` and `./tls/orchestrator.key` relative to its working directory.
 
 ### 3. Distribute the certificate to clients
 
-Copy `orchestrator.crt` to every worker and CLI host, and place it at `./tls/orchestrator.crt`.
-This is the file you hand to an external party that should be able to connect with the CLI.
+Copy `orchestrator.crt` to every worker and CLI host.
 
 ### 4. Connect workers and CLI with TLS
 
-Pass the FQDN from the certificate via `--tls`:
-
 ```bash
-manycastr worker -a [ORC ADDRESS] --tls orchestrator.example.com
-manycastr cli -a [ORC ADDRESS] --tls orchestrator.example.com worker-list
-manycastr cli -a [ORC ADDRESS] --tls orchestrator.example.com start [parameters]
+manycastr worker -a [ORC ADDRESS] --tls /path/to/orchestrator.crt
+manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
+manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
 ```
 
 ## Socket privileges
