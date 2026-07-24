@@ -7,6 +7,13 @@ All notable changes to MAnycastR are documented in this file.
 ### Changed
 - **TLS is now configured with certificate file paths** instead of a fixed
   `./tls/` directory with `orchestrator.crt`/`orchestrator.key` files.
+- **All measurements now use raw sockets** (`CAP_NET_RAW`) for every protocol
+  (ICMP, DNS/CHAOS, TCP) and measurement type. DNS/CHAOS reception reverts to a
+  raw socket (as it was before 1.6.0).
+
+### Removed
+- **Unprivileged `SOCK_DGRAM` socket mode** — the datagram-socket support has been removed.
+  This is related to demuxing dropping packets during anycast measurements.
 
 ## [2.0.0] - 2026-07-20
 Adds live (feed-based) measurements: enabling reactive measurements
