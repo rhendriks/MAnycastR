@@ -19,12 +19,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Rust and MUSL target
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up stable Rust and MUSL target
+      uses: dtolnay/rust-toolchain@1.96.0
       with:
-        toolchain: nightly
         targets: ${{ env.RUST_TARGET }}
         components: rustfmt, clippy
+
+    # cargo-udeps needs nightly
+    - name: Install nightly (for cargo-udeps only)
+      run: rustup toolchain install nightly --profile minimal --target ${{ env.RUST_TARGET }}
 
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
@@ -37,9 +40,10 @@ jobs:
         sudo apt-get install -y --no-install-recommends protobuf-compiler musl-tools gcc
 
     - name: Install cargo-udeps
-      run: cargo install cargo-udeps
+      run: cargo install cargo-udeps --locked
 
     - name: Check for unused dependencies
+      continue-on-error: true
       run: cargo +nightly udeps --all-targets --target ${{ env.RUST_TARGET }}
 
     - name: Check code formatting

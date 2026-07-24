@@ -36,8 +36,6 @@ pub struct InboundConfig {
     pub abort_s: Arc<AtomicBool>,
     /// Indicates if the measurement involves traceroute.
     pub is_traceroute: bool,
-    /// Whether the socket is DGRAM (unprivileged ICMP, no IP header in packets)
-    pub is_dgram: bool,
     /// Origin ID associated with the Socket
     pub origin_id: u32,
     /// Source port used
@@ -77,11 +75,9 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
     );
     let (reply_tx, reply_rx) = std::sync::mpsc::channel::<Reply>();
     let rx_f_c = config.abort_s.clone();
-    let is_dgram = config.is_dgram;
     let dns_ctx = DnsContext {
         is_chaos: config.p_type == ProtocolType::ChaosDns,
         sport: config.sport,
-        is_dgram,
         m_id: config.m_id,
         is_traceroute: config.is_transport_trace,
     };
@@ -94,8 +90,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
             let mut buf = [MaybeUninit::<u8>::uninit(); 2048];
             let mut control_buf = [MaybeUninit::<u8>::uninit(); 128];
             loop {
-                let (packet, meta) = match get_packet(&socket, is_dgram, &mut buf, &mut control_buf)
-                {
+                let (packet, meta) = match get_packet(&socket, &mut buf, &mut control_buf) {
                     Ok(result) => result,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         if rx_f_c.load(Ordering::Relaxed) {
@@ -109,9 +104,7 @@ pub fn inbound(config: InboundConfig, tx: UnboundedSender<ReplyBatch>, socket: A
                 let result = match (config.is_traceroute, config.p_type) {
                     (true, _) => parse_trace(packet, config.m_id, meta),
 
-                    (_, ProtocolType::Icmp) => {
-                        parse_icmp(packet, config.m_id, false, is_dgram, meta)
-                    }
+                    (_, ProtocolType::Icmp) => parse_icmp(packet, config.m_id, false, meta),
 
                     (_, ProtocolType::ADns) | (_, ProtocolType::ChaosDns) => {
                         parse_dns(packet, meta, &dns_ctx)
@@ -202,7 +195,6 @@ pub(crate) fn rtt_ms(rx_time_us: u64, tx_time: u64, enc: TxEncoding) -> f32 {
 /// kernel receive timestamp).
 fn get_packet<'a>(
     socket: &Socket,
-    is_dgram: bool,
     buf: &'a mut [MaybeUninit<u8>],
     control_buf: &'a mut [MaybeUninit<u8>],
 ) -> Result<(&'a [u8], ReplyMeta), std::io::Error> {
@@ -233,13 +225,10 @@ fn get_packet<'a>(
 
             // TODO find better approach for obtaining hop_limit/ttl
             let hop_limit = if source.is_ipv6() {
-                // IPv6 header is never included
+                // IPv6 header is never included in received data
                 parse_hop_limit(ancillary_data).unwrap_or(0)
-            } else if is_dgram {
-                // dgram does not return the IP header
-                parse_ttl_v4(ancillary_data).unwrap_or(0)
             } else {
-                // IPv4 header included in raw socket mode, get the TTL at byte 8
+                // IPv4 raw socket includes the IP header; TTL is at byte 8
                 packet_data[8] as u32
             };
             // Get timestamp from the kernel, or current time if unavailable
@@ -291,12 +280,6 @@ fn parse_kernel_timestamp(data: &[u8]) -> Option<u64> {
     let secs = i64::from_ne_bytes(payload.get(..8)?.try_into().ok()?);
     let usecs = i64::from_ne_bytes(payload.get(8..16)?.try_into().ok()?);
     Some(secs as u64 * 1_000_000 + usecs as u64)
-}
-
-/// Retrieve IPv4 TTL from the ancillary data buffer (IP_RECVTTL cmsg).
-/// Used in DGRAM mode where the IPv4 header is not included in the packet data.
-fn parse_ttl_v4(data: &[u8]) -> Option<u32> {
-    Some(*find_cmsg(data, libc::IPPROTO_IP, libc::IP_TTL)?.first()? as u32)
 }
 
 /// Retrieve IPv6 hop limit from the ancillary_data buffer bytes

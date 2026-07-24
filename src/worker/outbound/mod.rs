@@ -37,8 +37,6 @@ pub struct OutboundConfig {
     pub info_url: Option<String>,
     /// The target rate for sending probes, measured in packets per second (pps).
     pub probing_rate: u32,
-    /// Whether the socket is DGRAM (unprivileged ICMP, kernel writes IP headers)
-    pub is_dgram: bool,
     /// Source address to use
     pub src: Address,
     /// Source port to use
@@ -155,24 +153,23 @@ pub fn outbound(
         .expect("Failed to spawn outbound thread")
 }
 
-/// Send a packet (vector of bytes) to a destination using the socket
+/// Send a packet (vector of bytes) to a destination using the raw socket.
 /// IPv4: Send IPv4 header and IP payload
 /// IPv6: Send only payload (kernel writes IPv6 header)
 ///
+/// The port in the destination `SockAddr` is ignored for raw sockets (the real
+/// destination lives in the IP header we craft), so it is always 0.
+///
 /// # Arguments
-/// * `socket` - attached socket to send probes from
+/// * `socket` - attached raw socket to send probes from
 /// * `packet_buffer` - Packet to send (as bytes)
 /// * `dst` - Destination address to send to
-/// * `port` - Destination port. Ignored by raw sockets (the destination is in
-///   the IP header we craft, so callers pass 0); required for SOCK_DGRAM UDP
-///   sockets, where the kernel writes the UDP header (e.g. 53 for DNS).
 pub fn send_packet(
     socket: &Socket,
     packet_buffer: &[u8],
     dst: &Address,
-    port: u16,
 ) -> Result<(), std::io::Error> {
-    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), port));
+    let dest_addr = SockAddr::from(SocketAddr::new(dst.into(), 0));
     socket.send_to(packet_buffer, &dest_addr)?;
 
     Ok(())

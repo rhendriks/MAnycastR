@@ -56,7 +56,6 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
                 sequence_number,
                 &payload_fields,
                 ttl,
-                false, // traceroute always uses raw sockets
             )
         }
 
@@ -106,7 +105,6 @@ pub fn send_trace(config: &OutboundConfig, trace_task: &Trace, socket: &Socket) 
         socket,
         &packet,
         &trace_task.dst.expect("invalid destination"),
-        0,
     ) {
         Ok(()) => (1, 0),
         Err(e) => {

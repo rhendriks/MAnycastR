@@ -10,7 +10,6 @@ use crate::worker::inbound::ReplyMeta;
 pub struct DnsContext {
     pub is_chaos: bool,
     pub sport: u16,
-    pub is_dgram: bool,
     pub m_id: u32,
     pub is_traceroute: bool,
 }
@@ -21,7 +20,7 @@ pub struct DnsContext {
 /// # Arguments
 /// * `packet_bytes` - the bytes of the packet to parse
 /// * `meta` - received packet metadata (source address, TTL, kernel receive time)
-/// * `ctx` - per-measurement DNS context (sport, m_id, is_chaos, is_dgram)
+/// * `ctx` - per-measurement DNS context (sport, m_id, is_chaos)
 ///
 /// # Returns
 /// * `Option<Reply>` - the received DNS reply (None if invalid)
@@ -30,28 +29,22 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
     let DnsContext {
         is_chaos,
         sport,
-        is_dgram,
         m_id,
         is_traceroute: traceroute,
     } = *ctx;
 
     // Obtain the DNS message and the reply's destination port (our source port).
-    let (dns_msg, reply_dport): (&[u8], u16) = if is_dgram {
-        // SOCK_DGRAM, kernel strips the IP and UDP headers
-        (packet_bytes, sport)
+    let udp_bytes = if src.is_v6() {
+        packet_bytes
     } else {
-        // Raw socket: IPv4 includes the IP header (skip 20 bytes); IPv6 does not.
-        let udp_bytes = if src.is_v6() {
-            packet_bytes
-        } else {
-            packet_bytes.get(20..)?
-        };
-        if udp_bytes.len() < 8 {
-            return None;
-        }
-        let dport = u16::from_be_bytes([udp_bytes[2], udp_bytes[3]]);
-        (&udp_bytes[8..], dport)
+        // Raw socket: IPv4 includes the IP header (skip 20 bytes)
+        packet_bytes.get(20..)?
     };
+    if udp_bytes.len() < 8 {
+        return None;
+    }
+    let reply_dport = u16::from_be_bytes([udp_bytes[2], udp_bytes[3]]);
+    let dns_msg = &udp_bytes[8..];
 
     // Verify our destination port (i.e. the probe's source port)
     if reply_dport != sport {

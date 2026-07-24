@@ -16,11 +16,11 @@ mod worker_list;
 #[tokio::main]
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.get_one::<String>("orchestrator").unwrap();
-    let fqdn = args.get_one::<String>("tls");
+    let cert_path = args.get_one::<String>("tls").map(String::as_str);
 
     // Connect with orchestrator
     info!("[CLI] Connecting to orchestrator - {server_address}");
-    let mut grpc_client = CliClient::connect(server_address, fqdn)
+    let mut grpc_client = CliClient::connect(server_address, cert_path)
         .await
         .expect("Unable to connect to orchestrator")
         .send_compressed(CompressionEncoding::Zstd);

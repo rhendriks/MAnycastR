@@ -14,12 +14,11 @@ use std::time::{Duration, Instant};
 
 use crate::custom_module;
 use crate::custom_module::manycastr::{Address, MeasurementType, Start, WorkerStatus};
-use crate::orchestrator::config::{
-    AllowedOrigin, load_allowed_origins, load_tls, load_worker_config,
-};
+use crate::orchestrator::config::{AllowedOrigin, load_allowed_origins, load_worker_config};
 use crate::orchestrator::mpsc::Sender;
 use crate::orchestrator::result_handler::SessionTracker;
 use crate::orchestrator::worker::WorkerSender;
+use crate::tls::server_identity;
 use clap::ArgMatches;
 use custom_module::manycastr::{
     Instruction, ReplyBatch, Task, controller_server::ControllerServer,
@@ -293,10 +292,14 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 
     // if TLS is enabled create the orchestrator using a TLS configuration
-    if args.get_flag("tls") {
+    if let Some(cert_path) = args.get_one::<String>("tls") {
         info!("[Orchestrator] Starting orchestrator with TLS enabled");
+        let identity = server_identity(
+            cert_path,
+            args.get_one::<String>("tls_key").map(String::as_str),
+        );
         Server::builder()
-            .tls_config(ServerTlsConfig::new().identity(load_tls()))
+            .tls_config(ServerTlsConfig::new().identity(identity))
             .expect("Failed to load TLS certificate")
             .http2_keepalive_interval(Some(Duration::from_secs(10)))
             .http2_keepalive_timeout(Some(Duration::from_secs(20)))

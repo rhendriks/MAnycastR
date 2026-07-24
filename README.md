@@ -136,14 +136,16 @@ We support optional TLS for the inter-component gRPC connections.
 In this case, the orchestrator holds a certificate and private key to authenticate gainst.
 Workers and the CLI hold a copy of the certificate to verify the orchestrator's identity.
 
+All components take the certificate (and, for the orchestrator, the private key) as
+plain file paths, so a single host can run several independent set-ups side by side.
+
 ### 1. Generate a certificate (on the orchestrator host)
 
-Create a `tls/` directory in the working directory you will start the orchestrator from, and generate a self-signed certificate and private key:
+Generate a self-signed certificate and private key:
 
 ```bash
-mkdir tls
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout tls/orchestrator.key -out tls/orchestrator.crt \
+  -keyout orchestrator.key -out orchestrator.crt \
   -subj "/CN=orchestrator.example.com" \
   -addext "subjectAltName=DNS:orchestrator.example.com" \
   -addext "basicConstraints=critical,CA:FALSE" \
@@ -151,8 +153,8 @@ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -addext "extendedKeyUsage=serverAuth"
 ```
 
-Replace `orchestrator.example.com` with the FQDN of your orchestrator.
-An SAN is required, the name does not need to be resolvable in DNS.
+Replace `orchestrator.example.com` with the FQDN of your orchestrator. A Subject
+Alternative Name (SAN) is required — the name does not need to be resolvable in DNS.
 
 The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
 marks the certificate as a CA by default, and clients will reject it with
@@ -162,72 +164,63 @@ presented as a server certificate.
 ### 2. Start the orchestrator with TLS
 
 ```bash
-manycastr orchestrator -p 50001 --tls
+manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt
+# or, with a key in a separate location:
+manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt --tls_key /path/to/orchestrator.key
 ```
-
-The orchestrator loads `./tls/orchestrator.crt` and `./tls/orchestrator.key` relative to its working directory.
 
 ### 3. Distribute the certificate to clients
 
-Copy `orchestrator.crt` to every worker and CLI host, and place it at `./tls/orchestrator.crt`.
-This is the file you hand to an external party that should be able to connect with the CLI.
+Copy `orchestrator.crt` to every worker and CLI host.
 
 ### 4. Connect workers and CLI with TLS
 
-Pass the FQDN from the certificate via `--tls`:
-
 ```bash
-manycastr worker -a [ORC ADDRESS] --tls orchestrator.example.com
-manycastr cli -a [ORC ADDRESS] --tls orchestrator.example.com worker-list
-manycastr cli -a [ORC ADDRESS] --tls orchestrator.example.com start [parameters]
+manycastr worker -a [ORC ADDRESS] --tls /path/to/orchestrator.crt
+manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
+manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
 ```
 
 ## Socket privileges
 
-Workers send and receive probes, which requires opening sockets.
-How much privilege this needs depends on the protocol.
-This section explains the options and the trade-offs, so that operators can make an informed decision about what to grant.
+Workers send and receive probes over **raw sockets** (`SOCK_RAW`), which require the
+`CAP_NET_RAW` capability.
 
-### What each protocol needs
+### Why a raw socket is required
 
-| Protocol | Raw socket required? | Notes |
-|----------|----------------------|-------|
-| ICMP | No (with a sysctl) — see below | Can use an *unprivileged ICMP socket* if `net.ipv4.ping_group_range` permits, otherwise falls back to a raw socket |
-| DNS (UDP) | No | Always uses an unprivileged UDP datagram socket (see below) to avoid ICMP port-unreachable replies |
-| CHAOS (UDP) | No | Same as DNS |
-| TCP (SYN/ACK) | Yes | Crafting custom TCP SYN/ACK packets requires a raw socket |
+MAnycastR is foremost an anycast measurement tool.
+This means that replies sent by workers may be received by other workers.
+Traditional, permisionless, sockets like `SOCK_DGRAM` use demux to verify the incoming packet.
+This will cause a packet drop when a Worker receives a packet sent by a different Worker.
 
-The worker prefers raw sockets when available for ICMP and TCP, as used by the standard `ping` utility, because they allow for more accurate RTT measurements and more control over packet contents (e.g., TTL, IP options).
-As fall-back we provide `SOCK_DGRAM` for ICMP ping if `SOCK_RAW` lacks permissions.
+> **DNS side-effect:** because a raw socket registers no UDP listener on the source port, the
+> kernel answers each incoming DNS reply with an ICMP/ICMPv6 *port-unreachable*.
 
-For DNS measurements we prefer `SOCK_DGRAM` to avoid generating ICMP port-unreachable replies, which would be generated for every DNS reply if a raw socket were used (since the kernel has no UDP listener bound to the source port).
+### `CAP_NET_RAW`
 
-> **Traceroute exception:** traceroute measurements (`-m anycast-traceroute`, `-m tracemap`, and `-m feed-trace`) always require a raw socket (`CAP_NET_RAW`).
+To enable raw sockets you can run MAnycastR as root (sudo) or alternatively using the `CAP_NET_RAW` capability.
+For reference, the standard `ping` utility also has the `CAP_NET_RAW` capability.
 
-### Running with a raw socket (CAP_NET_RAW) (recommended/preferable)
+When there are concerns regarding raw socket privileges, you can address this by bounding the process.
+For example, using nftables/tc egress policies and rate-limits.
 
-We recommend granting `CAP_NET_RAW` to the worker binary, which allows it to open raw sockets without running as root.
+**Grant `CAP_NET_RAW`**
 
+As a file capability on the binary:
 ```bash
-sudo setcap cap_net_raw,cap_net_admin=eip manycastr
+sudo setcap cap_net_raw+ep manycastr
 ```
-Or, under systemd, without setuid or root:
+Or under systemd, without setuid or root:
 ```ini
 [Service]
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+User=manycastr
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
 ```
-
-### Running ICMP measurements without a raw socket
-
-If granting `CAP_NET_RAW` is not possible/undesirable,
-the worker can still send ICMP echo requests using an unprivileged ICMP socket,
-but this requires a one-time configuration change to the kernel's `ping_group_range`.
-
-To enable the unprivileged ICMP path for all groups (one-time, persists across reboots):
+Using a Docker container
 ```bash
-echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-manycastr.conf
-sudo sysctl --system
+docker run --cap-drop=ALL --cap-add=NET_RAW --read-only --network host manycastr worker ...
 ```
 
 ### Examples
@@ -483,15 +476,12 @@ transport bytes):
 > the 2 high bits of the worker ID are lost; path discovery still works, but the per-hop RTT
 > cannot be computed and worker identification is limited to 256 workers.
 
-#### Sockets and privileges
+#### Sockets
 
 ICMP traceroute uses a single socket. UDP and TCP traceroute use **two raw sockets** per origin:
 
 * a raw **ICMP** socket to receive Time Exceeded / Destination Unreachable messages, and
 * a raw **UDP/TCP** socket to send the probes and receive the target's reply (DNS answer / RST).
-
-Both therefore require a raw socket (`CAP_NET_RAW`) — the unprivileged `SOCK_DGRAM` path used by
-normal DNS measurements is not available for traceroute, because we need IP header control.
 
 #### Limitations
 
@@ -777,10 +767,11 @@ Alternatively clone the repo and build yourself.
 docker build -t manycastr .
 ```
 
-Advise is to run the container with network host mode.
-Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
+Run the container with --network host (so probes use the anycast/unicast addresses of the host).
+The container also needs `CAP_NET_RAW` to send and receive probes (see [Socket privileges](#socket-privileges)):
 ```bash
-docker run -it --init --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycastr
+docker run -it --init --network host \
+  --cap-drop=ALL --cap-add=NET_RAW --read-only manycastr
 ```
 
 ## Contributions

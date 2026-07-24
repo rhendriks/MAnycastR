@@ -8,7 +8,6 @@ use std::fmt::Display;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tonic::transport::Identity;
 
 /// An origin allow-list rule: a source address and the protocols permitted for it.
 #[derive(Debug)]
@@ -207,30 +206,4 @@ pub fn load_worker_config(config_path: &String) -> (Arc<Mutex<u32>>, Option<Hash
     let current_worker_id = hosts.values().max().map_or(1, |&max_id| max_id + 1);
 
     (Arc::new(Mutex::new(current_worker_id)), Some(hosts))
-}
-
-/// Load the orchestrator's TLS identity (certificate + private key).
-///
-/// Reads the certificate from `./tls/orchestrator.crt` and the
-/// private key from `./tls/orchestrator.key`.
-///
-/// Workers and CLIs need a copy of `orchestrator.crt` in their own `./tls/` directory
-/// and validate the FQDN passed to their `--tls <FQDN>` argument against the
-/// certificate's Subject Alternative Name (SAN).
-///
-/// # Returns
-/// A tonic [`Identity`] to be used in the server's `ServerTlsConfig`.
-///
-/// # Panics
-/// If `./tls/orchestrator.crt` or `./tls/orchestrator.key` cannot be read.
-pub fn load_tls() -> Identity {
-    // Load TLS certificate
-    let cert = fs::read("tls/orchestrator.crt")
-        .expect("Unable to read certificate file at ./tls/orchestrator.crt");
-    // Load TLS private key
-    let key = fs::read("tls/orchestrator.key")
-        .expect("Unable to read key file at ./tls/orchestrator.key");
-
-    // Create TLS configuration
-    Identity::from_pem(cert, key)
 }

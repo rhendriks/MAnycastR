@@ -27,7 +27,6 @@ pub struct ProbePayload<'a> {
 /// * `seq` - the sequence number to use in the ICMP header
 /// * `payload` - information to encode in the payload
 /// * `ttl` - the time-to-live (TTL) value to set in the IP header
-/// * `is_dgram` - datagram socket (true) or raw socket (false)
 ///
 /// # Returns
 /// A ping packet (including the IP header) as a byte vector.
@@ -38,7 +37,6 @@ pub fn create_icmp(
     seq: u16,
     payload: &ProbePayload,
     ttl: u8,
-    is_dgram: bool,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -65,7 +63,7 @@ pub fn create_icmp(
         payload_bytes.extend_from_slice(info_url.as_bytes());
     }
 
-    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl, is_dgram)
+    ICMPPacket::echo_request(identifier, seq, payload_bytes, src, dst, ttl)
 }
 
 pub struct DnsProbeId {
@@ -92,7 +90,6 @@ pub fn create_dns(
     id: &DnsProbeId,
     is_chaos: bool,
     qname: &str,
-    is_dgram: bool,
 ) -> Vec<u8> {
     let tx_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -100,9 +97,9 @@ pub fn create_dns(
         .as_micros() as u64;
 
     if !is_chaos {
-        UDPPacket::dns_request(src, dst, sport, qname, tx_time, id, is_dgram)
+        UDPPacket::dns_request(src, dst, sport, qname, tx_time, id)
     } else {
-        UDPPacket::chaos_request(src, dst, sport, id, qname, is_dgram)
+        UDPPacket::chaos_request(src, dst, sport, id, qname)
     }
 }
 
