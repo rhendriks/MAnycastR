@@ -207,7 +207,7 @@ pub fn get_hitlist(
     let mut lines = reader.lines().map_while(Result::ok).peekable();
 
     if lines.peek().is_some_and(|l| l.starts_with("#fsdb")) {
-        // ISI hitlist: ranked candidate addresses per /24
+        // ISI hitlist: ranked candidate addresses per prefix (/24 for IPv4, /48 for IPv6)
         let ranked: Vec<Vec<Address>> = lines
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .filter_map(|l| parse_isi_row(&l))
@@ -221,7 +221,7 @@ pub fn get_hitlist(
             return (ips, versions, false);
         }
 
-        // Sequentially (ranked) probe addresses in each /24 till one responds
+        // Sequentially (ranked) probe addresses in each prefix till one responds
         let max_rank = ranked.iter().map(Vec::len).max().unwrap_or(0);
         let mut ips = Vec::with_capacity(ranked.iter().map(Vec::len).sum());
         for rank in 0..max_rank {
@@ -246,19 +246,41 @@ pub fn get_hitlist(
 }
 
 /// Parse one USC/ISI ANT hitlist row into ranked candidate addresses.
+/// The block length selects the IP version: 8 hex digits is an IPv4 /24,
+/// 12 hex digits is an IPv6 /48.
 ///
-/// Example: `01000400  01,04,09` -> 1.0.4.1, 1.0.4.4, 1.0.4.9
-/// `-` marks a /24 with no known-responsive addresses
+/// IPv4 example: `01000400  01,04,09` -> 1.0.4.1, 1.0.4.4, 1.0.4.9
+/// IPv6 example: `20010db81234  1,2a3f` -> 2001:db8:1234::1, 2001:db8:1234::2a3f
+/// `-` marks a prefix with no known-responsive addresses
 fn parse_isi_row(line: &str) -> Option<Vec<Address>> {
-    let (block, octets) = line.split_once('\t')?;
-    let base = u32::from_str_radix(block.trim(), 16).ok()?;
-    Some(
-        octets
-            .split(',')
-            .filter_map(|o| u8::from_str_radix(o.trim(), 16).ok())
-            .map(|o| Address::from(base | o as u32))
-            .collect(),
-    )
+    let (block, suffixes) = line.split_once('\t')?;
+    let block = block.trim();
+    match block.len() {
+        // IPv4: /24 base, candidates are last-octets
+        8 => {
+            let base = u32::from_str_radix(block, 16).ok()?;
+            Some(
+                suffixes
+                    .split(',')
+                    .filter_map(|s| u8::from_str_radix(s.trim(), 16).ok())
+                    .map(|s| Address::from(base | s as u32))
+                    .collect(),
+            )
+        }
+        // IPv6: /48 base, candidates are suffixes within the 80 host bits
+        12 => {
+            let base = (u64::from_str_radix(block, 16).ok()? as u128) << 80;
+            Some(
+                suffixes
+                    .split(',')
+                    .filter_map(|s| u128::from_str_radix(s.trim(), 16).ok())
+                    .filter(|s| s >> 80 == 0)
+                    .map(|s| Address::from(base | s))
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Build a hitlist from a comma-separated list of target addresses (e.g. from the
