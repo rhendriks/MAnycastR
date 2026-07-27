@@ -70,6 +70,8 @@ pub struct MeasurementState {
     pub m_type: MeasurementType,
     /// Whether targets are checked for responsiveness before measurement probes (--responsive)
     pub is_responsive: bool,
+    /// Whether the hitlist holds ranked candidates per prefix (ISI format)
+    pub is_prefix_hitlist: bool,
     /// Number of times each measurement probe is sent (always >= 1)
     pub nprobes: u32,
     /// Per-worker stacks of follow-up tasks (discovery → measurement, traceroute hops)
