@@ -98,6 +98,8 @@ pub struct TaskDistributorConfig {
     pub nprobes: u32,
     /// Inter-probe interval in seconds between repeated probes
     pub probe_interval: u64,
+    /// Measure multiple targets pre prefix, skip targets of already-resolved prefixes
+    pub is_prefix_hitlist: bool,
 }
 
 /// Build a `Task` from a raw address and the current distribution metadata.
@@ -460,7 +462,20 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
                             break;
                         }
                     }
+                } else if config.is_prefix_hitlist {
+                    // Add with targets inside unresolved prefixes
+                    let lock = config.measurement.read().unwrap();
+                    match *lock {
+                        Some(ref state) if state.m_id == config.m_id => hitlist_iter
+                            .by_ref()
+                            .filter(|addr| !state.resolved_targets.contains(&addr.prefix_base()))
+                            .take(remainder)
+                            .map(|addr| make_task(addr, is_discovery, ALL_ORIGINS, task_nprobes, 0))
+                            .collect(),
+                        _ => break, // Measurement canceled
+                    }
                 } else {
+                    // Simply add hitlist targets
                     hitlist_iter
                         .by_ref()
                         .take(remainder)

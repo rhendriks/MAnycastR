@@ -4,6 +4,7 @@ use crate::custom_module::manycastr::{
 };
 use crate::custom_module::parse_src_address;
 use bimap::BiHashMap;
+use bzip2::read::BzDecoder;
 use flate2::read::GzDecoder;
 use log::info;
 use rand::prelude::SliceRandom;
@@ -170,17 +171,25 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// Get the hitlist from a file.
 ///
+/// Supports plain fsdb files (with `#fsdb` header) based on the USC/ISI ANT hitlist format.
+///
 /// # Arguments
 /// * `hitlist_path` - path to the hitlist file
 /// * `is_shuffle` - boolean whether the hitlist should be shuffled or not
+/// * `is_responsive` - whether the measurement gates probes behind a responsiveness check
 ///
 /// # Returns
-/// * A tuple containing a vector of addresses and the IP versions present.
+/// * A tuple containing the target addresses, the IP versions present, and
+///   whether the targets are a rank-major prefix hitlist (ISI + `--responsive`).
 ///
 /// # Panics
 /// * If the hitlist file cannot be opened.
 /// * If the hitlist is empty.
-pub fn get_hitlist(hitlist_path: &str, is_shuffle: bool) -> (Vec<Address>, IpVersions) {
+pub fn get_hitlist(
+    hitlist_path: &str,
+    is_shuffle: bool,
+    is_responsive: bool,
+) -> (Vec<Address>, IpVersions, bool) {
     let file =
         File::open(hitlist_path).unwrap_or_else(|_| panic!("Unable to open file {hitlist_path}"));
 
@@ -188,18 +197,90 @@ pub fn get_hitlist(hitlist_path: &str, is_shuffle: bool) -> (Vec<Address>, IpVer
     let reader: Box<dyn BufRead> = if hitlist_path.ends_with(".gz") {
         let decoder = GzDecoder::new(file);
         Box::new(BufReader::new(decoder))
+    } else if hitlist_path.ends_with(".bz2") {
+        let decoder = BzDecoder::new(file);
+        Box::new(BufReader::new(decoder))
     } else {
         Box::new(BufReader::new(file))
     };
 
-    let ips: Vec<Address> = reader // Create a vector of addresses from the file
-        .lines()
-        .map_while(Result::ok) // Handle potential errors
+    let mut lines = reader.lines().map_while(Result::ok).peekable();
+
+    if lines.peek().is_some_and(|l| l.starts_with("#fsdb")) {
+        // ISI hitlist: ranked candidate addresses per prefix (/24 for IPv4, /48 for IPv6)
+        let ranked: Vec<Vec<Address>> = lines
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .filter_map(|l| parse_isi_row(&l))
+            .filter(|candidates| !candidates.is_empty())
+            .collect();
+
+        if !is_responsive {
+            // All candidates are probed; ordering is irrelevant
+            let ips = ranked.into_iter().flatten().collect();
+            let (ips, versions) = finalize_hitlist(ips, is_shuffle);
+            return (ips, versions, false);
+        }
+
+        // Sequentially (ranked) probe addresses in each prefix till one responds
+        let max_rank = ranked.iter().map(Vec::len).max().unwrap_or(0);
+        let mut ips = Vec::with_capacity(ranked.iter().map(Vec::len).sum());
+        for rank in 0..max_rank {
+            let start = ips.len();
+            ips.extend(ranked.iter().filter_map(|c| c.get(rank).copied()));
+            // Shuffle within the rank to preserve the ordering
+            if is_shuffle {
+                ips[start..].shuffle(&mut rand::rng());
+            }
+        }
+        let (ips, versions) = finalize_hitlist(ips, false);
+        return (ips, versions, true);
+    }
+
+    let ips: Vec<Address> = lines // Create a vector of addresses from the file
         .filter(|l| !l.trim().is_empty()) // Skip empty lines
         .map(Address::from)
         .collect();
 
-    finalize_hitlist(ips, is_shuffle)
+    let (ips, versions) = finalize_hitlist(ips, is_shuffle);
+    (ips, versions, false)
+}
+
+/// Parse one USC/ISI ANT hitlist row into ranked candidate addresses.
+/// The block length selects the IP version: 8 hex digits is an IPv4 /24,
+/// 12 hex digits is an IPv6 /48.
+///
+/// IPv4 example: `01000400  01,04,09` -> 1.0.4.1, 1.0.4.4, 1.0.4.9
+/// IPv6 example: `20010db81234  1,2a3f` -> 2001:db8:1234::1, 2001:db8:1234::2a3f
+/// `-` marks a prefix with no known-responsive addresses
+fn parse_isi_row(line: &str) -> Option<Vec<Address>> {
+    let (block, suffixes) = line.split_once('\t')?;
+    let block = block.trim();
+    match block.len() {
+        // IPv4: /24 base, candidates are last-octets
+        8 => {
+            let base = u32::from_str_radix(block, 16).ok()?;
+            Some(
+                suffixes
+                    .split(',')
+                    .filter_map(|s| u8::from_str_radix(s.trim(), 16).ok())
+                    .map(|s| Address::from(base | s as u32))
+                    .collect(),
+            )
+        }
+        // IPv6: /48 base, candidates are suffixes within the 80 host bits
+        12 => {
+            let base = (u64::from_str_radix(block, 16).ok()? as u128) << 80;
+            Some(
+                suffixes
+                    .split(',')
+                    .filter_map(|s| u128::from_str_radix(s.trim(), 16).ok())
+                    .filter(|s| s >> 80 == 0)
+                    .map(|s| Address::from(base | s))
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Build a hitlist from a comma-separated list of target addresses (e.g. from the

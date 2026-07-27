@@ -87,6 +87,18 @@ impl Address {
         }
     }
 
+    /// The base address of this address' prefix (/24 for IPv4, /48 for IPv6)
+    pub fn prefix_base(&self) -> Address {
+        match &self.value {
+            Some(V4(v4)) => Address::from(v4 & !0xff),
+            Some(V6(_)) => {
+                let val: u128 = self.into();
+                Address::from(val & !((1u128 << 80) - 1))
+            }
+            _ => *self,
+        }
+    }
+
     /// Convert Address to bytes (big-endian)
     pub fn to_be_bytes(self) -> Vec<u8> {
         match &self.value {

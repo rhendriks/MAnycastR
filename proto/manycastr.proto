@@ -70,6 +70,7 @@ message ScheduleMeasurement {
   uint32 number_of_probes = 9; // number of probes to send per origin,dst pair
   optional TraceOptions trace_options = 10; // Optional traceroute options
   bool is_responsive = 11; // Whether to probe a target once for responsiveness before sending measurement probes
+  bool is_prefix_hitlist = 12; // Hitlist is ordered with multiple candidates per prefix (ISI format)
 }
 
 // A message sent by the CLI on a live measurement stream

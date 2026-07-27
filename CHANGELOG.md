@@ -2,6 +2,15 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.2.0] - 2026-07-27
+Adds explicit support for USC/ISI ANT hitlist formats as these are tailored for anycast measurements. 
+
+### Added
+- **USC/ISI ANT hitlist support** (`--hitlist`) — files with an `#fsdb` header are
+  parsed as ISI hitlists. Without `--responsive` every target is probed to maximize coverage.
+  With `--responsive` targets are tried in rank order: once a target in a prefix
+  replies the remaining targets are skipped to reduce probing cost.
+
 ## [2.1.1] - 2026-07-24
 
 ### Changed

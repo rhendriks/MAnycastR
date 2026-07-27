@@ -50,7 +50,8 @@ Measurements can be;
 When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers separated by newlines) (supports gzipped and bzip2 files),
+  also supports [USC/ISI ANT hitlists](https://ant.isi.edu/datasets/ip_hitlists/) (see note below).
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS. Multiple protocols may be given (e.g. `-p icmp,tcp`): each becomes its own origin and every target is probed with all of them, measuring routing differences between protocol types (see [Multi-protocol probing](#multi-protocol-probing))
 * **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, or `feed-trace` (the feed types read NDJSON targets from stdin instead of a hitlist, see [Live (feed) measurements](#live-feed-measurements))
@@ -77,6 +78,36 @@ When creating a measurement you can specify (for more information run --help):
 * **Responsive** - check if a target is responsive before probing from all workers
 * **Parquet** - store results in .parquet format instead of .csv.gz
 
+
+> Hitlist note.
+> USCI/ISI ANT create hitlist specifically for catchment mappings (see their [verfploeter hitlists]((https://ant.isi.edu/datasets/ip_hitlists/))).
+> Specifically, their hitlist lists one to several addresses per /24-prefix ranked based on ping responsiveness over time.
+> We support parsing of their hitlists as they are tailored for anycast measurements.
+> Normal behavior is to extensively probe every target address (i.e., multiple targets per /24).
+> In combination with `--responsive`, we try target addresses in rank order such that at most one responsive target per prefix is measured.
+> This maximizes coverage at prefix granularity whilst maintaining low probing costs.
+
+### Prefix hitlist format
+
+For fsdb files we use the format from [USCI/ISI ANT](https://ant.isi.edu/datasets/ip_hitlists/).
+We extended it for IPv6.
+
+IPv4 — candidates are last-octets in hex:
+```text
+#fsdb -F t block octets
+01000400	01,04,09
+01000500	01
+01001100	-
+```
+Row 1 lists 1.0.4.1, 1.0.4.4, and 1.0.4.9 (in rank order) for 1.0.4.0/24, row 2 lists 1.0.5.1 for 1.0.5.0/24.
+
+IPv6 — candidates are hex suffixes within the 80 host bits of the /48 (no colons, no leading zeros needed):
+```text
+#fsdb -F t block suffixes
+20010db80001	1
+20010db81234	1,2a3f,ec4a01
+```
+Row 1 lists 2001:db8:1::1 for 2001:db8:1::/48, row 2 lists 2001:db8:1234::1, 2001:db8:1234::2a3f, and 2001:db8:1234::ec4a01 for 2001:db8:1234::/48.
 
 ## Usage
 
