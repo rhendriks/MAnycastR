@@ -50,7 +50,8 @@ Measurements can be;
 When creating a measurement you can specify (for more information run --help):
 
 ### Variables
-* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers seperated by newlines) (supports gzipped files)
+* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers separated by newlines) (supports gzipped and bzip2 files),
+  also supports [USC/ISI ANT hitlists](https://ant.isi.edu/datasets/ip_hitlists/) (see note below).
 * **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
 * **Protocol** - ICMP, DNS, TCP, or CHAOS. Multiple protocols may be given (e.g. `-p icmp,tcp`): each becomes its own origin and every target is probed with all of them, measuring routing differences between protocol types (see [Multi-protocol probing](#multi-protocol-probing))
 * **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, or `feed-trace` (the feed types read NDJSON targets from stdin instead of a hitlist, see [Live (feed) measurements](#live-feed-measurements))
@@ -77,6 +78,14 @@ When creating a measurement you can specify (for more information run --help):
 * **Responsive** - check if a target is responsive before probing from all workers
 * **Parquet** - store results in .parquet format instead of .csv.gz
 
+
+> Hitlist note.
+> USCI/ISI ANT create hitlist specifically for catchment mappings (see their [verfploeter hitlists]((https://ant.isi.edu/datasets/ip_hitlists/))).
+> Specifically, their hitlist lists one to several addresses per /24-prefix ranked based on ping responsiveness over time.
+> We support parsing of their hitlists as they are tailored for anycast measurements.
+> Normal behavior is to extensively probe every target address (i.e., multiple targets per /24).
+> In combination with `--responsive`, we try target addresses in rank order such that at most one responsive target per /24 is measured.
+> This maximizes coverage at /24-prefix granularity whilst maintaining low probing costs.
 
 ## Usage
 
