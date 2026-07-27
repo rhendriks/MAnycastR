@@ -328,7 +328,7 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
-                    .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz compressed)")
+                    .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz or .bz2 compressed; ISI fsdb hitlists are detected automatically)")
                         .value_parser(value_parser!(String))
                         .conflicts_with("target"))
                     .arg(arg!(-t --target <TARGETS> "Comma-separated target address(es), e.g. '1.1.1.1' or '1.1.1.1,8.8.8.8' (alternative to --hitlist)")
