@@ -100,13 +100,6 @@ pub async fn handle(
         return Err(msg.into());
     }
 
-    // Disallow --responsive for catchment mappings TODO enforce in arg parse
-    if m_type == MeasurementType::Catchment && is_responsive {
-        let msg = "[CLI] --responsive is redundant for hitlist catchment measurements (the catchment probe itself checks responsiveness).";
-        error!("{}", msg);
-        return Err(msg.into());
-    }
-
     let configurations = if let Some(conf_path) = matches.get_one::<String>("configuration") {
         // Use configuration set by the user
         parse_configurations(conf_path, &worker_map)
@@ -195,18 +188,27 @@ pub async fn handle(
         return Err(msg.into());
     }
 
-    // Get the target IP addresses (--hitlist, --target, or streamed in live mode)
     let is_shuffle = matches.get_flag("shuffle");
-    let (hitlist_path, targets, hitlist_versions) = if is_feed {
-        ("live-feed", Vec::new(), None)
+    let (hitlist_path, targets, hitlist_versions, is_prefix_hitlist) = if is_feed {
+        // Streamed in live mode (reactive)
+        ("live-feed", Vec::new(), None, false)
     } else if let Some(target_str) = matches.get_one::<String>("target") {
+        // Individual targets
         let (targets, versions) = get_targets(target_str, is_shuffle);
-        (target_str.as_str(), targets, Some(versions))
+        (target_str.as_str(), targets, Some(versions), false)
     } else {
+        // Path to hitlist
         let path = matches.get_one::<String>("hitlist").unwrap().as_str();
-        let (targets, versions) = get_hitlist(path, is_shuffle);
-        (path, targets, Some(versions))
+        let (targets, versions, is_prefix_hitlist) = get_hitlist(path, is_shuffle, is_responsive);
+        (path, targets, Some(versions), is_prefix_hitlist)
     };
+
+    // --responsive only adds value for ranked prefix hitlists
+    if m_type == MeasurementType::Catchment && is_responsive && !is_prefix_hitlist {
+        let msg = "[CLI] --responsive is disabled for catchment mappings, except when using the ISI hitlist format.";
+        error!("{}", msg);
+        return Err(msg.into());
+    }
 
     // Validate the IP-version rules and get the measured versions
     let versions = match validate_ip_versions(&configurations, hitlist_versions, m_type) {
@@ -317,6 +319,7 @@ pub async fn handle(
         probe_interval,
         number_of_probes,
         trace_options,
+        is_prefix_hitlist,
     };
 
     let args = MeasurementExecutionArgs {
