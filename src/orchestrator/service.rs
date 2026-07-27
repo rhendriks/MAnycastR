@@ -293,6 +293,7 @@ impl Controller for ControllerService {
             worker_interval,
             nprobes,
             probe_interval,
+            is_prefix_hitlist: m_def.is_prefix_hitlist,
         };
 
         distribute_tasks(task_config, strategy).await;
@@ -569,6 +570,10 @@ impl Controller for ControllerService {
 
             // Drop duplicate discovery replies (e.g., multi-reply targets)
             discovery_bucket.retain(|reply| match reply.src {
+                Some(addr) if state.is_prefix_hitlist => {
+                    // For ISI hitlist probing, resolve targets at prefix granularity
+                    state.resolved_targets.insert(addr.prefix_base())
+                }
                 Some(addr) => state.resolved_targets.insert(addr),
                 None => false,
             });
@@ -644,6 +649,27 @@ impl Controller for ControllerService {
                                     reply_data: Some(ReplyData::Trace(t)),
                                 });
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !results_bucket.is_empty() {
+            // Whether this is a --responsive catchment mapping for multi-prefix targets
+            let is_prefix_catchment = {
+                let lock = self.measurement.read().unwrap();
+                matches!(*lock, Some(ref state) if state.is_prefix_hitlist && state.m_type == MeasurementType::Catchment)
+            };
+            if is_prefix_catchment {
+                // Keep track of resolved prefixes
+                let mut lock = self.measurement.write().unwrap();
+                if let Some(state) = lock.as_mut() {
+                    for reply in &results_bucket {
+                        if let Some(ReplyData::Measurement(m)) = &reply.reply_data
+                            && let Some(src) = m.src
+                        {
+                            state.resolved_targets.insert(src.prefix_base());
                         }
                     }
                 }
@@ -907,6 +933,7 @@ impl ControllerService {
             is_finalizing: false,
             m_type: m_def.m_type(),
             is_responsive: m_def.is_responsive,
+            is_prefix_hitlist: m_def.is_prefix_hitlist,
             nprobes: m_def.number_of_probes,
             worker_stacks: HashMap::new(),
             trace_config: None,
