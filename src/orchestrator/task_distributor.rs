@@ -51,29 +51,47 @@ impl DistributionStrategy {
     /// * **latency** with only unicast origins → Broadcast: every worker measures
     ///   from its own unicast address (no discovery needed)
     /// * **laces** → Broadcast
-    /// * `--responsive` turns a Broadcast mode into Discovery, gating the broadcast
-    ///   behind a single-worker responsiveness probe
+    /// * `--responsive` gates either broadcast probes or multi-target hitlist probing.
     pub fn select(m_def: &ScheduleMeasurement) -> Self {
-        let is_responsive = m_def.is_responsive;
         match m_def.m_type() {
             MeasurementType::Catchment => Self::RoundRobin,
             MeasurementType::Tracemap => Self::Tracemap,
-            MeasurementType::AnycastTraceroute => Self::Discovery { is_responsive },
+            // --responsive only used for multi-target hitlist probing
+            MeasurementType::AnycastTraceroute => Self::Discovery {
+                is_responsive: false,
+            },
+            // --responsive only used for multi-target hitlist probing
             MeasurementType::AnycastLatency if has_anycast_origin(&m_def.configurations) => {
-                Self::Discovery { is_responsive }
+                Self::Discovery {
+                    is_responsive: false,
+                }
             }
             // Feed measurements are rejected by do_measurement and use the live distributor
             MeasurementType::Feed | MeasurementType::FeedTrace => {
                 unreachable!("feed measurements use the live task distributor")
             }
+            // --responsive gates the broadcast behind a single-worker discovery probe
             MeasurementType::AnycastLatency | MeasurementType::Laces => {
-                if is_responsive {
-                    Self::Discovery { is_responsive }
+                if m_def.is_responsive {
+                    Self::Discovery {
+                        is_responsive: true,
+                    }
                 } else {
                     Self::Broadcast
                 }
             }
         }
+    }
+
+    /// Whether follow-up probes are broadcast to all workers, rather than sent by the
+    /// worker that caught the discovery probe.
+    pub fn is_gated_broadcast(&self) -> bool {
+        matches!(
+            self,
+            Self::Discovery {
+                is_responsive: true
+            }
+        )
     }
 }
 
@@ -298,12 +316,7 @@ pub async fn distribute_tasks(config: TaskDistributorConfig, strategy: Distribut
     let is_discovery = matches!(&strategy, DistributionStrategy::Discovery { .. });
     // Tracemap interleaves follow-up trace probes with session seeding, like discovery modes
     let has_follow_ups = is_discovery || is_tracemap;
-    let is_responsive = matches!(
-        strategy,
-        DistributionStrategy::Discovery {
-            is_responsive: true
-        }
-    );
+    let is_responsive = strategy.is_gated_broadcast();
 
     // Wait for the last tasks being sent (accounting for repeated probes)
     let repeat_secs = (config.nprobes.saturating_sub(1)) as u64 * config.probe_interval;
