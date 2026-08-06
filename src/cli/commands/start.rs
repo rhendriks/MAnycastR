@@ -178,16 +178,6 @@ pub async fn handle(
         configs
     };
 
-    // Anycast latency discovery already skips unresponsive targets TODO enforce in arg parse
-    if m_type == MeasurementType::AnycastLatency
-        && is_responsive
-        && has_anycast_origin(&configurations)
-    {
-        let msg = "[CLI] --responsive cannot be combined with an anycast latency measurement (discovery probes already skip unresponsive targets).";
-        error!("{}", msg);
-        return Err(msg.into());
-    }
-
     let is_shuffle = matches.get_flag("shuffle");
     let (hitlist_path, targets, hitlist_versions, is_prefix_hitlist) = if is_feed {
         // Streamed in live mode (reactive)
@@ -203,11 +193,24 @@ pub async fn handle(
         (path, targets, Some(versions), is_prefix_hitlist)
     };
 
-    // --responsive only adds value for ranked prefix hitlists
-    if m_type == MeasurementType::Catchment && is_responsive && !is_prefix_hitlist {
-        let msg = "[CLI] --responsive is disabled for catchment mappings, except when using the ISI hitlist format.";
-        error!("{}", msg);
-        return Err(msg.into());
+    // --responsive is always enabled when using the multi-target hitlist
+    if is_responsive && !is_prefix_hitlist {
+        // Disallow --responsive with catchment, traceroute, and latency measurements
+        let mode = match m_type {
+            MeasurementType::Catchment => Some("catchment mappings"),
+            MeasurementType::AnycastTraceroute => Some("anycast traceroute measurements"),
+            MeasurementType::AnycastLatency if has_anycast_origin(&configurations) => {
+                Some("anycast latency measurements")
+            }
+            _ => None,
+        };
+        if let Some(mode) = mode {
+            let msg = format!(
+                "[CLI] --responsive is disabled for {mode}, except when using the ISI hitlist format."
+            );
+            error!("{}", msg);
+            return Err(msg.into());
+        }
     }
 
     // Validate the IP-version rules and get the measured versions
