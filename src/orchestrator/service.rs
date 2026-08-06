@@ -241,7 +241,17 @@ impl Controller for ControllerService {
         } = self.classify_workers(&m_def)?;
         let probing_workers_count = probing_ids.len();
         let m_id = self.next_m_id();
-        self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
+
+        // The strategy determines task distribution, discovery usage, and pacing
+        let strategy = DistributionStrategy::select(&m_def);
+
+        self.init_measurement(
+            &m_def,
+            m_id,
+            &participating_ids,
+            &probing_ids,
+            strategy.is_gated_broadcast(),
+        )?;
 
         info!(
             "[Orchestrator] {} participating workers, {} will probe ({worker_interval} seconds between probing workers)",
@@ -268,9 +278,6 @@ impl Controller for ControllerService {
                 .unwrap_or(ALL_ORIGINS);
             self.setup_traceroute(trace_options, trace_origin_id);
         }
-
-        // The strategy determines task distribution, discovery usage, and pacing
-        let strategy = DistributionStrategy::select(&m_def);
 
         // Round-robin strategies pace each worker at the full rate; Broadcast paces the batch
         let mut probing_rate_interval = if matches!(strategy, DistributionStrategy::Broadcast) {
@@ -386,7 +393,8 @@ impl Controller for ControllerService {
 
         // Initialize measurement state (errors if already active)
         let m_id = self.next_m_id();
-        self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids)?;
+        // Feed follow-ups pick their workers per target (LiveTarget.worker_ids), not here
+        self.init_measurement(&m_def, m_id, &participating_ids, &probing_ids, false)?;
 
         if let Some(state) = self.measurement.write().unwrap().as_mut() {
             state.live = Some(LiveState {
@@ -582,7 +590,8 @@ impl Controller for ControllerService {
                 match state.m_type {
                     // Determine worker(s) for follow-up probes
                     MeasurementType::Laces | MeasurementType::AnycastLatency => {
-                        let follow_up_id = if state.is_responsive {
+                        // Determine whether follow-up probes are sent from all workers
+                        let follow_up_id = if state.is_gated_broadcast {
                             ALL_WORKERS
                         } else {
                             catcher_id
@@ -896,6 +905,7 @@ impl ControllerService {
         m_id: u32,
         participating_ids: &[u32],
         probing_ids: &[u32],
+        is_gated_broadcast: bool,
     ) -> Result<(), Status> {
         let mut lock = self.measurement.write().unwrap();
         if lock.is_some() {
@@ -932,7 +942,7 @@ impl ControllerService {
             start_instructions: HashMap::new(),
             is_finalizing: false,
             m_type: m_def.m_type(),
-            is_responsive: m_def.is_responsive,
+            is_gated_broadcast,
             is_prefix_hitlist: m_def.is_prefix_hitlist,
             nprobes: m_def.number_of_probes,
             worker_stacks: HashMap::new(),
