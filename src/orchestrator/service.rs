@@ -582,7 +582,8 @@ impl Controller for ControllerService {
                 match state.m_type {
                     // Determine worker(s) for follow-up probes
                     MeasurementType::Laces | MeasurementType::AnycastLatency => {
-                        let follow_up_id = if state.is_responsive {
+                        // Determine whether follow-up probes are sent from all workers
+                        let follow_up_id = if state.is_gated_broadcast {
                             ALL_WORKERS
                         } else {
                             catcher_id
@@ -925,6 +926,19 @@ impl ControllerService {
             })
             .collect();
 
+        // Determine whether follow-up probes are sent as broadcast or from a single Worker
+        let is_gated_broadcast = if !m_def.is_responsive {
+            false
+        } else {
+            match m_def.m_type() {
+                // Traceroute ran from the catcher
+                MeasurementType::AnycastTraceroute => false,
+                // Anycast RTT from the catcher, unicast RTT from all (broadcasted)
+                MeasurementType::AnycastLatency => !has_anycast_origin(&m_def.configurations),
+                _ => true,
+            }
+        };
+
         *lock = Some(MeasurementState {
             m_id,
             probing_workers: probing_ids.to_vec(),
@@ -932,7 +946,7 @@ impl ControllerService {
             start_instructions: HashMap::new(),
             is_finalizing: false,
             m_type: m_def.m_type(),
-            is_responsive: m_def.is_responsive,
+            is_gated_broadcast,
             is_prefix_hitlist: m_def.is_prefix_hitlist,
             nprobes: m_def.number_of_probes,
             worker_stacks: HashMap::new(),
