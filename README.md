@@ -75,7 +75,8 @@ When creating a measurement you can specify (for more information run --help):
 ### Flags
 * **Stream** - stream results to the command-line interface
 * **Shuffle** - shuffle the hitlist
-* **Responsive** - check if a target is responsive before probing from all workers
+* **Responsive** - check if a target is responsive before probing from all workers.
+  Also used for multi-target hitlists to try targets in sequential order, till one responds.
 * **Parquet** - store results in .parquet format instead of .csv.gz
 
 
@@ -388,6 +389,13 @@ Measurement probes respect the per-worker probing rate (`-r`).
 If a single worker catches a large share of the targets,
 the orchestrator throttles discovery probing so the catching worker can keep up with its measurement probes;
 the measurement then takes proportionally longer.
+
+```
+manycastr cli -a [::1]:50001 start --hitlist isi-hitlist.fsdb.bz2 -p icmp -a 10.0.0.0 -m latency --responsive
+```
+
+With an ISI hitlist, `--responsive` probes the ranked candidates of each prefix until one replies,
+so at most one target per /24 (IPv4) or /48 (IPv6) is measured.
 
 ### Unicast latency measurement using ICMPv6
 
