@@ -5,7 +5,7 @@ All notable changes to MAnycastR are documented in this file.
 ## [2.2.1] - 2026-08-06
 Extends USC/ISI ANT hitlist support for anycast latency and traceroute measurement types.
 
-## Added
+### Added
 - **`--responsive` with `-m latency` `-m anycast-traceroute` supported** -
   Discovery probes can be combined with multi-target hitlist probing.
 
