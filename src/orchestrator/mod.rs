@@ -26,7 +26,7 @@ use custom_module::manycastr::{
 use log::{info, warn};
 use tokio::sync::mpsc;
 use tonic::codec::CompressionEncoding;
-use tonic::transport::ServerTlsConfig;
+use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{Status, transport::Server};
 
 type ResultMessage = Result<ReplyBatch, Status>;
@@ -188,8 +188,31 @@ pub struct TracerouteConfig {
     pub star_unresponsive: bool,
 }
 
+/// Which client(s) this Orchestrator service accepts.
+///
+/// Default: a single service that accepts both Workers and the CLI.
+/// With `--cli_port` create a separate Orchestrator service for Workers and CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    Both,
+    Workers,
+    Cli,
+}
+
+impl Access {
+    /// Accept Worker calls (`worker_connect`, `send_result`, `measurement_finished`)
+    fn serves_workers(self) -> bool {
+        matches!(self, Access::Both | Access::Workers)
+    }
+
+    /// Accept CLI calls (`do_measurement`, `live_measurement`, `list_workers`)
+    fn serves_cli(self) -> bool {
+        matches!(self, Access::Both | Access::Cli)
+    }
+}
+
 /// The main orchestrator service struct.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControllerService {
     /// List of connected workers
     saved_workers: WorkerRegistry,
@@ -205,9 +228,35 @@ pub struct ControllerService {
     max_rate: Option<u32>,
     /// Optional allow-list of origins CLIs may use (None = all origins allowed)
     allowed_origins: Option<Vec<AllowedOrigin>>,
+    /// Which clients this instance serves
+    access: Access,
 }
 
 impl ControllerService {
+    /// Refuse Worker calls on a CLI-only Orc service
+    fn check_worker_access(&self, call: &str) -> Result<(), Status> {
+        if self.access.serves_workers() {
+            return Ok(());
+        }
+
+        warn!("[Orchestrator] Refused worker call '{call}' on the CLI port");
+        Err(Status::permission_denied(
+            "this port only serves the CLI, connect workers to the worker port",
+        ))
+    }
+
+    /// Refuse CLI calls on a Worker-only Orc service
+    fn check_cli_access(&self, call: &str) -> Result<(), Status> {
+        if self.access.serves_cli() {
+            return Ok(());
+        }
+
+        warn!("[Orchestrator] Refused CLI call '{call}' on the worker port");
+        Err(Status::permission_denied(
+            "this port only serves workers, connect the CLI to the CLI port",
+        ))
+    }
+
     /// Gets a unique worker ID for a new connecting worker.
     /// Increments the unique ID counter after returning the ID (for the next worker).
     fn get_unique_id(&self) -> u32 {
@@ -266,11 +315,22 @@ impl ControllerService {
 
 /// Starts the orchestrator on the specified port.
 ///
+/// Workers and CLIs share one port by default.
+/// With `--cli_port` the orchestrator listens on two ports instead.
+///
 /// # Arguments
 /// * `args` - the parsed command-line arguments
+///
+/// # Errors
+/// If a listening address cannot be parsed, or a listener cannot be served.
 pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     let port = *args.get_one::<u16>("port").unwrap();
-    let addr: SocketAddr = format!("[::]:{port}").parse()?;
+    let cli_port = args.get_one::<u16>("cli_port").copied();
+    if cli_port == Some(port) {
+        return Err(
+            format!("--cli_port {port} must differ from --port, or be left out entirely").into(),
+        );
+    }
 
     // Get optional configuration file
     let (current_worker_id, worker_config) = args
@@ -286,40 +346,82 @@ pub async fn start(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
         worker_config,
         max_rate: args.get_one::<u32>("max_rate").copied(),
         allowed_origins: args.get_one::<String>("origins").map(load_allowed_origins),
+        access: Access::Both,
     };
+
+    // if TLS is enabled create the orchestrator using a TLS configuration
+    let identity = args.get_one::<String>("tls").map(|cert_path| {
+        info!("[Orchestrator] Starting orchestrator with TLS enabled");
+        server_identity(
+            cert_path,
+            args.get_one::<String>("tls_key").map(String::as_str),
+        )
+    });
+
+    let Some(cli_port) = cli_port else {
+        info!("[Orchestrator] Serving Workers and CLIs on port {port}");
+        return serve(port, controller, identity).await;
+    };
+
+    // Separate ports for Workers and CLI clients
+    info!("[Orchestrator] Serving Workers on port {port}, CLIs on port {cli_port}");
+    let workers = serve(
+        port,
+        ControllerService {
+            access: Access::Workers,
+            ..controller.clone()
+        },
+        identity.clone(),
+    );
+    let clis = serve(
+        cli_port,
+        ControllerService {
+            access: Access::Cli,
+            ..controller
+        },
+        identity,
+    );
+
+    // Either listener failing takes the orchestrator down
+    tokio::try_join!(workers, clis)?;
+
+    Ok(())
+}
+
+/// Serve the controller on `[::]:port`, optionally with TLS.
+///
+/// # Arguments
+/// * `port` - the port to listen on
+/// * `controller` - the Orchestrator service instance
+/// * `identity` - the TLS certificate and private key, or `None` when using no TLS
+///
+/// # Errors
+/// If the address cannot be parsed, the TLS identity is rejected, or the port cannot be served.
+async fn serve(
+    port: u16,
+    controller: ControllerService,
+    identity: Option<Identity>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let addr: SocketAddr = format!("[::]:{port}").parse()?;
 
     let svc = ControllerServer::new(controller)
         .accept_compressed(CompressionEncoding::Zstd)
         .max_decoding_message_size(10 * 1024 * 1024 * 1024) // 10 GB
         .max_encoding_message_size(10 * 1024 * 1024 * 1024);
 
-    // if TLS is enabled create the orchestrator using a TLS configuration
-    if let Some(cert_path) = args.get_one::<String>("tls") {
-        info!("[Orchestrator] Starting orchestrator with TLS enabled");
-        let identity = server_identity(
-            cert_path,
-            args.get_one::<String>("tls_key").map(String::as_str),
-        );
-        Server::builder()
-            .tls_config(ServerTlsConfig::new().identity(identity))
-            .expect("Failed to load TLS certificate")
-            .http2_keepalive_interval(Some(Duration::from_secs(10)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
-            .tcp_keepalive(Some(Duration::from_secs(30)))
-            .add_service(svc)
-            .serve(addr)
-            .await
-            .expect("Failed to start orchestrator with TLS");
-    } else {
-        Server::builder()
-            .http2_keepalive_interval(Some(Duration::from_secs(10)))
-            .http2_keepalive_timeout(Some(Duration::from_secs(20)))
-            .tcp_keepalive(Some(Duration::from_secs(30)))
-            .add_service(svc)
-            .serve(addr)
-            .await
-            .expect("Failed to start orchestrator");
+    let mut builder = Server::builder();
+    if let Some(identity) = identity {
+        builder = builder.tls_config(ServerTlsConfig::new().identity(identity))?;
     }
+
+    builder
+        .http2_keepalive_interval(Some(Duration::from_secs(10)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+        .tcp_keepalive(Some(Duration::from_secs(30)))
+        .add_service(svc)
+        .serve(addr)
+        .await
+        .map_err(|e| format!("unable to serve on port {port}: {}", &e))?;
 
     Ok(())
 }
