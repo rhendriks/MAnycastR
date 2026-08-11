@@ -74,7 +74,9 @@
 //! ```
 //! worker -a [ORC ADDRESS]
 //! ```
-//! Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
+//!
+//! Orchestrator address has format address:port.
+//! Address can be an IPv4, IPv6 address, or a hostname.
 //!
 //! To confirm that the workers are connected, you can run the worker-list command on the CLI.
 //! ```
@@ -318,13 +320,13 @@ fn parse_cmd() -> ArgMatches {
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
                 .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
                 .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
                 .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
