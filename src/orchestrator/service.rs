@@ -56,6 +56,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<Finished>,
     ) -> Result<Response<Ack>, Status> {
+        self.check_worker_access("measurement_finished")?;
+
         let finished_measurement = request.into_inner();
         let m_id: u32 = finished_measurement.m_id;
         let finished_worker_id = finished_measurement.worker_id;
@@ -138,6 +140,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<Worker>,
     ) -> Result<Response<Self::WorkerConnectStream>, Status> {
+        self.check_worker_access("worker_connect")?;
+
         let worker = request.into_inner();
         let hostname = worker.hostname;
         let unicast_v4 = worker.unicast_v4;
@@ -215,6 +219,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<ScheduleMeasurement>,
     ) -> Result<Response<Self::DoMeasurementStream>, Status> {
+        self.check_cli_access("do_measurement")?;
+
         info!("[Orchestrator] Received CLI measurement request for measurement");
         let mut m_def = request.into_inner();
 
@@ -329,6 +335,8 @@ impl Controller for ControllerService {
         &self,
         request: Request<tonic::Streaming<CliMessage>>,
     ) -> Result<Response<Self::LiveMeasurementStream>, Status> {
+        self.check_cli_access("live_measurement")?;
+
         let mut inbound = request.into_inner();
 
         // The first message on the stream must be the measurement definition
@@ -474,6 +482,8 @@ impl Controller for ControllerService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<custom_module::manycastr::Status>, Status> {
+        self.check_cli_access("list_workers")?;
+
         // Lock the workers list and clone it to return
         let workers_list = self.saved_workers.lock().unwrap();
         let mut workers = Vec::new();
@@ -499,6 +509,8 @@ impl Controller for ControllerService {
     /// # Errors
     /// Returns an error if the CLI has disconnected.
     async fn send_result(&self, request: Request<ReplyBatch>) -> Result<Response<Ack>, Status> {
+        self.check_worker_access("send_result")?;
+
         // Send the result to the CLI through the established stream
         let task_result = request.into_inner();
         let catcher_id = task_result.rx_id;
