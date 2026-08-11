@@ -228,6 +228,13 @@ manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
 manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
 ```
 
+## Separating CLI and worker access
+
+CLI and Worker access can optionally be separated using `--cli_port`,
+where Worker and CLI instances will connect using different port values.
+gRPC calls that do not belong to a port will be refused with `PermissionDenied`.
+Using e.g., iptables the access for the CLI port can be restrained for security.
+
 ## Socket privileges
 
 Workers send and receive probes over **raw sockets** (`SOCK_RAW`), which require the
