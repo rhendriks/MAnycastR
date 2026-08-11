@@ -136,7 +136,16 @@ To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf
 ```
 manycastr worker -a [ORC ADDRESS]
 ```
-Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
+
+### Orchestrator address (`-a`)
+
+Workers and the CLI take the orchestrator address as `address:port`. Three forms are accepted:
+
+```bash
+manycastr worker -a 10.0.0.0:50001
+manycastr worker -a [2001::1]:50001
+manycastr worker -a orchestrator.example.net:50001
+```
 
 ### Worker connection loss and reconnects
 
@@ -191,6 +200,8 @@ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
 
 Replace `orchestrator.example.com` with the FQDN of your orchestrator. A Subject
 Alternative Name (SAN) is required — the name does not need to be resolvable in DNS.
+
+If workers connect by hostname (see [Orchestrator address](#orchestrator-address--a)), use that hostname here)
 
 The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
 marks the certificate as a CA by default, and clients will reject it with
