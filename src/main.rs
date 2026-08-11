@@ -70,6 +70,10 @@
 //! orchestrator -p [PORT NUMBER]
 //! ```
 //!
+//! Workers and CLIs share this port by default.
+//! The CLI may be configured to use a separate port with `--cli_port [PORT NUMBER]`
+//! to constrain CLI access separately (e.g., using iptables).
+//!
 //! Next, run one or more workers.
 //! ```
 //! worker -a [ORC ADDRESS]
@@ -214,6 +218,7 @@ use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
+use std::process::exit;
 
 mod cli;
 mod custom_module;
@@ -293,7 +298,12 @@ fn main() {
             .build()
             .unwrap();
 
-        rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
+        rt.block_on(async {
+            if let Err(e) = orchestrator::start(server_matches).await {
+                error!("[Orchestrator] {e}");
+                exit(1);
+            }
+        });
     } else {
         error!("[Main] No valid subcommand provided, use --help for more information");
     }
@@ -309,6 +319,8 @@ fn parse_cmd() -> ArgMatches {
         .subcommand(
             Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
+                .arg(arg!(--cli_port <PORT> "Port for CLI (default: CLI shares the --port listener)")
+                    .value_parser(value_parser!(u16)))
                 .arg(arg!(--tls <CERT> "Enable TLS with the certificate at the given path (e.g., ./tls/orchestrator.crt)"))
                 .arg(arg!(--tls_key <KEY> "Path to the TLS private key (default: the --tls path with a .key extension)")
                     .requires("tls"))
