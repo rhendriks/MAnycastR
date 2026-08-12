@@ -64,9 +64,7 @@ pub fn client_config(
 
     // Verifying an IP address requires the orchestrator's certificate to carry an IP SAN
     if matches!(source, NameSource::Address) && server_name.parse::<IpAddr>().is_ok() {
-        warn!(
-            "[TLS] Authenticating an IP address requires an IP Subject Alternative Name."
-        );
+        warn!("[TLS] Authenticating an IP address requires an IP Subject Alternative Name.");
     }
 
     Ok(ClientTlsConfig::new()
@@ -125,10 +123,7 @@ fn certificates(pem: &[u8], cert_path: &str) -> Result<Vec<Pem>, Box<dyn Error>>
         .collect();
 
     if certificates.is_empty() {
-        return Err(format!(
-            "No PEM certificate found in {cert_path}."
-        )
-        .into());
+        return Err(format!("No PEM certificate found in {cert_path}.").into());
     }
 
     Ok(certificates)
@@ -139,8 +134,8 @@ fn certificates(pem: &[u8], cert_path: &str) -> Result<Vec<Pem>, Box<dyn Error>>
 /// In order:
 /// 1. `--tls_domain`, when given.
 /// 2. The host part of the orchestrator address, when it is a hostname.
-///     a. The Subject Alternative Name of a pinned self-signed certificate.
-///     b. The address itself, an IP address verified against an IP SAN.
+///    a. The Subject Alternative Name of a pinned self-signed certificate.
+///    b. The address itself, an IP address verified against an IP SAN.
 fn server_name(
     certificates: &[Pem],
     address: &str,
