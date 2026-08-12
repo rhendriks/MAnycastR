@@ -297,8 +297,7 @@ fn main() {
                 exit(1);
             }
         });
-    }
-    else if let Some(cli_matches) = matches.subcommand_matches("cli") {
+    } else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         info!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
         if let Err(e) = cli::execute(cli_matches) {
