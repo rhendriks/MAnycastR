@@ -178,13 +178,18 @@ manycastr cli -a [ORC ADDRESS] start [parameters]
 ## Securing the deployment with TLS
 
 We support optional TLS for the inter-component gRPC connections.
-In this case, the orchestrator holds a certificate and private key to authenticate gainst.
-Workers and the CLI hold a copy of the certificate to verify the orchestrator's identity.
+In this case, the orchestrator holds a certificate and private key to authenticate against.
+Workers and the CLI verify the orchestrator's identity against the certificate given with
+`--tls`, which may be:
 
-All components take the certificate (and, for the orchestrator, the private key) as
-plain file paths, so a single host can run several independent set-ups side by side.
+* the orchestrator's own self-signed certificate
+* the certificate of the CA that issued the orchestrator's certificate
+* a CA bundle
 
 ### 1. Generate a certificate (on the orchestrator host)
+
+Skip this step when the orchestrator's certificate is issued by your own CA; see
+[Using an internal CA](#using-an-internal-ca) below.
 
 Generate a self-signed certificate and private key:
 
@@ -226,6 +231,22 @@ Copy `orchestrator.crt` to every worker and CLI host.
 manycastr worker -a [ORC ADDRESS] --tls /path/to/orchestrator.crt
 manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
 manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
+```
+
+## Using an internal CA
+
+You may use a certificate issued by a CA (your own or a public CA).
+
+```bash
+cat orchestrator.crt intermediate-ca.crt > orchestrator-chain.crt
+manycastr orchestrator -p 50001 --tls orchestrator-chain.crt --tls_key orchestrator.key
+```
+
+Clients then only need the CA:
+
+```bash
+manycastr worker -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt
+manycastr cli -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt worker-list
 ```
 
 ## Separating CLI and worker access
