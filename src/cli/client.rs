@@ -386,6 +386,7 @@ impl CliClient {
     /// # Arguments
     /// * `address` - the address of the orchestrator (e.g., 10.10.10.10:50051)
     /// * `cert_path` - an optional path to the orchestrator's certificate (if TLS is enabled)
+    /// * `tls_domain` - an optional name to authenticate the orchestrator as (`--tls_domain`)
     ///
     /// # Returns
     /// A gRPC client that is connected to the orchestrator
@@ -395,28 +396,16 @@ impl CliClient {
     pub(crate) async fn connect(
         address: &str,
         cert_path: Option<&str>,
+        tls_domain: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let channel = if let Some(cert_path) = cert_path {
-            // Secure connection
-            let addr = format!("https://{address}");
+        let scheme = if cert_path.is_some() { "https" } else { "http" };
+        let mut endpoint = Channel::from_shared(format!("{scheme}://{address}"))?;
 
-            let builder = Channel::from_shared(addr.to_owned())?; // Use the address provided
-            builder
-                .tls_config(client_config(cert_path)?)
-                .expect("Unable to set TLS configuration")
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        } else {
-            // Unsecure connection
-            let addr = format!("http://{address}");
+        if let Some(cert_path) = cert_path {
+            endpoint = endpoint.tls_config(client_config(cert_path, address, tls_domain)?)?;
+        }
 
-            Channel::from_shared(addr.to_owned())
-                .expect("Unable to set address")
-                .connect()
-                .await
-                .expect("Unable to connect to orchestrator")
-        };
+        let channel = endpoint.connect().await.map_err(|e| format!("{e:?}"))?;
         // Create client with secret token that is used to authenticate client commands.
         let client = ControllerClient::new(channel);
 
