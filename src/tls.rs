@@ -1,30 +1,71 @@
-use log::info;
+use log::{info, warn};
 use std::error::Error;
 use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use tonic::transport::{Certificate, ClientTlsConfig, Identity};
-use x509_parser::prelude::{FromDer, GeneralName, X509Certificate, parse_x509_pem};
+use x509_parser::prelude::{GeneralName, Pem, X509Certificate};
+
+/// PEM label of an X.509 certificate (other blocks, e.g. private keys, are ignored).
+const CERTIFICATE_LABEL: &str = "CERTIFICATE";
+
+/// Track what the SAN is authenticated against (based on user parameters).
+enum NameSource {
+    /// Given explicitly with `--tls_domain`
+    Flag,
+    /// The host part of the orchestrator address (`-a`)
+    Address,
+    /// The Subject Alternative Name of a pinned self-signed certificate
+    Pinned,
+}
+
+impl NameSource {
+    fn as_str(&self) -> &'static str {
+        match self {
+            NameSource::Flag => "--tls_domain",
+            NameSource::Address => "-a",
+            NameSource::Pinned => "certificate SAN",
+        }
+    }
+}
 
 /// Build the client-side TLS configuration used by workers and the CLI.
-/// Reads the SAN (Subject Alternative Name) which it uses as domain name.
+///
+/// The file at `cert_path` holds the trust anchor, either the orchestrator's own (self-signed) certificate,
+/// the certificate of the CA that issued it, or a bundle of CA certificates.
 /// See `README.md` for certificate creation.
 ///
 /// # Arguments
-/// * `cert_path` - path to the Orchestrator's certificate
+/// * `cert_path` - path to the trust anchor to verify the orchestrator against
+/// * `address` - the orchestrator address (`-a`), whose host names the orchestrator
+/// * `tls_domain` - the name to verify the orchestrator as, overriding the address (`--tls_domain`)
 ///
 /// # Returns
-/// A tonic [`ClientTlsConfig`] that trusts only this certificate.
+/// A tonic [`ClientTlsConfig`] that trusts the certificates in `cert_path`.
 ///
 /// # Errors
-/// If the certificate cannot be read, is not valid PEM, or carries no DNS or IP SAN.
-pub fn client_config(cert_path: &str) -> Result<ClientTlsConfig, Box<dyn Error>> {
+/// If the certificate file cannot be read or holds no PEM certificate.
+pub fn client_config(
+    cert_path: &str,
+    address: &str,
+    tls_domain: Option<&str>,
+) -> Result<ClientTlsConfig, Box<dyn Error>> {
     let pem = fs::read(cert_path)
         .map_err(|e| format!("Unable to read certificate at {cert_path}: {e}"))?;
-    // Read SAN from certificate to authenticate domain name against
-    let server_name = server_name(&pem, cert_path)?;
+    let certificates = certificates(&pem, cert_path)?;
 
-    info!("[TLS] Using {cert_path}, authenticating orchestrator as '{server_name}'");
+    let (server_name, source) = server_name(&certificates, address, tls_domain);
+
+    info!(
+        "[TLS] Trusting {} certificate(s) from {cert_path}, authenticating orchestrator as '{server_name}' (from {})",
+        certificates.len(),
+        source.as_str()
+    );
+
+    // Verifying an IP address requires the orchestrator's certificate to carry an IP SAN
+    if matches!(source, NameSource::Address) && server_name.parse::<IpAddr>().is_ok() {
+        warn!("[TLS] Authenticating an IP address requires an IP Subject Alternative Name.");
+    }
 
     Ok(ClientTlsConfig::new()
         .ca_certificate(Certificate::from_pem(pem))
@@ -33,8 +74,10 @@ pub fn client_config(cert_path: &str) -> Result<ClientTlsConfig, Box<dyn Error>>
 
 /// Load the orchestrator's TLS identity (certificate + private key).
 ///
+/// The certificate file may hold a chain with intermediate CA certificates.
+///
 /// # Arguments
-/// * `cert_path` - path to the certificate
+/// * `cert_path` - path to the certificate (chain)
 /// * `key_path` - path to the private key, defaults to `cert_path` with a `.key` extension
 ///
 /// # Returns
@@ -55,6 +98,12 @@ pub fn server_identity(cert_path: &str, key_path: Option<&str>) -> Identity {
         key_path.display()
     );
 
+    // Parse all provided PEM certificates.
+    match certificates(&cert, cert_path) {
+        Ok(certificates) => describe_served_chain(&certificates, cert_path),
+        Err(e) => warn!("[TLS] {e}"),
+    }
+
     Identity::from_pem(cert, key)
 }
 
@@ -63,38 +112,132 @@ fn default_key_path(cert_path: &str) -> PathBuf {
     Path::new(cert_path).with_extension("key")
 }
 
-/// Extract the name to authenticate the orchestrator against from its certificate.
+/// Parse every PEM certificate in `pem`, in file order.
 ///
-/// rustls ignores the Common Name, so a certificate without a SAN cannot be verified at all.
-fn server_name(pem: &[u8], cert_path: &str) -> Result<String, Box<dyn Error>> {
-    let (_, pem) = parse_x509_pem(pem)
-        .map_err(|e| format!("{cert_path} is not a valid PEM certificate: {e}"))?;
-    let (_, cert) = X509Certificate::from_der(&pem.contents)
-        .map_err(|e| format!("Unable to parse the certificate at {cert_path}: {e}"))?;
+/// # Errors
+/// If the file holds no PEM certificate (e.g. it is a private key, or DER rather than PEM).
+fn certificates(pem: &[u8], cert_path: &str) -> Result<Vec<Pem>, Box<dyn Error>> {
+    let certificates: Vec<Pem> = Pem::iter_from_buffer(pem)
+        .filter_map(Result::ok)
+        .filter(|pem| pem.label == CERTIFICATE_LABEL)
+        .collect();
 
-    let names = cert
-        .subject_alternative_name()?
+    if certificates.is_empty() {
+        return Err(format!("No PEM certificate found in {cert_path}.").into());
+    }
+
+    Ok(certificates)
+}
+
+/// Determine the name to authenticate the orchestrator as.
+///
+/// In order:
+/// 1. `--tls_domain`, when given.
+/// 2. The host part of the orchestrator address, when it is a hostname.
+///    a. The Subject Alternative Name of a pinned self-signed certificate.
+///    b. The address itself, an IP address verified against an IP SAN.
+fn server_name(
+    certificates: &[Pem],
+    address: &str,
+    tls_domain: Option<&str>,
+) -> (String, NameSource) {
+    if let Some(domain) = tls_domain {
+        return (domain.to_owned(), NameSource::Flag);
+    }
+
+    let host = host_of(address);
+    if host.parse::<IpAddr>().is_err() {
+        return (host.to_owned(), NameSource::Address);
+    }
+
+    pinned_self_signed_name(certificates).map_or_else(
+        || (host.to_owned(), NameSource::Address),
+        |name| (name, NameSource::Pinned),
+    )
+}
+
+/// Get the hostname/address part of an `address:port` value
+fn host_of(address: &str) -> &str {
+    // Strip brackets (IPv6)
+    if let Some(rest) = address.strip_prefix('[') {
+        return rest.split_once(']').map_or(rest, |(host, _)| host);
+    }
+
+    address.rsplit_once(':').map_or(address, |(host, _)| host)
+}
+
+/// Get the name pinned in self-signed certificates.
+fn pinned_self_signed_name(certificates: &[Pem]) -> Option<String> {
+    // Must be a single PEM certificate
+    let [pinned] = certificates else {
+        return None;
+    };
+
+    let certificate = pinned.parse_x509().ok()?;
+    if certificate.subject().as_raw() != certificate.issuer().as_raw() {
+        // Issued by a different certificate
+        return None;
+    }
+
+    subject_alternative_names(&certificate).into_iter().next()
+}
+
+/// Get the SAN values (hostnames and IP addresses) a certificate is valid for.
+fn subject_alternative_names(certificate: &X509Certificate) -> Vec<String> {
+    let names = certificate
+        .subject_alternative_name()
+        .ok()
+        .flatten()
         .map(|san| san.value.general_names.as_slice())
         .unwrap_or_default();
 
-    let dns = names.iter().find_map(|name| match name {
+    let dns = names.iter().filter_map(|name| match name {
         GeneralName::DNSName(dns) => Some((*dns).to_owned()),
         _ => None,
     });
-    let ip = || {
-        names.iter().find_map(|name| match name {
-            GeneralName::IPAddress(bytes) => to_ip(bytes).map(|ip| ip.to_string()),
-            _ => None,
-        })
+    let ip = names.iter().filter_map(|name| match name {
+        GeneralName::IPAddress(bytes) => to_ip(bytes).map(|ip| ip.to_string()),
+        _ => None,
+    });
+
+    dns.chain(ip).collect()
+}
+
+/// Parse Orchestrator certificate and warn for possibly malformed certificates.
+fn describe_served_chain(certificates: &[Pem], cert_path: &str) {
+    // Get the first certificate (in case it is a chain or bundle)
+    let Ok(certificate) = certificates[0].parse_x509() else {
+        warn!("[TLS] Unable to parse the certificate at {cert_path}");
+        return;
     };
 
-    dns.or_else(ip).ok_or_else(|| {
-        format!(
-            "The certificate at {cert_path} has no DNS or IP Subject Alternative Name (SAN), \
-             regenerate it with e.g. -addext \"subjectAltName=DNS:orchestrator.example.com\""
-        )
-        .into()
-    })
+    // Get allowed SAN values
+    let names = subject_alternative_names(&certificate);
+    if names.is_empty() {
+        warn!(
+            "[TLS] The certificate at {cert_path} has no Subject Alternative Name (SAN), \
+            regenerate it with e.g. -addext \"subjectAltName=DNS:orchestrator.example.com\""
+        );
+    } else {
+        info!("[TLS] Serving a certificate valid for {}", names.join(", "));
+    }
+
+    let is_self_signed = certificate.subject().as_raw() == certificate.issuer().as_raw();
+    if is_self_signed {
+        info!("[TLS] The certificate is self-signed, clients must trust it directly (--tls)");
+    } else if certificates.len() == 1 {
+        // Single certificate that is not self-signed -> clients must trust the CA
+        info!(
+            "[TLS] The certificate was issued by '{}', clients must trust that CA (--tls)",
+            certificate.issuer()
+        );
+    } else {
+        info!(
+            "[TLS] Serving a chain of {} certificates, issued by '{}'",
+            certificates.len(),
+            certificate.issuer()
+        );
+    }
 }
 
 /// Convert the raw bytes of an IP address SAN into an [`IpAddr`].

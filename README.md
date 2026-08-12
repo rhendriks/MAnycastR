@@ -136,7 +136,16 @@ To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf
 ```
 manycastr worker -a [ORC ADDRESS]
 ```
-Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
+
+### Orchestrator address (`-a`)
+
+Workers and the CLI take the orchestrator address as `address:port`. Three forms are accepted:
+
+```bash
+manycastr worker -a 10.0.0.0:50001
+manycastr worker -a [2001::1]:50001
+manycastr worker -a orchestrator.example.net:50001
+```
 
 ### Worker connection loss and reconnects
 
@@ -169,13 +178,18 @@ manycastr cli -a [ORC ADDRESS] start [parameters]
 ## Securing the deployment with TLS
 
 We support optional TLS for the inter-component gRPC connections.
-In this case, the orchestrator holds a certificate and private key to authenticate gainst.
-Workers and the CLI hold a copy of the certificate to verify the orchestrator's identity.
+In this case, the orchestrator holds a certificate and private key to authenticate against.
+Workers and the CLI verify the orchestrator's identity against the certificate given with
+`--tls`, which may be:
 
-All components take the certificate (and, for the orchestrator, the private key) as
-plain file paths, so a single host can run several independent set-ups side by side.
+* the orchestrator's own self-signed certificate
+* the certificate of the CA that issued the orchestrator's certificate
+* a CA bundle
 
 ### 1. Generate a certificate (on the orchestrator host)
+
+Skip this step when the orchestrator's certificate is issued by your own CA; see
+[Using an internal CA](#using-an-internal-ca) below.
 
 Generate a self-signed certificate and private key:
 
@@ -191,6 +205,8 @@ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
 
 Replace `orchestrator.example.com` with the FQDN of your orchestrator. A Subject
 Alternative Name (SAN) is required — the name does not need to be resolvable in DNS.
+
+If workers connect by hostname (see [Orchestrator address](#orchestrator-address--a)), use that hostname here)
 
 The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
 marks the certificate as a CA by default, and clients will reject it with
@@ -216,6 +232,29 @@ manycastr worker -a [ORC ADDRESS] --tls /path/to/orchestrator.crt
 manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
 manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
 ```
+
+## Using an internal CA
+
+You may use a certificate issued by a CA (your own or a public CA).
+
+```bash
+cat orchestrator.crt intermediate-ca.crt > orchestrator-chain.crt
+manycastr orchestrator -p 50001 --tls orchestrator-chain.crt --tls_key orchestrator.key
+```
+
+Clients then only need the CA:
+
+```bash
+manycastr worker -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt
+manycastr cli -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt worker-list
+```
+
+## Separating CLI and worker access
+
+CLI and Worker access can optionally be separated using `--cli_port`,
+where Worker and CLI instances will connect using different port values.
+gRPC calls that do not belong to a port will be refused with `PermissionDenied`.
+Using e.g., iptables the access for the CLI port can be restrained for security.
 
 ## Socket privileges
 

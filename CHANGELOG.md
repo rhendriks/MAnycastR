@@ -2,6 +2,24 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.3.0] - 2026-08-12
+TLS and connection hardening.
+
+### Added
+- **`--tls` accepts CA certificates and CA bundles** — workers and the CLI can authenticate
+  the orchestrator against the CA that issued its certificate.
+- **`--tls_domain [NAME]`** (worker, CLI) — the name the orchestrator is authenticated as.
+- **`--cli_port [PORT]`** (orchestrator) — creates a separate port for CLI access.
+- **Orchestrator TLS diagnostics** — for troubleshooting certificate validity.
+
+### Changed
+- **The name the orchestrator is authenticated as is now the host given in `-a`**, rather
+  than one read out of the `--tls` file.
+- **Connection failures are reported and exit non-zero** instead of panicking.
+
+### Documentation
+- Connecting by hostname (resolved at connect time, both address families tried).
+
 ## [2.2.1] - 2026-08-06
 Extends USC/ISI ANT hitlist support for anycast latency and traceroute measurement types.
 

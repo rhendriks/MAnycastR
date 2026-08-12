@@ -70,11 +70,23 @@
 //! orchestrator -p [PORT NUMBER]
 //! ```
 //!
+//! Workers and CLIs share this port by default.
+//! The CLI may be configured to use a separate port with `--cli_port [PORT NUMBER]`
+//! to constrain CLI access separately (e.g., using iptables).
+//!
 //! Next, run one or more workers.
 //! ```
 //! worker -a [ORC ADDRESS]
 //! ```
-//! Orchestrator address has format IPv4:port (e.g., 187.0.0.0:50001)
+//!
+//! Orchestrator address has format address:port.
+//! Address can be an IPv4, IPv6 address, or a hostname.
+//!
+//! TLS is enabled with `--tls [PATH]`.
+//! The orchestrator takes its certificate and its private key (`--tls_key`).
+//! Workers and CLIs take the certificate they trust: the orchestrator's own self-signed
+//! certificate, the CA that issued it, or a CA bundle.
+//! The orchestrator is authenticated as the host given in `-a`, or as `--tls_domain [NAME]`.
 //!
 //! To confirm that the workers are connected, you can run the worker-list command on the CLI.
 //! ```
@@ -212,6 +224,7 @@ use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
+use std::process::exit;
 
 mod cli;
 mod custom_module;
@@ -276,13 +289,21 @@ fn main() {
             .build()
             .unwrap();
 
-        let _ = rt.block_on(async { worker::Worker::new(worker_matches).await.expect("Unable to create a worker (make sure the Server address is correct, and that the Server is running)") });
-    }
-    // If the cli subcommand was selected, execute the cli module (i.e. the cli::execute function)
-    else if let Some(cli_matches) = matches.subcommand_matches("cli") {
+        rt.block_on(async {
+            if let Err(e) = worker::Worker::new(worker_matches).await {
+                error!(
+                    "[Worker] Unable to connect to the orchestrator (check -a, --tls, and that the orchestrator is running): {e}"
+                );
+                exit(1);
+            }
+        });
+    } else if let Some(cli_matches) = matches.subcommand_matches("cli") {
         info!("[Main] Executing CLI version {}", env!("GIT_HASH"));
 
-        let _ = cli::execute(cli_matches);
+        if let Err(e) = cli::execute(cli_matches) {
+            error!("[CLI] {e}");
+            exit(1);
+        }
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
         info!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
 
@@ -291,7 +312,12 @@ fn main() {
             .build()
             .unwrap();
 
-        rt.block_on(async { orchestrator::start(server_matches).await.unwrap() });
+        rt.block_on(async {
+            if let Err(e) = orchestrator::start(server_matches).await {
+                error!("[Orchestrator] {e}");
+                exit(1);
+            }
+        });
     } else {
         error!("[Main] No valid subcommand provided, use --help for more information");
     }
@@ -307,6 +333,8 @@ fn parse_cmd() -> ArgMatches {
         .subcommand(
             Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
+                .arg(arg!(--cli_port <PORT> "Port for CLI (default: CLI shares the --port listener)")
+                    .value_parser(value_parser!(u16)))
                 .arg(arg!(--tls <CERT> "Enable TLS with the certificate at the given path (e.g., ./tls/orchestrator.crt)"))
                 .arg(arg!(--tls_key <KEY> "Path to the TLS private key (default: the --tls path with a .key extension)")
                     .requires("tls"))
@@ -318,14 +346,18 @@ fn parse_cmd() -> ArgMatches {
         )
         .subcommand(
             Command::new("worker").about("Launches the MAnycastR worker")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
                 .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
-                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
+                    .requires("tls"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001 or [::1]:50001)").required(true))
-                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path"))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
+                    .requires("tls"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz or .bz2 compressed; ISI fsdb hitlists are detected automatically)")

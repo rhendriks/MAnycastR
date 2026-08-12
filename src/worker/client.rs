@@ -22,8 +22,9 @@ impl Worker {
     /// Connect to the orchestrator.
     ///
     /// # Arguments
-    /// * `address` - the address of the orchestrator in string format, containing both the IPv4 address and port number
+    /// * `address` - the address of the orchestrator in string format, containing both the address (IPv4, IPv6, or hostname) and port number
     /// * `cert_path` - an optional path to the orchestrator's certificate (if TLS is enabled)
+    /// * `tls_domain` - an optional name to authenticate the orchestrator as (`--tls_domain`)
     ///
     /// # Returns
     /// A gRPC client that is connected to the orchestrator
@@ -33,13 +34,14 @@ impl Worker {
     pub(crate) async fn connect(
         address: String,
         cert_path: Option<&str>,
+        tls_domain: Option<&str>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
         let scheme = if cert_path.is_some() { "https" } else { "http" };
         let uri = format!("{scheme}://{address}");
         let mut endpoint = Channel::from_shared(uri)?;
 
         if let Some(cert_path) = cert_path {
-            endpoint = endpoint.tls_config(client_config(cert_path)?)?;
+            endpoint = endpoint.tls_config(client_config(cert_path, &address, tls_domain)?)?;
         }
 
         let channel = endpoint
@@ -47,7 +49,8 @@ impl Worker {
             .http2_keep_alive_interval(Duration::from_secs(15))
             .tcp_keepalive(Some(Duration::from_secs(60)))
             .connect()
-            .await?;
+            .await
+            .map_err(|e| format!("{e:?}"))?;
 
         Ok(ControllerClient::new(channel))
     }

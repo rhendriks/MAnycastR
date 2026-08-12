@@ -28,7 +28,8 @@ impl Worker {
 
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
         let cert_path = args.get_one::<String>("tls").map(String::as_str);
-        let grpc_client = Self::connect(orc_addr.parse()?, cert_path).await?;
+        let tls_domain = args.get_one::<String>("tls_domain").map(String::as_str);
+        let grpc_client = Self::connect(orc_addr.to_owned(), cert_path, tls_domain).await?;
 
         // Initialize a worker instance
         let mut worker = Self {

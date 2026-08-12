@@ -17,19 +17,20 @@ mod worker_list;
 pub async fn execute(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let server_address = args.get_one::<String>("orchestrator").unwrap();
     let cert_path = args.get_one::<String>("tls").map(String::as_str);
+    let tls_domain = args.get_one::<String>("tls_domain").map(String::as_str);
 
     // Connect with orchestrator
     info!("[CLI] Connecting to orchestrator - {server_address}");
-    let mut grpc_client = CliClient::connect(server_address, cert_path)
+    let mut grpc_client = CliClient::connect(server_address, cert_path, tls_domain)
         .await
-        .expect("Unable to connect to orchestrator")
+        .map_err(|e| format!("Unable to connect to orchestrator: {e}"))?
         .send_compressed(CompressionEncoding::Zstd);
 
     // Obtain connected worker information
     let response = grpc_client
         .list_workers(Request::new(Empty::default()))
         .await
-        .expect("Connection to orchestrator failed");
+        .map_err(|e| format!("Connection to orchestrator failed: {}", e.message()))?;
 
     let mut cli_client = CliClient { grpc_client };
 

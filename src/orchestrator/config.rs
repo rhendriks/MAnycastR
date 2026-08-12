@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// An origin allow-list rule: a source address and the protocols permitted for it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AllowedOrigin {
     /// Anycast source address, or a `unicastv4`/`unicastv6` marker
     pub src: Address,
