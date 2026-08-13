@@ -130,7 +130,11 @@ fn main() {
 
 /// Parse command line arguments using clap
 fn parse_cmd() -> ArgMatches {
-    Command::new("MAnycastR")
+    cli().get_matches()
+}
+
+fn cli() -> Command {
+    Command::new("manycastr")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
         .about("Performs synchronized Internet measurement from a distributed set of anycast Points of Presence (PoPs)")
@@ -234,5 +238,4 @@ fn parse_cmd() -> ArgMatches {
                     .arg(arg!(-u --url <URL> "URL encoded in probe payload (e.g., opt-out URL)"))
                 )
             )
-        .get_matches()
 }
