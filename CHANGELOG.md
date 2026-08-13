@@ -5,10 +5,8 @@ All notable changes to MAnycastR are documented in this file.
 ## [2.3.1] - 2026-08-13
 TLS trust store and restructuring README.
 
-
 ### Added
-- **`--tls_system`** (worker, CLI) — authenticate the orchestrator against the host's trust system.
-  trust store.
+- **`--tls_system`** (worker, CLI) — authenticate the orchestrator against the host's trust store.
 
 ### Documentation
 - **Binary permissions** - removed mentions of cap_net_admin as this is not needed.
