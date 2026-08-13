@@ -1,4 +1,3 @@
-docs/
 # Created by https://www.toptal.com/developers/gitignore/api/macos,linux,clion,clion+all,clion+iml,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,linux,clion,clion+all,clion+iml,windows
 
@@ -312,9 +311,5 @@ data/
 tls/
 confs/
 .idea/
-<<<<<<< HEAD
 Cargo.lock
 temp
-=======
-Cargo.lock
->>>>>>> traceroute

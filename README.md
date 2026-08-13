@@ -1,97 +1,346 @@
 # MAnycastR
 
-MAnycastR (Measure Anycast Routing) is a tool designed to measure anycast infrastructure.
+MAnycastR (Measure Anycast Routing) performs synchronized Internet measurements from a distributed
+set of anycast Points of Presence (PoPs).
 
-This includes:
-
-i) Measuring anycast infrastructure itself
-* Mapping catchments using [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf)
-* Anycast latency (measuring RTT between the anycast infrastructure and the Internet)
-* Optimal deployment (measuring 'best' deployment inferred from unicast latencies from all PoPs)
+**Measuring your own anycast infrastructure**
+* Mapping catchments using an improved version of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf)
+* Anycast latency (RTT between the anycast infrastructure and the Internet)
+* Optimal deployment ('best' deployment inferred from unicast latencies from all PoPs)
 * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
-* [Site flipping](https://doi.org/10.1109/TNSM.2025.3636785) (detecting network regions experiencing anycast site flipping)
-* Measuring [anycast routing stability](https://doi.org/10.1007/978-3-031-85960-1_16)
-* Measuring [BGP convergence time](https://dl.acm.org/doi/epdf/10.1145/3673422.3674890)
+* [Site flipping](https://doi.org/10.1109/TNSM.2025.3636785) (network regions experiencing anycast site flipping)
+* [Anycast routing stability](https://doi.org/10.1007/978-3-031-85960-1_16) and [BGP convergence time](https://dl.acm.org/doi/epdf/10.1145/3673422.3674890)
 
-ii) Measuring external anycast infrastructure
-* [LACeS](https://doi.org/10.1145/3730567.3764484) (anycast-based detection of anycast and latency-based detection, enumeration, geolocation of anycast using Great-Circle-Distance)
+**Measuring external anycast infrastructure**
+* [LACeS](https://doi.org/10.1145/3730567.3764484) — anycast-based detection of anycast, and latency-based detection using Great-Circle-Distance.
 
-Full documentation is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycast/index.html).
+IPv4 and IPv6 are both supported, over ICMP, UDP (DNS), and TCP (can be mixed within a single measurement).
 
-## The components
+This README is the manual for installing and running MAnycastR.
+Documentation of the code itself is available via [rustdoc](https://rhendriks.github.io/MAnycastR/manycastr/index.html).
 
-Deployment of MAnycastR consists of three components:
-* `Orchestrator` - a central controller orchestrating measurements
-* `CLI` - Command-line interface scheduling measurements at the orchestrator and collecting results
-* `Worker` - Deployed on anycast PoPs, performing measurements
+## Contents
 
-## Measurement process
+* [Installation](#installation)
+* [Quick start](#quick-start)
+* [How it works](#how-it-works)
+* [Measurement types](#measurement-types)
+* [Targets and hitlists](#targets-and-hitlists)
+* [Configuration files](#configuration-files)
+* [Output formats](#output-formats)
+* [Running a shared deployment](#running-a-shared-deployment)
+* [Options reference](#options-reference)
+* [Contributing](#contributing)
+* [Citation](#citation)
 
-A measurement is started by running the CLI, which can be executed e.g., locally or automated using a cronjob on a VM.
-The CLI sends a measurement definition based on the arguments provided when running the `start` command.
-Example commands will be provided in the Usage section.
+Further documentation lives in [docs/](docs):
+[deployment](docs/deployment.md) ·
+[output formats](docs/output.md) ·
+[traceroute internals](docs/traceroute.md)
 
-Upon receiving a measurement definition, the orchestrator instructs the workers to start the measurement.
-Workers perform measurements by sending and receiving probes.
+## Installation
 
-Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
-For some measurements, the orchestrator creates follow-up tasks based on the 'catching' PoP for a target.
-The CLI writes results to a .csv.gz file (or .parquet).
+All three components are subcommands of a single `manycastr` binary.
+
+### Download a binary
+
+```bash
+curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/latest/download/manycastr
+chmod +x manycastr
+sudo setcap cap_net_raw+ep manycastr
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/rhendriks/manycastr:latest
+```
+
+Run with `--network host`, so probes use the anycast/unicast addresses of the host:
+
+```bash
+docker run -it --init --network host --cap-drop=ALL --cap-add=NET_RAW --read-only manycastr
+```
+
+### Build from source
+
+Requires rustup, protobuf-compiler, gcc, and musl-tools.
+Building against a musl target produces a statically linked binary (recommended for distribution to Workers).
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh && source $HOME/.cargo/env
+apt-get install -y protobuf-compiler gcc musl-tools
+git clone https://github.com/rhendriks/MAnycastR.git && cd MAnycastR
+cargo build --release
+sudo setcap cap_net_raw+ep target/release/manycastr
+```
+
+### Socket privileges
+
+Workers send and receive probes over **raw sockets** (`SOCK_RAW`),
+which require the `CAP_NET_RAW` capability (or sudo).
+For reference, the standard `ping` utility also has `CAP_NET_RAW` capabilities.
+The Orchestrator and CLI run unprivileged and require no capabilities.
+
+A raw socket is required as MAnycastR is an anycast measurement tool:
+replies to probes sent by one Worker may be received by *another* Worker.
+Permissionless sockets such as `SOCK_DGRAM` would drop such replies.
+
+> **DNS NOTE:** the kernel answers DNS replies with ICMP *port-unreachable*
+> as raw sockets do not register a UDP listener on the source port.
+
+Grant the capability as a file capability (`setcap`, above), under systemd, or in Docker:
+
+```ini
+[Service]
+User=manycastr
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+```
+
+```bash
+docker run --cap-drop=ALL --cap-add=NET_RAW --read-only --network host manycastr worker ...
+```
+
+If raw-socket privileges are a concern, bound the process further with nftables/tc egress policies and rate-limits.
+
+## Quick start
+
+**1. Start the Orchestrator** (Workers and CLIs share `--port` by default):
+
+```bash
+manycastr orchestrator -p 50001
+```
+
+**2. Start one or more Workers.** The Orchestrator address is `address:port`, where the address may
+be IPv4, IPv6, or a hostname (resolved at connect time):
+
+```bash
+manycastr worker -a 10.0.0.0:50001
+manycastr worker -a [2001::1]:50001
+manycastr worker -a orchestrator.example.net:50001
+```
+
+**3. Confirm the Workers are connected:**
+
+```bash
+manycastr cli -a [::1]:50001 worker-list
+```
+
+**4. Run a measurement:**
+
+```bash
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -r 1000
+```
+
+All Workers probe the targets in `hitlist.txt` over ICMPv4 from source address 10.0.0.0,
+at 1,000 packets per second per Worker.
+The hitlist is divided amongst the Workers, each target receiving a single probe;
+catchment is inferred from which PoP receives the reply.
+Results are written to a timestamped `.csv.gz` file in the working directory (see [Output formats](#output-formats)).
+
+## How it works
+
+A deployment consists of three components:
+
+| Component        | Role                                                            |
+|------------------|-----------------------------------------------------------------|
+| **Orchestrator** | Central controller orchestrating measurements                   |
+| **CLI**          | Schedules measurements at the Orchestrator and collects results |
+| **Worker**       | Deployed on anycast PoPs, sends and receives probes             |
+
+The CLI sends a measurement definition built from the arguments of its `start` command.
+The Orchestrator instructs the Workers to begin, and the Workers stream results back to it.
+The Orchestrator aggregates them (and may create follow-up tasks for some measurement types)
+and forwards them to the CLI, which writes the output file.
+
+Probes can be sent as ICMP ECHO requests (`-p icmp`), UDP DNS A record requests (`-p dns`),
+TCP SYN/ACK probes (`-p tcp`), or UDP DNS TXT CHAOS requests (`-p chaos`).
+
+### Origins
+
+An **origin** is the flow 5-tuple a probe is sent with:
+protocol, source address, source port, destination address, and destination port.
+Every field except the destination address — which comes from the target being probed — is
+configured, either directly with `-p`, `-a`, `-s`, and `-d`,
+or several at a time in a [configuration file](#configuration-files).
+
+A measurement may use more than one origin, in which case each target is probed once per origin,
+and replies carry an `origin_id` column identifying the origin that produced them.
+This is what makes multi-protocol, multi-prefix, and mixed IPv4/IPv6 measurements possible.
 
 ## Measurement types
-Measurements can be;
-* `icmp` ICMP ECHO requests
-* `dns` UDP DNS A Record requests
-* `tcp` TCP SYN/ACK probes
-* `chaos` UDP DNS TXT CHAOS requests
 
-## Measurement parameters
+Selected with `-m`.
 
-When creating a measurement you can specify (for more information run --help):
+### catchment
 
-### Variables
-* **Hitlist** (`--hitlist`) - path to a file of addresses to be probed (IP-addresses or -numbers separated by newlines) (supports gzipped and bzip2 files),
-  also supports [USC/ISI ANT hitlists](https://ant.isi.edu/datasets/ip_hitlists/) (see note below).
-* **Target** (`-t`/`--target`) - one or more target addresses given directly on the command line, comma-separated (e.g. `1.1.1.1` or `1.1.1.1,8.8.8.8`). An alternative to `--hitlist` for ad-hoc measurements; exactly one of `--hitlist`/`--target` must be provided.
-* **Protocol** - ICMP, DNS, TCP, or CHAOS. Multiple protocols may be given (e.g. `-p icmp,tcp`): each becomes its own origin and every target is probed with all of them, measuring routing differences between protocol types (see [Multi-protocol probing](#multi-protocol-probing))
-* **Measurement Type** - `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, or `feed-trace` (the feed types read NDJSON targets from stdin instead of a hitlist, see [Live (feed) measurements](#live-feed-measurements))
-* **Rate** - the rate (packets / second) at which each worker will send out probes (default: 1000)
-* **Selective** (`-x`) - specify which workers have to send out probes (all connected workers will listen for packets). Accepts a comma-separated list of worker IDs, hostnames, or hostname globs with `*` (e.g. `-x 'us-*'` selects all workers whose hostname starts with `us-`, `-x '*-eqx'` all ending in `-eqx`)
-* **Worker-interval** - interval between separate worker's probes to the same target (default: 1s)
-* **Probe-interval** - interval between probes sent by a worker to the same target (default: 1s)
-* **nprobes** - number of probes to send to each target (default: 1)
-* **Address** - source anycast address to use for the probes, or `unicastv4`/`unicastv6` to have each worker probe from its own local unicast address of that IP version
-* **Source port** - source port to use for probes (default: 62321)
-* **Destination port** - destination port to use for probes (default: DNS: 53, TCP: 63853)
-* **Configuration** - path to a configuration file (allowing for complex configurations, e.g., various source address, port values used by different workers)
-* **Query** - specify DNS record to request (TXT (CHAOS) default: hostname.bind, A default: example.org)
-* **Out** - path to file or directory (ending with '/') to store measurement results (default: ./) (.parquet, .csv, and .csv.gz supported).
-  When a directory is given, the filename is generated as `<type>-<protocol>-<version>-<timestamp>.<ext>`,
-  where `<version>` is `v4`, `v6`, or `mixed` (for combined IPv4/IPv6 measurements),
-  and latency measurements are distinguished as `anycast-latency` or `unicast-latency`
-  depending on the source address used (e.g. `anycast-latency-icmp-v4-1753363200.csv.gz`).
-* **URL** - encode URL in probes (e.g., for providing opt-out information, explaining the measurement, etc.)
+```bash
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0
+```
 
-### Flags
-* **Stream** - stream results to the command-line interface
-* **Shuffle** - shuffle the hitlist
-* **Responsive** - check if a target is responsive before probing from all workers.
-  Also used for multi-target hitlists to try targets in sequential order, till one responds.
-* **Parquet** - store results in .parquet format instead of .csv.gz
+Simple catchment mapping to see which PoP catches each target.
+The hitlist is divided amongst the Workers (round-robin),
+so each target receives a single probe,
+and the receiving PoP is its catchment.
 
+### laces
 
-> Hitlist note.
-> USCI/ISI ANT create hitlist specifically for catchment mappings (see their [verfploeter hitlists]((https://ant.isi.edu/datasets/ip_hitlists/))).
-> Specifically, their hitlist lists one to several addresses per /24-prefix ranked based on ping responsiveness over time.
-> We support parsing of their hitlists as they are tailored for anycast measurements.
-> Normal behavior is to extensively probe every target address (i.e., multiple targets per /24).
-> In combination with `--responsive`, we try target addresses in rank order such that at most one responsive target per prefix is measured.
-> This maximizes coverage at prefix granularity whilst maintaining low probing costs.
+```bash
+manycastr cli -a [::1]:50001 start -m laces --hitlist hitlist.txt -p icmp -a 10.0.0.0 --responsive
+```
 
-### Prefix hitlist format
+Every Worker probes every target, so a target is probed once per Worker.
+Used to perform anycast censuses, with an extended version of [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf):
+a target whose replies end are received at several Worker PoPs is inferred to be anycast.
+With `--responsive`, targets are first probed from a single Worker to confirm probe responsiveness
+before being probed from all Workers
 
-For fsdb files we use the format from [USCI/ISI ANT](https://ant.isi.edu/datasets/ip_hitlists/).
-We extended it for IPv6.
+### latency
+
+Anycast latency measures the RTT between each target and the anycast deployment:
+
+```bash
+manycastr cli -a [::1]:50001 start -m latency --hitlist hitlist.txt -p tcp -a 10.0.0.0
+```
+
+Each target receives two probes: a `discovery probe` establishing which PoP catches it,
+then a `measurement probe` from that catching Worker, so that sender and receiver are the same PoP.
+Measurement probes respect the per-Worker probing rate (`-r`).
+This means that the measurement time is non-deterministic as they are distributed based on the catchment distribution.
+The measurement will finish when the Worker with the largest catchment share finishes sending its `measurement probes`.
+
+Unicast latency instead measures each target's RTT from *every* PoP:
+
+```bash
+manycastr cli -a [::1]:50001 start -m latency --hitlist hitlistv6.txt -p icmp -a unicastv6 --responsive
+```
+
+`-a unicastv4`/`-a unicastv6` creates an origin where each Worker probes
+from its own local unicast address of that IP version.
+Every Worker probes every target (like `-m laces`) which can also be combined with --responsive
+to avoid unnecessary probes for probe unresponsive targets.
+This allows for anycast-detection using Great-Circle-distance
+and for inferring 'optimal' routing.
+We identify the Worker with the lowest unicast RTT as 'optimal'
+which can be used to identify catchment/latency improvements when
+compared against the catchment/latency experienced by the target using anycast.
+
+### anycast-traceroute
+
+```bash
+manycastr cli -a [::1]:50001 start -m anycast-traceroute --hitlist hitlist.txt -p icmp
+manycastr cli -a [::1]:50001 start -m anycast-traceroute -t 1.1.1.1 -p dns
+```
+
+Measures the path from the catching PoP to a target.
+
+Uses `discovery probes` (like Anycast latency) to establish the catching PoP,
+which then sends `traceroute probes` to measure the path.
+Each intermediate router returns an ICMP **Time Exceeded** towards the anycast IP address
+which may return at different PoPs.
+This allows for troubleshooting targets reaching a distant anycast PoP
+and catchment mapping of networks that e.g., do not respond to ping but send ICMP Time Exceeded replies.
+
+Traceroute works over ICMP, DNS, and TCP using Paris traceroute.
+When using multi-origin configurations (e.g., multiple protocols, or different port/src address combinations)
+multi-paths can be measured to e.g., assess anycast routing differences amongst protocols.
+
+See [docs/traceroute.md](docs/traceroute.md) for a more detailed description.
+
+### tracemap
+
+```bash
+manycastr cli -a [::1]:50001 start -m tracemap --hitlist unresponsives.txt -a 10.0.0.1 -p icmp
+```
+
+Experimental feature to map the catchment of probe unresponsive targets
+by soliciting an ICMP Time Exceeded reply from routers near the target.
+This method uses a binary-search implementation to find a hop near to the target
+whilst sending as little traceroute probes as possible.
+
+### feed — live measurements
+
+```bash
+manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
+```
+
+Allows for feeding targets over stdin as NDJSON (or bare addresses).
+
+```
+{"dst":"192.0.2.1"}
+{"dst":"203.0.113.7","worker":"ams01"}
+{"dst":"198.51.100.9","origin":2,"worker":"all"}
+192.0.2.1
+```
+
+| Field     | Values                                                                                                        | Default                                 |
+|-----------|---------------------------------------------------------------------------------------------------------------|-----------------------------------------|
+| `dst`     | target address                                                                                                | required                                |
+| `worker`  | `"any"` (round-robin), a Worker ID (`1`) or hostname (`"ams01"`), a hostname glob (`"us-*"`), or `"all"`      | `"any"`                                 |
+| `origin`  | an origin ID (`2`), or `"all"`                                                                                | first origin of the target's IP version |
+| `nprobes` | measurement probes to send per selected Worker (1–255)                                                        | 1                                       |
+| `session` | session ID for attribution with shared CLI set-ups (e.g., multiple web-interfaces connecting to the same CLI) | none                                    |
+
+Adding `--responsive` gates tasks involving multiple probes to a discovery probe first.
+
+Use cases include reactive measurements.
+For instance, to measure the catchment and latency of a target after observing a routing change in BGP.
+Or to verify the catchment of a target when receiving potentially spoofed traffic.
+
+```bash
+bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
+```
+
+Notes:
+* Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`), plus `session` with `--sessions`.
+* Session attribution is supported only for ICMP.
+* Origins must be shared among all Workers (live mode does not support Worker-specific origins).
+
+### feed-trace — live traceroute
+
+```bash
+manycastr cli -a [::1]:50001 start -m feed-trace -p icmp -a 10.0.0.0
+```
+
+Similar to `-m feed` except it adds TTL level control to the user using an additional `ttl` field (default 255).
+This is added a separate measurement type as it requires Workers to also listen for ICMP **Time Exceeded** replies
+which increases resource usage as there are no measurement hashes encoded in such replies for easy filtering.
+
+```
+{"dst":"192.0.2.1","ttl":4}
+{"dst":"192.0.2.1","ttl":5}
+```
+
+Notes:
+* Results are written as traceroute rows, with `probe_ttl` recording the TTL each probe was sent with.
+* Unrelated ICMP Time Exceeded are filtered by the Orchestrator that tracks ongoing tasks.
+
+## Targets and hitlists
+
+Targets come either from a file (`--hitlist`, one IP address or number per line, optionally gzip- or
+bzip2-compressed) or directly on the command line (`-t 1.1.1.1,8.8.8.8`) for ad-hoc measurements.
+Exactly one of the two must be given.
+
+### USC/ISI ANT hitlists
+
+[USC/ISI ANT hitlists](https://ant.isi.edu/datasets/ip_hitlists/) are created specifically for catchment mappings:
+they list one to several addresses per /24 prefix, ranked by ping responsiveness over time.
+MAnycastR detects and parses them automatically.
+
+Default behavior is to probe every target address (i.e. multiple targets per /24).
+Combined with `--responsive`, candidates are instead tried in rank order until one replies,
+so at most one responsive target per prefix is measured - 
+maximizing coverage at prefix granularity while keeping probing costs low.
+
+```bash
+manycastr cli -a [::1]:50001 start -m latency --hitlist isi-hitlist.fsdb.bz2 -p icmp -a 10.0.0.0 --responsive
+```
+
+### fsdb format
+
+We use the [USC/ISI ANT](https://ant.isi.edu/datasets/ip_hitlists/) format, extended for IPv6.
 
 IPv4 — candidates are last-octets in hex:
 ```text
@@ -100,7 +349,8 @@ IPv4 — candidates are last-octets in hex:
 01000500	01
 01001100	-
 ```
-Row 1 lists 1.0.4.1, 1.0.4.4, and 1.0.4.9 (in rank order) for 1.0.4.0/24, row 2 lists 1.0.5.1 for 1.0.5.0/24.
+Row 1 lists 1.0.4.1, 1.0.4.4, and 1.0.4.9 (in rank order) for 1.0.4.0/24;
+row 2 lists 1.0.5.1 for 1.0.5.0/24.
 
 IPv6 — candidates are hex suffixes within the 80 host bits of the /48 (no colons, no leading zeros needed):
 ```text
@@ -108,365 +358,59 @@ IPv6 — candidates are hex suffixes within the 80 host bits of the /48 (no colo
 20010db80001	1
 20010db81234	1,2a3f,ec4a01
 ```
-Row 1 lists 2001:db8:1::1 for 2001:db8:1::/48, row 2 lists 2001:db8:1234::1, 2001:db8:1234::2a3f, and 2001:db8:1234::ec4a01 for 2001:db8:1234::/48.
+Row 1 lists 2001:db8:1::1 for 2001:db8:1::/48;
+row 2 lists 2001:db8:1234::1, 2001:db8:1234::2a3f, and 2001:db8:1234::ec4a01 for 2001:db8:1234::/48.
 
-## Usage
+## Configuration files
 
-First, run the central orchestrator.
-```
-manycastr orchestrator -p [PORT NUMBER]
-```
+A configuration file (`-f`) defines several [origins](#origins) at once,
+and may vary them per Worker:
 
-To enable shared access to measurement infrastructure, the Orchestrator can enforce the maximum probing rate and available origins.
-This ensures that any CLI requesting a measurement must adhere to these settings.
-First, we enable `--max_rate` (probes per second, per worker; optional).
-Second, we allow for `--origins [FILE]`.
-Each line of the file allows one origin: `src_addr, protocol[, protocol...]`, where `src_addr` is an anycast address or `unicastv4`/`unicastv6`, and the protocol list may be `all` to allow all protocols (see `example.origins`).
-A measurement is refused unless every origin it uses matches a rule.
-Without `--origins`, all origins are allowed.
-
-Next, run one or more workers.
-
-To minimize packet loss at high probing rates, increase the kernel receive buffer limit to 32 MB on each worker:
-```bash
-sudo sysctl -w net.core.rmem_max=33554432
-```
-To persist across reboots, add `net.core.rmem_max=33554432` to `/etc/sysctl.conf`.
-
-```
-manycastr worker -a [ORC ADDRESS]
-```
-
-### Orchestrator address (`-a`)
-
-Workers and the CLI take the orchestrator address as `address:port`. Three forms are accepted:
-
-```bash
-manycastr worker -a 10.0.0.0:50001
-manycastr worker -a [2001::1]:50001
-manycastr worker -a orchestrator.example.net:50001
-```
-
-### Worker connection loss and reconnects
-
-A worker that loses its connection to the orchestrator exits.
-When it reconnects with the same hostname (`-n`, default: `$HOSTNAME`) it keeps its worker ID,
-and if the measurement it was participating in is still active it rejoins it and resumes probing.
-Do note that there may be missed probe replies for the period that the worker was disconnected.
-Furthermore, the orchestrator drops follow-up tasks queued for the worker on disconnect.
-
-We recommend running workers under a supervisor that restarts them, e.g., systemd:
-
-```ini
-[Service]
-Restart=always
-RestartSec=5
-StartLimitIntervalSec=0
-```
-
-To confirm that the workers are connected, you can run the worker-list command on the CLI.
-```
-manycastr cli -a [ORC ADDRESS] worker-list
-```
-
-Finally, you can perform a measurement.
-See [Socket privileges](#socket-privileges) below for what the worker needs in order to send and receive probes.
-```
-manycastr cli -a [ORC ADDRESS] start [parameters]
-```
-
-## Securing the deployment with TLS
-
-We support optional TLS for the inter-component gRPC connections.
-In this case, the orchestrator holds a certificate and private key to authenticate against.
-Workers and the CLI verify the orchestrator's identity against the certificate given with
-`--tls`, which may be:
-
-* the orchestrator's own self-signed certificate
-* the certificate of the CA that issued the orchestrator's certificate
-* a CA bundle
-
-### 1. Generate a certificate (on the orchestrator host)
-
-Skip this step when the orchestrator's certificate is issued by your own CA; see
-[Using an internal CA](#using-an-internal-ca) below.
-
-Generate a self-signed certificate and private key:
-
-```bash
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout orchestrator.key -out orchestrator.crt \
-  -subj "/CN=orchestrator.example.com" \
-  -addext "subjectAltName=DNS:orchestrator.example.com" \
-  -addext "basicConstraints=critical,CA:FALSE" \
-  -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
-  -addext "extendedKeyUsage=serverAuth"
-```
-
-Replace `orchestrator.example.com` with the FQDN of your orchestrator. A Subject
-Alternative Name (SAN) is required — the name does not need to be resolvable in DNS.
-
-If workers connect by hostname (see [Orchestrator address](#orchestrator-address--a)), use that hostname here)
-
-The `basicConstraints=critical,CA:FALSE` extension is required: without it, `openssl req -x509`
-marks the certificate as a CA by default, and clients will reject it with
-`InvalidCertificate(CaUsedAsEndEntity)` because rustls does not allow a CA certificate to be
-presented as a server certificate.
-
-### 2. Start the orchestrator with TLS
-
-```bash
-manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt
-# or, with a key in a separate location:
-manycastr orchestrator -p 50001 --tls /path/to/orchestrator.crt --tls_key /path/to/orchestrator.key
-```
-
-### 3. Distribute the certificate to clients
-
-Copy `orchestrator.crt` to every worker and CLI host.
-
-### 4. Connect workers and CLI with TLS
-
-```bash
-manycastr worker -a [ORC ADDRESS] --tls /path/to/orchestrator.crt
-manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt worker-list
-manycastr cli -a [ORC ADDRESS] --tls /path/to/orchestrator.crt start [parameters]
-```
-
-## Using an internal CA
-
-You may use a certificate issued by a CA (your own or a public CA).
-
-```bash
-cat orchestrator.crt intermediate-ca.crt > orchestrator-chain.crt
-manycastr orchestrator -p 50001 --tls orchestrator-chain.crt --tls_key orchestrator.key
-```
-
-Clients then only need the CA:
-
-```bash
-manycastr worker -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt
-manycastr cli -a orchestrator.example.com:50001 --tls /etc/ssl/certs/internal-ca.crt worker-list
-```
-
-## Separating CLI and worker access
-
-CLI and Worker access can optionally be separated using `--cli_port`,
-where Worker and CLI instances will connect using different port values.
-gRPC calls that do not belong to a port will be refused with `PermissionDenied`.
-Using e.g., iptables the access for the CLI port can be restrained for security.
-
-## Socket privileges
-
-Workers send and receive probes over **raw sockets** (`SOCK_RAW`), which require the
-`CAP_NET_RAW` capability.
-
-### Why a raw socket is required
-
-MAnycastR is foremost an anycast measurement tool.
-This means that replies sent by workers may be received by other workers.
-Traditional, permisionless, sockets like `SOCK_DGRAM` use demux to verify the incoming packet.
-This will cause a packet drop when a Worker receives a packet sent by a different Worker.
-
-> **DNS side-effect:** because a raw socket registers no UDP listener on the source port, the
-> kernel answers each incoming DNS reply with an ICMP/ICMPv6 *port-unreachable*.
-
-### `CAP_NET_RAW`
-
-To enable raw sockets you can run MAnycastR as root (sudo) or alternatively using the `CAP_NET_RAW` capability.
-For reference, the standard `ping` utility also has the `CAP_NET_RAW` capability.
-
-When there are concerns regarding raw socket privileges, you can address this by bounding the process.
-For example, using nftables/tc egress policies and rate-limits.
-
-**Grant `CAP_NET_RAW`**
-
-As a file capability on the binary:
-```bash
-sudo setcap cap_net_raw+ep manycastr
-```
-Or under systemd, without setuid or root:
-```ini
-[Service]
-User=manycastr
-AmbientCapabilities=CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_RAW
-NoNewPrivileges=yes
-```
-Using a Docker container
-```bash
-docker run --cap-drop=ALL --cap-add=NET_RAW --read-only --network host manycastr worker ...
-```
-
-### Examples
-
-#### Catchment mapping
-
-```
-manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
-```
-
-All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
-Each hitlist target receives a single probe from any worker.
-Catchment is inferred based on where the ping reply ends up.
-
-Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
-
-#### Multi-protocol probing
-
-```
-manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp,tcp,dns -a 10.0.0.0
-```
-
-Multiple protocols can be used simultaneously. Each target receives a probe for each protocol specified.
-In this example, we perform a catchment mapping for each target in hitlist.txt using ICMP, TCP SYNACK, and DNS probing.
-This allows for measuring whether targets route to a different PoP based on the protocol used.
-
-### Live (feed) measurements
-
-```
-manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0 -o results.csv.gz
-```
-
-Instead of a pre-defined hitlist, targets are fed to the CLI over stdin as NDJSON (or bare addresses), one JSON object per line.
-
-```
-{"dst":"192.0.2.1"}
-{"dst":"203.0.113.7","worker":"ams01"}
-{"dst":"203.0.113.7","worker":"all"}
-{"dst":"198.51.100.9","origin":2,"worker":"all"}
-192.0.2.1
-```
-
-The optional `worker` field selects which worker(s) probe the target:
-* `"any"` - any worker (round-robin, default)
-* a worker ID (`1`) or hostname (`"ams01"`) - that specific worker
-* a hostname glob (`"us-*"`) - probe the target from every matched worker
-* `"all"` - probe from all workers
-
-When multiple workers are selected (a glob or `"all"`), their probes to the target
-are spaced by the worker interval (`-w`, default 1 second).
-
-The optional `origin` field selects which origin (source address, ports, protocol) the probe is sent from:
-* an origin ID (`2`) - that specific origin (e.g., `{"dst":"192.0.2.1","origin":2}`)
-* `"all"` - all configured origins
-
-When omitted, the first configured origin of the target's IP version is used.
-
-The optional `nprobes` field sets how many measurement probes are sent to the target
-(1-255, default 1), per selected worker (e.g., `{"dst":"192.0.2.1","nprobes":3}` with
-`worker:"all"` sends three probes from every worker). Repeated probes are spaced by
-`--probe_interval` (`-i`, default 1 second). Discovery probes are never repeated:
-with `--responsive`, the repeated measurement probes follow once the target resolves.
-TODO: like `--nprobes` for hitlist measurements, repeated probes are not counted
-against the probing rate.
-
-For CLI's running in multi-user environments (e.g., a shared dashboard), we enable the `--sessions` option.
-This flag will encode session ID in probes that will be echoed back and reported in the results.
-The application can then multiplex multiple sessions over a single feed, and attribute results to the corresponding session.
-
-> **Session attribution is not supported for TCP and DNS CHAOS probes**,
-> Sessions are also unsupported for `feed-trace`.
-
-Origins must be shared among all workers (live mode does not support worker-specific origins).
-
-Adding `--responsive` gates multi-worker targets (a glob or `worker:"all"`) behind a
-single-worker discovery probe first, so an unresponsive target is not probed from
-every selected worker.
-
-This enables reactive measurements: any process that can write lines can schedule probes, e.g.,
-re-mapping the catchment of a target after observing off-catchment packets (possible spoofing),
-or re-evaluating catchments after a routing change observed in passive BGP data.
-
-```
-bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
-```
-
-Notes:
-* Targets are probed as they arrive.
-* Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`), plus a `session` column with `--sessions`.
-* The measurement runs until stdin reaches EOF or Ctrl+C is pressed. Ctrl+C exits immediately and stops the live measurement.
-* The orchestrator refuses measurements that request a probing rate above `--max_rate` (per worker).
-* Workers that connect while a live measurement is running do not participate until the next measurement.
-
-#### Live traceroute (feed-trace)
-
-```
-manycastr cli -a [::1]:50001 start -m feed-trace -p icmp -a 10.0.0.0 -o results.csv.gz
-```
-
-`-m feed-trace` sends TTL-limited probes and puts workers in traceroute mode: they listen for
-ICMP **Time Exceeded** replies (in addition to regular replies from the target).
-Feed lines accept an additional `ttl` field (1-255) setting the probe TTL.
-
-```
-{"dst":"192.0.2.1","ttl":4}
-{"dst":"192.0.2.1","ttl":5}
-{"dst":"192.0.2.1"}
-```
-
-Notes:
-* Results are written as traceroute rows with the TTL used per probe:
-  `rx`, `addr` (the replying hop or target), `ttl` (of the reply), `tx`, `trace_dst` (the probed target), `probe_ttl` (TTL the probe was sent with), `rtt`.
-* Workers always require a raw socket (`CAP_NET_RAW`) for feed-trace, for all protocols (per-probe TTL control).
-* Stray ICMP errors (e.g., backscatter arriving at an anycast origin) are filtered by the
-  orchestrator: a trace reply is only forwarded if its quoted destination was recently probed
-  by the feed and its decoded sender is a participating worker.
-
-### Anycast latency measurement using TCPv4
-
-```
-manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
-```
-
-Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
-Each hitlist target receives 2 probes.
-The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
-The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
-
-Measurement probes respect the per-worker probing rate (`-r`).
-If a single worker catches a large share of the targets,
-the orchestrator throttles discovery probing so the catching worker can keep up with its measurement probes;
-the measurement then takes proportionally longer.
-
-```
-manycastr cli -a [::1]:50001 start --hitlist isi-hitlist.fsdb.bz2 -p icmp -a 10.0.0.0 -m latency --responsive
-```
-
-With an ISI hitlist, `--responsive` probes the ranked candidates of each prefix until one replies,
-so at most one target per /24 (IPv4) or /48 (IPv6) is measured.
-
-### Unicast latency measurement using ICMPv6
-
-```
-manycastr cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicastv6
-```
-
-`-a unicastv6` (or `-a unicastv4`) creates an origin where each worker probes from its own local unicast address of that IP version.
-When a latency measurement uses only unicast origins, probes will be sent from all workers to measure the latency of the target to all PoPs.
-Each hitlist target receives a single probe from every worker.
-Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
-Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
-
-### Mixed anycast and unicast measurements
-
-A configuration file (`-f`) may declare both anycast and unicast origins by using the keyword `unicastv4` (or `unicastv6`) in the source address field:
-
-```
+```text
 # Worker, src_addr, src_port, dst_port, protocol
 ALL, 10.0.0.0, 62321, 63853, icmp
 ALL, unicastv4, 62321, 63853, icmp
 ```
 
-With `-m laces`, every worker probes each target from **all** of its origins — the anycast address *and* its own unicast address — in a single run.
-Replies are tagged with the `origin_id` column, giving anycast catchment/latency and per-PoP unicast RTTs from one measurement.
+The Worker field is `ALL`, a Worker ID, a hostname, or a hostname glob (`us-*`);
+Workers listen for every anycast origin defined, regardless of which they probe with.
+See [example.conf](example.conf) for the full syntax.
+Replies are tagged with an `origin_id` column identifying the origin that produced them.
 
-### Mixed IPv4/IPv6 measurements
+Multi-origin probing allows for measuring two anycast prefixes side-by-side (e.g., a control and test prefix)
+to e.g., compare routing differences.
+One use-case could be to measure the impact of a site outage,
+or a Traffic Engineering policy (e.g., a community or prepend).
 
-A configuration file may declare IPv4 and IPv6 origins side by side, and the hitlist may mix IPv4 and IPv6 targets.
-Each target is probed only by the origins of its own IP version (an origin simply skips targets of the other version).
+### Multi-protocol probing
 
+```bash
+manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp,tcp,dns -a 10.0.0.0
 ```
+
+Each protocol given to `-p` becomes its own origin, and every target is probed with all of them.
+This measures whether targets route to a different PoP depending on the protocol used.
+
+This feature also enables for measuring routing differences when varying the protocol
+(e.g., when networks route TCP/UDP differently than ICMP).
+
+### Multi-flow probing
+Multiple origins can be defined with varied port values or anycast source addresses.
+This enables measuring routing differences when varying the flow-header of packets
+(e.g., when hash based load-balancers may cause packets to reach different PoPs).
+
+### Mixed anycast and unicast
+
+Configurations can mix anycast and unicast source addresses.
+With `-m laces` this allows for measuring the anycast catchment/latency and per-PoP unicast latencies in a single run.
+
+### Mixed IPv4/IPv6
+
+A configuration file can declare IPv4 and IPv6 origins side by side.
+Hitlist can also mix IPv4 and IPv6 targets.
+Targets are only probed by the origin matching its IP version.
+
+```text
 # Worker, src_addr, src_port, dst_port, protocol
 ALL, 10.0.0.0, 62321, 63853, icmp
 ALL, 2001:db8::1, 62321, 63853, icmp
@@ -474,395 +418,121 @@ ALL, unicastv4, 62321, 63853, icmp
 ALL, unicastv6, 62321, 63853, icmp
 ```
 
-```
+```bash
 manycastr cli -a [::1]:50001 start -m catchment --hitlist mixed_hitlist.txt -f mixed.conf
 ```
 
-The version of an anycast origin follows from its address; for unicast origins it is part of the keyword (`unicastv4`/`unicastv6`).
-Every hitlist IP version must be covered by at least one origin of that version.
-For live measurements (`-m feed`/`feed-trace`), targets whose IP version has no configured origin are skipped, and targets without an `origin` field use the first configured origin of their IP version.
-Note that `tracemap` does not support mixed-version runs.
-
-### LACeS measurement
-
-```
-manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
-```
-
-Anycast probes will be sent from all workers.
-Each hitlist target receives a single probe from every worker.
-Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
-Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (`--responsive`).
-
-### Anycast traceroute measurement
-
-```
-manycastr cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
-```
-
-Or, for an ad-hoc trace to one or a few targets, pass them directly with `-t` instead of a hitlist file:
-```
-manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p icmp -m anycast-traceroute
-```
-
-Measure the path from the catching PoP to a target.
-First a single `discovery probe` is sent (round-robin across workers) to infer which PoP
-"catches" the target. The catching worker then sends `traceroute probes` with an increasing
-TTL / hop-limit (from `--trace_initial_hop`, default 4). Each intermediate router returns an
-ICMP **Time Exceeded** message quoting the original probe; the hop is recorded and the next TTL
-is sent. The trace ends when the **target itself** replies (see below), on a routing loop, or at
-`--trace_max_hop`.
-
-Hops that do not respond within `--trace_timeout` are advanced after `--trace_max_failures` consecutive timeouts (up to `--trace_max_hop`).
-By default, each unresponsive hop is recorded as a `*` row (no reply);
-pass `--trace_star false` to omit these rows and leave a gap in `hop_count` instead.
-
-Traceroute works over all three protocols (`-p icmp`, `-p dns`, `-p tcp`):
-
-```
-manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p dns -m anycast-traceroute
-manycastr cli -a [::1]:50001 start -t 1.1.1.1 -p tcp -m anycast-traceroute
-```
-
-#### Probe type and destination detection
-
-| Protocol | Probe sent | Intermediate-hop reply | "Destination reached" signal |
-|----------|-----------|------------------------|------------------------------|
-| ICMP | Echo Request | ICMP Time Exceeded | ICMP Echo Reply from the target |
-| UDP (DNS) | a valid DNS `A` query to the destination port | ICMP Time Exceeded | DNS answer from the target (open port), or ICMP Destination Unreachable (closed port) |
-| TCP | unsolicited TCP SYN-ACK | ICMP Time Exceeded | TCP RST from the target |
-
-#### Paris traceroute (UDP and TCP)
-
-UDP and TCP traceroute are Paris traceroute implementations: the flow 5-tuple
-(src IP, dst IP, protocol, sport, dport) is held **constant across all TTL values**, so ECMP
-load-balancers forward every probe of a trace along the same path. The per-probe identity
-(hop TTL, worker ID, send timestamp) is therefore encoded in header fields that are *not* part
-of the flow hash, and recovered from the ICMP Time Exceeded quote (original IP header + first 8
-transport bytes):
-
-| Protocol | Identity carried in                                                                                            |
-|----------|----------------------------------------------------------------------------------------------------------------|
-| ICMP | ICMP identifier + SEQ                                                                                          |
-| UDP | UDP checksum (TTL + low worker bits) + IPv4 IP Identification / IPv6 Flow Label (high worker bits + timestamp) |
-| TCP | TCP **SEQ** (worker + TTL + timestamp), copied into the **ACK** as well                                        |
-
-* An **intermediate** router's ICMP Time Exceeded is only *guaranteed* to quote the original IP
-  header plus the **first 8 bytes** of the transport header (RFC 792). For TCP those 8 bytes are
-  the source port, destination port, and **SEQ**, not the **ACK**.
-* The **destination** answers with a **RST**, which reflects the ACK field.
-  Therefore, we encode the identity in both the SEQ and ACK fields.
-
-> **Middlebox caveat (UDP traceroute):** some middleboxes (NATs, firewalls) rewrite the IPv4 IP
-> Identification field or the IPv6 Flow Label. If this happens the 14-bit transmit timestamp and
-> the 2 high bits of the worker ID are lost; path discovery still works, but the per-hop RTT
-> cannot be computed and worker identification is limited to 256 workers.
-
-#### Sockets
-
-ICMP traceroute uses a single socket. UDP and TCP traceroute use **two raw sockets** per origin:
-
-* a raw **ICMP** socket to receive Time Exceeded / Destination Unreachable messages, and
-* a raw **UDP/TCP** socket to send the probes and receive the target's reply (DNS answer / RST).
-
-#### Limitations
-
-* **DNS traceroute** terminates at the destination only if the target answers on the configured
-  destination port — a DNS reply on an open port, or an ICMP port-unreachable on a closed one. A
-  silent/firewalled target walks to `--trace_max_hop`.
-* **TCP traceroute** distinguishes discovery replies from trace replies using a flag bit that
-  overlaps the top worker-id bit, so destination detection is reliable for worker IDs below 512.
-* **Intermediate-hop RTTs** use a 14-bit millisecond transmit timestamp (it wraps every ~16.4 s);
-  this is ample for traceroute RTTs but the value is modular. The ICMP and DNS destination hops
-  instead carry a full microsecond timestamp.
-
-### Tracemap measurement
-
-```
-manycastr cli -a [::1]:50001 start --hitlist unresponsives.txt -a 10.0.0.1 -p icmp -m tracemap
-```
-
-Map the catchment of **unresponsive** targets. Each target is assigned to a random probing PoP,
-which sends traceroute probes with the **anycast** source address.
-Routers on the path reply with ICMP **Time Exceeded**; routed to the catching PoP for each router
-The highest `hop_count` per `trace_dst` is a proxy for the catchment (`rx`) of the unresponsive target itself.
-
-Tracemap **binary-searches** the TTL space for the deepest responding hop,
-minimizing traceroute packets.
-The first probe is sent at TTL 12 — the empirical median Internet path length (typical IP paths
-are 10–20 hops, 95% at most 15) — rather than the midpoint of the search range, since a
-responsive probe resolves with a single fast reply while a silent one costs a full confirmation
-window of timeouts.
-Because paths may contain unresponsive hops before the target, a timed-out TTL is first confirmed by
-probing the next `--trace_max_failures` TTLs; only if all stay silent does the search conclude
-it exceeded the target and continue in the lower half. Responding hops move the search deeper.
-
-Targets that turn out to be probe-responsive are handled too: a reply from the target itself
-(e.g., an ICMP Echo Reply) immediately closes the search with a destination-reached row
-(`addr` equals `trace_dst`), and its `rx` is the target's catchment measured directly.
-
-The search runs between `--trace_initial_hop` and `--trace_max_hop`; `--trace_timeout` and
-`--trace_max_failures` govern the per-hop timeout and the confirmation window. Output uses the
-traceroute format (see below).
-
-Tracemap uses its own statistically-motivated defaults for these options:
-
-| Option                 | tracemap default | anycast-traceroute default | Rationale                                                                                                                                                                            |
-|------------------------|------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--trace_initial_hop`  | 4                | 4                          | The first hops sit inside the probing PoP's own network; their catchment is trivially the prober                                                                                     |
-| `--trace_max_hop`      | 25               | 25                         | ≈ mean + 3σ of Internet path lengths (mean ≈ 12.6, σ ≈ 4), covering >99% of paths.                                                                                                   |
-| `--trace_max_failures` | 3                | 5                          | Consecutive non-responsive hops are predominantly 1–2 hops, so a window of 3 absorbs them; the linear gap limit of 5 detects end-of-path. For traceroute we favor completeness more. |
-
-Statistics sources:
-* **Path-length distribution** (mean ≈ 12.6 hops, σ ≈ 4; median ≈ 12):
-  [Begtašević & Van Mieghem, *Measurements of the Hopcount in Internet* (PAM 2001)](http://web.eng.ucsd.edu/~massimo/ECE158A/Handouts_files/hop-count.pdf); (NOTE outdated paper, find new sources)
-  live per-vantage-point path-length CCDFs: [CAIDA Ark monitor statistics](https://www.caida.org/projects/ark/statistics/)
-## CSV output format
-
-By default, results are written as gzip-compressed CSV files (`.csv.gz`).
-Measurement metadata is stored as `#`-prefixed comment lines at the top of the file, followed by a header row and data rows.
-
-### Columns
-
-All values are stored as text. Columns depend on the measurement type:
-
-| Column       | Type               | Description                                                                                                           | Measurement types                   |
-|--------------|--------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------|
-| `rx`         | `String`           | Hostname of the receiving worker (`*` for unresponsive trace hops — no reply was received)                            | All                                 |
-| `addr`       | `String`           | Source IP of the reply, or traceroute hop address (`*` if no reply)                                                   | All                                 |
-| `ttl`        | `String (integer)` | TTL of the reply                                                                                                      | All                                 |
-| `rtt`        | `String (float)`   | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note)        | Latency, Traceroute, LACeS          |
-| `tx`         | `String`           | Hostname of the sending worker                                                                                        | LACeS, Traceroute                   |
-| `trace_dst`  | `String`           | Traceroute destination IP address                                                                                     | Traceroute                          |
-| `hop_count`  | `String (integer)` | TTL used to trigger this hop reply                                                                                    | Traceroute                          |
-| `chaos_data` | `String`           | DNS TXT CHAOS record value                                                                                            | CHAOS                               |
-| `origin_id`  | `String (integer)` | Origin ID (multi-origin only)                                                                                         | Multi-origin                        |
-
-### Column order per measurement type
-
-| Measurement type  | Columns (in order)                                                |
-|-------------------|-------------------------------------------------------------------|
-| Catchment         | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`]              |
-| Latency           | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`]                        |
-| LACeS             | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
-| Traceroute        | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt`        |
-
-> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time.
-> It is the signed offset `rx_time - tx_time` (milliseconds).
-> Under anycast the probe sender (`tx`) and the reply receiver (`rx`) may be **different PoPs**,
-> and it can be **negative** when PoP clocks are slightly desynchronized.
-
-### Reading CSV files
-
-#### Python (pandas)
-
-```python
-import pandas as pd
-
-df = pd.read_csv("results.csv.gz", comment="#")
-```
-
-#### DuckDB
-
-```sql
-SELECT * FROM read_csv('results.csv.gz', comment='#');
-```
-
-## Parquet output format
-
-When using `--parquet`, results are written as Apache Parquet files with Zstd compression.
-Rows are sorted by `addr` within each row group (1M rows) for better compression and predicate pushdown.
-
-### Columns
-
-The schema is fixed per measurement type: every column the measurement type can produce is always present,
-and is null when unused (e.g., `origin_id` in a single-origin measurement).
-The "Populated by" column below indicates which measurements fill in actual values:
-
-| Column | Type | Description | Populated by |
-|--------|------|-------------|-------------------|
-| `rx` | `STRING` | Hostname of the receiving worker (null for unresponsive trace hops — no reply was received) | All |
-| `addr` | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (see below) | All |
-| `ttl` | `UINT8` | TTL of the reply | All |
-| `rtt` | `FLOAT` | Round-trip time in ms (Latency/Traceroute); for LACeS, the signed `rx_time - tx_time` offset in ms (see note) | Latency, Traceroute, LACeS (null for CHAOS replies) |
-| `tx` | `STRING` | Hostname of the sending worker | LACeS, Traceroute |
-| `trace_dst` | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address (see below) | Traceroute |
-| `hop_count` | `UINT8` | TTL used to trigger this hop reply | Traceroute |
-| `chaos_data` | `STRING` | DNS TXT CHAOS record value | CHAOS |
-| `origin_id` | `UINT8` | Origin ID (multi-origin only) | Multi-origin |
-
-> **LACeS `rtt`**: for LACeS the `rtt` column is not a true round-trip time — it is the signed offset `rx_time - tx_time` (milliseconds). Under anycast the probe sender (`tx`) and reply receiver (`rx`) may be **different PoPs**, so this is a one-way delay plus clock offset rather than a round-trip, and can be **negative** when PoP clocks are slightly desynchronised. For TCP the send time is a 21-bit microsecond value, so the value is the 21-bit-wrapped delta (`0`..~`2.097 s`) and is always non-negative.
-
-### File metadata
-
-Measurement provenance is stored in the Parquet file's key-value metadata:
-
-| Key | Description |
-|-----|-------------|
-| `format_version` | Version of the Parquet output format (currently `1`; bumped on incompatible changes) |
-| `tool_version` | MAnycastR version that produced the file |
-| `measurement_type` | Measurement type performed |
-| `start_time` / `end_time` | Measurement start and end (RFC 3339, UTC) |
-| `responsive_mode` | Present (`true`) when `--responsive` was used |
-| `hitlist_path` / `hitlist_length` / `hitlist_shuffled` | Hitlist used, its target count, and whether it was shuffled |
-| `probing_rate` | Probing rate (probes per second) |
-| `worker_interval_ms` | Interval between probes from different workers |
-| `probe_interval_s` / `number_of_probes` | Interval between and count of probes per origin,dst pair |
-| `record` / `url` | DNS record queried / URL encoded in probes (present when set) |
-| `connected_workers` / `connected_workers_count` | Hostnames and count of connected workers |
-| `configurations` | JSON array of origin definitions (`worker`, `origin_id`, `src`, `sport`, `dport`, `protocol`) — the mapping needed to interpret the `origin_id` column |
-
-### IP address encoding
-
-The `addr` column stores IP addresses as 16-byte fixed-length binary using IPv4-mapped-IPv6 format ([RFC 4291 Section 2.5.5.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.5.5.2)):
-
-* **IPv4** `192.0.2.1` is stored as `::ffff:192.0.2.1` (`00 00 00 00 00 00 00 00 00 00 FF FF C0 00 02 01`)
-* **IPv6** addresses are stored as-is in 16 bytes big-endian
-
-### Reading Parquet files
-
-#### Python (pyarrow / pandas)
-
-```python
-import pandas as pd
-import ipaddress
-
-df = pd.read_parquet("results.parquet")
-
-def parse_addr(b: bytes) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    """Parse a 16-byte IPv4-mapped-IPv6 address back to an IPv4 or IPv6 address."""
-    addr = ipaddress.ip_address(b)
-    # Convert IPv4-mapped-IPv6 (::ffff:x.x.x.x) back to IPv4
-    if hasattr(addr, 'ipv4_mapped') and addr.ipv4_mapped:
-        return addr.ipv4_mapped
-    return addr
-
-df["addr"] = df["addr"].apply(parse_addr)
-```
-
-#### DuckDB
-
-```sql
--- Load the parquet file
-CREATE TABLE results AS SELECT * FROM read_parquet('results.parquet');
-
--- IPv4: bytes 13-16 contain the address (1-indexed)
--- Check for IPv4-mapped prefix (bytes 11-12 = 0xFFFF, bytes 1-10 = 0x00)
-SELECT
-    rx,
-    CASE
-        WHEN addr[11:12] = '\xFF\xFF'::BLOB AND addr[1:10] = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'::BLOB
-        THEN printf('%d.%d.%d.%d',
-            get_byte(addr, 12), get_byte(addr, 13),
-            get_byte(addr, 14), get_byte(addr, 15))
-        ELSE encode(addr)
-    END AS ip_address,
-    ttl
-FROM results;
-```
-
-#### Polars
-
-```python
-import polars as pl
-import ipaddress
-
-df = pl.read_parquet("results.parquet")
-df = df.with_columns(
-    pl.col("addr").map_elements(
-        lambda b: str(ipaddress.ip_address(b).ipv4_mapped or ipaddress.ip_address(b)),
-        return_dtype=pl.Utf8,
-    ).alias("addr")
-)
-```
-
-## Installation
-
-### Cargo
-
----
-
-* Option 1. Download x86_64 musl binary
-
-#### Download
-```bash
-curl -L -o manycastr https://github.com/rhendriks/MAnycastR/releases/latest/download/manycastr
-chmod +x manycastr
-```
-
-#### Give permissions for opening raw sockets
-```bash
-sudo setcap cap_net_raw,cap_net_admin=eip manycastr
-```
-
----
-
-* Option 2. Build locally from source
-
-Requirements:
-* rustup
-* protobuf-compiler
-* gcc
-* musl-tools
-
-#### Install Rust via rustup
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-#### Install dependencies
-```bash
-apt-get install -y protobuf-compiler gcc musl-tools
-```
-
-#### Clone repo
-```bash
-git clone https://github.com/rhendriks/MAnycastR.git
-cd MAnycastR
-```
-
-#### Build  (recommendation is to build using a statically linked binary target for distribution)
-```bash
-cargo build --release
-```
-
-#### Move binary and set permissions (NOTE: path may differ when built using a specific target)
-```bash
-target/release/manycastr
-sudo setcap cap_net_raw,cap_net_admin=eip manycastr
-```
-
----
-
-Next, distribute the binary to the workers.
-
-### Docker
-
-#### Fetch the Docker image
-```bash
-docker pull ghcr.io/rhendriks/manycastr:latest
-```
-
-Alternatively clone the repo and build yourself.
-```bash
-docker build -t manycastr .
-```
-
-Run the container with --network host (so probes use the anycast/unicast addresses of the host).
-The container also needs `CAP_NET_RAW` to send and receive probes (see [Socket privileges](#socket-privileges)):
-```bash
-docker run -it --init --network host \
-  --cap-drop=ALL --cap-add=NET_RAW --read-only manycastr
-```
-
-## Contributions
-
-Issues and pull requests are welcome
+This allows for measuring the IP version differences for dual-stack anycast deployments.
+E.g., to compare how resolvers reach your authoritative nameserver using both IPv4 and IPv6.
+
+## Output formats
+
+Results are written to the path given by `-o` as gzip-compressed CSV (`.csv.gz`) by default,
+or as parquet with `--parquet`.
+Which columns are present depends on the measurement type.
+
+See **[docs/output.md](docs/output.md)** for the full column reference, the Parquet file metadata
+and IP address encoding, and snippets for reading results with pandas and DuckDB.
+
+## Running a shared deployment
+
+For infrastructure shared between users, the Orchestrator can cap the probing rate (`--max_rate`)
+and restrict the origins a CLI may use (`--origins`).
+This can be used to provide CLI access to external parties.
+We run such a set-up using TANGLED, please contact me if you are interested in running measurements.
+
+For security considerations we support
+CLI and Worker connections on separate ports (`--cli_port`).
+The inter-component gRPC connections also support TLS (`--tls`, `--tls_system`).
+
+See **[docs/deployment.md](docs/deployment.md)** for configuring these, generating certificates,
+using an internal CA, and keeping Workers connected across restarts.
+
+## Options reference
+
+Also available as `manycastr <orchestrator|worker|cli> --help` and `manycastr cli start --help`.
+
+### `manycastr orchestrator`
+
+| Option                  | Default                  | Description                                                            |
+|-------------------------|--------------------------|------------------------------------------------------------------------|
+| `-p`, `--port <PORT>`   | `50001`                  | Port to listen on                                                      |
+| `--cli_port <PORT>`     | shares `--port`          | Separate port for CLI connections                                      |
+| `-c`, `--config <FILE>` |                          | Static Worker hostname to ID mapping (see [example.map](example.map))  |
+| `--max_rate <RATE>`     | unlimited                | Maximum probing rate allowed for measurements (per second, per Worker) |
+| `--origins <FILE>`      | all allowed              | Origin allow-list restricting the origins CLIs may use                 |
+| `--tls <CERT>`          | off                      | Enable TLS with the certificate at this path                           |
+| `--tls_key <KEY>`       | `--tls` path with `.key` | Path to the TLS private key                                            |
+
+### `manycastr worker` and `manycastr cli`
+
+| Option                        | Default      | Description                                                          |
+|-------------------------------|--------------|----------------------------------------------------------------------|
+| `-a`, `--orchestrator <ADDR>` | required     | `address:port` of the Orchestrator                                   |
+| `-n`, `--hostname <NAME>`     | `$HOSTNAME`  | Hostname for this Worker (Worker only)                               |
+| `--tls <CERT>`                | off          | Enable TLS, authenticating the Orchestrator against this certificate |
+| `--tls_system`                | off          | Enable TLS, authenticating against the host's system trust store     |
+| `--tls_domain <NAME>`         | host in `-a` | Name to authenticate the Orchestrator as                             |
+
+The CLI takes a subcommand: `worker-list` (list connected Workers) or `start` (run a measurement).
+
+### `manycastr cli start`
+
+**Targets and origins**
+
+| Option                         | Default                                    | Description                                                              |
+|--------------------------------|--------------------------------------------|--------------------------------------------------------------------------|
+| `--hitlist <PATH>`             |                                            | Hitlist file (`.gz`/`.bz2` supported; ISI fsdb detected automatically)   |
+| `-t`, `--target <TARGETS>`     |                                            | Comma-separated target address(es), instead of `--hitlist`               |
+| `-a`, `--address <ADDR>`       | required                                   | Anycast source address, or `unicastv4`/`unicastv6`                       |
+| `-p`, `--p_type <TYPE>`        | `icmp`                                     | Protocol(s): `icmp`, `dns`, `tcp`, `chaos` (comma-separated for several) |
+| `-f`, `--configuration <CONF>` |                                            | Config file defining origins; conflicts with `-a`, `-s`, `-d`, `-p`      |
+| `-s`, `--sport <PORT>`         | `62321`                                    | Source port (DNS, TCP)                                                   |
+| `-d`, `--dport <PORT>`         | `63853`; `53` for `dns`/`chaos`            | Destination port                                                         |
+| `-q`, `--query <QUERY>`        | `example.org`; `hostname.bind` for `chaos` | DNS record to request                                                    |
+| `-u`, `--url <URL>`            |                                            | URL encoded in the probe payload (e.g. opt-out information)              |
+
+**Measurement**
+
+| Option                        | Default                              | Description                                                                                                                          |
+|-------------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `-m`, `--m_type <MODE>`       | `laces`                              | `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, `feed-trace`                                              |
+| `-r`, `--rate <RATE>`         | `1000`; `10` for traceroute/tracemap | Probing rate per Worker (packets per second)                                                                                         |
+| `-x`, `--selective <IDS>`     | all Workers                          | Workers that send probes, as IDs, hostnames, or globs (`us-*`); all Workers still listen                                             |
+| `-w`, `--worker_interval <N>` | `1`                                  | Seconds between different Workers' probes to the same target                                                                         |
+| `-i`, `--probe_interval <N>`  | `1`                                  | Seconds between probes from one Worker to the same target                                                                            |
+| `-c`, `--nprobes <N>`         | `1`                                  | Probes per origin,target pair (not counted against the probing rate)                                                                 |
+| `--responsive`                | off                                  | Screen targets for responsiveness before probing from all Workers; with ISI hitlists, try candidates in rank order until one replies |
+| `--shuffle`                   | off                                  | Shuffle the hitlist                                                                                                                  |
+| `--sessions`                  | off                                  | Enable feed sessions (`-m feed` only): report a per-reply `session` column                                                           |
+
+**Traceroute** (`anycast-traceroute`, `tracemap`, `feed-trace`)
+
+| Option                     | Default               | Description                                                                                  |
+|----------------------------|-----------------------|----------------------------------------------------------------------------------------------|
+| `--trace_initial_hop <N>`  | `4`                   | Starting TTL (skips hops within the PoP's own network)                                       |
+| `--trace_max_hop <N>`      | `25`                  | Maximum TTL (covers >99% of Internet path lengths)                                           |
+| `--trace_timeout <N>`      | `3`                   | Per-hop timeout in seconds                                                                   |
+| `--trace_max_failures <N>` | `5`; `3` for tracemap | Consecutive failures before advancing (tracemap: confirmation window past a silent midpoint) |
+| `--trace_star <BOOL>`      | `true`                | Emit a `*` row for unresponsive hops                                                         |
+
+**Output**
+
+| Option               | Default | Description                                                       |
+|----------------------|---------|-------------------------------------------------------------------|
+| `-o`, `--out <PATH>` | `./`    | Output file, or directory (trailing `/`) for a generated filename |
+| `--parquet`          | off     | Write `.parquet` instead of `.csv.gz`                             |
+| `--stream`           | off     | Stream results to stdout                                          |
 
+## Contributing
+
+Issues and pull requests are welcome.
 
 ## Citation
-MAnycastR as a tool for anycast censuses was developed for the following paper. Please cite this when using MAnycastR to perform anycast censuses.
+
+MAnycastR as a tool for anycast censuses was developed for the following paper.
+Please cite it when using MAnycastR to perform anycast censuses — `-m laces`.
+
 ```
 @inproceedings{10.1145/3730567.3764484,
       author = {Hendriks, Remi and Luckie, Matthew and Jonker, Mattijs and Sommese, Raffaele and van Rijswijk-Deij, Roland},
@@ -873,7 +543,6 @@ MAnycastR as a tool for anycast censuses was developed for the following paper. 
       address = {New York, NY, USA},
       url = {https://doi.org/10.1145/3730567.3764484},
       doi = {10.1145/3730567.3764484},
-      abstract = {IP anycast replicates an address at multiple locations to reduce latency and enhance resilience. Due to anycast's crucial role in the modern Internet, earlier research introduced tools to perform anycast censuses. The first, iGreedy, uses latency measurements from geographically dispersed locations to map anycast deployments. The second, MAnycast2, uses anycast to perform a census of other anycast networks. MAnycast2's advantage is speed and coverage but suffers from problems with accuracy, while iGreedy is highly accurate but slower using author-defined probing rates and costlier. In this paper we address the shortcomings of both systems and present LACeS (Longitudinal Anycast Census System). Taking MAnycast2 as a basis, we completely redesign its measurement pipeline, and add support for distributed probing, additional protocols (DNS over UDP, TCP SYN/ACK, and IPv6) and latency measurements similar to iGreedy. We validate LACeS on an anycast testbed with 32 globally distributed nodes, compare against an external anycast production deployment, extensive latency measurements with RIPE Atlas and cross-check over 60\% of detected anycast using operator ground truth that shows LACeS achieves high accuracy. Finally, we provide a longitudinal analysis of anycast, covering 17+months, showing LACeS achieves high precision. We make continual daily LACeS censuses available to the community and release the source code of the tool under a permissive open source license.},
       booktitle = {Proceedings of the 2025 ACM Internet Measurement Conference},
       pages = {445–461},
       numpages = {17},
@@ -882,15 +551,15 @@ MAnycastR as a tool for anycast censuses was developed for the following paper. 
       series = {IMC '25}
 }
 ```
-* Use `-m latency -a unicastv4` (or `unicastv6`) to perform GCD measurements (for iGreedy).
-* Use `-m laces` to perform anycast-based measurements (similar to [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf)).
----
-MAnycastR as a tool for detecting networks experiencing anycast site flipping was used for the following paper. Please cite this when using MAnycastR to detect anycast site flipping.
+
+MAnycastR as a tool for detecting networks experiencing anycast site flipping was used for the following paper.
+Please cite it when using MAnycastR to detect anycast site flipping.
+
 ```
 @ARTICLE{11268317,
       author={Hendriks, Remi and Jonker, Mattijs and van Rijswijk-Deij, Roland and Sommese, Raffaele},
-      journal={IEEE Transactions on Network and Service Management}, 
-      title={Load-Balancing Versus Anycast: A First Look at Operational Challenges}, 
+      journal={IEEE Transactions on Network and Service Management},
+      title={Load-Balancing Versus Anycast: A First Look at Operational Challenges},
       year={2025},
       volume={},
       number={},
@@ -899,5 +568,6 @@ MAnycastR as a tool for detecting networks experiencing anycast site flipping wa
       doi={10.1109/TNSM.2025.3636785}
 }
 ```
-* Use `--config` configuration-based probing to send probes with varied flow header fields (thus triggering load-balancers).
-* Use `-m anycast-traceroute` to perform anycast Paris traceroute measurements to determine where load-balancers (causing anycast site flipping) reside
+
+We are currently working on a paper describing MAnycastR as a tool itself.
+For now, we kindly ask you to cite the LACeS paper (first listed) when using MAnycastR for non-listed goals.

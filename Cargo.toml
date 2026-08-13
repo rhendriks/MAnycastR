@@ -1,6 +1,6 @@
 [package]
 name = "manycastr"
-version = "2.3.0"
+version = "2.3.1"
 edition = "2024"
 description = "Measure Anycast Routing (MAnycastR) — synchronized Internet measurements from a distributed set of anycast Points of Presence"
 repository = "https://github.com/rhendriks/MAnycastR"
@@ -18,7 +18,7 @@ futures-core = "0.3.33" # async runtime
 prettytable-rs = "0.10.0" # print worker-list
 prost = "0.14.4" # define gRPC messages
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] } # async runtime
-tonic = { version = "0.14.6", features = ["tls-ring", "zstd"] } # gRPC (inter-component communication)
+tonic = { version = "0.14.6", features = ["tls-ring", "tls-native-roots", "zstd"] } # gRPC (inter-component communication)
 rand = "0.10.2" # generate random numbers
 gethostname = "1.1.0" # get hostname
 socket2 = { version = "0.6.5", features = ["all"] }

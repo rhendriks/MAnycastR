@@ -1,3 +1,4 @@
+use crate::tls::TlsOptions;
 use clap::ArgMatches;
 use gethostname::gethostname;
 use std::error::Error;
@@ -27,9 +28,8 @@ impl Worker {
             .unwrap_or_else(|| gethostname().into_string().expect("Unable to get hostname"));
 
         let orc_addr = args.get_one::<String>("orchestrator").unwrap();
-        let cert_path = args.get_one::<String>("tls").map(String::as_str);
-        let tls_domain = args.get_one::<String>("tls_domain").map(String::as_str);
-        let grpc_client = Self::connect(orc_addr.to_owned(), cert_path, tls_domain).await?;
+        let tls = TlsOptions::from_args(args);
+        let grpc_client = Self::connect(orc_addr.to_owned(), &tls).await?;
 
         // Initialize a worker instance
         let mut worker = Self {

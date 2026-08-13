@@ -1,3 +1,4 @@
+use clap::ArgMatches;
 use log::{info, warn};
 use std::error::Error;
 use std::fs;
@@ -29,11 +30,61 @@ impl NameSource {
     }
 }
 
-/// Build the client-side TLS configuration used by workers and the CLI.
-///
-/// The file at `cert_path` holds the trust anchor, either the orchestrator's own (self-signed) certificate,
-/// the certificate of the CA that issued it, or a bundle of CA certificates.
-/// See `README.md` for certificate creation.
+/// The TLS settings of a worker or CLI, as given on the command line.
+pub struct TlsOptions<'a> {
+    /// Path to the trust anchor to verify the orchestrator against (`--tls`)
+    cert_path: Option<&'a str>,
+    /// Verify against the host's system trust store (`--tls_system`) (if true)
+    system_roots: bool,
+    /// The name to verify the orchestrator as, overriding the address (`--tls_domain`)
+    domain: Option<&'a str>,
+}
+
+impl<'a> TlsOptions<'a> {
+    /// Read the TLS settings from the parsed command-line arguments of a worker or CLI.
+    pub fn from_args(args: &'a ArgMatches) -> Self {
+        Self {
+            cert_path: args.get_one::<String>("tls").map(String::as_str),
+            system_roots: args.get_flag("tls_system"),
+            domain: args.get_one::<String>("tls_domain").map(String::as_str),
+        }
+    }
+
+    /// Whether the connection to the orchestrator is secured with TLS.
+    pub fn is_enabled(&self) -> bool {
+        self.cert_path.is_some() || self.system_roots
+    }
+
+    /// Build the client-side TLS configuration used by workers and the CLI.
+    ///
+    /// # Arguments
+    /// * `address` - the orchestrator address (`-a`), whose host names the orchestrator
+    ///
+    /// # Returns
+    /// A tonic [`ClientTlsConfig`] holding the trust anchors and the name to authenticate.
+    ///
+    /// # Errors
+    /// If the certificate file cannot be read or holds no PEM certificate.
+    pub fn client_config(&self, address: &str) -> Result<ClientTlsConfig, Box<dyn Error>> {
+        let Some(cert_path) = self.cert_path else {
+            // Use the trust store
+            let (server_name, source) = server_name(&[], address, self.domain);
+            info!(
+                "[TLS] Trusting the system trust store, authenticating orchestrator as '{server_name}' (from {})",
+                source.as_str()
+            );
+
+            return Ok(ClientTlsConfig::new()
+                .with_native_roots()
+                .domain_name(server_name));
+        };
+
+        // Use the provided certificate
+        client_config(cert_path, address, self.domain)
+    }
+}
+
+/// Build the client-side TLS configuration from a file of trust anchors.
 ///
 /// # Arguments
 /// * `cert_path` - path to the trust anchor to verify the orchestrator against
@@ -45,7 +96,7 @@ impl NameSource {
 ///
 /// # Errors
 /// If the certificate file cannot be read or holds no PEM certificate.
-pub fn client_config(
+fn client_config(
     cert_path: &str,
     address: &str,
     tls_domain: Option<&str>,
@@ -226,9 +277,11 @@ fn describe_served_chain(certificates: &[Pem], cert_path: &str) {
     if is_self_signed {
         info!("[TLS] The certificate is self-signed, clients must trust it directly (--tls)");
     } else if certificates.len() == 1 {
-        // Single certificate that is not self-signed -> clients must trust the CA
+        // Single certificate that is not self-signed -> clients must trust the CA.
         info!(
-            "[TLS] The certificate was issued by '{}', clients must trust that CA (--tls)",
+            "[TLS] The certificate was issued by '{}', clients must trust that CA (--tls); \
+            if it is an intermediate CA, append its certificate to {cert_path} (a full chain, \
+            leaf first), or clients will reject the connection with 'UnknownIssuer'",
             certificate.issuer()
         );
     } else {

@@ -2,6 +2,19 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.3.1] - 2026-08-13
+TLS trust store and restructuring README.
+
+
+### Added
+- **`--tls_system`** (worker, CLI) — authenticate the orchestrator against the host's trust system.
+  trust store.
+
+### Documentation
+- **Binary permissions** - removed mentions of cap_net_admin as this is not needed.
+- **Removed duplicate documentation** - reduced main.rs rustdoc to bare minimum rather than repeating the README.
+- **Restructured the README**.
+
 ## [2.3.0] - 2026-08-12
 TLS and connection hardening.
 
