@@ -81,7 +81,7 @@ sudo setcap cap_net_raw+ep target/release/manycastr
 Workers send and receive probes over **raw sockets** (`SOCK_RAW`),
 which require the `CAP_NET_RAW` capability (or sudo).
 For reference, the standard `ping` utility also has `CAP_NET_RAW` capabilities.
-The orchestrator and CLI run unprivileged and require no capabilities.
+The Orchestrator and CLI run unprivileged and require no capabilities.
 
 A raw socket is required as MAnycastR is an anycast measurement tool:
 replies to probes sent by one Worker may be received by *another* Worker.
@@ -114,7 +114,7 @@ If raw-socket privileges are a concern, bound the process further with nftables/
 manycastr orchestrator -p 50001
 ```
 
-**2. Start one or more workers.** The orchestrator address is `address:port`, where the address may
+**2. Start one or more Workers.** The Orchestrator address is `address:port`, where the address may
 be IPv4, IPv6, or a hostname (resolved at connect time):
 
 ```bash
@@ -123,7 +123,7 @@ manycastr worker -a [2001::1]:50001
 manycastr worker -a orchestrator.example.net:50001
 ```
 
-**3. Confirm the workers are connected:**
+**3. Confirm the Workers are connected:**
 
 ```bash
 manycastr cli -a [::1]:50001 worker-list
@@ -148,16 +148,28 @@ A deployment consists of three components:
 | Component        | Role                                                            |
 |------------------|-----------------------------------------------------------------|
 | **Orchestrator** | Central controller orchestrating measurements                   |
-| **CLI**          | Schedules measurements at the orchestrator and collects results |
+| **CLI**          | Schedules measurements at the Orchestrator and collects results |
 | **Worker**       | Deployed on anycast PoPs, sends and receives probes             |
 
 The CLI sends a measurement definition built from the arguments of its `start` command.
-The orchestrator instructs the workers to begin, and the workers stream results back to it.
-The orchestrator aggregates them (and may create follow-up tasks for some measurement types)
+The Orchestrator instructs the Workers to begin, and the Workers stream results back to it.
+The Orchestrator aggregates them (and may create follow-up tasks for some measurement types)
 and forwards them to the CLI, which writes the output file.
 
 Probes can be sent as ICMP ECHO requests (`-p icmp`), UDP DNS A record requests (`-p dns`),
 TCP SYN/ACK probes (`-p tcp`), or UDP DNS TXT CHAOS requests (`-p chaos`).
+
+### Origins
+
+An **origin** is the flow 5-tuple a probe is sent with:
+protocol, source address, source port, destination address, and destination port.
+Every field except the destination address — which comes from the target being probed — is
+configured, either directly with `-p`, `-a`, `-s`, and `-d`,
+or several at a time in a [configuration file](#configuration-files).
+
+A measurement may use more than one origin, in which case each target is probed once per origin,
+and replies carry an `origin_id` column identifying the origin that produced them.
+This is what makes multi-protocol, multi-prefix, and mixed IPv4/IPv6 measurements possible.
 
 ## Measurement types
 
@@ -170,7 +182,7 @@ manycastr cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a
 ```
 
 Simple catchment mapping to see which PoP catches each target.
-The hitlist is divided amongst the workers (round-robin),
+The hitlist is divided amongst the Workers (round-robin),
 so each target receives a single probe,
 and the receiving PoP is its catchment.
 
@@ -180,11 +192,11 @@ and the receiving PoP is its catchment.
 manycastr cli -a [::1]:50001 start -m laces --hitlist hitlist.txt -p icmp -a 10.0.0.0 --responsive
 ```
 
-Every worker probes every target, so a target is probed once per worker.
+Every Worker probes every target, so a target is probed once per Worker.
 Used to perform anycast censuses, with an extended version of [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf):
 a target whose replies end are received at several Worker PoPs is inferred to be anycast.
 With `--responsive`, targets are first probed from a single Worker to confirm probe responsiveness
-before being probed from all workers
+before being probed from all Workers
 
 ### latency
 
@@ -195,8 +207,8 @@ manycastr cli -a [::1]:50001 start -m latency --hitlist hitlist.txt -p tcp -a 10
 ```
 
 Each target receives two probes: a `discovery probe` establishing which PoP catches it,
-then a `measurement probe` from that catching worker, so that sender and receiver are the same PoP.
-Measurement probes respect the per-worker probing rate (`-r`).
+then a `measurement probe` from that catching Worker, so that sender and receiver are the same PoP.
+Measurement probes respect the per-Worker probing rate (`-r`).
 This means that the measurement time is non-deterministic as they are distributed based on the catchment distribution.
 The measurement will finish when the Worker with the largest catchment share finishes sending its `measurement probes`.
 
@@ -206,7 +218,7 @@ Unicast latency instead measures each target's RTT from *every* PoP:
 manycastr cli -a [::1]:50001 start -m latency --hitlist hitlistv6.txt -p icmp -a unicastv6 --responsive
 ```
 
-`-a unicastv4`/`-a unicastv6` creates an origin where each worker probes
+`-a unicastv4`/`-a unicastv6` creates an origin where each Worker probes
 from its own local unicast address of that IP version.
 Every Worker probes every target (like `-m laces`) which can also be combined with --responsive
 to avoid unnecessary probes for probe unresponsive targets.
@@ -267,9 +279,9 @@ Allows for feeding targets over stdin as NDJSON (or bare addresses).
 | Field     | Values                                                                                                        | Default                                 |
 |-----------|---------------------------------------------------------------------------------------------------------------|-----------------------------------------|
 | `dst`     | target address                                                                                                | required                                |
-| `worker`  | `"any"` (round-robin), a worker ID (`1`) or hostname (`"ams01"`), a hostname glob (`"us-*"`), or `"all"`      | `"any"`                                 |
+| `worker`  | `"any"` (round-robin), a Worker ID (`1`) or hostname (`"ams01"`), a hostname glob (`"us-*"`), or `"all"`      | `"any"`                                 |
 | `origin`  | an origin ID (`2`), or `"all"`                                                                                | first origin of the target's IP version |
-| `nprobes` | measurement probes to send per selected worker (1–255)                                                        | 1                                       |
+| `nprobes` | measurement probes to send per selected Worker (1–255)                                                        | 1                                       |
 | `session` | session ID for attribution with shared CLI set-ups (e.g., multiple web-interfaces connecting to the same CLI) | none                                    |
 
 Adding `--responsive` gates tasks involving multiple probes to a discovery probe first.
@@ -285,7 +297,7 @@ bgp-monitor | manycastr cli -a [::1]:50001 start -m feed -p icmp -a 10.0.0.0
 Notes:
 * Results are written as LACeS rows (`rx`, `addr`, `ttl`, `tx`, `rtt`), plus `session` with `--sessions`.
 * Session attribution is supported only for ICMP.
-* Origins must be shared among all workers (live mode does not support worker-specific origins).
+* Origins must be shared among all Workers (live mode does not support Worker-specific origins).
 
 ### feed-trace — live traceroute
 
@@ -304,7 +316,7 @@ which increases resource usage as there are no measurement hashes encoded in suc
 
 Notes:
 * Results are written as traceroute rows, with `probe_ttl` recording the TTL each probe was sent with.
-* Unrelated ICMP Time Exceeded are filtered by the orchestrator that tracks ongoing tasks.
+* Unrelated ICMP Time Exceeded are filtered by the Orchestrator that tracks ongoing tasks.
 
 ## Targets and hitlists
 
@@ -352,9 +364,8 @@ row 2 lists 2001:db8:1234::1, 2001:db8:1234::2a3f, and 2001:db8:1234::ec4a01 for
 
 ## Configuration files
 
-An *origin* is a combination of source address, ports, and protocol.
-Simple measurements define one via `-a`, `-s`, `-d`, and `-p`;
-a configuration file (`-f`) defines several, and may vary them per worker:
+A configuration file (`-f`) defines several [origins](#origins) at once,
+and may vary them per Worker:
 
 ```text
 # Worker, src_addr, src_port, dst_port, protocol
@@ -362,8 +373,8 @@ ALL, 10.0.0.0, 62321, 63853, icmp
 ALL, unicastv4, 62321, 63853, icmp
 ```
 
-The worker field is `ALL`, a worker ID, a hostname, or a hostname glob (`us-*`);
-workers listen for every anycast origin defined, regardless of which they probe with.
+The Worker field is `ALL`, a Worker ID, a hostname, or a hostname glob (`us-*`);
+Workers listen for every anycast origin defined, regardless of which they probe with.
 See [example.conf](example.conf) for the full syntax.
 Replies are tagged with an `origin_id` column identifying the origin that produced them.
 
@@ -426,17 +437,17 @@ and IP address encoding, and snippets for reading results with pandas and DuckDB
 
 ## Running a shared deployment
 
-For infrastructure shared between users, the orchestrator can cap the probing rate (`--max_rate`)
+For infrastructure shared between users, the Orchestrator can cap the probing rate (`--max_rate`)
 and restrict the origins a CLI may use (`--origins`).
 This can be used to provide CLI access to external parties.
 We run such a set-up using TANGLED, please contact me if you are interested in running measurements.
 
 For security considerations we support
-CLI and worker connections on separate ports (`--cli_port`).
+CLI and Worker connections on separate ports (`--cli_port`).
 The inter-component gRPC connections also support TLS (`--tls`, `--tls_system`).
 
 See **[docs/deployment.md](docs/deployment.md)** for configuring these, generating certificates,
-using an internal CA, and keeping workers connected across restarts.
+using an internal CA, and keeping Workers connected across restarts.
 
 ## Options reference
 
@@ -449,8 +460,8 @@ as the generated full reference in [docs/cli.md](docs/cli.md).
 |-------------------------|--------------------------|------------------------------------------------------------------------|
 | `-p`, `--port <PORT>`   | `50001`                  | Port to listen on                                                      |
 | `--cli_port <PORT>`     | shares `--port`          | Separate port for CLI connections                                      |
-| `-c`, `--config <FILE>` |                          | Static worker hostname to ID mapping (see [example.map](example.map))  |
-| `--max_rate <RATE>`     | unlimited                | Maximum probing rate allowed for measurements (per second, per worker) |
+| `-c`, `--config <FILE>` |                          | Static Worker hostname to ID mapping (see [example.map](example.map))  |
+| `--max_rate <RATE>`     | unlimited                | Maximum probing rate allowed for measurements (per second, per Worker) |
 | `--origins <FILE>`      | all allowed              | Origin allow-list restricting the origins CLIs may use                 |
 | `--tls <CERT>`          | off                      | Enable TLS with the certificate at this path                           |
 | `--tls_key <KEY>`       | `--tls` path with `.key` | Path to the TLS private key                                            |
@@ -459,13 +470,13 @@ as the generated full reference in [docs/cli.md](docs/cli.md).
 
 | Option                        | Default      | Description                                                          |
 |-------------------------------|--------------|----------------------------------------------------------------------|
-| `-a`, `--orchestrator <ADDR>` | required     | `address:port` of the orchestrator                                   |
-| `-n`, `--hostname <NAME>`     | `$HOSTNAME`  | Hostname for this worker (worker only)                               |
-| `--tls <CERT>`                | off          | Enable TLS, authenticating the orchestrator against this certificate |
+| `-a`, `--orchestrator <ADDR>` | required     | `address:port` of the Orchestrator                                   |
+| `-n`, `--hostname <NAME>`     | `$HOSTNAME`  | Hostname for this Worker (Worker only)                               |
+| `--tls <CERT>`                | off          | Enable TLS, authenticating the Orchestrator against this certificate |
 | `--tls_system`                | off          | Enable TLS, authenticating against the host's system trust store     |
-| `--tls_domain <NAME>`         | host in `-a` | Name to authenticate the orchestrator as                             |
+| `--tls_domain <NAME>`         | host in `-a` | Name to authenticate the Orchestrator as                             |
 
-The CLI takes a subcommand: `worker-list` (list connected workers) or `start` (run a measurement).
+The CLI takes a subcommand: `worker-list` (list connected Workers) or `start` (run a measurement).
 
 ### `manycastr cli start`
 
@@ -488,12 +499,12 @@ The CLI takes a subcommand: `worker-list` (list connected workers) or `start` (r
 | Option                        | Default                              | Description                                                                                                                          |
 |-------------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `-m`, `--m_type <MODE>`       | `laces`                              | `laces`, `catchment`, `latency`, `anycast-traceroute`, `tracemap`, `feed`, `feed-trace`                                              |
-| `-r`, `--rate <RATE>`         | `1000`; `10` for traceroute/tracemap | Probing rate per worker (packets per second)                                                                                         |
-| `-x`, `--selective <IDS>`     | all workers                          | Workers that send probes, as IDs, hostnames, or globs (`us-*`); all workers still listen                                             |
-| `-w`, `--worker_interval <N>` | `1`                                  | Seconds between different workers' probes to the same target                                                                         |
-| `-i`, `--probe_interval <N>`  | `1`                                  | Seconds between probes from one worker to the same target                                                                            |
+| `-r`, `--rate <RATE>`         | `1000`; `10` for traceroute/tracemap | Probing rate per Worker (packets per second)                                                                                         |
+| `-x`, `--selective <IDS>`     | all Workers                          | Workers that send probes, as IDs, hostnames, or globs (`us-*`); all Workers still listen                                             |
+| `-w`, `--worker_interval <N>` | `1`                                  | Seconds between different Workers' probes to the same target                                                                         |
+| `-i`, `--probe_interval <N>`  | `1`                                  | Seconds between probes from one Worker to the same target                                                                            |
 | `-c`, `--nprobes <N>`         | `1`                                  | Probes per origin,target pair (not counted against the probing rate)                                                                 |
-| `--responsive`                | off                                  | Screen targets for responsiveness before probing from all workers; with ISI hitlists, try candidates in rank order until one replies |
+| `--responsive`                | off                                  | Screen targets for responsiveness before probing from all Workers; with ISI hitlists, try candidates in rank order until one replies |
 | `--shuffle`                   | off                                  | Shuffle the hitlist                                                                                                                  |
 | `--sessions`                  | off                                  | Enable feed sessions (`-m feed` only): report a per-reply `session` column                                                           |
 

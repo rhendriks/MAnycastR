@@ -18,15 +18,15 @@ See the [README](../README.md#anycast-traceroute) for how to run them.
 UDP and TCP traceroute are Paris traceroute implementations:
 the flow 5-tuple (src IP, dst IP, protocol, sport, dport) is held **constant across all TTL values**,
 so ECMP load-balancers forward every probe of a trace along the same path.
-The per-probe identity (hop TTL, worker ID, send timestamp)
+The per-probe identity (hop TTL, Worker ID, send timestamp)
 is therefore encoded in header fields that are *not* part of the flow hash,
 and recovered from the ICMP Time Exceeded quote (original IP header + first 8 transport bytes):
 
 | Protocol | Identity carried in                                                                                            |
 |----------|----------------------------------------------------------------------------------------------------------------|
 | ICMP     | ICMP identifier + SEQ                                                                                          |
-| UDP      | UDP checksum (TTL + low worker bits) + IPv4 IP Identification / IPv6 Flow Label (high worker bits + timestamp) |
-| TCP      | TCP **SEQ** (worker + TTL + timestamp), copied into the **ACK** as well                                        |
+| UDP      | UDP checksum (TTL + low Worker bits) + IPv4 IP Identification / IPv6 Flow Label (high Worker bits + timestamp) |
+| TCP      | TCP **SEQ** (Worker + TTL + timestamp), copied into the **ACK** as well                                        |
 
 * An **intermediate** router's ICMP Time Exceeded
   is only *guaranteed* to quote the original IP header
@@ -36,8 +36,8 @@ and recovered from the ICMP Time Exceeded quote (original IP header + first 8 tr
   Therefore, we encode the identity in both the SEQ and ACK fields.
 
 > **Middlebox caveat (UDP traceroute):** middleboxes may rewrite the IPv4 IP Identification field or the IPv6 Flow Label.
-> If this happens the 14-bit transmit timestamp and the 2 high bits of the worker ID are lost;
-> path discovery still works, but the per-hop RTT cannot be computed and worker identification is limited to 256 workers.
+> If this happens the 14-bit transmit timestamp and the 2 high bits of the Worker ID are lost;
+> path discovery still works, but the per-hop RTT cannot be computed and Worker identification is limited to 256 Workers.
 
 ## Sockets
 

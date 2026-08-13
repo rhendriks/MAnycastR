@@ -13,11 +13,11 @@ Example: `anycast-latency-icmp-v4-1753363200.csv.gz`.
 
 | Column       | CSV type           | Parquet type               | Description                                                                        | Measurement types          |
 |--------------|--------------------|----------------------------|------------------------------------------------------------------------------------|----------------------------|
-| `rx`         | `String`           | `STRING`                   | Hostname of the receiving worker (`*`/null for unresponsive trace hops)            | All                        |
+| `rx`         | `String`           | `STRING`                   | Hostname of the receiving Worker (`*`/null for unresponsive trace hops)            | All                        |
 | `addr`       | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (`*` if no reply)                | All                        |
 | `ttl`        | `String (integer)` | `UINT8`                    | TTL of the reply                                                                   | All                        |
 | `rtt`        | `String (float)`   | `FLOAT`                    | Round-trip time in ms; for LACeS the signed `rx_time - tx_time` offset (see below) | Latency, Traceroute, LACeS |
-| `tx`         | `String`           | `STRING`                   | Hostname of the sending worker                                                     | LACeS, Traceroute          |
+| `tx`         | `String`           | `STRING`                   | Hostname of the sending Worker                                                     | LACeS, Traceroute          |
 | `trace_dst`  | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address                                                  | Traceroute                 |
 | `hop_count`  | `String (integer)` | `UINT8`                    | TTL used to trigger this hop reply                                                 | Traceroute                 |
 | `chaos_data` | `String`           | `STRING`                   | DNS TXT CHAOS record value                                                         | CHAOS                      |
@@ -88,9 +88,9 @@ Measurement metadata is stored as parquet metadata.
 | `responsive_mode`                                      | Present (`true`) when `--responsive` was used                                                                                                          |
 | `hitlist_path` / `hitlist_length` / `hitlist_shuffled` | Hitlist used, its target count, and whether it was shuffled                                                                                            |
 | `probing_rate`                                         | Probing rate (probes per second)                                                                                                                       |
-| `worker_interval_ms`                                   | Interval between probes from different workers                                                                                                         |
+| `worker_interval_ms`                                   | Interval between probes from different Workers                                                                                                         |
 | `probe_interval_s` / `number_of_probes`                | Interval between and count of probes per origin,dst pair                                                                                               |
 | `record` / `url`                                       | DNS record queried / URL encoded in probes (present when set)                                                                                          |
-| `connected_workers` / `connected_workers_count`        | Hostnames and count of connected workers                                                                                                               |
+| `connected_workers` / `connected_workers_count`        | Hostnames and count of connected Workers                                                                                                               |
 | `configurations`                                       | JSON array of origin definitions (`worker`, `origin_id`, `src`, `sport`, `dport`, `protocol`) — the mapping needed to interpret the `origin_id` column |
 
