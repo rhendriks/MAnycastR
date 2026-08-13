@@ -8,7 +8,7 @@ use crate::custom_module::manycastr::{
     CliMessage, MeasurementType, ReplyBatch, ScheduleMeasurement, cli_message,
 };
 use crate::custom_module::{Separated, has_anycast_origin};
-use crate::tls::client_config;
+use crate::tls::TlsOptions;
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use chrono::Local;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -385,24 +385,22 @@ impl CliClient {
     ///
     /// # Arguments
     /// * `address` - the address of the orchestrator (e.g., 10.10.10.10:50051)
-    /// * `cert_path` - an optional path to the orchestrator's certificate (if TLS is enabled)
-    /// * `tls_domain` - an optional name to authenticate the orchestrator as (`--tls_domain`)
+    /// * `tls` - the TLS settings given on the command line
     ///
     /// # Returns
     /// A gRPC client that is connected to the orchestrator
     ///
     /// # Remarks
-    /// When `cert_path` is set, the connection is secured using TLS.
+    /// When TLS is enabled, the connection is secured and the orchestrator authenticated.
     pub(crate) async fn connect(
         address: &str,
-        cert_path: Option<&str>,
-        tls_domain: Option<&str>,
+        tls: &TlsOptions<'_>,
     ) -> Result<ControllerClient<Channel>, Box<dyn Error>> {
-        let scheme = if cert_path.is_some() { "https" } else { "http" };
+        let scheme = if tls.is_enabled() { "https" } else { "http" };
         let mut endpoint = Channel::from_shared(format!("{scheme}://{address}"))?;
 
-        if let Some(cert_path) = cert_path {
-            endpoint = endpoint.tls_config(client_config(cert_path, address, tls_domain)?)?;
+        if tls.is_enabled() {
+            endpoint = endpoint.tls_config(tls.client_config(address)?)?;
         }
 
         let channel = endpoint.connect().await.map_err(|e| format!("{e:?}"))?;
