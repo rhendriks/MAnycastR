@@ -1,226 +1,29 @@
 //! # MAnycastR
 //!
-//! MAnycastR (Measuring Anycast Reloaded) is a tool designed to measure anycast infrastructure.
+//! MAnycastR (Measure Anycast Routing) performs synchronized Internet measurements from a
+//! distributed set of anycast Points of Presence (PoPs): catchment mapping, anycast and unicast
+//! latency, anycast traceroute, and anycast censuses. IPv4 and IPv6 are both supported, over
+//! ICMP, UDP (DNS), and TCP.
 //!
-//! This includes:
-//!
-//! i) Measuring anycast infrastructure itself
-//! * [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) (mapping anycast catchments)
-//! * [Site flipping](https://arxiv.org/pdf/2503.14351) (detecting network regions experiencing anycast site flipping)
-//! * Anycast latency (measuring RTT between ping-responsive targets and the anycast infrastructure)
-//! * Optimal deployment (measuring 'best' deployment using unicast latencies from all sites)
-//! * Multi-deployment probing (measure multiple anycast prefixes simultaneously)
-//! * Anycast traceroute (measuring the path from Anycast deployment to targets using traceroute with an anycast source address)
-//! * Traceroute catchment mapping (utilizing anycast traceroute to infer catchments for intermediate routers/ASes that send `TTL Time Exceeded` replies)
-//!
-//! ii) Measuring external anycast infrastructure
-//! * [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) (measuring anycast using anycast)
-//! * [iGreedy](https://anycast.telecom-paristech.fr/assets/papers/JSAC-16.pdf) (measuring anycast using Great-Circle-Distance latency measurements)
-//!
-//! Both IPv4 and IPv6 measurements are supported, with underlying protocols ICMP, UDP (DNS), and TCP.
-//! Mixed measurements are supported, e.g., to measure/compare IPv4 and IPv6 for dual-stack deployments.
+//! These pages document the internals. For installation, usage, measurement types, and output
+//! formats, see the
+//! [README](https://github.com/rhendriks/MAnycastR#readme), or run `manycastr cli start --help`.
 //!
 //! # The components
 //!
-//! Deployment of MAnycastR consists of three components:
+//! A deployment consists of three components, each a subcommand of the `manycastr` binary:
 //!
 //! * [Orchestrator](orchestrator) - a central controller orchestrating measurements
-//! * [CLI](cli) - Command-line interface scheduling measurements at the orchestrator and collecting results
-//! * [Worker](worker) - worker deployed on anycast sites, performing measurements
+//! * [CLI](cli) - command-line interface scheduling measurements at the orchestrator and collecting results
+//! * [Worker](worker) - deployed on anycast PoPs, performing measurements
 //!
-//! # Measurement process
+//! The CLI sends a measurement definition to the orchestrator, which instructs the workers to
+//! start the measurement. Workers send probes and receive replies, streaming results back to the
+//! orchestrator, which aggregates them (creating follow-up tasks where the measurement type calls
+//! for it) and forwards them to the CLI, which writes the output file.
 //!
-//! A measurement is started by running the CLI, which can be executed e.g., locally or on a VM.
-//! The CLI sends a measurement definition based on the arguments provided when running the `start` command.
-//! Example commands will be provided in the Usage section.
-//!
-//! Upon receiving a measurement definition, the orchestrator instructs the workers to start the measurement.
-//! Workers perform measurements by sending and receiving probes.
-//!
-//! Workers stream results to the orchestrator, which aggregates and forwards them to the CLI.
-//! The CLI writes results to a CSV file.
-//!
-//! # Supported protocols
-//!
-//! Measurements can be;
-//! * `icmp` ICMP ECHO requests
-//! * `dns` UDP DNS A Record requests
-//! * `tcp` TCP SYN/ACK probes
-//! * `chaos` UDP DNS TXT CHAOS requests
-//!
-//! Both IPv4 and IPv6 are supported.
-//!
-//! # Measurement parameters
-//!
-//! When creating a measurement, many parameters and options are available (see `cli start --help`)
-//!
-//! ## Measurement Types
-//! * **catchment** - implementation of [Verfploeter](https://ant.isi.edu/~johnh/PAPERS/Vries17b.pdf) using a divide-and-conquer method for rapid catchment mappings
-//! * **laces** - sending anycast probes from all PoPs to the target (used for LACeS anycast censuses)
-//! * **latency** - measuring latencies (RTT between target and the anycast infrastructure, or unicast RTTs from all PoPs)
-//! * **anycast-traceroute** - measure path from anycast deployment to target using a Paris traceroute implementation with an anycast source address
-//! * **tracemap** - map catchment of unresponsive targets by finding nearby hops that reply with ICMP Time Exceeded
-//! * **feed** - live measurement: NDJSON targets are streamed over stdin and probed as they arrive, until EOF/Ctrl+C
-//! * **feed-trace** - live measurement with TTL-limited probes supported (per-target `ttl` field, default 255)
-//!
-//! # Usage
-//!
-//! First, run the central orchestrator.
-//! ```
-//! orchestrator -p [PORT NUMBER]
-//! ```
-//!
-//! Workers and CLIs share this port by default.
-//! The CLI may be configured to use a separate port with `--cli_port [PORT NUMBER]`
-//! to constrain CLI access separately (e.g., using iptables).
-//!
-//! Next, run one or more workers.
-//! ```
-//! worker -a [ORC ADDRESS]
-//! ```
-//!
-//! Orchestrator address has format address:port.
-//! Address can be an IPv4, IPv6 address, or a hostname.
-//!
-//! TLS is enabled with `--tls [PATH]`.
-//! The orchestrator takes its certificate and its private key (`--tls_key`); the certificate
-//! file also holds any intermediate CA certificates linking it to the CA that clients trust.
-//! Workers and CLIs take the certificate they trust: the orchestrator's own self-signed
-//! certificate, the CA that issued it, or a CA bundle. With `--tls_system` the host's own
-//! trust store is used instead.
-//! The orchestrator is authenticated as the host given in `-a`, or as `--tls_domain [NAME]`.
-//!
-//! To confirm that the workers are connected, you can run the worker-list command on the CLI.
-//! ```
-//! cli -a [ORC ADDRESS] worker-list
-//! ```
-//!
-//! Finally, you can perform a measurement.
-//! ```
-//! cli -a [ORC ADDRESS] start [parameters]
-//! ```
-//!
-//! ## Examples
-//!
-//! ### Catchment mapping using ICMPv4
-//!
-//! ```
-//! cli -a [::1]:50001 start -m catchment --hitlist hitlist.txt -p icmp -a 10.0.0.0 -o results.csv.gz -r 1000
-//! ```
-//!
-//! All workers probe the targets in hitlist.txt using ICMPv4, using source address 10.0.0.0, results are stored in results.csv.gz
-//! Each hitlist target receives a single probe from any worker.
-//! Catchment is inferred based on where the ping reply ends up.
-//!
-//! Hitlist is divided amongst workers, each worker sends out 1,000 packets per second (-r 1000)
-//!
-//! ### Anycast latency measurement using TCPv4
-//!
-//! ```
-//! cli -a [::1]:50001 start --hitlist hitlist.txt -p tcp -a 10.0.0.0 -m latency
-//! ```
-//!
-//! Similar as above, except the RTT between each hitlist target and the anycast deployment is also measured.
-//! Each hitlist target receives 2 probes.
-//! The first probe is a `discovery probe` to infer the catching worker for that target (i.e., to which PoP does this target route).
-//! The second probe is a `measurement probe` send from the catching worker to measure the latency (sender == receiver).
-//!
-//! ### Unicast latency measurement using ICMPv6
-//!
-//! ```
-//! cli -a [::1]:50001 start --hitlist hitlistv6.txt -p icmp -m latency -a unicastv6
-//! ```
-//!
-//! With `-a unicastv6` (or `-a unicastv4`) each worker probes from its own local unicast address of that IP version.
-//! Unicast probes will be sent from all workers to measure the latency of the target to all PoPs.
-//! Each hitlist target receives a single probe from every worker.
-//! Using the lowest unicast RTT, the 'optimal' PoP for that target can be inferred.
-//! Furthermore, if the target does not currently route optimally, the performance gain can be estimated (subtracting the lowest unicast RTT from the actual anycast RTT).
-//!
-//! ### LACeS measurement
-//!
-//! ```
-//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m laces --responsive
-//! ```
-//!
-//! Anycast probes will be sent from all workers.
-//! Each hitlist target receives a single probe from every worker.
-//! Used to e.g., perform [MAnycast2](https://www.sysnet.ucsd.edu/sysnet/miscpapers/manycast2-imc20.pdf) anycast censuses.
-//! Targets are scanned for responsiveness, using a single worker probe, before probing from all workers (--responsive).
-//!
-//! ### Anycast traceroute measurement
-//!
-//! ```
-//! cli -a [::1]:50001 start --hitlist hitlist.txt -p icmp -m anycast-traceroute
-//! ```
-//!
-//! Measure the path from the catching PoP to the target.
-//! First, a single `discovery probe` is sent to infer the catching worker.
-//! Next, multiple traceroute packets are sent from the catching worker to measure the path.
-//!
-//! # Requirements
-//!
-//! * rustup
-//! * protobuf-compiler
-//! * musl-tools
-//! * gcc
-//!
-//! # Installation
-//!
-//! ## Cargo (static binary)
-//!
-//! ### Install rustup
-//! ```bash
-//! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-//! source $HOME/.cargo/env
-//! ```
-//!
-//! ### Install dependencies
-//! ```bash
-//! apt-get install -y protobuf-compiler gcc musl-tools
-//! ```
-//!
-//! ### Install musl target
-//! ```bash
-//! rustup target add x86_64-unknown-linux-musl
-//! ```
-//!
-//! ### Clone the repository
-//! ```bash
-//! git clone <repo>
-//! cd <repo_dir>
-//! ```
-//!
-//! ### Compile the code (16 MB binary)
-//! ```bash
-//! cargo build --release --target x86_64-unknown-linux-musl
-//! ```
-//!
-//! ### Optionally strip the binary (16 MB -> 7.7 MB)
-//! ```bash
-//! strip target/x86_64-unknown-linux-musl/release/manycast
-//! ```
-//!
-//! Next, distribute the binary to the workers.
-//!
-//! All measurements use raw sockets, so workers need sudo or CAP_NET_RAW
-//! (the orchestrator and CLI run unprivileged):
-//! ```bash
-//! sudo setcap cap_net_raw+ep manycast
-//! ```
-//!
-//! ## Docker
-//!
-//! ### Build the Docker image
-//! ```bash
-//! docker build -t manycast .
-//! ```
-//!
-//! Advise is to run the container with network host mode.
-//! Additionally, the container needs the CAP_NET_RAW capability to send out packets.
-//! ```bash
-//! docker run -it --network host --cap-drop=ALL --cap-add=NET_RAW manycast
-//! ```
+//! Supporting modules: [net] (packet construction and parsing), [tls] (transport security for the
+//! inter-component gRPC connections), and [custom_module] (generated gRPC types).
 use clap::builder::{ArgPredicate, PossibleValuesParser};
 use clap::{ArgAction, ArgGroup, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
