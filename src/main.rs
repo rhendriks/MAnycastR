@@ -130,10 +130,6 @@ fn main() {
 
 /// Parse command line arguments using clap
 fn parse_cmd() -> ArgMatches {
-    cli().get_matches()
-}
-
-fn cli() -> Command {
     Command::new("manycastr")
         .version(env!("GIT_HASH"))
         .author("Remi Hendriks <remi.hendriks@utwente.nl>")
@@ -238,4 +234,5 @@ fn cli() -> Command {
                     .arg(arg!(-u --url <URL> "URL encoded in probe payload (e.g., opt-out URL)"))
                 )
             )
+        .get_matches()
 }

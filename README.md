@@ -36,8 +36,7 @@ Documentation of the code itself is available via [rustdoc](https://rhendriks.gi
 Further documentation lives in [docs/](docs):
 [deployment](docs/deployment.md) ·
 [output formats](docs/output.md) ·
-[traceroute internals](docs/traceroute.md) ·
-[generated CLI reference](docs/cli.md)
+[traceroute internals](docs/traceroute.md)
 
 ## Installation
 
@@ -451,8 +450,7 @@ using an internal CA, and keeping Workers connected across restarts.
 
 ## Options reference
 
-Also available as `manycastr <orchestrator|worker|cli> --help` and `manycastr cli start --help`, or
-as the generated full reference in [docs/cli.md](docs/cli.md).
+Also available as `manycastr <orchestrator|worker|cli> --help` and `manycastr cli start --help`.
 
 ### `manycastr orchestrator`
 

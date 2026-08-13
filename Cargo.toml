@@ -44,6 +44,3 @@ lto = "fat"           # link-time optimization
 codegen-units = 1     # compiling optimization
 panic = "abort"       # remove stack unwinding code
 strip = true          # reduce binary size
-
-[dev-dependencies]
-clap-markdown = "0.1.5"

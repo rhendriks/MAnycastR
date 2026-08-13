@@ -14,7 +14,6 @@ TLS trust store and restructuring README.
 - **Binary permissions** - removed mentions of cap_net_admin as this is not needed.
 - **Removed duplicate documentation** - reduced main.rs rustdoc to bare minimum rather than repeating the README.
 - **Restructured the README**.
-- **Generated CLI reference** - `docs/cli.md` is generated from the clap definition with `clap-markdown`.
 
 ## [2.3.0] - 2026-08-12
 TLS and connection hardening.
