@@ -14,12 +14,12 @@
 //! A deployment consists of three components, each a subcommand of the `manycastr` binary:
 //!
 //! * [Orchestrator](orchestrator) - a central controller orchestrating measurements
-//! * [CLI](cli) - command-line interface scheduling measurements at the orchestrator and collecting results
+//! * [CLI](cli) - command-line interface scheduling measurements at the Orchestrator and collecting results
 //! * [Worker](worker) - deployed on anycast PoPs, performing measurements
 //!
-//! The CLI sends a measurement definition to the orchestrator, which instructs the workers to
+//! The CLI sends a measurement definition to the Orchestrator, which instructs the Workers to
 //! start the measurement. Workers send probes and receive replies, streaming results back to the
-//! orchestrator, which aggregates them (creating follow-up tasks where the measurement type calls
+//! Orchestrator, which aggregates them (creating follow-up tasks where the measurement type calls
 //! for it) and forwards them to the CLI, which writes the output file.
 //!
 //! Supporting modules: [net] (packet construction and parsing), [tls] (transport security for the
@@ -87,7 +87,7 @@ fn main() {
     let matches = parse_cmd();
 
     if let Some(worker_matches) = matches.subcommand_matches("worker") {
-        info!("[Main] Executing worker version {}", env!("GIT_HASH"));
+        info!("[Main] Executing Worker version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -97,7 +97,7 @@ fn main() {
         rt.block_on(async {
             if let Err(e) = worker::Worker::new(worker_matches).await {
                 error!(
-                    "[Worker] Unable to connect to the orchestrator (check -a, --tls, and that the orchestrator is running): {e}"
+                    "[Worker] Unable to connect to the Orchestrator (check -a, --tls, and that the Orchestrator is running): {e}"
                 );
                 exit(1);
             }
@@ -110,7 +110,7 @@ fn main() {
             exit(1);
         }
     } else if let Some(server_matches) = matches.subcommand_matches("orchestrator") {
-        info!("[Main] Executing orchestrator version {}", env!("GIT_HASH"));
+        info!("[Main] Executing Orchestrator version {}", env!("GIT_HASH"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -140,7 +140,7 @@ fn cli() -> Command {
         .about("Performs synchronized Internet measurement from a distributed set of anycast Points of Presence (PoPs)")
         .subcommand_required(true)
         .subcommand(
-            Command::new("orchestrator").about("Launches the MAnycastR orchestrator")
+            Command::new("orchestrator").about("Launches the MAnycastR Orchestrator")
                 .arg(arg!(-p --port <PORT> "Port to listen on").value_parser(value_parser!(u16)).default_value("50001"))
                 .arg(arg!(--cli_port <PORT> "Port for CLI (default: CLI shares the --port listener)")
                     .value_parser(value_parser!(u16)))
@@ -148,30 +148,30 @@ fn cli() -> Command {
                 .arg(arg!(--tls_key <KEY> "Path to the TLS private key (default: the --tls path with a .key extension)")
                     .requires("tls"))
                 .arg(arg!(-c --config <FILE> "Worker hostname to IDs configuration").value_parser(value_parser!(String)))
-                .arg(arg!(--max_rate <RATE> "Maximum probing rate allowed for measurements (probes per second, per worker; optional)")
+                .arg(arg!(--max_rate <RATE> "Maximum probing rate allowed for measurements (probes per second, per Worker; optional)")
                     .value_parser(value_parser!(u32)))
                 .arg(arg!(--origins <FILE> "Origin allow-list restricting the origins CLIs may use ('src_addr, protocol[, protocol...]' per line; 'all' allows all protocols)")
                     .value_parser(value_parser!(String)))
         )
         .subcommand(
-            Command::new("worker").about("Launches the MAnycastR worker")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
-                .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
-                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
-                .arg(arg!(--tls_system "Enable TLS, authenticating the orchestrator against the host's system trust store"))
+            Command::new("worker").about("Launches the MAnycastR Worker")
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the Orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
+                .arg(arg!(-n --hostname <NAME> "hostname for this Worker (default: $HOSTNAME)"))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the Orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_system "Enable TLS, authenticating the Orchestrator against the host's system trust store"))
                 .group(ArgGroup::new("tls_mode").args(["tls", "tls_system"]))
-                .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
+                .arg(arg!(--tls_domain <NAME> "Name to authenticate the Orchestrator as (default: the host in -a)")
                     .requires("tls_mode"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
-                .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
-                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
-                .arg(arg!(--tls_system "Enable TLS, authenticating the orchestrator against the host's system trust store"))
+                .arg(arg!(-a --orchestrator <ADDR> "address:port of the Orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
+                .arg(arg!(--tls <CERT> "Enable TLS, authenticating the Orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_system "Enable TLS, authenticating the Orchestrator against the host's system trust store"))
                 .group(ArgGroup::new("tls_mode").args(["tls", "tls_system"]))
-                .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
+                .arg(arg!(--tls_domain <NAME> "Name to authenticate the Orchestrator as (default: the host in -a)")
                     .requires("tls_mode"))
-                .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
+                .subcommand(Command::new("worker-list").about("retrieves a list of currently connected Workers from the Orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz or .bz2 compressed; ISI fsdb hitlists are detected automatically)")
                         .value_parser(value_parser!(String))
@@ -188,18 +188,18 @@ fn cli() -> Command {
                         .value_parser(PossibleValuesParser::new(["laces", "catchment", "latency", "anycast-traceroute", "tracemap", "feed", "feed-trace"]))
                         .default_value("laces")
                         .ignore_case(true))
-                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each worker's local unicast address")
+                    .arg(arg!(-a --address <ADDR> "Anycast source address, or 'unicastv4'/'unicastv6' to probe from each Worker's local unicast address")
                         .conflicts_with("configuration")
                         .required_unless_present("configuration"))
                     .arg(arg!(-f --configuration <CONF> "Path to config file").conflicts_with_all(["address", "sport", "dport", "p_type"]))
-                    .arg(arg!(-r --rate <RATE> "Probing rate at each worker (packets per second)")
+                    .arg(arg!(-r --rate <RATE> "Probing rate at each Worker (packets per second)")
                         .value_parser(value_parser!(u32))
                         .default_value_ifs([
                             ("m_type", ArgPredicate::Equals("anycast-traceroute".into()), Some("10")),
                             ("m_type", ArgPredicate::Equals("tracemap".into()), Some("10")),
                         ])
                         .default_value("1000"))
-                    .arg(arg!(selective: -x --selective <IDS> "List of worker IDs/hostnames that send probes [worker_id1,worker_id2,...]"))
+                    .arg(arg!(selective: -x --selective <IDS> "List of Worker IDs/hostnames that send probes [worker_id1,worker_id2,...]"))
                     .arg(arg!(-o --out <PATH> "Optional path/filename to write output").default_value("./"))
                     .arg(arg!(--parquet "Write as .parquet (instead of .csv.gz)").action(ArgAction::SetTrue))
                     .arg(arg!(--stream "Stream to stdout").action(ArgAction::SetTrue))
@@ -218,8 +218,8 @@ fn cli() -> Command {
                         .value_parser(value_parser!(u32))
                         .default_value("4"))
                     .arg(arg!(--trace_star <BOOL> "Emit a '*' hop to the output for unresponsive (timed-out) hops").value_parser(value_parser!(bool)).default_value("true"))
-                    .arg(arg!(-w --worker_interval <N> "Interval between workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
-                    .arg(arg!(-i --probe_interval <N> "Interval between probes from the same worker to the same target").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-w --worker_interval <N> "Interval between Workers for probes to the same target").value_parser(value_parser!(u32)).default_value("1"))
+                    .arg(arg!(-i --probe_interval <N> "Interval between probes from the same Worker to the same target").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-c --nprobes <N> "Number of probes to send for each origin,target pair [NOTE: violates probing rate]").value_parser(value_parser!(u32)).default_value("1"))
                     .arg(arg!(-s --sport <PORT> "Source port to use (DNS,UDP)").value_parser(value_parser!(u16)).default_value("62321"))
                     .arg(arg!(-d --dport <PORT> "Destination port to use (default DNS/CHAOS: 53, TCP: 63853)")
