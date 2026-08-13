@@ -83,9 +83,11 @@
 //! Address can be an IPv4, IPv6 address, or a hostname.
 //!
 //! TLS is enabled with `--tls [PATH]`.
-//! The orchestrator takes its certificate and its private key (`--tls_key`).
+//! The orchestrator takes its certificate and its private key (`--tls_key`); the certificate
+//! file also holds any intermediate CA certificates linking it to the CA that clients trust.
 //! Workers and CLIs take the certificate they trust: the orchestrator's own self-signed
-//! certificate, the CA that issued it, or a CA bundle.
+//! certificate, the CA that issued it, or a CA bundle. With `--tls_system` the host's own
+//! trust store is used instead.
 //! The orchestrator is authenticated as the host given in `-a`, or as `--tls_domain [NAME]`.
 //!
 //! To confirm that the workers are connected, you can run the worker-list command on the CLI.
@@ -201,10 +203,10 @@
 //!
 //! Next, distribute the binary to the workers.
 //!
-//! For ICMP, DNS measurements (no traceroute), workers can run without sudo.
-//! For TCP, or traceroute measurements, workers need sudo or CAP_NET_RAW:
+//! All measurements use raw sockets, so workers need sudo or CAP_NET_RAW
+//! (the orchestrator and CLI run unprivileged):
 //! ```bash
-//! sudo setcap cap_net_raw,cap_net_admin=eip manycast
+//! sudo setcap cap_net_raw+ep manycast
 //! ```
 //!
 //! ## Docker
@@ -215,12 +217,12 @@
 //! ```
 //!
 //! Advise is to run the container with network host mode.
-//! Additionally, the container needs the CAP_NET_RAW and CAP_NET_ADMIN capability to send out packets.
+//! Additionally, the container needs the CAP_NET_RAW capability to send out packets.
 //! ```bash
-//! docker run -it --network host --cap-add=NET_RAW --cap-add=NET_ADMIN manycast
+//! docker run -it --network host --cap-drop=ALL --cap-add=NET_RAW manycast
 //! ```
 use clap::builder::{ArgPredicate, PossibleValuesParser};
-use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
+use clap::{ArgAction, ArgGroup, ArgMatches, Command, arg, value_parser};
 use log::{error, info};
 use pretty_env_logger::formatted_builder;
 use std::io::Write;
@@ -349,15 +351,19 @@ fn parse_cmd() -> ArgMatches {
                 .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
                 .arg(arg!(-n --hostname <NAME> "hostname for this worker (default: $HOSTNAME)"))
                 .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_system "Enable TLS, authenticating the orchestrator against the host's system trust store"))
+                .group(ArgGroup::new("tls_mode").args(["tls", "tls_system"]))
                 .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
-                    .requires("tls"))
+                    .requires("tls_mode"))
         )
         .subcommand(
             Command::new("cli").about("MAnycastR CLI")
                 .arg(arg!(-a --orchestrator <ADDR> "address:port of the orchestrator (e.g., 10.0.0.0:50001, [::1]:50001, or orchestrator.example.net:50001)").required(true))
                 .arg(arg!(--tls <CERT> "Enable TLS, authenticating the orchestrator against the certificate at the given path (its own certificate, or the CA that issued it)"))
+                .arg(arg!(--tls_system "Enable TLS, authenticating the orchestrator against the host's system trust store"))
+                .group(ArgGroup::new("tls_mode").args(["tls", "tls_system"]))
                 .arg(arg!(--tls_domain <NAME> "Name to authenticate the orchestrator as (default: the host in -a)")
-                    .requires("tls"))
+                    .requires("tls_mode"))
                 .subcommand(Command::new("worker-list").about("retrieves a list of currently connected workers from the orchestrator"))
                 .subcommand(Command::new("start").about("performs a hitlist-based measurement")
                     .arg(arg!(--hitlist <PATH> "Path to the hitlist file (can be .gz or .bz2 compressed; ISI fsdb hitlists are detected automatically)")
