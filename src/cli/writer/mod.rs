@@ -154,6 +154,10 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
             let origin_id = task_result.origin_id;
 
             for result in results {
+                // Drop rows with an unknown tx_id
+                if has_unknown_tx(&result, config.m_type, &config.worker_map) {
+                    continue;
+                }
                 let row = match result.reply_data {
                     Some(data) => match data {
                         ReplyData::Measurement(reply) => match config.m_type {
@@ -201,6 +205,28 @@ pub fn write_results_csv(mut rx: UnboundedReceiver<ReplyBatch>, config: WriteCon
         rx.close();
         dual_wtr.flush().expect("Failed to flush file");
     });
+}
+
+/// Whether a reply carries a transmitting worker ID that matches no known worker.
+/// Only applies to measurement types that record the transmitting worker.
+///
+/// # Arguments
+/// * `reply` - The reply to check
+/// * `m_type` - Measurement type performed
+/// * `worker_map` - Map of known worker IDs to hostnames
+pub(crate) fn has_unknown_tx(
+    reply: &Reply,
+    m_type: MeasurementType,
+    worker_map: &BiHashMap<u32, String>,
+) -> bool {
+    match &reply.reply_data {
+        Some(ReplyData::Measurement(m)) => {
+            matches!(m_type, MeasurementType::Laces | MeasurementType::Feed)
+                && !worker_map.contains_left(&m.tx_id)
+        }
+        Some(ReplyData::Trace(t)) => !worker_map.contains_left(&t.tx_id),
+        _ => false,
+    }
 }
 
 /// Creates the appropriate CSV header for the results file (based on the measurement type)
@@ -262,4 +288,77 @@ pub fn get_header(
 /// Format RTT (milliseconds) as a three-decimal string (for .csv compression)
 pub fn format_rtt(rtt: f32) -> String {
     format!("{rtt:.3}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::custom_module::manycastr::{MeasurementReply, TraceReply};
+
+    fn workers() -> BiHashMap<u32, String> {
+        let mut map = BiHashMap::new();
+        map.insert(1, "worker-1".to_string());
+        map
+    }
+
+    fn measurement(tx_id: u32) -> Reply {
+        Reply {
+            reply_data: Some(ReplyData::Measurement(MeasurementReply {
+                tx_id,
+                ..Default::default()
+            })),
+        }
+    }
+
+    #[test]
+    fn unknown_tx_is_filtered_for_tx_measurements() {
+        let map = workers();
+        assert!(!has_unknown_tx(
+            &measurement(1),
+            MeasurementType::Laces,
+            &map
+        ));
+        assert!(has_unknown_tx(
+            &measurement(7),
+            MeasurementType::Laces,
+            &map
+        ));
+        assert!(has_unknown_tx(&measurement(7), MeasurementType::Feed, &map));
+    }
+
+    #[test]
+    fn unknown_tx_is_ignored_without_tx_column() {
+        let map = workers();
+        assert!(!has_unknown_tx(
+            &measurement(7),
+            MeasurementType::Catchment,
+            &map
+        ));
+        assert!(!has_unknown_tx(
+            &measurement(7),
+            MeasurementType::AnycastLatency,
+            &map
+        ));
+    }
+
+    #[test]
+    fn unknown_tx_is_filtered_for_trace_replies() {
+        let map = workers();
+        let trace = |tx_id| Reply {
+            reply_data: Some(ReplyData::Trace(TraceReply {
+                tx_id,
+                ..Default::default()
+            })),
+        };
+        assert!(!has_unknown_tx(
+            &trace(1),
+            MeasurementType::AnycastTraceroute,
+            &map
+        ));
+        assert!(has_unknown_tx(
+            &trace(7),
+            MeasurementType::AnycastTraceroute,
+            &map
+        ));
+    }
 }
