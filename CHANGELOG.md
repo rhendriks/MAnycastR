@@ -2,6 +2,13 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.3.2] - 2026-09-25
+Filtering replies from unknown workers.
+
+### Fixed
+- **Null `tx` values dropped** - and no longer written.
+- **IPv6 hop limits on macOS** - replies from macOS workers no longer report a TTL of 0.
+
 ## [2.3.1] - 2026-08-13
 TLS trust store and restructuring README.
 

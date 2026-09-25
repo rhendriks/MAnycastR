@@ -1,4 +1,4 @@
-use crate::cli::writer::{MetadataArgs, WriteConfig};
+use crate::cli::writer::{MetadataArgs, WriteConfig, has_unknown_tx};
 use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
@@ -56,6 +56,10 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
             let rx_id = task_result.rx_id;
             let origin_id = task_result.origin_id;
             for reply in task_result.results {
+                // Drop rows with an unknown tx_id
+                if has_unknown_tx(&reply, config.m_type, &config.worker_map) {
+                    continue;
+                }
                 let parquet_row = match reply.reply_data {
                     Some(ReplyData::Measurement(m_reply)) => measurement_reply_to_parquet_row(
                         m_reply,

@@ -251,41 +251,52 @@ fn get_packet<'a>(
     }
 }
 
+/// Offset of a control message's payload from the start of its `cmsghdr` (platform-specific).
+const CMSG_DATA_OFFSET: usize = unsafe { libc::CMSG_LEN(0) } as usize;
+
 /// Find the payload of the first control message matching (level, type) in an
-/// ancillary data buffer. Returns the buffer remainder starting at the payload.
-/// cmsghdr on 64-bit: [0..8] len, [8..12] level, [12..16] type, [16..] payload
-fn find_cmsg(data: &[u8], level: i32, type_: i32) -> Option<&[u8]> {
+/// ancillary data buffer. The header layout and alignment come from the platform's
+/// `cmsghdr` and `CMSG_*` definitions.
+fn find_cmsg(data: &[u8], level: libc::c_int, type_: libc::c_int) -> Option<&[u8]> {
     let mut pos = 0;
-    while pos + 16 <= data.len() {
-        let cmsg_len = usize::from_ne_bytes(data[pos..pos + 8].try_into().ok()?);
-        let cmsg_level = i32::from_ne_bytes(data[pos + 8..pos + 12].try_into().ok()?);
-        let cmsg_type = i32::from_ne_bytes(data[pos + 12..pos + 16].try_into().ok()?);
-
-        if cmsg_level == level && cmsg_type == type_ {
-            return Some(&data[pos + 16..]);
+    while pos + CMSG_DATA_OFFSET <= data.len() {
+        let hdr = read_ne::<libc::cmsghdr>(&data[pos..])?;
+        let cmsg_len = hdr.cmsg_len as usize;
+        if cmsg_len < CMSG_DATA_OFFSET || pos + cmsg_len > data.len() {
+            break; // Malformed control message
         }
 
-        if cmsg_len == 0 {
-            break;
+        if hdr.cmsg_level == level && hdr.cmsg_type == type_ {
+            return Some(&data[pos + CMSG_DATA_OFFSET..pos + cmsg_len]);
         }
-        pos += (cmsg_len + 7) & !7; // Align to 8-byte boundary
+
+        // TODO unsafe
+        pos += unsafe { libc::CMSG_SPACE((cmsg_len - CMSG_DATA_OFFSET) as libc::c_uint) } as usize;
     }
     None
+}
+
+/// Read a plain C struct or integer (`cmsghdr`, `timeval`, `c_int`).
+fn read_ne<T: Copy>(bytes: &[u8]) -> Option<T> {
+    if bytes.len() < size_of::<T>() {
+        return None;
+    }
+    // TODO unsafe
+    Some(unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<T>()) })
 }
 
 /// Retrieve kernel-provided receive timestamp (SO_TIMESTAMP) from ancillary data.
 /// Returns microseconds since epoch.
 fn parse_kernel_timestamp(data: &[u8]) -> Option<u64> {
     let payload = find_cmsg(data, libc::SOL_SOCKET, libc::SCM_TIMESTAMP)?;
-    let secs = i64::from_ne_bytes(payload.get(..8)?.try_into().ok()?);
-    let usecs = i64::from_ne_bytes(payload.get(8..16)?.try_into().ok()?);
-    Some(secs as u64 * 1_000_000 + usecs as u64)
+    let tv = read_ne::<libc::timeval>(payload)?;
+    Some(tv.tv_sec as u64 * 1_000_000 + tv.tv_usec as u64)
 }
 
-/// Retrieve IPv6 hop limit from the ancillary_data buffer bytes
+/// Retrieve IPv6 hop limit from ancillary data.
 fn parse_hop_limit(data: &[u8]) -> Option<u32> {
-    // IPv6 Hop Limit: Level 41 (IPPROTO_IPV6), Type 52 (IPV6_HOPLIMIT)
-    Some(*find_cmsg(data, 41, 52)?.first()? as u32)
+    let payload = find_cmsg(data, libc::IPPROTO_IPV6, libc::IPV6_HOPLIMIT)?;
+    Some(read_ne::<libc::c_int>(payload)? as u32)
 }
 
 /// Forward results to the Worker handler

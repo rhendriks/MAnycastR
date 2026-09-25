@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use socket2::SockFilter;
 use socket2::Socket;
 
 // cBPF opcode bits (linux/filter.h, linux/bpf_common.h)
@@ -26,37 +28,8 @@ const DROP: u32 = 0; // return value: drop the packet
 
 #[cfg(target_os = "linux")]
 #[inline]
-fn sf(code: u16, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
-    libc::sock_filter { code, jt, jf, k }
-}
-
-/// Attach a cBPF program to a socket via `SO_ATTACH_FILTER`.
-/// The kernel copies the program during the call, so `prog` need only remain
-/// valid for the duration of this function.
-#[cfg(target_os = "linux")]
-fn attach(socket: &Socket, prog: &mut [libc::sock_filter]) -> std::io::Result<()> {
-    use std::os::fd::AsRawFd;
-
-    let fprog = libc::sock_fprog {
-        len: prog.len() as u16,
-        filter: prog.as_mut_ptr(),
-    };
-
-    let ret = unsafe {
-        // TODO unsafe
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_ATTACH_FILTER,
-            &fprog as *const _ as *const libc::c_void,
-            std::mem::size_of::<libc::sock_fprog>() as libc::socklen_t,
-        )
-    };
-
-    if ret != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
+const fn sf(code: u16, jt: u8, jf: u8, k: u32) -> SockFilter {
+    SockFilter::new(code, jt, jf, k)
 }
 
 /// Attach a filter to a raw ICMP socket so the kernel only delivers ICMP echo
@@ -78,7 +51,7 @@ pub(crate) fn attach_icmp_filter(
     const ICMP_ECHO_REPLY_V6: u32 = 129;
     let id = icmp_id as u32;
 
-    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+    let prog: Vec<SockFilter> = if !is_ipv6 {
         vec![
             sf(LDX | B | MSH, 0, 0, 0),                  // X = IP header length
             sf(LD | B | IND, 0, 0, 0),                   // A = ICMP type
@@ -99,7 +72,7 @@ pub(crate) fn attach_icmp_filter(
         ]
     };
 
-    attach(socket, &mut prog)
+    socket.attach_filter(&prog)
 }
 
 /// Attach a filter to a raw ICMP socket for traceroute measurements: deliver
@@ -121,7 +94,7 @@ pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::i
     const ICMP_DEST_UNREACHABLE_V6: u32 = 1;
     const ICMP_TIME_EXCEEDED_V6: u32 = 3;
 
-    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+    let prog: Vec<SockFilter> = if !is_ipv6 {
         vec![
             sf(LDX | B | MSH, 0, 0, 0),                        // X = IP header length
             sf(LD | B | IND, 0, 0, 0),                         // A = ICMP type
@@ -142,14 +115,11 @@ pub(crate) fn attach_traceroute_filter(socket: &Socket, is_ipv6: bool) -> std::i
         ]
     };
 
-    attach(socket, &mut prog)
+    socket.attach_filter(&prog)
 }
 
 /// Attach a filter to a raw TCP socket so the kernel only delivers TCP segments
-/// with the RST flag set whose destination port matches `sport` (the worker's
-/// source port), dropping all other TCP traffic — which on a raw TCP socket
-/// includes a copy of every TCP segment on the host (SSH, the gRPC control
-/// connection to the orchestrator, etc.).
+/// with the RST flag set whose destination port matches `sport`, dropping all other TCP traffic.
 ///
 /// # Arguments
 /// * `socket` - the raw TCP socket to attach the filter to
@@ -162,7 +132,7 @@ pub(crate) fn attach_tcp_filter(socket: &Socket, sport: u16, is_ipv6: bool) -> s
     const TCP_RST: u32 = 0x04; // RST flag in the TCP flags byte (offset 13)
     let dport = sport as u32;
 
-    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+    let prog: Vec<SockFilter> = if !is_ipv6 {
         vec![
             sf(LDX | B | MSH, 0, 0, 0),       // X = IP header length
             sf(LD | H | IND, 0, 0, 2),        // A = TCP destination port
@@ -185,12 +155,12 @@ pub(crate) fn attach_tcp_filter(socket: &Socket, sport: u16, is_ipv6: bool) -> s
         ]
     };
 
-    attach(socket, &mut prog)
+    socket.attach_filter(&prog)
 }
 
 /// Attach a filter to a raw UDP socket so the kernel only delivers DNS replies
 /// destined to `sport` whose DNS transaction ID carries our 6-bit identifier,
-/// dropping all other UDP traffic (e.g. the host's own DNS resolution).
+/// dropping all other UDP traffic.
 ///
 /// # Arguments
 /// * `socket` - the raw UDP socket to attach the filter to
@@ -209,7 +179,7 @@ pub(crate) fn attach_dns_filter(
     let dport = sport as u32;
     let id = dns_identifier as u32;
 
-    let mut prog: Vec<libc::sock_filter> = if !is_ipv6 {
+    let prog: Vec<SockFilter> = if !is_ipv6 {
         vec![
             sf(LDX | B | MSH, 0, 0, 0),     // X = IP header length
             sf(LD | H | IND, 0, 0, 2),      // A = UDP destination port
@@ -232,7 +202,7 @@ pub(crate) fn attach_dns_filter(
         ]
     };
 
-    attach(socket, &mut prog)
+    socket.attach_filter(&prog)
 }
 
 // Non-Linux stubs (cBPF socket filters are Linux-specific)
