@@ -133,7 +133,7 @@ fn make_trace_reply(
     tx_time: u64,
     tx_id: u32,
     trace_dst: Address,
-    hop_count: u32,
+    probe_ttl: u32,
 ) -> Reply {
     Reply {
         reply_data: Some(ReplyData::Trace(TraceReply {
@@ -142,7 +142,7 @@ fn make_trace_reply(
             rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Trace14),
             tx_id,
             trace_dst: Some(trace_dst),
-            hop_count,
+            probe_ttl,
         })),
     }
 }

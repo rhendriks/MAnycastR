@@ -114,7 +114,7 @@ fn parse_icmp_inner(
                 rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 trace_dst: Some(src),
-                hop_count: trace_ttl as u32,
+                probe_ttl: trace_ttl as u32,
             })),
         })
     } else {
