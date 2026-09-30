@@ -2,6 +2,15 @@
 
 All notable changes to MAnycastR are documented in this file.
 
+## [2.4.0] - 2026-09-30
+Smaller Parquet output.
+
+### Changed
+- **Parquet `rtt` is an integer** - rounded to whole milliseconds and stored as `INT32` with delta encoding.
+- **Parquet Zstd level raised from 3 to 9** - `addr` compresses to roughly half its size.
+- **Traceroute `hop_count` column renamed to `probe_ttl`** (CSV and Parquet) - matching feed traceroutes.
+- **Parquet `format_version` bumped to `2`**.
+
 ## [2.3.2] - 2026-09-25
 Filtering replies from unknown workers.
 

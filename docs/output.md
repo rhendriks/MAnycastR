@@ -16,10 +16,10 @@ Example: `anycast-latency-icmp-v4-1753363200.csv.gz`.
 | `rx`         | `String`           | `STRING`                   | Hostname of the receiving Worker (`*`/null for unresponsive trace hops)            | All                        |
 | `addr`       | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (`*` if no reply)                | All                        |
 | `ttl`        | `String (integer)` | `UINT8`                    | TTL of the reply                                                                   | All                        |
-| `rtt`        | `String (float)`   | `FLOAT`                    | Round-trip time in ms; for LACeS the signed `rx_time - tx_time` offset (see below) | Latency, Traceroute, LACeS |
+| `rtt`        | `String (float)`   | `INT32`                    | Round-trip time in ms; for LACeS the signed `rx_time - tx_time` offset (see below) | Latency, Traceroute, LACeS |
 | `tx`         | `String`           | `STRING`                   | Hostname of the sending Worker                                                     | LACeS, Traceroute          |
 | `trace_dst`  | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address                                                  | Traceroute                 |
-| `hop_count`  | `String (integer)` | `UINT8`                    | TTL used to trigger this hop reply                                                 | Traceroute                 |
+| `probe_ttl`  | `String (integer)` | `UINT8`                    | TTL the probe that triggered this hop reply was sent with                          | Traceroute                 |
 | `chaos_data` | `String`           | `STRING`                   | DNS TXT CHAOS record value                                                         | CHAOS                      |
 | `origin_id`  | `String (integer)` | `UINT8`                    | Origin ID (multi-origin only)                                                      | Multi-origin               |
 
@@ -28,7 +28,7 @@ Example: `anycast-latency-icmp-v4-1753363200.csv.gz`.
 | Catchment         | `rx`, `addr`, `ttl` [, `chaos_data`] [, `origin_id`]              |
 | Latency           | `rx`, `addr`, `ttl`, `rtt` [, `origin_id`]                        |
 | LACeS             | `rx`, `addr`, `ttl`, `tx`, `rtt` [, `chaos_data`] [, `origin_id`] |
-| Traceroute        | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `hop_count`, `rtt`        |
+| Traceroute        | `rx`, `addr`, `ttl`, `tx`, `trace_dst`, `probe_ttl`, `rtt`        |
 
 In CSV the columns present depend on the measurement type;
 in Parquet the schema is fixed per measurement type,
@@ -56,8 +56,9 @@ SELECT * FROM read_csv('results.csv.gz', comment='#');
 
 ## Parquet (`--parquet`)
 
-Parquet with Zstd compression;
+Parquet with Zstd (level 9) compression;
 rows are sorted by `addr` within each row group (1M rows) for better compression and predicate pushdown.
+`rtt` is rounded to whole milliseconds and stored with `DELTA_BINARY_PACKED` encoding.
 
 The `addr` and `trace_dst` columns store IP addresses as 16-byte fixed-length binary in IPv4-mapped-IPv6 format ([RFC 4291 §2.5.5.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.5.5.2)):
 IPv4 `192.0.2.1` is stored as `::ffff:192.0.2.1`, IPv6 addresses as-is, big-endian.
@@ -81,7 +82,7 @@ Measurement metadata is stored as parquet metadata.
 
 | Key                                                    | Description                                                                                                                                            |
 |--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `format_version`                                       | Version of the Parquet output format (currently `1`; bumped on incompatible changes)                                                                   |
+| `format_version`                                       | Version of the Parquet output format                                                                                                                   |
 | `tool_version`                                         | MAnycastR version that produced the file                                                                                                               |
 | `measurement_type`                                     | Measurement type performed                                                                                                                             |
 | `start_time` / `end_time`                              | Measurement start and end (RFC 3339, UTC)                                                                                                              |

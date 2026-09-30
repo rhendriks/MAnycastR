@@ -244,10 +244,9 @@ pub fn get_header(
 ) -> Vec<&'static str> {
     // Determine headers based on measurement type
     let mut header = match m_type {
-        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
-            vec!["rx", "addr", "ttl", "tx", "trace_dst", "hop_count", "rtt"]
-        }
-        MeasurementType::FeedTrace => {
+        MeasurementType::AnycastTraceroute
+        | MeasurementType::Tracemap
+        | MeasurementType::FeedTrace => {
             vec!["rx", "addr", "ttl", "tx", "trace_dst", "probe_ttl", "rtt"]
         }
         MeasurementType::AnycastLatency => {

@@ -146,7 +146,7 @@ pub struct TraceDnsId<'a> {
     pub probe_id: u32,
     /// Full microsecond send time (for the destination-hop RTT)
     pub tx_micros: u64,
-    /// Time-to-live / hop limit of the probe (recovered as hop_count)
+    /// Time-to-live / hop limit of the probe
     pub ttl: u8,
     /// The DNS name to query (e.g. `example.org`)
     pub qname: &'a str,

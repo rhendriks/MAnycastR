@@ -99,7 +99,7 @@ pub fn parse_dns(packet_bytes: &[u8], meta: ReplyMeta, ctx: &DnsContext) -> Opti
                 rtt: super::rtt_ms(rx_time, tx_time, super::TxEncoding::Micros),
                 tx_id,
                 trace_dst: Some(src),
-                hop_count: hop_ttl.unwrap_or(0) as u32,
+                probe_ttl: hop_ttl.unwrap_or(0) as u32,
             })),
         })
     } else {

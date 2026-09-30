@@ -223,7 +223,7 @@ pub fn check_trace_timeouts(measurement: MeasurementHandle, cli_sender: CliHandl
                             TraceReply {
                                 tx_id: session.worker_id,
                                 trace_dst: session.target,
-                                hop_count: timed_out_ttl as u32,
+                                probe_ttl: timed_out_ttl as u32,
                                 ..Default::default() // unresponsive -> None fields
                             },
                         ));

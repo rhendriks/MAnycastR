@@ -64,7 +64,7 @@ pub fn parse_tcp(
                 rtt: super::rtt_ms(rx_time, tag.ts14 as u64, super::TxEncoding::Trace14),
                 tx_id: tag.worker_id,
                 trace_dst: Some(src),
-                hop_count: tag.ttl as u32,
+                probe_ttl: tag.ttl as u32,
             })),
         })
     } else {

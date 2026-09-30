@@ -174,7 +174,7 @@ pub fn trace_replies_handler(
                 probing_ttl,
                 window_left,
             } => {
-                let answered = trace_reply.hop_count as u8;
+                let answered = trace_reply.probe_ttl as u8;
                 if answered < *lo {
                     // Duplicate reply for an already-measured TTL
                     continue;

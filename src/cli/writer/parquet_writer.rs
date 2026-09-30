@@ -3,17 +3,20 @@ use crate::custom_module::manycastr::reply::ReplyData;
 use crate::custom_module::manycastr::{MeasurementReply, MeasurementType, ReplyBatch, TraceReply};
 use crate::{ALL_WORKERS, SINGLE_ORIGIN};
 use bimap::BiHashMap;
-use parquet::basic::{Compression as ParquetCompression, LogicalType, Repetition};
-use parquet::data_type::{ByteArray, FixedLenByteArray, FloatType, Int32Type};
+use parquet::basic::{
+    Compression as ParquetCompression, Encoding, LogicalType, Repetition, ZstdLevel,
+};
+use parquet::data_type::{ByteArray, FixedLenByteArray, Int32Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
-use parquet::schema::types::{Type as SchemaType, TypePtr};
+use parquet::schema::types::{ColumnPath, Type as SchemaType, TypePtr};
 use std::fs::File;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const ROW_BUFFER_CAPACITY: usize = 1_000_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
+const ZSTD_LEVEL: i32 = 9;
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -36,9 +39,14 @@ pub fn write_results_parquet(mut rx: UnboundedReceiver<ReplyBatch>, config: Writ
 
     let props = Arc::new(
         WriterProperties::builder()
-            .set_compression(ParquetCompression::ZSTD(Default::default()))
+            .set_compression(ParquetCompression::ZSTD(
+                ZstdLevel::try_new(ZSTD_LEVEL).expect("Invalid zstd level"),
+            ))
             .set_key_value_metadata(Some(key_value_metadata)) // Use the clean metadata
             .set_max_row_group_row_count(Some(MAX_ROW_GROUP_ROW_COUNT))
+            // Integer RTTs compress better as deltas
+            .set_column_dictionary_enabled(ColumnPath::from("rtt"), false)
+            .set_column_encoding(ColumnPath::from("rtt"), Encoding::DELTA_BINARY_PACKED)
             .build(),
     );
 
@@ -110,8 +118,8 @@ pub fn get_parquet_metadata(
 ) -> Vec<(String, String)> {
     let mut md = Vec::new();
 
-    // Version of the Parquet output format (bump when making incompatible changes)
-    md.push(("format_version".to_string(), "1".to_string()));
+    // Version of the Parquet output format
+    md.push(("format_version".to_string(), "2".to_string()));
     md.push((
         "tool_version".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
@@ -208,16 +216,16 @@ pub struct ParquetDataRow {
     ttl: Option<u8>,
     /// Hostname of the probe sender.
     tx: Option<String>,
-    /// Round-trip time in milliseconds, computed on the worker (a signed offset in LACeS mode).
-    rtt: Option<f32>,
+    /// Round-trip time in whole milliseconds, computed on the worker (a signed offset in LACeS mode).
+    rtt: Option<i32>,
     /// DNS TXT CHAOS record value.
     chaos_data: Option<String>,
     /// Origin ID for multi-origin measurements (source address, ports).
     origin_id: Option<u8>,
     /// Traceroute: destination address of the trace as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     trace_dst: Option<[u8; 16]>,
-    /// Traceroute: TTL value used to trigger this reply.
-    hop_count: Option<u8>,
+    /// Traceroute: TTL the probe that triggered this reply was sent with.
+    probe_ttl: Option<u8>,
     /// Feed: session of the probe that triggered this reply (0 = no session).
     session: Option<u32>,
 }
@@ -241,7 +249,7 @@ fn measurement_reply_to_parquet_row(
 
     match m_type {
         MeasurementType::AnycastLatency => {
-            row.rtt = Some(result.rtt);
+            row.rtt = Some(rtt_to_ms(result.rtt));
         }
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
@@ -255,7 +263,7 @@ fn measurement_reply_to_parquet_row(
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if row.chaos_data.is_none() {
-                row.rtt = Some(result.rtt);
+                row.rtt = Some(rtt_to_ms(result.rtt));
             }
             // Feed replies are attributed to the session of the target that triggered them
             if m_type == MeasurementType::Feed {
@@ -265,6 +273,11 @@ fn measurement_reply_to_parquet_row(
     }
 
     row
+}
+
+/// Rounds an RTT to whole milliseconds (finer granularity is below measurement noise).
+fn rtt_to_ms(rtt: f32) -> i32 {
+    rtt.round() as i32
 }
 
 /// Converts a TraceReply into a ParquetDataRow for writing to a Parquet file.
@@ -278,7 +291,7 @@ fn trace_reply_to_parquet_row(
     let (rx, rtt) = if reply.hop_addr.is_some() {
         (
             worker_map.get_by_left(&rx_worker_id).cloned(),
-            Some(reply.rtt),
+            Some(rtt_to_ms(reply.rtt)),
         )
     } else {
         (None, None)
@@ -291,7 +304,7 @@ fn trace_reply_to_parquet_row(
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
-        hop_count: Some(reply.hop_count as u8),
+        probe_ttl: Some(reply.probe_ttl as u8),
         origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
         ..Default::default()
     }
@@ -301,20 +314,9 @@ fn trace_reply_to_parquet_row(
 /// The `session` column is only included for feed measurements with sessions enabled.
 pub fn get_parquet_header(m_type: MeasurementType, is_sessions: bool) -> Vec<&'static str> {
     match m_type {
-        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
-            vec![
-                "rx",
-                "addr",
-                "ttl",
-                "tx",
-                "trace_dst",
-                "hop_count",
-                "rtt",
-                "chaos_data",
-                "origin_id",
-            ]
-        }
-        MeasurementType::FeedTrace => {
+        MeasurementType::AnycastTraceroute
+        | MeasurementType::Tracemap
+        | MeasurementType::FeedTrace => {
             vec![
                 "rx",
                 "addr",
@@ -368,7 +370,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
+            "ttl" | "origin_id" | "probe_ttl" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::integer(8, false)))
@@ -380,8 +382,9 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                 .with_logical_type(Some(LogicalType::integer(16, false)))
                 .build()
                 .unwrap(),
-            "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::FLOAT)
+            "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                 .with_repetition(Repetition::OPTIONAL)
+                .with_logical_type(Some(LogicalType::integer(32, true)))
                 .build()
                 .unwrap(),
             _ => panic!("Unknown header column: {header}"),
@@ -456,7 +459,7 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
+                "ttl" | "origin_id" | "probe_ttl" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
@@ -464,7 +467,7 @@ pub fn write_batch_to_parquet(
                             let opt_val: Option<u8> = match header {
                                 "ttl" => row.ttl,
                                 "origin_id" => row.origin_id,
-                                "hop_count" | "probe_ttl" => row.hop_count, // TODO use single name for consistency
+                                "probe_ttl" => row.probe_ttl,
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
@@ -513,7 +516,7 @@ pub fn write_batch_to_parquet(
                             }
                         })
                         .collect();
-                    col_writer.typed::<FloatType>().write_batch(
+                    col_writer.typed::<Int32Type>().write_batch(
                         &values,
                         Some(&def_levels),
                         None,

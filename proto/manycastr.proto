@@ -249,5 +249,5 @@ message TraceReply {
   float rtt = 3; // round-trip time in milliseconds
   uint32 tx_id = 4;
   Address trace_dst = 5;
-  uint32 hop_count = 6; // TTL used to trigger this reply
+  uint32 probe_ttl = 6; // TTL the probe that triggered this reply was sent with
 }
