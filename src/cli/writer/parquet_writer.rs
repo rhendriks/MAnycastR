@@ -17,6 +17,10 @@ use tokio::sync::mpsc::UnboundedReceiver;
 const ROW_BUFFER_CAPACITY: usize = 1_000_000; // Number of rows to buffer before writing (impacts RAM usage)
 const MAX_ROW_GROUP_ROW_COUNT: usize = 1_000_000;
 const ZSTD_LEVEL: i32 = 9;
+/// Decimal places kept for `rtt` for better compression
+const RTT_SCALE: i32 = 1;
+/// Digits of the `rtt` DECIMAL (the most an INT32 can hold).
+const RTT_PRECISION: i32 = 9;
 
 /// Write results to a Parquet file as they are received from the channel.
 /// This function processes the results in batches to optimize writing performance.
@@ -216,7 +220,7 @@ pub struct ParquetDataRow {
     ttl: Option<u8>,
     /// Hostname of the probe sender.
     tx: Option<String>,
-    /// Round-trip time in whole milliseconds, computed on the worker (a signed offset in LACeS mode).
+    /// Round-trip time in ms, computed on the worker (a signed offset in LACeS mode).
     rtt: Option<i32>,
     /// DNS TXT CHAOS record value.
     chaos_data: Option<String>,
@@ -249,7 +253,7 @@ fn measurement_reply_to_parquet_row(
 
     match m_type {
         MeasurementType::AnycastLatency => {
-            row.rtt = Some(rtt_to_ms(result.rtt));
+            row.rtt = Some(rtt_to_decimal(result.rtt));
         }
         MeasurementType::Catchment => {
             // Catchment mapping is minimal (rx, addr, ttl)
@@ -263,7 +267,7 @@ fn measurement_reply_to_parquet_row(
             row.tx = worker_map.get_by_left(&result.tx_id).cloned();
             // CHAOS replies carry no transmit timestamp, so there is no RTT to report
             if row.chaos_data.is_none() {
-                row.rtt = Some(rtt_to_ms(result.rtt));
+                row.rtt = Some(rtt_to_decimal(result.rtt));
             }
             // Feed replies are attributed to the session of the target that triggered them
             if m_type == MeasurementType::Feed {
@@ -275,9 +279,9 @@ fn measurement_reply_to_parquet_row(
     row
 }
 
-/// Rounds an RTT to whole milliseconds (finer granularity is below measurement noise).
-fn rtt_to_ms(rtt: f32) -> i32 {
-    rtt.round() as i32
+/// Rounds an RTT (ms) to `RTT_SCALE` decimal places.
+fn rtt_to_decimal(rtt: f32) -> i32 {
+    (rtt * 10f32.powi(RTT_SCALE)).round() as i32
 }
 
 /// Converts a TraceReply into a ParquetDataRow for writing to a Parquet file.
@@ -291,7 +295,7 @@ fn trace_reply_to_parquet_row(
     let (rx, rtt) = if reply.hop_addr.is_some() {
         (
             worker_map.get_by_left(&rx_worker_id).cloned(),
-            Some(rtt_to_ms(reply.rtt)),
+            Some(rtt_to_decimal(reply.rtt)),
         )
     } else {
         (None, None)
@@ -382,9 +386,12 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
                 .with_logical_type(Some(LogicalType::integer(16, false)))
                 .build()
                 .unwrap(),
+            // Milliseconds as decimal: stored as an integer, read back as ms by readers
             "rtt" => SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                 .with_repetition(Repetition::OPTIONAL)
-                .with_logical_type(Some(LogicalType::integer(32, true)))
+                .with_logical_type(Some(LogicalType::decimal(RTT_SCALE, RTT_PRECISION)))
+                .with_precision(RTT_PRECISION)
+                .with_scale(RTT_SCALE)
                 .build()
                 .unwrap(),
             _ => panic!("Unknown header column: {header}"),

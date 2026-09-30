@@ -16,7 +16,7 @@ Example: `anycast-latency-icmp-v4-1753363200.csv.gz`.
 | `rx`         | `String`           | `STRING`                   | Hostname of the receiving Worker (`*`/null for unresponsive trace hops)            | All                        |
 | `addr`       | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Source IP of the reply, or traceroute hop address (`*` if no reply)                | All                        |
 | `ttl`        | `String (integer)` | `UINT8`                    | TTL of the reply                                                                   | All                        |
-| `rtt`        | `String (float)`   | `INT32`                    | Round-trip time in ms; for LACeS the signed `rx_time - tx_time` offset (see below) | Latency, Traceroute, LACeS |
+| `rtt`        | `String (float)`   | `DECIMAL(9,1)`             | Round-trip time in ms; for LACeS the signed `rx_time - tx_time` offset (see below) | Latency, Traceroute, LACeS |
 | `tx`         | `String`           | `STRING`                   | Hostname of the sending Worker                                                     | LACeS, Traceroute          |
 | `trace_dst`  | `String`           | `FIXED_LEN_BYTE_ARRAY(16)` | Traceroute destination IP address                                                  | Traceroute                 |
 | `probe_ttl`  | `String (integer)` | `UINT8`                    | TTL the probe that triggered this hop reply was sent with                          | Traceroute                 |
@@ -58,7 +58,8 @@ SELECT * FROM read_csv('results.csv.gz', comment='#');
 
 Parquet with Zstd (level 9) compression;
 rows are sorted by `addr` within each row group (1M rows) for better compression and predicate pushdown.
-`rtt` is rounded to whole milliseconds and stored with `DELTA_BINARY_PACKED` encoding.
+`rtt` is rounded to 0.1 ms and stored as `DECIMAL(9,1)` (an `INT32` with `DELTA_BINARY_PACKED` encoding).
+Readers decode it as milliseconds; pandas yields Python `Decimal` objects, so use `df["rtt"].astype(float)` for arithmetic.
 
 The `addr` and `trace_dst` columns store IP addresses as 16-byte fixed-length binary in IPv4-mapped-IPv6 format ([RFC 4291 §2.5.5.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.5.5.2)):
 IPv4 `192.0.2.1` is stored as `::ffff:192.0.2.1`, IPv6 addresses as-is, big-endian.
