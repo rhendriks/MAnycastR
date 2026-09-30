@@ -2,7 +2,7 @@
 
 All notable changes to MAnycastR are documented in this file.
 
-## [Unreleased]
+## [2.4.0] - 2026-09-30
 Smaller Parquet output.
 
 ### Changed
