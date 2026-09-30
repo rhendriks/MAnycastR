@@ -44,7 +44,7 @@ pub fn get_trace_row(
         reply.ttl.to_string(),
         tx_hostname,
         reply.trace_dst.unwrap().to_string(),
-        reply.hop_count.to_string(),
+        reply.probe_ttl.to_string(),
         rtt,
     ];
 
