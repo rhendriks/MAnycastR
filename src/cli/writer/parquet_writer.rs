@@ -224,8 +224,8 @@ pub struct ParquetDataRow {
     origin_id: Option<u8>,
     /// Traceroute: destination address of the trace as 16-byte IPv4-mapped-IPv6 (RFC 4291).
     trace_dst: Option<[u8; 16]>,
-    /// Traceroute: TTL value used to trigger this reply.
-    hop_count: Option<u8>,
+    /// Traceroute: TTL the probe that triggered this reply was sent with.
+    probe_ttl: Option<u8>,
     /// Feed: session of the probe that triggered this reply (0 = no session).
     session: Option<u32>,
 }
@@ -304,7 +304,7 @@ fn trace_reply_to_parquet_row(
         tx: worker_map.get_by_left(&reply.tx_id).cloned(),
         rtt,
         trace_dst: reply.trace_dst.map(|a| a.to_ipv6_mapped_bytes()),
-        hop_count: Some(reply.hop_count as u8),
+        probe_ttl: Some(reply.probe_ttl as u8),
         origin_id: (origin_id != SINGLE_ORIGIN).then_some(origin_id as u8),
         ..Default::default()
     }
@@ -314,20 +314,9 @@ fn trace_reply_to_parquet_row(
 /// The `session` column is only included for feed measurements with sessions enabled.
 pub fn get_parquet_header(m_type: MeasurementType, is_sessions: bool) -> Vec<&'static str> {
     match m_type {
-        MeasurementType::AnycastTraceroute | MeasurementType::Tracemap => {
-            vec![
-                "rx",
-                "addr",
-                "ttl",
-                "tx",
-                "trace_dst",
-                "hop_count",
-                "rtt",
-                "chaos_data",
-                "origin_id",
-            ]
-        }
-        MeasurementType::FeedTrace => {
+        MeasurementType::AnycastTraceroute
+        | MeasurementType::Tracemap
+        | MeasurementType::FeedTrace => {
             vec![
                 "rx",
                 "addr",
@@ -381,7 +370,7 @@ pub fn build_parquet_schema(headers: Vec<&str>) -> TypePtr {
             .with_length(16)
             .build()
             .unwrap(),
-            "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
+            "ttl" | "origin_id" | "probe_ttl" => {
                 SchemaType::primitive_type_builder(header, parquet::basic::Type::INT32)
                     .with_repetition(Repetition::OPTIONAL)
                     .with_logical_type(Some(LogicalType::integer(8, false)))
@@ -470,7 +459,7 @@ pub fn write_batch_to_parquet(
                         .typed::<parquet::data_type::FixedLenByteArrayType>()
                         .write_batch(&values, Some(&def_levels), None)?;
                 }
-                "ttl" | "origin_id" | "hop_count" | "probe_ttl" => {
+                "ttl" | "origin_id" | "probe_ttl" => {
                     let mut values = Vec::with_capacity(batch.len());
                     let def_levels: Vec<i16> = batch
                         .iter()
@@ -478,7 +467,7 @@ pub fn write_batch_to_parquet(
                             let opt_val: Option<u8> = match header {
                                 "ttl" => row.ttl,
                                 "origin_id" => row.origin_id,
-                                "hop_count" | "probe_ttl" => row.hop_count, // TODO use single name for consistency
+                                "probe_ttl" => row.probe_ttl,
                                 _ => None,
                             };
                             if let Some(val) = opt_val {
